@@ -4,7 +4,7 @@ use node_runtime::state_viewer::AccountViewCallResult;
 use node_runtime::test_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
 };
-use node_runtime::{callback_id_to_bytes, set};
+use storage::set;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
@@ -16,6 +16,7 @@ use primitives::transaction::{
 use primitives::types::AccountingInfo;
 use testlib::node::{Node, RuntimeNode, ShardClientNode};
 use testlib::user::User;
+use primitives::utils::key_for_callback;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -301,7 +302,7 @@ fn test_callback(node: RuntimeNode) {
     let callback_id = [0; 32].to_vec();
 
     let mut state_update = node.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-    set(&mut state_update, &callback_id_to_bytes(&callback_id.clone()), &callback);
+    set(&mut state_update, &key_for_callback(&callback_id), &callback);
     let (root, transaction) = state_update.finalize();
     {
         let mut client = node.client.write().expect(POISONED_LOCK_ERR);
@@ -327,7 +328,7 @@ fn test_callback(node: RuntimeNode) {
         .view_state(account_id)
         .unwrap()
         .values
-        .get(&callback_id_to_bytes(&callback_id))
+        .get(&key_for_callback(&callback_id))
         .and_then(|data| Decode::decode(&data).ok());
     assert!(callback.is_none());
     let new_root = node_user.get_state_root();
@@ -346,7 +347,7 @@ fn test_callback_failure(node: RuntimeNode) {
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
     let mut state_update = node.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-    set(&mut state_update, &callback_id_to_bytes(&callback_id.clone()), &callback);
+    set(&mut state_update, &key_for_callback(&callback_id.clone()), &callback);
     let (root, transaction) = state_update.finalize();
     {
         let mut client = node.client.write().expect(POISONED_LOCK_ERR);
@@ -372,7 +373,7 @@ fn test_callback_failure(node: RuntimeNode) {
         .view_state(account_id)
         .unwrap()
         .values
-        .get(&callback_id_to_bytes(&callback_id))
+        .get(&key_for_callback(&callback_id))
         .and_then(|data| Decode::decode(&data).ok());
     assert!(callback.is_none());
     let new_root = node_user.get_state_root();

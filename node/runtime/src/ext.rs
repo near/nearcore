@@ -11,7 +11,8 @@ use primitives::types::{
 use storage::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
-use super::{account_id_to_bytes, callback_id_to_bytes, create_nonce_with_nonce, set, COL_ACCOUNT};
+use storage::set;
+use primitives::utils::{key_for_callback, create_nonce_with_nonce, key_for_account};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
@@ -35,7 +36,7 @@ impl<'a> RuntimeExt<'a> {
         accounting_info: &AccountingInfo,
         transaction_hash: &'a CryptoHash,
     ) -> Self {
-        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
+        let mut prefix = key_for_account(account_id);
         prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         RuntimeExt {
             trie_update,
@@ -70,7 +71,7 @@ impl<'a> RuntimeExt<'a> {
     /// write callbacks to stateUpdate
     pub fn flush_callbacks(&mut self) {
         for (id, callback) in self.callbacks.drain() {
-            set(self.trie_update, &callback_id_to_bytes(&id), &callback);
+            set(self.trie_update, &key_for_callback(&id), &callback);
         }
     }
 }

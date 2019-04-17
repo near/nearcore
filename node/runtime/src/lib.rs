@@ -13,12 +13,10 @@ extern crate wasm;
 use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
 
-use serde::{de::DeserializeOwned, Serialize};
-
+use primitives::account::Account;
 use primitives::chain::ReceiptBlock;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{hash, CryptoHash};
-use primitives::serialize::{Decode, Encode};
 use primitives::transaction::{
     verify_transaction_signature, AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody, ReceiptTransaction, SignedTransaction,
@@ -26,63 +24,23 @@ use primitives::transaction::{
 };
 use primitives::types::{
     AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
-    MerkleHash, Nonce, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
+    MerkleHash, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
 };
-use primitives::utils::{account_to_shard_id, index_to_bytes, is_valid_account_id};
+use primitives::utils::{account_to_shard_id, is_valid_account_id, create_nonce_with_nonce,
+    key_for_account, key_for_code, key_for_callback, key_for_tx_stake};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
-use crate::tx_stakes::{get_tx_stake_key, TxStakeConfig, TxTotalStake};
-use storage::TrieUpdate;
+use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
+use storage::{TrieUpdate, set, get};
 
 mod ext;
 pub mod state_viewer;
 mod system;
 pub mod test_utils;
 mod tx_stakes;
-
-const COL_ACCOUNT: &[u8] = &[0];
-const COL_CALLBACK: &[u8] = &[1];
-const COL_CODE: &[u8] = &[2];
-const COL_TX_STAKE: &[u8] = &[3];
-const COL_TX_STAKE_SEPARATOR: &[u8] = &[4];
-
-/// Per account information stored in the state.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Account {
-    pub public_keys: Vec<PublicKey>,
-    pub nonce: Nonce,
-    // amount + staked is the total value of the account
-    pub amount: u64,
-    pub staked: u64,
-    pub code_hash: CryptoHash,
-}
-
-impl Account {
-    pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { public_keys, nonce: 0, amount, staked: 0, code_hash }
-    }
-}
-
-fn account_id_to_bytes(col: &[u8], account_key: &AccountId) -> Vec<u8> {
-    let mut key = col.to_vec();
-    key.append(&mut account_key.clone().into_bytes());
-    key
-}
-
-pub fn callback_id_to_bytes(id: &[u8]) -> Vec<u8> {
-    let mut key = COL_CALLBACK.to_vec();
-    key.extend_from_slice(id);
-    key
-}
-
-fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
-    let mut nonce: Vec<u8> = base.as_ref().to_owned();
-    nonce.append(&mut index_to_bytes(salt));
-    hash(&nonce)
-}
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -101,20 +59,6 @@ pub struct ApplyResult {
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
     pub largest_tx_nonce: HashMap<AccountId, u64>,
-}
-
-fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| Decode::decode(&data).ok())
-}
-
-pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
-    value
-        .encode()
-        .ok()
-        .map(|data| state_update.set(key, &storage::DBValue::from_slice(&data)))
-        .unwrap_or_else(|| {
-            debug!("set value failed");
-        })
 }
 
 #[derive(Clone, Copy, Default)]
@@ -141,7 +85,7 @@ impl Runtime {
         // Trying to use global quota
         acc_info_options.push(AccountingInfo { originator: originator.clone(), contract_id: None });
         for accounting_info in acc_info_options {
-            let key = get_tx_stake_key(&accounting_info.originator, &accounting_info.contract_id);
+            let key = key_for_tx_stake(&accounting_info.originator, &accounting_info.contract_id);
             let tx_total_stake: Option<TxTotalStake> = get(state_update, &key);
             if let Some(mut tx_total_stake) = tx_total_stake {
                 tx_total_stake.update(block_index, &config);
@@ -180,7 +124,7 @@ impl Runtime {
         };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
-            set(state_update, &account_id_to_bytes(COL_ACCOUNT, &transaction.originator), sender);
+            set(state_update, &key_for_account(&transaction.originator), sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.contract_id.clone(),
@@ -218,7 +162,7 @@ impl Runtime {
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let sender_account_id = transaction.body.get_originator();
         let sender: Option<Account> =
-            get(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id));
+            get(state_update, &key_for_account(&sender_account_id));
         match sender {
             Some(mut sender) => {
                 if transaction.body.get_nonce() <= sender.nonce {
@@ -234,7 +178,7 @@ impl Runtime {
                 // However, it is possible, although rare, that the key is swapped out before this
                 // transaction is applied. We do not treat this case specially now.
                 sender.nonce = transaction.body.get_nonce();
-                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_account_id), &sender);
+                set(state_update, &key_for_account(&sender_account_id), &sender);
                 state_update.commit();
 
                 if !verify_transaction_signature(&transaction, &sender.public_keys) {
@@ -395,7 +339,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
+        let code: Vec<u8> = get(state_update, &key_for_code(receiver_id))
             .ok_or_else(|| {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })?;
@@ -439,7 +383,7 @@ impl Runtime {
                 Ok(receipts)
             })
         };
-        set(state_update, &account_id_to_bytes(COL_ACCOUNT, &receiver_id), receiver);
+        set(state_update, &key_for_account(&receiver_id), receiver);
         result
     }
 
@@ -457,8 +401,8 @@ impl Runtime {
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
-            get(state_update, &callback_id_to_bytes(&callback_res.info.id));
-        let code: Vec<u8> = get(state_update, &account_id_to_bytes(COL_CODE, receiver_id))
+            get(state_update, &key_for_callback(&callback_res.info.id));
+        let code: Vec<u8> = get(state_update, &key_for_code(receiver_id))
             .ok_or_else(|| {
                 format!("account {} does not have contract code", receiver_id.clone())
             })?;
@@ -534,17 +478,17 @@ impl Runtime {
             if receipts.is_err() {
                 // On error, we rollback previous changes and then commit the deletion
                 state_update.rollback();
-                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
+                state_update.remove(&key_for_callback(&callback_res.info.id));
                 state_update.commit();
             } else {
-                state_update.remove(&callback_id_to_bytes(&callback_res.info.id));
-                set(state_update, &account_id_to_bytes(COL_ACCOUNT, &receiver_id), receiver);
+                state_update.remove(&key_for_callback(&callback_res.info.id));
+                set(state_update, &key_for_account(&receiver_id), receiver);
             }
         } else {
             // if we don't need to remove callback, since it is updated, we need
             // to update the storage.
             let callback = callback.expect("Cannot be none");
-            set(state_update, &callback_id_to_bytes(&callback_res.info.id), &callback);
+            set(state_update, &key_for_callback(&callback_res.info.id), &callback);
         }
         receipts
     }
@@ -558,7 +502,7 @@ impl Runtime {
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> =
-            get(state_update, &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver));
+            get(state_update, &key_for_account(&receipt.receiver));
         let mut amount = 0;
         let mut callback_info = None;
         let mut receiver_exists = true;
@@ -612,13 +556,13 @@ impl Runtime {
                         receiver.amount += amount;
                         set(
                             state_update,
-                            &account_id_to_bytes(COL_ACCOUNT, &receipt.receiver),
+                            &key_for_account(&receipt.receiver),
                             &receiver,
                         );
                         Ok(vec![])
                     }
                     ReceiptBody::ManaAccounting(mana_accounting) => {
-                        let key = get_tx_stake_key(
+                        let key = key_for_tx_stake(
                             &mana_accounting.accounting_info.originator,
                             &mana_accounting.accounting_info.contract_id,
                         );
@@ -860,7 +804,7 @@ impl Runtime {
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             set(
                 &mut state_update,
-                &account_id_to_bytes(COL_ACCOUNT, &account_id),
+                &key_for_account(&account_id),
                 &Account {
                     public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
                     amount: *balance,
@@ -872,18 +816,18 @@ impl Runtime {
             // Default code
             set(
                 &mut state_update,
-                &account_id_to_bytes(COL_CODE, &account_id),
+                &key_for_code(&account_id),
                 &wasm_binary.to_vec(),
             );
             // Default transaction stake
-            let key = get_tx_stake_key(&account_id, &None);
+            let key = key_for_tx_stake(&account_id, &None);
             let mut tx_total_stake = TxTotalStake::new(0);
             tx_total_stake.add_active_stake(*initial_tx_stake);
             set(&mut state_update, &key, &tx_total_stake);
             // TODO(#345): Add system TX stake
         });
         for (account_id, _, _, amount) in initial_authorities {
-            let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
+            let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&mut state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
@@ -934,9 +878,9 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
+        set(&mut state_update, &key_for_account(&account_id), &test_account);
         let get_res =
-            get(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
+            get(&mut state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 
@@ -947,12 +891,12 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id), &test_account);
+        set(&mut state_update, &key_for_account(&account_id), &test_account);
         let (new_root, transaction) = state_update.finalize();
         trie.apply_changes(transaction).unwrap();
         let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res =
-            get(&mut new_state_update, &account_id_to_bytes(COL_ACCOUNT, &account_id)).unwrap();
+            get(&mut new_state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 

@@ -11,6 +11,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
+pub mod account;
 pub mod beacon;
 pub mod block_traits;
 pub mod chain;

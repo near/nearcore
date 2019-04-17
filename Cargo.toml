@@ -54,6 +54,7 @@ alphanet = { path = "./node/alphanet" }
 keystore = { path = "./test-utils/keygen" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
+storage = { path = "./core/storage" }
 network = { path = "./node/network" }
 configs = { path = "./node/configs" }
 client = { path = "./node/client" }

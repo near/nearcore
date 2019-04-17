@@ -16,12 +16,13 @@ use primitives::transaction::{
 };
 use primitives::types::{AccountId, AccountingInfo, MerkleHash, Nonce};
 use storage::test_utils::create_trie;
-use storage::{Trie, TrieUpdate};
+use storage::{Trie, TrieUpdate, set};
 
 use crate::state_viewer::TrieViewer;
 
-use super::{callback_id_to_bytes, set, ApplyResult, ApplyState, Runtime};
+use super::{ApplyResult, ApplyState, Runtime};
 use configs::chain_spec::DefaultIdType;
+use primitives::utils::key_for_callback;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -346,7 +347,7 @@ impl User {
         );
         callback.results.resize(1, None);
         let mut state_update = TrieUpdate::new(self.trie.clone(), root);
-        set(&mut state_update, &callback_id_to_bytes(&id.clone()), &callback);
+        set(&mut state_update, &key_for_callback(&id), &callback);
         let (new_root, transaction) = state_update.finalize();
         self.trie.apply_changes(transaction).unwrap();
         let receipt = ReceiptTransaction::new(
