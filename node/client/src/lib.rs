@@ -25,7 +25,7 @@ use primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
 use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signer::{BLSSigner, EDSigner, AccountSigner};
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
 use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::ShardBlockExtraInfo;
@@ -136,7 +136,8 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
         let shard_storage = shard_storages.pop().unwrap();
 
         let chain_spec = &config.chain_spec;
-        let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
+        let shard_client =
+            ShardClient::new(signer.clone(), chain_spec, shard_storage, config.block_size_limit);
         info!(target: "client", "[{:?}] Genesis root: {:?}", config.account_id, shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_client = BeaconClient::new(genesis, &chain_spec, beacon_storage);
@@ -486,10 +487,13 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
         missing_payload_request: MissingPayloadRequest,
     ) -> Result<MissingPayloadResponse, String> {
         match &self.shard_client.pool {
-            Some(pool) => match pool.write().expect(POISONED_LOCK_ERR).fetch_payload(missing_payload_request) {
-                Some(response) => Ok(response),
-                None => Err("No payload available".to_string()),
-            },
+            Some(pool) => {
+                match pool.write().expect(POISONED_LOCK_ERR).fetch_payload(missing_payload_request)
+                {
+                    Some(response) => Ok(response),
+                    None => Err("No payload available".to_string()),
+                }
+            }
             None => Err("Not a validator node".to_string()),
         }
     }
@@ -503,11 +507,12 @@ mod tests {
     };
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
+    use primitives::crypto::signer::InMemorySigner;
     use primitives::serialize::Encode;
     use primitives::test_utils::TestSignedBlock;
-    use primitives::crypto::signer::InMemorySigner;
 
     use crate::test_utils::get_client_from_cfg;
+    use testlib::node::TEST_BLOCK_MAX_SIZE;
 
     use super::*;
 
@@ -546,7 +551,7 @@ mod tests {
             1,
             AuthorityRotation::ProofOfAuthority,
         );
-        let client = get_client_from_cfg(&chain_spec, signers[0].clone());
+        let client = get_client_from_cfg(&chain_spec, signers[0].clone(), TEST_BLOCK_MAX_SIZE);
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
@@ -575,7 +580,7 @@ mod tests {
             1,
             AuthorityRotation::ProofOfAuthority,
         );
-        let client = get_client_from_cfg(&chain_spec, signers[0].clone());
+        let client = get_client_from_cfg(&chain_spec, signers[0].clone(), TEST_BLOCK_MAX_SIZE);
 
         let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
@@ -623,8 +628,9 @@ mod tests {
         let alice_signer = signers[0].clone();
         let bob_signer = signers[1].clone();
         // Start both clients.
-        let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
-        let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
+        let alice_client =
+            get_client_from_cfg(&chain_spec, alice_signer.clone(), TEST_BLOCK_MAX_SIZE);
+        let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone(), TEST_BLOCK_MAX_SIZE);
         let (_, authorities) = alice_client.get_uid_to_authority_map(1);
         let signers = vec![alice_signer, bob_signer];
 

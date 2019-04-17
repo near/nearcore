@@ -9,6 +9,7 @@ use primitives::types::AccountId;
 const DEFAULT_BASE_PATH: &str = ".";
 const DEFAULT_LOG_LEVEL: &str = "Info";
 const MAX_NUM_BLOCKS_REQUEST: u64 = 100;
+const MAX_BLOCK_SIZE: u32 = 10000;
 
 #[derive(Clone)]
 pub struct ClientConfig {
@@ -18,6 +19,8 @@ pub struct ClientConfig {
     pub chain_spec: ChainSpec,
     /// Maximum number of blocks to be fetched in one request.
     pub block_fetch_limit: u64,
+    /// Maximum block size
+    pub block_size_limit: u32,
     pub log_level: log::LevelFilter,
 }
 
@@ -29,6 +32,7 @@ impl ClientConfig {
             public_key: None,
             chain_spec: ChainSpec::default_devnet(),
             block_fetch_limit: MAX_NUM_BLOCKS_REQUEST,
+            block_size_limit: MAX_BLOCK_SIZE,
             log_level: log::LevelFilter::Info,
         }
     }
@@ -68,6 +72,12 @@ pub fn get_args<'a, 'b>() -> Vec<Arg<'a, 'b>> {
             .help("Sets maximum number of blocks that should be fetched in one request.")
             .takes_value(true)
             .default_value("100"),
+        Arg::with_name("block_size_limit")
+            .long("block-size-limit")
+            .value_name("BLOCK_SIZE_LIMIT")
+            .help("Sets maximum block size")
+            .takes_value(true)
+            .default_value("10000"),
         Arg::with_name("log_level")
             .short("l")
             .long("log-level")
@@ -85,9 +95,19 @@ pub fn from_matches(matches: &ArgMatches, default_chain_spec: ChainSpec) -> Clie
     let public_key = matches.value_of("public_key").map(String::from);
     let block_fetch_limit =
         matches.value_of("block_fetch_limit").and_then(|s| s.parse::<u64>().ok()).unwrap();
+    let block_size_limit =
+        matches.value_of("block_size_limit").and_then(|s| s.parse::<u32>().ok()).unwrap();
     let log_level = matches.value_of("log_level").map(log::LevelFilter::from_str).unwrap().unwrap();
 
     let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
     let chain_spec = ChainSpec::from_file_or_default(&chain_spec_path, default_chain_spec);
-    ClientConfig { base_path, account_id, public_key, block_fetch_limit, chain_spec, log_level }
+    ClientConfig {
+        base_path,
+        account_id,
+        public_key,
+        block_fetch_limit,
+        block_size_limit,
+        chain_spec,
+        log_level,
+    }
 }
