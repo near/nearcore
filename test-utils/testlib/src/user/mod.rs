@@ -91,6 +91,11 @@ pub trait AsyncUser: Send + Sync {
         hash: &CryptoHash,
     ) -> Box<dyn Future<Item = TransactionResult, Error = String>>;
 
+    fn get_transaction_final_result(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<Future<Item = FinalTransactionResult, Error = String>>;
+
     fn get_state_root(&self) -> Box<dyn Future<Item = MerkleHash, Error = String>>;
 
     fn get_receipt_info(
