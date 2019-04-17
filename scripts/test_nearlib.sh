@@ -19,6 +19,7 @@ mkdir new_project
 cd new_project
 npm install git+https://git@github.com/nearprotocol/near-shell.git
 $(npm bin)/near new_project
+$(npm bin)/near create_account --account_id=near-hello-devnet
 npm install
 npm run build
 npm test
