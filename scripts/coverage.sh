@@ -13,6 +13,7 @@ rm -rf kcov-master
 
 # Remove binaries
 rm target/debug/nearcore
+rm -rf target/debug/deps/test*
 
 for file in target/debug/*
 do
