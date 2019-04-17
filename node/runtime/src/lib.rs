@@ -729,9 +729,7 @@ impl Runtime {
                 for receipt in receipts {
                     result.receipts.push(receipt.nonce);
                     let shard_id = receipt.shard_id();
-                    new_receipts.entry(shard_id)
-                        .or_insert( vec![])
-                        .push(receipt);
+                    new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
                 }
                 state_update.commit();
                 result.status = TransactionStatus::Completed;

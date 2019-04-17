@@ -74,7 +74,7 @@ pub fn encode_int(val: i32) -> [u8; 4] {
 }
 
 pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
-    let (receipt_merkle_root, path) = merklize(&vec![&receipts]);
+    let (receipt_merkle_root, path) = merklize(&[&receipts]);
     let header = SignedShardBlockHeader {
         body: ShardBlockHeader {
             parent_hash: CryptoHash::default(),

@@ -78,6 +78,7 @@ impl ChainSpec {
     /// Returns:
     /// * generated `ChainSpec`;
     /// * signers that can be used for assertions and mocking in tests.
+    #[allow(clippy::needless_range_loop)]
     pub fn testing_spec(
         id_type: DefaultIdType,
         num_accounts: usize,
