@@ -13,13 +13,20 @@ use primitives::types::{AccountId, BlockId};
 use primitives::utils::bs58_vec2str;
 
 use crate::types::*;
+use node_runtime::state_viewer::AccountViewCallResult;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+/// Adapter for querying runtime.
+pub trait RuntimeAdapter {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
+    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String>;
+}
+
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
 /// Given implementation only supports latest height, thus ignoring it.
-pub fn query_client<T>(
-    client: &Client<T>,
+pub fn query_client(
+    adapter: &RuntimeAdapter,
     path: &str,
     data: &[u8],
     _height: u64,
@@ -29,22 +36,15 @@ pub fn query_client<T>(
     if path_parts.len() == 0 {
         return Err("Path must contain at least single token".to_string());
     }
-    let mut state_update = client.shard_client.get_state_update();
     match path_parts[0] {
-        "account" => match client
-            .shard_client
-            .trie_viewer
-            .view_account(&mut state_update, &AccountId::from(path_parts[1]))
+        "account" => match adapter.view_account(&AccountId::from(path_parts[1]))
         {
             Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
             Err(e) => Err(e),
         },
         "call" => {
-            let best_index = client.shard_client.chain.best_index();
             let mut logs = vec![];
-            match client.shard_client.trie_viewer.call_function(
-                state_update,
-                best_index,
+            match adapter.call_function(
                 &AccountId::from(path_parts[1]),
                 path_parts[2],
                 &data,
@@ -60,6 +60,22 @@ pub fn query_client<T>(
 
 pub struct HttpApi<T> {
     client: Arc<Client<T>>,
+}
+
+impl<T> RuntimeAdapter for HttpApi<T> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+        let mut state_update = self.client.shard_client.get_state_update();
+        self.client
+            .shard_client
+            .trie_viewer
+            .view_account(&mut state_update, account_id)
+    }
+
+    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String> {
+        let best_index = self.client.shard_client.chain.best_index();
+        let state_update = self.client.shard_client.get_state_update();
+        self.client.shard_client.trie_viewer.call_function(state_update, best_index, contract_id, method_name, args, logs)
+    }
 }
 
 impl<T> HttpApi<T> {
@@ -113,7 +129,7 @@ impl<T> HttpApi<T> {
                     .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
                 let data = base64::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
 
-                let response = query_client(&*self.client, path, &data, 0, false)
+                let response = query_client(self, path, &data, 0, false)
                     .map_err(|e| RPCError::BadRequest(e))?;
                 Ok(json!({"response": {
                    "log": response.log,
@@ -149,7 +165,6 @@ impl<T> HttpApi<T> {
                     .try_into()
                     .map_err(|e| RPCError::BadRequest(format!("Bad hash: {}", e)))?;
                 let result = self.client.shard_client.get_transaction_final_result(&hash);
-                println!("Result: {:?}", result);
                 // TODO: include merkle proof if requested, tx bytes, index and block height in final result.
                 Ok(json!({
                     "proof": "null",
