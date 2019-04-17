@@ -986,6 +986,15 @@ impl FinalTransactionResult {
         }
         logs.join("\n")
     }
+
+    pub fn last_result(&self) -> Vec<u8> {
+        for log in self.logs.iter().rev() {
+            if let Some(r) = &log.result {
+                return r.clone();
+            }
+        }
+        vec![]
+    }
 }
 
 /// Represents address of certain transaction within block

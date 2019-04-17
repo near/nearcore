@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
-use primitives::hash::CryptoHash;
+use primitives::crypto::signature::PublicKey;
+use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use primitives::utils::is_valid_account_id;
 use storage::TrieUpdate;
@@ -11,7 +12,6 @@ use wasm::types::{ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::{account_id_to_bytes, get, Account, RuntimeExt, COL_ACCOUNT, COL_CODE};
-use primitives::crypto::signature::PublicKey;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -22,11 +22,12 @@ pub struct TrieViewer {}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
-    pub account: AccountId,
+    pub account_id: AccountId,
     pub nonce: Nonce,
     pub amount: Balance,
     pub stake: u64,
     pub public_keys: Vec<PublicKey>,
+    #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }
 
@@ -42,7 +43,7 @@ impl TrieViewer {
 
         match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
             Some(account) => Ok(AccountViewCallResult {
-                account: account_id.clone(),
+                account_id: account_id.clone(),
                 nonce: account.nonce,
                 amount: account.amount,
                 stake: account.staked,
@@ -170,10 +171,13 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::*;
     use kvdb::DBValue;
+
     use primitives::types::AccountId;
+
+    use crate::test_utils::*;
+
+    use super::*;
 
     fn alice_account() -> AccountId {
         "alice.near".to_string()

@@ -349,4 +349,18 @@ impl ABCIQueryResponse {
             codespace: "".to_string(),
         }
     }
+
+    pub fn result_err(key: &str, message: String, logs: Vec<String>) -> Self {
+        ABCIQueryResponse {
+            code: 1,
+            log: logs.join("\n"),
+            info: message,
+            index: -1,
+            key: key.as_bytes().to_vec(),
+            value: vec![],
+            proof: vec![],
+            height: 0,
+            codespace: "".to_string(),
+        }
+    }
 }

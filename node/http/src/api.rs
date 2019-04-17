@@ -47,11 +47,11 @@ pub fn query_client<T>(
                 best_index,
                 &AccountId::from(path_parts[1]),
                 path_parts[2],
-                data,
+                &data,
                 &mut logs,
             ) {
                 Ok(result) => Ok(ABCIQueryResponse::result(path, result, logs)),
-                Err(e) => Err(e),
+                Err(e) => Ok(ABCIQueryResponse::result_err(path, e, logs)),
             }
         }
         _ => Err(format!("Unknown path {}", path)),
@@ -108,7 +108,12 @@ impl<T> HttpApi<T> {
                 let path = params[0]
                     .as_str()
                     .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
-                let response = query_client(&*self.client, path, &vec![], 0, false)
+                let data_str = params[1]
+                    .as_str()
+                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
+                let data = base64::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
+
+                let response = query_client(&*self.client, path, &data, 0, false)
                     .map_err(|e| RPCError::BadRequest(e))?;
                 Ok(json!({"response": {
                    "log": response.log,
@@ -144,13 +149,14 @@ impl<T> HttpApi<T> {
                     .try_into()
                     .map_err(|e| RPCError::BadRequest(format!("Bad hash: {}", e)))?;
                 let result = self.client.shard_client.get_transaction_final_result(&hash);
+                println!("Result: {:?}", result);
                 // TODO: include merkle proof if requested, tx bytes, index and block height in final result.
                 Ok(json!({
                     "proof": "null",
                     "tx": "null",
                     "tx_result": {
                         "log": result.final_log(),
-                        "data": "",
+                        "data": base64::encode(&result.last_result()),
                         "code": result.status.to_code(),
                     },
                     "index": 0,
@@ -167,7 +173,7 @@ impl<T> HttpApi<T> {
         let mut state_update = self.client.shard_client.get_state_update();
         match self.client.shard_client.trie_viewer.view_account(&mut state_update, &r.account_id) {
             Ok(r) => Ok(ViewAccountResponse {
-                account_id: r.account,
+                account_id: r.account_id,
                 amount: r.amount,
                 stake: r.stake,
                 code_hash: r.code_hash,

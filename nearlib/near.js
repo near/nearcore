@@ -54,16 +54,7 @@ class Near {
      *   args);
      */
     async callViewFunction(contractAccountId, methodName, args) {
-        if (!args) {
-            args = {};
-        }
-        const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        const response = await this.nearClient.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, 0, false]);
-        response.logs.forEach(line => {
-            console.log(`[${contractAccountId}]: ${line}`);
-        });
-        const json = JSON.parse(Buffer.from(response.result).toString());
-        return json;
+        return this.nearClient.callViewFunction(contractAccountId, methodName, args);
     }
 
     /**
@@ -155,7 +146,7 @@ class Near {
      * @param {string} transactionHash unique identifier of the transaction
      * @example
      * // get the result of a transaction status call
-     * const result = (await this.getTransactionStatus(transactionHash)).result
+     * const result = await this.getTransactionStatus(transactionHash)
      */
     async getTransactionStatus(transactionHash) {
         return this.nearClient.getTransactionStatus(transactionHash)
@@ -181,35 +172,28 @@ class Near {
         let result;
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
-            result = (await this.getTransactionStatus(transactionHash)).result;
-            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+            result = (await this.getTransactionStatus(transactionHash));
             let j;
-            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == flatLog[j]; j++);
+            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == result.logs[j]; j++);
             if (j != alreadyDisplayedLogs.length) {
                 console.warn('new logs:', flatLog, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
             }
-            for (; j < flatLog.length; j++) {
-                const line = flatLog[j];
+            for (; j < result.logs.length; ++j) {
+                const line = result.logs[j];
                 console.log(`[${contractAccountId}]: ${line}`);
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
                 for (j = result.logs.length - 1; j >= 0; --j) {
                     let r = result.logs[j];
-                    if (r.result && r.result.length > 0) {
-                        result.lastResultUnparsed = r.result;
-                        try {
-                            result.lastResult = JSON.parse(Buffer.from(r.result).toString());
-                        } catch (e) {
-                            // can't parse
-                        }
-                        break;
-                    }
+                }
+                if (result.value) {
+                    result.lastResult = JSON.parse(Buffer.from(result.value, 'base64').toString());
                 }
                 return result;
             }
             if (result.status == 'Failed') {
-                const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                const errorMessage = result.logs.find(it => it.startsWith('ABORT:')) || '';
                 throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
             }
         }
