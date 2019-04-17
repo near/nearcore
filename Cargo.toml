@@ -38,6 +38,7 @@ members = [
     "test-utils/keygen",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "nearmint/",
 ]
 exclude = [
     "core/wasm/runtest/generate-wasm/to-wasm",
