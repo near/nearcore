@@ -193,7 +193,7 @@ where
         let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
         key.extend_from_slice(&[0]);
         read_with_cache(self.storage.as_ref(), COL_BEST_BLOCK, &mut self.best_block_index, &key)
-            .map(std::option::Option::<&_>::cloned)
+            .map(|x| x.cloned())
     }
 
     #[inline]

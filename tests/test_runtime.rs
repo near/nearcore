@@ -56,7 +56,7 @@ fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
     );
     assert_eq!(account_names[0], alice_account());
     let mut nodes: Vec<_> = nodes
-        .drain(..)
+        .into_iter()
         .map(|cfg| match cfg {
             NodeConfig::Thread(config) => ThreadNode::new(config),
             _ => unreachable!(),
@@ -72,8 +72,7 @@ fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
 /// and get the test_prefix from the test name.
 macro_rules! run_testnet_test {
     ($f:expr) => {
-        let port = TEST_PORT.load(Ordering::SeqCst);
-        TEST_PORT.store(port + NUM_TEST_NODE as u16, Ordering::SeqCst);
+        let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
         let test_prefix = stringify!($f);
         let mut nodes = create_testnet_node(test_prefix, port);
         let node = nodes.pop().unwrap();
@@ -101,8 +100,7 @@ fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash)
 fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
     wait(|| {
         match node_user.get_transaction_final_result(hash).status {
-            FinalTransactionStatus::Unknown => false,
-            FinalTransactionStatus::Started => false,
+            FinalTransactionStatus::Unknown | FinalTransactionStatus::Started => false,
             _ => true
         }
     }, 500, 60000);
