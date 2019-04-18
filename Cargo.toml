@@ -35,7 +35,7 @@ members = [
     "node/runtime",
     "node/shard",
     "node/tokio-utils",
-    "test-utils/keygen",
+    "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
     "nearmint/",
@@ -52,7 +52,7 @@ serde_json = "1.0.0"
 
 devnet = { path = "./node/devnet" }
 alphanet = { path = "./node/alphanet" }
-keystore = { path = "./test-utils/keygen" }
+keystore = { path = "./test-utils/keystore" }
 node-http = { path = "./node/http" }
 primitives = { path = "./core/primitives" }
 storage = { path = "./core/storage" }

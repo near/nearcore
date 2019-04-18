@@ -57,6 +57,16 @@ impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
         ReadablePublicKey(self.to_string())
     }
+
+    pub fn to_base64(&self) -> String {
+        base64::encode(&self.to_bytes())
+    }
+}
+
+impl SecretKey {
+    pub fn to_base64(&self) -> String {
+        base64::encode(&self.to_bytes())
+    }
 }
 
 impl TryFrom<&[u8]> for PublicKey {
