@@ -1,5 +1,6 @@
 use std::fmt;
 
+use primitives::hash::{CryptoHash, hash};
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
 use primitives::logging;
 use wasmer_runtime::error as WasmerError;
@@ -303,5 +304,26 @@ impl RuntimeContext {
             block_index,
             random_seed,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ContractCode {
+    code: Vec<u8>,
+    hash: CryptoHash,
+}
+
+impl ContractCode {
+    pub fn new(code: Vec<u8>) -> ContractCode {
+        let hash = hash(&code);
+        ContractCode { code, hash }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
+    pub fn get_code(&self) -> &Vec<u8> {
+        &self.code
     }
 }

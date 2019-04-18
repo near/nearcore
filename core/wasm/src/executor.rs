@@ -4,7 +4,7 @@ use std::ffi::c_void;
 use std::fmt;
 
 use crate::runtime::{self, Runtime};
-use crate::types::{RuntimeContext, Config, ReturnData, Error};
+use crate::types::{RuntimeContext, Config, ReturnData, Error, ContractCode};
 use primitives::types::{Balance, Mana, Gas};
 use primitives::logging;
 use crate::cache;
@@ -40,14 +40,14 @@ impl fmt::Debug for ExecutionOutcome {
     }
 }
 
-pub fn execute<'a>(
-    code: &'a [u8],
-    method_name: &'a [u8],
-    input_data: &'a [u8],
-    result_data: &'a [Option<Vec<u8>>],
-    ext: &'a mut External,
-    config: &'a Config,
-    context: &'a RuntimeContext,
+pub fn execute(
+    code: &ContractCode,
+    method_name: &[u8],
+    input_data: &[u8],
+    result_data: &[Option<Vec<u8>>],
+    ext: &mut External,
+    config: &Config,
+    context: &RuntimeContext,
 ) -> Result<ExecutionOutcome, Error> {
     if method_name.is_empty() {
         return Err(Error::EmptyMethodName);
