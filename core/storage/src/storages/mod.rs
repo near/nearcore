@@ -189,6 +189,7 @@ where
     }
 
     #[inline]
+    #[allow(clippy::redundant_closure)]
     pub fn best_block_index(&mut self) -> StorageResult<u64> {
         let mut key = self.enc_slice(self.genesis_hash.expect(MISSING_GENESIS_ERR).as_ref());
         key.extend_from_slice(&[0]);

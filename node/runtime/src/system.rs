@@ -1,3 +1,4 @@
+use primitives::account::Account;
 use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{hash, CryptoHash};
@@ -8,13 +9,12 @@ use primitives::transaction::{
     SwapKeyTransaction,
 };
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::utils::is_valid_account_id;
+use primitives::utils::{is_valid_account_id, create_nonce_with_nonce, key_for_code, key_for_account,
+    key_for_tx_stake};
 use std::convert::TryFrom;
-use storage::TrieUpdate;
+use storage::{set, TrieUpdate};
 
-use crate::{get_tx_stake_key, TxTotalStake};
-
-use super::{account_id_to_bytes, create_nonce_with_nonce, set, Account, COL_ACCOUNT, COL_CODE};
+use crate::TxTotalStake;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId {
@@ -35,7 +35,7 @@ pub fn send_money(
     }
     if sender.amount >= transaction.amount {
         sender.amount -= transaction.amount;
-        set(state_update, &account_id_to_bytes(COL_ACCOUNT, &transaction.originator), sender);
+        set(state_update, &key_for_account(&transaction.originator), sender);
         let receipt = ReceiptTransaction::new(
             transaction.originator.clone(),
             transaction.receiver.clone(),
@@ -75,7 +75,7 @@ pub fn staking(
         });
         sender.amount -= body.amount;
         sender.staked += body.amount;
-        set(state_update, &account_id_to_bytes(COL_ACCOUNT, sender_account_id), &sender);
+        set(state_update, &key_for_account(sender_account_id), &sender);
         Ok(vec![])
     } else {
         let err_msg = format!(
@@ -108,7 +108,7 @@ pub fn deposit(
 
     if amount > 0 {
         receiver.amount += amount;
-        set(state_update, &account_id_to_bytes(COL_ACCOUNT, &receiver_id), receiver);
+        set(state_update, &key_for_account(&receiver_id), receiver);
     }
     Ok(receipts)
 }
@@ -125,7 +125,7 @@ pub fn create_account(
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
-        set(state_update, &account_id_to_bytes(COL_ACCOUNT, &body.originator), &sender);
+        set(state_update, &key_for_account(&body.originator), &sender);
         let new_nonce = create_nonce_with_nonce(&hash, 0);
         let receipt = ReceiptTransaction::new(
             body.originator.clone(),
@@ -156,8 +156,8 @@ pub fn deploy(
 ) -> Result<Vec<ReceiptTransaction>, String> {
     // Signature should be already checked at this point
     sender.code_hash = hash(code);
-    set(state_update, &account_id_to_bytes(COL_CODE, &sender_id), &code);
-    set(state_update, &account_id_to_bytes(COL_ACCOUNT, &sender_id), &sender);
+    set(state_update, &key_for_code(&sender_id), &code);
+    set(state_update, &key_for_account(&sender_id), &sender);
     Ok(vec![])
 }
 
@@ -174,7 +174,7 @@ pub fn swap_key(
         return Err(format!("Account {} does not have public key {}", body.originator, cur_key));
     }
     account.public_keys.push(new_key);
-    set(state_update, &account_id_to_bytes(COL_ACCOUNT, &body.originator), &account);
+    set(state_update, &key_for_account(&body.originator), &account);
     Ok(vec![])
 }
 
@@ -190,7 +190,7 @@ pub fn add_key(
         return Err("Cannot add key that already exists".to_string());
     }
     account.public_keys.push(new_key);
-    set(state_update, &account_id_to_bytes(COL_ACCOUNT, &body.originator), &account);
+    set(state_update, &key_for_account(&body.originator), &account);
     Ok(vec![])
 }
 
@@ -211,7 +211,7 @@ pub fn delete_key(
     if account.public_keys.is_empty() {
         return Err("Account must have at least one public key".to_string());
     }
-    set(state_update, &account_id_to_bytes(COL_ACCOUNT, &body.originator), &account);
+    set(state_update, &key_for_account(&body.originator), &account);
     Ok(vec![])
 }
 
@@ -223,7 +223,7 @@ pub fn system_create_account(
     if !is_valid_account_id(account_id) {
         return Err(format!("Account {} does not match requirements", account_id));
     }
-    let account_id_bytes = account_id_to_bytes(COL_ACCOUNT, &account_id);
+    let account_id_bytes = key_for_account(&account_id);
 
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
@@ -231,7 +231,7 @@ pub fn system_create_account(
     // TODO(#347): Remove default TX staking once tx staking is properly implemented
     let mut tx_total_stake = TxTotalStake::new(0);
     tx_total_stake.add_active_stake(100);
-    set(state_update, &get_tx_stake_key(&account_id, &None), &tx_total_stake);
+    set(state_update, &key_for_tx_stake(&account_id, &None), &tx_total_stake);
     Ok(vec![])
 }
 
