@@ -1,6 +1,6 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
-#[cfg(feature = "expensive_tests")]
+//#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use configs::chain_spec::DefaultIdType;
@@ -76,26 +76,6 @@ mod test {
     #[test]
     fn test_smart_contract_with_args_testnet() {
         run_testnet_test!(test_smart_contract_with_args);
-    }
-
-    #[test]
-    fn test_async_call_with_no_callback_testnet() {
-        run_testnet_test!(test_async_call_with_no_callback);
-    }
-
-    #[test]
-    fn test_async_call_with_callback_testnet() {
-        run_testnet_test!(test_async_call_with_callback);
-    }
-
-    #[test]
-    fn test_async_call_with_logs_testnet() {
-        run_testnet_test!(test_async_call_with_logs);
-    }
-
-    #[test]
-    fn test_deposit_with_callback_testnet() {
-        run_testnet_test!(test_deposit_with_callback);
     }
 
     #[test]

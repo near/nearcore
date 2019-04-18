@@ -83,7 +83,7 @@ test_regression:
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --features regression_tests
+    - cargo test --package nearcore --test test_tps_regression test --features regression_tests
     tags:
         - regression_tests
     after_script:

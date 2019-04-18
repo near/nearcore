@@ -1,19 +1,11 @@
 //! Checks that late validator can catch-up and start validating.
 #[test]
 fn test_catchup() {
-    use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use network::proxy::benchmark::BenchmarkHandler;
-    use network::proxy::ProxyHandler;
-    use node_http::types::GetBlocksByIndexRequest;
-    use primitives::transaction::TransactionBody;
-    use std::io::stdout;
-    use std::io::Write;
     use std::sync::{Arc, RwLock};
     use testlib::node::{
-        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
-        TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+        create_nodes, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
     };
     use testlib::test_helpers::{heavy_test, wait};
 
@@ -46,7 +38,7 @@ fn test_catchup() {
         let mut nodes: Vec<Arc<RwLock<dyn Node>>> =
             nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
 
-        let mut late_node = nodes.pop().unwrap();
+        let late_node = nodes.pop().unwrap();
         // Start all but one.
         for node in &mut nodes {
             node.write().unwrap().start();
