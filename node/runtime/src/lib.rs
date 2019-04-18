@@ -16,7 +16,7 @@ use std::convert::TryFrom;
 use primitives::account::Account;
 use primitives::chain::ReceiptBlock;
 use primitives::crypto::signature::PublicKey;
-use primitives::hash::{hash, CryptoHash};
+use primitives::hash::CryptoHash;
 use primitives::transaction::{
     verify_transaction_signature, AsyncCall, Callback, CallbackInfo, CallbackResult,
     FunctionCallTransaction, LogEntry, ReceiptBody, ReceiptTransaction, SignedTransaction,
@@ -29,7 +29,7 @@ use primitives::types::{
 use primitives::utils::{account_to_shard_id, is_valid_account_id, create_nonce_with_nonce,
     key_for_account, key_for_code, key_for_callback, key_for_tx_stake};
 use wasm::executor;
-use wasm::types::{ReturnData, RuntimeContext};
+use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
@@ -339,7 +339,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let code: Vec<u8> = get(state_update, &key_for_code(receiver_id))
+        let code: ContractCode = get(state_update, &key_for_code(receiver_id))
             .ok_or_else(|| {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })?;
@@ -402,7 +402,7 @@ impl Runtime {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
             get(state_update, &key_for_callback(&callback_res.info.id));
-        let code: Vec<u8> = get(state_update, &key_for_code(receiver_id))
+        let code: ContractCode = get(state_update, &key_for_code(receiver_id))
             .ok_or_else(|| {
                 format!("account {} does not have contract code", receiver_id.clone())
             })?;
@@ -802,6 +802,7 @@ impl Runtime {
         initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)],
     ) -> (MerkleHash, storage::DBChanges) {
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
+            let code = ContractCode::new(wasm_binary.to_vec());
             set(
                 &mut state_update,
                 &key_for_account(&account_id),
@@ -810,14 +811,14 @@ impl Runtime {
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
-                    code_hash: hash(wasm_binary),
+                    code_hash: code.get_hash(),
                 },
             );
             // Default code
             set(
                 &mut state_update,
                 &key_for_code(&account_id),
-                &wasm_binary.to_vec(),
+                &code,
             );
             // Default transaction stake
             let key = key_for_tx_stake(&account_id, &None);

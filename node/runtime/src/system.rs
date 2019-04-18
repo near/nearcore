@@ -15,6 +15,7 @@ use std::convert::TryFrom;
 use storage::{set, TrieUpdate};
 
 use crate::TxTotalStake;
+use wasm::types::ContractCode;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId {
@@ -154,8 +155,9 @@ pub fn deploy(
     code: &[u8],
     sender: &mut Account,
 ) -> Result<Vec<ReceiptTransaction>, String> {
+    let code = ContractCode::new(code.to_vec());
     // Signature should be already checked at this point
-    sender.code_hash = hash(code);
+    sender.code_hash = code.get_hash();
     set(state_update, &key_for_code(&sender_id), &code);
     set(state_update, &key_for_account(&sender_id), &sender);
     Ok(vec![])
