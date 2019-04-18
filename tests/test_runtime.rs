@@ -22,7 +22,6 @@ use primitives::utils::key_for_callback;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use storage::set;
-use testlib::node::process_node::ProcessNode;
 use testlib::node::{
     create_nodes_with_id_type, Node, NodeConfig, RuntimeNode, ShardClientNode, ThreadNode,
     TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
@@ -74,7 +73,7 @@ fn create_thread_nodes(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
     nodes
 }
 
-fn create_process_nodes(test_prefix: &str, test_port: u16) -> Vec<ProcessNode> {
+fn create_process_nodes(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
     let (_, account_names, mut nodes) = create_nodes_with_id_type(
         NUM_TEST_NODE,
         test_prefix,
@@ -89,11 +88,12 @@ fn create_process_nodes(test_prefix: &str, test_port: u16) -> Vec<ProcessNode> {
     let mut nodes: Vec<_> = nodes
         .into_iter()
         .map(|cfg| match cfg {
-            NodeConfig::Thread(config) => ProcessNode::new(config),
+            NodeConfig::Thread(config) => ThreadNode::new(config),
             _ => unreachable!(),
         })
         .collect();
     for i in 0..NUM_TEST_NODE {
+        nodes[i].use_rpc_user(true);
         nodes[i].start();
     }
     nodes
