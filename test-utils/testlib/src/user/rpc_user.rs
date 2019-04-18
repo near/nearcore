@@ -165,7 +165,10 @@ impl AsyncUser for RpcUser {
         Box::new(response)
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> Box<Future<Item = FinalTransactionResult, Error = String>> {
+    fn get_transaction_final_result(
+        &self,
+        hash: &CryptoHash,
+    ) -> Box<Future<Item = FinalTransactionResult, Error = String>> {
         let url = format!("{}{}", self.url, "/get_transaction_final_result");
         let body = GetTransactionRequest { hash: *hash };
         let client = match self.client() {
@@ -245,9 +248,12 @@ impl User for RpcUser {
         let client = reqwest::Client::new();
         let body: ViewAccountRequest = ViewAccountRequest { account_id: account_id.clone() };
         let url = format!("{}{}", self.url, "/view_account");
-        let mut response =
-            client.post(url.as_str()).body(serde_json::to_string(&body).unwrap()).send().unwrap();
-        let response: ViewAccountResponse = response.json().unwrap();
+        let mut response = client
+            .post(url.as_str())
+            .body(serde_json::to_string(&body).unwrap())
+            .send()
+            .map_err(|err| format!("{}", err))?;
+        let response: ViewAccountResponse = response.json().map_err(|err| format!("{}", err))?;
         let result = AccountViewCallResult {
             account_id: response.account_id,
             nonce: response.nonce,
