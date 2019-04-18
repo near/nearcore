@@ -266,7 +266,7 @@ impl Pool {
         if let Some(ref p) = snapshot {
             info!(
                 target: "mempool", "Popping snapshot, authority={:?}, #tx={}, #r={}, hash={:?}",
-                self.authority_id.unwrap(),
+                self.authority_id,
                 p.transactions.len(),
                 p.receipts.len(),
                 hash,
