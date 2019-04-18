@@ -3,16 +3,16 @@ use std::str;
 use std::time::Instant;
 
 use primitives::account::Account;
-use primitives::hash::CryptoHash;
+use primitives::crypto::signature::PublicKey;
+use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use primitives::utils::{is_valid_account_id, key_for_account, key_for_code};
-use storage::{TrieUpdate, get};
+use storage::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
-use primitives::crypto::signature::PublicKey;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -23,11 +23,12 @@ pub struct TrieViewer {}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
-    pub account: AccountId,
+    pub account_id: AccountId,
     pub nonce: Nonce,
     pub amount: Balance,
     pub stake: u64,
     pub public_keys: Vec<PublicKey>,
+    #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }
 
@@ -43,7 +44,7 @@ impl TrieViewer {
 
         match get::<Account>(state_update, &key_for_account(account_id)) {
             Some(account) => Ok(AccountViewCallResult {
-                account: account_id.clone(),
+                account_id: account_id.clone(),
                 nonce: account.nonce,
                 amount: account.amount,
                 stake: account.staked,
@@ -95,41 +96,39 @@ impl TrieViewer {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
         let root = state_update.get_root();
-        let code: Vec<u8> = get(&mut state_update, &key_for_code(contract_id))
-            .ok_or_else(|| {
+        let code: Vec<u8> =
+            get(&mut state_update, &key_for_code(contract_id)).ok_or_else(|| {
                 format!("account {} does not have contract code", contract_id.clone())
             })?;
-        let wasm_res =
-            match get::<Account>(&mut state_update, &key_for_account(contract_id))
-            {
-                Some(account) => {
-                    let empty_hash = CryptoHash::default();
-                    let mut runtime_ext = RuntimeExt::new(
-                        &mut state_update,
+        let wasm_res = match get::<Account>(&mut state_update, &key_for_account(contract_id)) {
+            Some(account) => {
+                let empty_hash = CryptoHash::default();
+                let mut runtime_ext = RuntimeExt::new(
+                    &mut state_update,
+                    contract_id,
+                    &AccountingInfo { originator: contract_id.clone(), contract_id: None },
+                    &empty_hash,
+                );
+                executor::execute(
+                    &code,
+                    method_name.as_bytes(),
+                    &args.to_owned(),
+                    &[],
+                    &mut runtime_ext,
+                    &wasm::types::Config::default(),
+                    &RuntimeContext::new(
+                        account.amount,
+                        0,
                         contract_id,
-                        &AccountingInfo { originator: contract_id.clone(), contract_id: None },
-                        &empty_hash,
-                    );
-                    executor::execute(
-                        &code,
-                        method_name.as_bytes(),
-                        &args.to_owned(),
-                        &[],
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            account.amount,
-                            0,
-                            contract_id,
-                            contract_id,
-                            0,
-                            block_index,
-                            root.as_ref().into(),
-                        ),
-                    )
-                }
-                None => return Err(format!("contract {} does not exist", contract_id)),
-            };
+                        contract_id,
+                        0,
+                        block_index,
+                        root.as_ref().into(),
+                    ),
+                )
+            }
+            None => return Err(format!("contract {} does not exist", contract_id)),
+        };
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
@@ -171,10 +170,13 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::*;
     use kvdb::DBValue;
+
     use primitives::types::AccountId;
+
+    use crate::test_utils::*;
+
+    use super::*;
 
     fn alice_account() -> AccountId {
         "alice.near".to_string()

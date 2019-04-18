@@ -1031,7 +1031,7 @@ mod tests {
         let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
         trie.apply_changes(db_changes).unwrap();
         for r in trie.iter(&root).unwrap() {
-            println!("{:?}", r.unwrap());
+            r.unwrap();
         }
 
         let mut changes = vec![(vec![1, 2, 3], None)];

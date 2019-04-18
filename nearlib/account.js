@@ -26,7 +26,7 @@ class Account {
      *    1000,
      *    aliceAccountName);
      */
-    async createAccount (newAccountId, publicKey, amount, originator) {
+    async createAccount(newAccountId, publicKey, amount, originator) {
         const nonce = await this.nearClient.getNonce(originator);
         publicKey = bs58.decode(publicKey);
         const createAccount = CreateAccountTransaction.create({
@@ -53,7 +53,7 @@ class Account {
             createAccount,
             signature,
         });
-        return await this.nearClient.submitTransaction(signedTransaction);
+        return this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**

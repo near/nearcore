@@ -38,7 +38,7 @@ module.exports = {
         }
         fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId);
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
         this.options = fullRuntimeOptions;

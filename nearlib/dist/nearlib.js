@@ -27,7 +27,7 @@ class Account {
      *    1000,
      *    aliceAccountName);
      */
-    async createAccount (newAccountId, publicKey, amount, originator) {
+    async createAccount(newAccountId, publicKey, amount, originator) {
         const nonce = await this.nearClient.getNonce(originator);
         publicKey = bs58.decode(publicKey);
         const createAccount = CreateAccountTransaction.create({
@@ -54,7 +54,7 @@ class Account {
             createAccount,
             signature,
         });
-        return await this.nearClient.submitTransaction(signedTransaction);
+        return this.nearClient.submitTransaction(signedTransaction);
     }
 
     /**
@@ -141,7 +141,7 @@ module.exports = {
         }
         fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
         fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId),
+        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId);
         fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
         this.deps = fullRuntimeOptions.deps;
         this.options = fullRuntimeOptions;
@@ -320,20 +320,7 @@ class Near {
      *   args);
      */
     async callViewFunction(contractAccountId, methodName, args) {
-        if (!args) {
-            args = {};
-        }
-        const serializedArgs = Array.from(Buffer.from(JSON.stringify(args)));
-        const response = await this.nearClient.request('call_view_function', {
-            contract_account_id: contractAccountId,
-            method_name: methodName,
-            args: serializedArgs
-        });
-        response.logs.forEach(line => {
-            console.log(`[${contractAccountId}]: ${line}`);
-        });
-        const json = JSON.parse(Buffer.from(response.result).toString());
-        return json;
+        return this.nearClient.callViewFunction(contractAccountId, methodName, args);
     }
 
     /**
@@ -425,13 +412,10 @@ class Near {
      * @param {string} transactionHash unique identifier of the transaction
      * @example
      * // get the result of a transaction status call
-     * const result = (await this.getTransactionStatus(transactionHash)).result
+     * const result = await this.getTransactionStatus(transactionHash)
      */
     async getTransactionStatus(transactionHash) {
-        const transactionStatusResponse = await this.nearClient.request('get_transaction_result', {
-            hash: transactionHash,
-        });
-        return transactionStatusResponse;
+        return this.nearClient.getTransactionStatus(transactionHash)
     }
 
     /**
@@ -454,35 +438,28 @@ class Near {
         let result;
         for (let i = 0; i < MAX_STATUS_POLL_ATTEMPTS; i++) {
             await sleep(STATUS_POLL_PERIOD_MS);
-            result = (await this.getTransactionStatus(transactionHash)).result;
-            const flatLog = result.logs.reduce((acc, it) => acc.concat(it.lines), []);
+            result = (await this.getTransactionStatus(transactionHash));
             let j;
-            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == flatLog[j]; j++);
+            for (j = 0; j < alreadyDisplayedLogs.length && alreadyDisplayedLogs[j] == result.logs[j]; j++);
             if (j != alreadyDisplayedLogs.length) {
-                console.warn('new logs:', flatLog, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
+                console.warn('new logs:', result.logs, 'iconsistent with already displayed logs:', alreadyDisplayedLogs);
             }
-            for (; j < flatLog.length; j++) {
-                const line = flatLog[j];
+            for (; j < result.logs.length; ++j) {
+                const line = result.logs[j];
                 console.log(`[${contractAccountId}]: ${line}`);
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
                 for (j = result.logs.length - 1; j >= 0; --j) {
                     let r = result.logs[j];
-                    if (r.result && r.result.length > 0) {
-                        result.lastResultUnparsed = r.result;
-                        try {
-                            result.lastResult = JSON.parse(Buffer.from(r.result).toString());
-                        } catch (e) {
-                            // can't parse
-                        }
-                        break;
-                    }
+                }
+                if (result.value) {
+                    result.lastResult = JSON.parse(Buffer.from(result.value, 'base64').toString());
                 }
                 return result;
             }
             if (result.status == 'Failed') {
-                const errorMessage = flatLog.find(it => it.startsWith('ABORT:')) || '';
+                const errorMessage = result.logs.find(it => it.startsWith('ABORT:')) || '';
                 throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
             }
         }
@@ -544,7 +521,6 @@ function sleep(time) {
 
 module.exports = Near;
 
-
 }).call(this,require("buffer").Buffer)
 },{"./local_node_connection":6,"./nearclient":8,"./protos":69,"./signing/browser_local_storage_key_store":71,"./signing/simple_key_store_signer":74,"buffer":21,"http-errors":37}],8:[function(require,module,exports){
 (function (Buffer){
@@ -558,39 +534,85 @@ function _arrayBufferToBase64(buffer) {
     return Buffer.from(buffer).toString('base64');
 }
 
+function _base64ToBuffer(str) {
+    return new Buffer.from(str, 'base64')
+}
+
 class NearClient {
-    constructor (signer, nearConnection) {
+    constructor(signer, nearConnection) {
         this.signer = signer;
         this.nearConnection = nearConnection;
     }
 
-    async viewAccount (account_id) {
-        const viewAccountResponse = await this.request('view_account', {
-            account_id: account_id,
-        });
-        return viewAccountResponse;
+    async viewAccount(accountId) {
+        const response = await this.jsonRpcRequest('abci_query', [`account/${accountId}`, '', '0', false]);
+        return JSON.parse(_base64ToBuffer(response.response.value).toString());
     }
 
-    async submitTransaction (signedTransaction) {
+    async submitTransaction(signedTransaction) {
         const buffer = SignedTransaction.encode(signedTransaction).finish();
         const transaction = _arrayBufferToBase64(buffer);
-        const data = { transaction };
-        try {
-            return await this.request('submit_transaction', data);
-        } catch(e) {
-            if (e.response) { 
-                throw new Error(e.response.text);
-            }
-            throw e;
+        const params = [transaction];
+        const response = await this.jsonRpcRequest('broadcast_tx_async', params);
+        response.hash = Buffer.from(response.hash, 'hex');
+        return response;
+    }
+
+    async callViewFunction(contractAccountId, methodName, args) {
+        if (!args) {
+            args = {};
         }
+        const serializedArgs = Buffer.from(JSON.stringify(args)).toString('hex');
+        const result = await this.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, '0', false]);
+        const response = result.response;
+        const logs = response.log || '';
+        logs.split("\n").forEach(line => {
+            console.log(`[${contractAccountId}]: ${line}`);
+        });
+        // If error, raise exception after printing logs.
+        if (response.code != 0) {
+            throw Error(response.info)
+        }
+        const json = JSON.parse(_base64ToBuffer(response.value).toString());
+        return json;
     }
 
-    async getNonce (account_id) {
-        return (await this.viewAccount(account_id)).nonce + 1;
+    async getTransactionStatus(transactionHash) {
+        const encodedHash = _arrayBufferToBase64(transactionHash);
+        const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
+        // tx_result has default values: code = 0, logs: '', data: ''.
+        let status;
+        const code = response.tx_result.code || 0;
+        switch (code) {
+            case 0: status = 'Completed'; break;
+            case 1: status = 'Failed'; break;
+            case 2: status = 'Started'; break;
+            default: status = 'Unknown';
+        }
+        const logs = response.tx_result.log || '';
+        return {logs: logs.split('\n'), status, value: response.tx_result.data };
     }
 
-    async request (methodName, params) {
-        return await this.nearConnection.request(methodName, params);
+    async getNonce(accountId) {
+        return (await this.viewAccount(accountId)).nonce + 1;
+    }
+
+    async jsonRpcRequest(method, params) {
+        const request = {
+            jsonrpc: '2.0',
+            method,
+            params,
+            id: 'dontcare',
+        };
+        const response = await this.nearConnection.request('', request);
+        if (response.error) {
+            throw Error(`Error calling ${method} with ${params}: ${response.error.message}.\nFull response: ${JSON.stringify(response)}`);
+        }
+        return response.result;
+    }
+
+    async request(methodName, params) {
+        return this.nearConnection.request(methodName, params);
     }
 }
 
