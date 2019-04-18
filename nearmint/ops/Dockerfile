@@ -27,12 +27,15 @@ ENV CARGO_TARGET_DIR=/tmp/target
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build --release --package=nearmint && \
-    cp /tmp/target/release/nearmint /usr/local/bin/
+    cargo build -p nearmint --release && \
+    cp /tmp/target/release/nearmint /usr/local/bin/ && \
+    cargo build -p keystore --release && \
+    cp /tmp/target/release/keystore /usr/local/bin/ && \
+    cargo build -p testlib --bin generate-test-spec --release && \
+    cp /tmp/target/release/generate-test-spec /usr/local/bin/
 
 RUN curl -L https://github.com/tendermint/tendermint/releases/download/v0.31.5/tendermint_v0.31.5_linux_amd64.zip > tendermint_v0.31.5_linux_amd64.zip
 RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
-#COPY target/tendermint/tendermint /usr/local/bin/
 
 EXPOSE 3030 26656 26657
 
