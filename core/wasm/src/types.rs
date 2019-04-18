@@ -159,7 +159,7 @@ pub enum Error {
     /// Method is private, because it starts with '_'.
     PrivateMethod,
 
-    Wasmer(WasmerError::Error),
+    Wasmer(String), // TODO: WasmerError::Error is not shareable between threads
 
     Runtime(RuntimeError),
 
@@ -170,7 +170,7 @@ pub enum Error {
 
 impl From<WasmerError::Error> for Error {
     fn from(e: WasmerError::Error) -> Self {
-        Error::Wasmer(e)
+        Error::Wasmer(format!("{}", e))
     }
 }
 
