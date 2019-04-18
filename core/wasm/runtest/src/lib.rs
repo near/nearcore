@@ -306,6 +306,31 @@ mod tests {
     }
 
     #[test]
+    fn test_error_message() {
+        let input_data = b"{}";
+
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/hello.wasm");
+        let outcome = run_with_filename(
+            b"triggerAssert",
+            input_data,
+            &[],
+            &runtime_context(0, 0, 0),
+            path.to_str().unwrap(),
+        )
+            .expect("ok");
+
+        println!("Gas used for simple call {}", outcome.gas_used);
+        println!("{:?}", outcome.return_data);
+        // If the error format changes, don't forget to update nearlib/test/integration.test.js
+        //
+        match outcome.return_data {
+            Ok(_) => assert!(false, "Expected to fail"),
+            Err(e) => assert_eq!(format!("{:?}", e), "Wasmer(\"call error: Call error: user-defined, opaque\")"),
+        };
+    }
+
+    #[test]
     fn test_get_gas() {
         let input_data = [0u8; 0];
 
