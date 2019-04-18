@@ -8,7 +8,6 @@ use node_runtime::state_viewer::AccountViewCallResult;
 use node_runtime::test_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
 };
-use storage::set;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
@@ -19,15 +18,17 @@ use primitives::transaction::{
     TransactionStatus,
 };
 use primitives::types::AccountingInfo;
+use primitives::utils::key_for_callback;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use storage::set;
+use testlib::node::process_node::ProcessNode;
 use testlib::node::{
     create_nodes_with_id_type, Node, NodeConfig, RuntimeNode, ShardClientNode, ThreadNode,
     TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
 };
 use testlib::test_helpers::{heavy_test, wait};
 use testlib::user::User;
-use primitives::utils::key_for_callback;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const NUM_TEST_NODE: usize = 4;
@@ -47,7 +48,7 @@ fn create_runtime_node() -> RuntimeNode {
     RuntimeNode::new(&alice_account())
 }
 
-fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
+fn create_thread_nodes(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
     let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
 
     let (_, account_names, mut nodes) = create_nodes_with_id_type(
@@ -73,13 +74,50 @@ fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
     nodes
 }
 
+fn create_process_nodes(test_prefix: &str, test_port: u16) -> Vec<ProcessNode> {
+    let (_, account_names, mut nodes) = create_nodes_with_id_type(
+        NUM_TEST_NODE,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        vec![],
+        DefaultIdType::Named,
+    );
+    assert_eq!(account_names[0], alice_account());
+    // Convert thread nodes to process nodes.
+    let mut nodes: Vec<_> = nodes
+        .into_iter()
+        .map(|cfg| match cfg {
+            NodeConfig::Thread(config) => ProcessNode::new(config),
+            _ => unreachable!(),
+        })
+        .collect();
+    for i in 0..NUM_TEST_NODE {
+        nodes[i].start();
+    }
+    nodes
+}
+
 /// Macro for running testnet test. Increment the atomic global counter for port,
 /// and get the test_prefix from the test name.
 macro_rules! run_testnet_test {
     ($f:expr) => {
         let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
         let test_prefix = stringify!($f);
-        let mut nodes = create_testnet_node(test_prefix, port);
+        let mut nodes = create_thread_nodes(test_prefix, port);
+        let node = nodes.pop().unwrap();
+        heavy_test(|| $f(node));
+    };
+}
+
+/// Macro for running testnet test but use RPC. Increment the atomic global counter for port,
+/// and get the test_prefix from the test name.
+macro_rules! run_testnet_test_rpc {
+    ($f:expr) => {
+        let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
+        let test_prefix = format!("{}_rpc", stringify!($f));
+        let mut nodes = create_process_nodes(test_prefix.as_str(), port);
         let node = nodes.pop().unwrap();
         heavy_test(|| $f(node));
     };
@@ -1158,6 +1196,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_simple_testnet_rpc() {
+        run_testnet_test_rpc!(test_smart_contract_simple);
+    }
+
+    #[test]
     fn test_smart_contract_bad_method_name_runtime() {
         let node = create_runtime_node();
         test_smart_contract_bad_method_name(node);
@@ -1172,6 +1215,11 @@ mod test {
     #[test]
     fn test_smart_contract_bad_method_name_testnet() {
         run_testnet_test!(test_smart_contract_bad_method_name);
+    }
+
+    #[test]
+    fn test_smart_contract_bad_method_name_testnet_rpc() {
+        run_testnet_test_rpc!(test_smart_contract_bad_method_name);
     }
 
     #[test]
@@ -1192,6 +1240,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_empty_method_name_with_no_tokens_testnet_rpc() {
+        run_testnet_test_rpc!(test_smart_contract_empty_method_name_with_no_tokens);
+    }
+
+    #[test]
     fn test_smart_contract_empty_method_name_with_tokens_runtime() {
         let node = create_runtime_node();
         test_smart_contract_empty_method_name_with_tokens(node);
@@ -1206,6 +1259,11 @@ mod test {
     #[test]
     fn test_smart_contract_empty_method_name_with_tokens_testnet() {
         run_testnet_test!(test_smart_contract_empty_method_name_with_tokens);
+    }
+
+    #[test]
+    fn test_smart_contract_empty_method_name_with_tokens_testnet_rpc() {
+        run_testnet_test_rpc!(test_smart_contract_empty_method_name_with_tokens);
     }
 
     #[test]
@@ -1226,6 +1284,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_with_args_testnet_rpc() {
+        run_testnet_test_rpc!(test_smart_contract_with_args);
+    }
+
+    #[test]
     fn test_async_call_with_no_callback_runtime() {
         let node = create_runtime_node();
         test_async_call_with_no_callback(node);
@@ -1240,6 +1303,11 @@ mod test {
     #[test]
     fn test_async_call_with_no_callback_testnet() {
         run_testnet_test!(test_async_call_with_no_callback);
+    }
+
+    #[test]
+    fn test_async_call_with_no_callback_testnet_rpc() {
+        run_testnet_test_rpc!(test_async_call_with_no_callback);
     }
 
     #[test]
@@ -1260,6 +1328,11 @@ mod test {
     }
 
     #[test]
+    fn test_async_call_with_callback_testnet_rpc() {
+        run_testnet_test_rpc!(test_async_call_with_callback);
+    }
+
+    #[test]
     fn test_async_call_with_logs_runtime() {
         let node = create_runtime_node();
         test_async_call_with_logs(node);
@@ -1274,6 +1347,11 @@ mod test {
     #[test]
     fn test_async_call_with_logs_testnet() {
         run_testnet_test!(test_async_call_with_logs);
+    }
+
+    #[test]
+    fn test_async_call_with_logs_testnet_rpc() {
+        run_testnet_test_rpc!(test_async_call_with_logs);
     }
 
     #[test]
@@ -1306,6 +1384,11 @@ mod test {
     }
 
     #[test]
+    fn test_deposit_with_callback_testnet_rpc() {
+        run_testnet_test_rpc!(test_deposit_with_callback);
+    }
+
+    #[test]
     fn test_nonce_update_when_deploying_contract_runtime() {
         let node = create_runtime_node();
         test_nonce_update_when_deploying_contract(node);
@@ -1320,6 +1403,11 @@ mod test {
     #[test]
     fn test_nonce_update_when_deploying_contract_testnet() {
         run_testnet_test!(test_nonce_update_when_deploying_contract);
+    }
+
+    #[test]
+    fn test_nonce_update_when_deploying_contract_testnet_rpc() {
+        run_testnet_test_rpc!(test_nonce_update_when_deploying_contract);
     }
 
     #[test]
@@ -1340,6 +1428,11 @@ mod test {
     }
 
     #[test]
+    fn test_nonce_updated_when_tx_failed_testnet_rpc() {
+        run_testnet_test_rpc!(test_nonce_updated_when_tx_failed);
+    }
+
+    #[test]
     fn test_upload_contract_runtime() {
         let node = create_runtime_node();
         test_upload_contract(node);
@@ -1354,6 +1447,11 @@ mod test {
     #[test]
     fn test_upload_contract_testnet() {
         run_testnet_test!(test_upload_contract);
+    }
+
+    #[test]
+    fn test_upload_contract_testnet_rpc() {
+        run_testnet_test_rpc!(test_upload_contract);
     }
 
     #[test]
@@ -1374,6 +1472,11 @@ mod test {
     }
 
     #[test]
+    fn test_redeploy_contract_testnet_rpc() {
+        run_testnet_test_rpc!(test_redeploy_contract);
+    }
+
+    #[test]
     fn test_send_money_runtime() {
         let node = create_runtime_node();
         test_send_money(node);
@@ -1388,6 +1491,11 @@ mod test {
     #[test]
     fn test_send_money_testnet() {
         run_testnet_test!(test_send_money);
+    }
+
+    #[test]
+    fn test_send_money_testnet_rpc() {
+        run_testnet_test_rpc!(test_send_money);
     }
 
     #[test]
@@ -1408,6 +1516,11 @@ mod test {
     }
 
     #[test]
+    fn test_send_money_over_balance_testnet_rpc() {
+        run_testnet_test_rpc!(test_send_money_over_balance);
+    }
+
+    #[test]
     fn test_refund_on_send_money_to_non_existent_account_runtime() {
         let node = create_runtime_node();
         test_refund_on_send_money_to_non_existent_account(node);
@@ -1422,6 +1535,11 @@ mod test {
     #[test]
     fn test_refund_on_send_money_to_non_existent_account_testnet() {
         run_testnet_test!(test_refund_on_send_money_to_non_existent_account);
+    }
+
+    #[test]
+    fn test_refund_on_send_money_to_non_existent_account_testnet_rpc() {
+        run_testnet_test_rpc!(test_refund_on_send_money_to_non_existent_account);
     }
 
     #[test]
@@ -1442,6 +1560,11 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_testnet_rpc() {
+        run_testnet_test_rpc!(test_create_account);
+    }
+
+    #[test]
     fn test_create_account_again_runtime() {
         let node = create_runtime_node();
         test_create_account_again(node);
@@ -1456,6 +1579,11 @@ mod test {
     #[test]
     fn test_create_account_again_testnet() {
         run_testnet_test!(test_create_account_again);
+    }
+
+    #[test]
+    fn test_create_account_again_testnet_rpc() {
+        run_testnet_test_rpc!(test_create_account_again);
     }
 
     #[test]
@@ -1476,6 +1604,11 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_failure_invalid_name_testnet_rpc() {
+        run_testnet_test_rpc!(test_create_account_failure_invalid_name);
+    }
+
+    #[test]
     fn test_create_account_failure_already_exists_runtime() {
         let node = create_runtime_node();
         test_create_account_failure_already_exists(node);
@@ -1490,6 +1623,11 @@ mod test {
     #[test]
     fn test_create_account_failure_already_exists_testnet() {
         run_testnet_test!(test_create_account_failure_already_exists);
+    }
+
+    #[test]
+    fn test_create_account_failure_already_exists_testnet_rpc() {
+        run_testnet_test_rpc!(test_create_account_failure_already_exists);
     }
 
     #[test]
@@ -1510,6 +1648,11 @@ mod test {
     }
 
     #[test]
+    fn test_swap_key_testnet_rpc() {
+        run_testnet_test_rpc!(test_swap_key);
+    }
+
+    #[test]
     fn test_add_key_runtime() {
         let node = create_runtime_node();
         test_add_key(node);
@@ -1524,6 +1667,11 @@ mod test {
     #[test]
     fn test_add_key_testnet() {
         run_testnet_test!(test_add_key);
+    }
+
+    #[test]
+    fn test_add_key_testnet_rpc() {
+        run_testnet_test_rpc!(test_add_key);
     }
 
     #[test]
@@ -1544,6 +1692,11 @@ mod test {
     }
 
     #[test]
+    fn test_add_existing_key_testnet_rpc() {
+        run_testnet_test_rpc!(test_add_existing_key);
+    }
+
+    #[test]
     fn test_delete_key_runtime() {
         let node = create_runtime_node();
         test_delete_key(node);
@@ -1558,6 +1711,11 @@ mod test {
     #[test]
     fn test_delete_key_testnet() {
         run_testnet_test!(test_delete_key);
+    }
+
+    #[test]
+    fn test_delete_key_testnet_rpc() {
+        run_testnet_test_rpc!(test_delete_key);
     }
 
     #[test]
@@ -1578,6 +1736,11 @@ mod test {
     }
 
     #[test]
+    fn test_delete_key_not_owned_testnet_rpc() {
+        run_testnet_test_rpc!(test_delete_key_not_owned);
+    }
+
+    #[test]
     fn test_delete_key_no_key_left_runtime() {
         let node = create_runtime_node();
         test_delete_key_no_key_left(node);
@@ -1592,5 +1755,10 @@ mod test {
     #[test]
     fn test_delete_key_no_key_left_testnet() {
         run_testnet_test!(test_delete_key_no_key_left);
+    }
+
+    #[test]
+    fn test_delete_key_no_key_left_testnet_rpc() {
+        run_testnet_test_rpc!(test_delete_key_no_key_left);
     }
 }
