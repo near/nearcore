@@ -86,6 +86,6 @@ impl TestSignedBlock for SignedBeaconBlock {}
 impl TransactionBody {
     pub fn sign(self, signer: &EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
-        SignedTransaction::new(signature, self)
+        SignedTransaction::new(signature, self, Some(signer.public_key()))
     }
 }

@@ -86,7 +86,7 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
             key_files_path.as_path(),
             Some(public_keys[i].clone()),
         ));
-        res.push((signer, addrs[i].clone()));
+        res.push((signer, addrs[i]));
     }
     res
 }
@@ -125,7 +125,7 @@ fn main() {
             let tps = nodes_monitor
                 .average_tps(Duration::from_secs(10))
                 .map(|d| format!("{}", d))
-                .unwrap_or("Pending".to_owned());
+                .unwrap_or_else(|| "Pending".to_owned());
             println!("TPS: {}", tps);
             thread::sleep(Duration::from_secs(1));
         });

@@ -93,6 +93,11 @@ test_nearlib:
     script:
     - ./scripts/test_nearlib.sh
 
+lint_nearlib:
+    stage: libs
+    script:
+    - cd nearlib && npm install eslint && npm run lint
+
 test_pynear:
     stage: libs
     before_script:

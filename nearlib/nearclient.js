@@ -56,7 +56,7 @@ class NearClient {
         const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
         // tx_result has default values: code = 0, logs: '', data: ''.
         const codes = {0: 'Completed', 1: 'Failed', 2: 'Started'};
-        const status = codes.get(response.tx_result.code || 0) || 'Unknown';
+        const status = codes[response.tx_result.code || 0] || 'Unknown';
         const logs = response.tx_result.log || '';
         return {logs: logs.split('\n'), status, value: response.tx_result.data };
     }

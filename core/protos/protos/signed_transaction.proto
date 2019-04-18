@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "wrappers.proto";
+
 message CreateAccountTransaction {
     uint64 nonce = 1;
     string originator = 2;
@@ -59,6 +61,8 @@ message DeleteKeyTransaction {
 
 message SignedTransaction {
     bytes signature = 1;
+    // In case this TX uses AccessKey, it needs to provide the public_key
+    google.protobuf.BytesValue public_key = 10;
     oneof body {
         CreateAccountTransaction create_account = 2;
         DeployContractTransaction deploy_contract = 3;
@@ -68,5 +72,6 @@ message SignedTransaction {
         SwapKeyTransaction swap_key = 7;
         AddKeyTransaction add_key = 8;
         DeleteKeyTransaction delete_key = 9;
+        // Next 11
     }
 }

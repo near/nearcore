@@ -2,16 +2,17 @@ use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
+use primitives::account::Account;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use primitives::utils::is_valid_account_id;
-use storage::TrieUpdate;
+use primitives::utils::{is_valid_account_id, key_for_account, key_for_code};
+use storage::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
-use super::{account_id_to_bytes, get, Account, RuntimeExt, COL_ACCOUNT, COL_CODE};
+use super::RuntimeExt;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -41,7 +42,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
 
-        match get::<Account>(state_update, &account_id_to_bytes(COL_ACCOUNT, account_id)) {
+        match get::<Account>(state_update, &key_for_account(account_id)) {
             Some(account) => Ok(AccountViewCallResult {
                 account_id: account_id.clone(),
                 nonce: account.nonce,
@@ -71,7 +72,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id));
         }
         let mut values = HashMap::default();
-        let mut prefix = account_id_to_bytes(COL_ACCOUNT, account_id);
+        let mut prefix = key_for_account(account_id);
         prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
@@ -95,41 +96,39 @@ impl TrieViewer {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
         let root = state_update.get_root();
-        let code: Vec<u8> = get(&mut state_update, &account_id_to_bytes(COL_CODE, contract_id))
-            .ok_or_else(|| {
+        let code: Vec<u8> =
+            get(&mut state_update, &key_for_code(contract_id)).ok_or_else(|| {
                 format!("account {} does not have contract code", contract_id.clone())
             })?;
-        let wasm_res =
-            match get::<Account>(&mut state_update, &account_id_to_bytes(COL_ACCOUNT, contract_id))
-            {
-                Some(account) => {
-                    let empty_hash = CryptoHash::default();
-                    let mut runtime_ext = RuntimeExt::new(
-                        &mut state_update,
+        let wasm_res = match get::<Account>(&mut state_update, &key_for_account(contract_id)) {
+            Some(account) => {
+                let empty_hash = CryptoHash::default();
+                let mut runtime_ext = RuntimeExt::new(
+                    &mut state_update,
+                    contract_id,
+                    &AccountingInfo { originator: contract_id.clone(), contract_id: None },
+                    &empty_hash,
+                );
+                executor::execute(
+                    &code,
+                    method_name.as_bytes(),
+                    &args.to_owned(),
+                    &[],
+                    &mut runtime_ext,
+                    &wasm::types::Config::default(),
+                    &RuntimeContext::new(
+                        account.amount,
+                        0,
                         contract_id,
-                        &AccountingInfo { originator: contract_id.clone(), contract_id: None },
-                        &empty_hash,
-                    );
-                    executor::execute(
-                        &code,
-                        method_name.as_bytes(),
-                        &args.to_owned(),
-                        &[],
-                        &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            account.amount,
-                            0,
-                            contract_id,
-                            contract_id,
-                            0,
-                            block_index,
-                            root.as_ref().into(),
-                        ),
-                    )
-                }
-                None => return Err(format!("contract {} does not exist", contract_id)),
-            };
+                        contract_id,
+                        0,
+                        block_index,
+                        root.as_ref().into(),
+                    ),
+                )
+            }
+            None => return Err(format!("contract {} does not exist", contract_id)),
+        };
         let elapsed = now.elapsed();
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
@@ -239,7 +238,7 @@ mod tests {
     }
 
     fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {
-        let mut bytes = account_id_to_bytes(COL_ACCOUNT, account_id);
+        let mut bytes = key_for_account(account_id);
         bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         bytes.append(&mut suffix.clone().to_vec());
         bytes

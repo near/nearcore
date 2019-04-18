@@ -1,19 +1,6 @@
 use std::cmp::{max, min};
 
-use primitives::types::{AccountId, Balance, BlockIndex, Gas, Mana};
-
-use super::{account_id_to_bytes, COL_TX_STAKE, COL_TX_STAKE_SEPARATOR};
-
-/// Key for the Transaction Staking. Can be just "account_id" or "account_id::contract_id"
-pub type TxStakeKey = Vec<u8>;
-
-pub fn get_tx_stake_key(account_id: &AccountId, contract_id: &Option<AccountId>) -> TxStakeKey {
-    let mut key = account_id_to_bytes(COL_TX_STAKE, &account_id);
-    if let Some(ref contract_id) = contract_id {
-        key.append(&mut account_id_to_bytes(COL_TX_STAKE_SEPARATOR, contract_id));
-    }
-    key
-}
+use primitives::types::{Balance, BlockIndex, Gas, Mana};
 
 // Transaction Stakes structs
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -66,14 +53,6 @@ pub struct TxTotalStake {
     total_active_stake: Balance,
     total_stake: Balance,
 }
-
-/*
- active_stakes: HashMap<AccountId, Balance>,
-    /// This is likely a redundant structure, since stake withdrawals
-    /// should be handled using scheduled receipts.
-    /// TODO(#315): Remove after scheduled receipts.
-    stakes_awaiting_withdrawal: HashMap<AccountId, Balance>,
-*/
 
 #[allow(unused)]
 impl TxTotalStake {

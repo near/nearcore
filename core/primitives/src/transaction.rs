@@ -18,6 +18,7 @@ use crate::types::{
     StructSignature,
 };
 use crate::utils::{account_to_shard_id, proto_to_result};
+use crate::traits::ToBytes;
 
 pub type LogEntry = String;
 
@@ -457,13 +458,19 @@ impl TransactionBody {
 pub struct SignedTransaction {
     pub body: TransactionBody,
     pub signature: StructSignature,
+    // In case this TX uses AccessKey, it needs to provide the public_key
+    pub public_key: Option<PublicKey>,
     hash: CryptoHash,
 }
 
 impl SignedTransaction {
-    pub fn new(signature: StructSignature, body: TransactionBody) -> Self {
+    pub fn new(
+        signature: StructSignature,
+        body: TransactionBody,
+        public_key: Option<PublicKey>,
+    ) -> Self {
         let hash = body.get_hash();
-        Self { signature, body, hash }
+        Self { signature, body, public_key, hash }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -478,7 +485,12 @@ impl SignedTransaction {
             receiver: AccountId::default(),
             amount: 0,
         });
-        SignedTransaction { signature: DEFAULT_SIGNATURE, body, hash: CryptoHash::default() }
+        SignedTransaction {
+            signature: DEFAULT_SIGNATURE,
+            body,
+            public_key: None,
+            hash: CryptoHash::default(),
+        }
     }
 }
 
@@ -536,9 +548,13 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
         let hash = hash(&bytes);
+        let public_key: Option<PublicKey> = t.public_key.into_option()
+            .map(|v| PublicKey::try_from(&v.value as &[u8]))
+            .transpose()
+            .map_err(|e| format!("{}", e))?;
         let signature: Signature =
             Signature::try_from(&t.signature as &[u8]).map_err(|e| format!("{}", e))?;
-        Ok(SignedTransaction { body, signature, hash })
+        Ok(SignedTransaction { body, signature, public_key, hash })
     }
 }
 
@@ -573,6 +589,11 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
         transaction_proto::SignedTransaction {
             body: Some(body),
             signature: tx.signature.as_ref().to_vec(),
+            public_key: SingularPtrField::from_option(tx.public_key.map(|v| {
+                let mut res = BytesValue::new();
+                res.set_value(v.to_bytes());
+                res
+            })),
             ..Default::default()
         }
     }
