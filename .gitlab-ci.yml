@@ -42,7 +42,7 @@ cache:
     paths:
         - apt-cache
 
-# Test all but integration tests.
+# Test all but expensive integration tests.
 test_cargo:
     stage: rust
     before_script:
@@ -55,21 +55,7 @@ test_cargo:
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
     - cargo check --all --all-features --tests --benches
-    - cargo test --all --verbose --exclude nearcore  # Do not run integration tests.
-    after_script:
-    - *cleanup_obsolete_cache
-
-# Test inexpensive integration tests.
-test_inexpensive_int:
-    stage: rust
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *install_protos
-    script:
-    - rustc --version && cargo --version
-    - ./scripts/build_wasm.sh
-    - cargo test --package nearcore
+    - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
 
