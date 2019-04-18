@@ -1,5 +1,9 @@
-use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use configs::chain_spec::{
+    AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+};
 use configs::ClientConfig;
+use network::proxy::benchmark::BenchmarkHandler;
+use network::proxy::ProxyHandler;
 use node_runtime::state_viewer::AccountViewCallResult;
 use node_runtime::test_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
@@ -10,22 +14,74 @@ use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
 use primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
-    DeleteKeyTransaction, DeployContractTransaction, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, SwapKeyTransaction, TransactionBody, TransactionStatus,
+    DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
+    FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
+    TransactionStatus,
 };
 use primitives::types::AccountingInfo;
-use testlib::node::{Node, RuntimeNode, ShardClientNode};
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
+use testlib::node::{
+    create_nodes_with_id_type, Node, NodeConfig, RuntimeNode, ShardClientNode, ThreadNode,
+    TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+};
+use testlib::test_helpers::{heavy_test, wait};
 use testlib::user::User;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const NUM_TEST_NODE: usize = 4;
+static TEST_PORT: AtomicU16 = AtomicU16::new(6000);
+
+fn test_chain_spec() -> ChainSpec {
+    ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority).0
+}
 
 fn create_shard_client_node() -> ShardClientNode {
-    let client_cfg = ClientConfig::default_devnet();
+    let mut client_cfg = ClientConfig::default_devnet();
+    client_cfg.chain_spec = test_chain_spec();
     ShardClientNode::new(client_cfg)
 }
 
 fn create_runtime_node() -> RuntimeNode {
     RuntimeNode::new(&alice_account())
+}
+
+fn create_testnet_node(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
+    let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
+
+    let (_, account_names, mut nodes) = create_nodes_with_id_type(
+        NUM_TEST_NODE,
+        test_prefix,
+        test_port,
+        TEST_BLOCK_FETCH_LIMIT,
+        TEST_BLOCK_MAX_SIZE,
+        proxy_handlers,
+        DefaultIdType::Named,
+    );
+    assert_eq!(account_names[0], alice_account());
+    let mut nodes: Vec<_> = nodes
+        .into_iter()
+        .map(|cfg| match cfg {
+            NodeConfig::Thread(config) => ThreadNode::new(config),
+            _ => unreachable!(),
+        })
+        .collect();
+    for i in 0..NUM_TEST_NODE {
+        nodes[i].start();
+    }
+    nodes
+}
+
+/// Macro for running testnet test. Increment the atomic global counter for port,
+/// and get the test_prefix from the test name.
+macro_rules! run_testnet_test {
+    ($f:expr) => {
+        let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
+        let test_prefix = stringify!($f);
+        let mut nodes = create_testnet_node(test_prefix, port);
+        let node = nodes.pop().unwrap();
+        heavy_test(|| $f(node));
+    };
 }
 
 /// validate transaction result in the case that it is successfully and generate one receipt which
@@ -44,6 +100,18 @@ fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash)
     assert_ne!(root, new_root);
 }
 
+/// Wait until transaction finishes (either succeeds or fails).
+fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
+    wait(
+        || match node_user.get_transaction_final_result(hash).status {
+            FinalTransactionStatus::Unknown | FinalTransactionStatus::Started => false,
+            _ => true,
+        },
+        500,
+        60000,
+    );
+}
+
 fn test_smart_contract_simple(node: impl Node) {
     let account_id = &node.signer().account_id;
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -60,6 +128,7 @@ fn test_smart_contract_simple(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
     validate_tx_result(node_user, root, &hash);
 }
 
@@ -79,6 +148,7 @@ fn test_smart_contract_bad_method_name(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
@@ -103,6 +173,7 @@ fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
@@ -127,6 +198,7 @@ fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
     validate_tx_result(node_user, root, &hash);
 }
 
@@ -146,6 +218,7 @@ fn test_smart_contract_with_args(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
     validate_tx_result(node_user, root, &hash);
 }
 
@@ -169,6 +242,7 @@ fn test_async_call_with_no_callback(node: impl Node) {
     let hash = receipt.nonce;
     let root = node_user.get_state_root();
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -201,6 +275,7 @@ fn test_async_call_with_callback(node: impl Node) {
     let node_user = node.user();
     let hash = receipt.nonce;
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.result, Some(encode_int(10).to_vec()));
@@ -248,6 +323,7 @@ fn test_async_call_with_logs(node: impl Node) {
     let hash = receipt.nonce;
     let root = node_user.get_state_root();
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -280,6 +356,7 @@ fn test_deposit_with_callback(node: impl Node) {
     let node_user = node.user();
     let hash = receipt.nonce;
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.result, Some(vec![]));
@@ -320,6 +397,7 @@ fn test_callback(node: RuntimeNode) {
     let hash = receipt.nonce;
     let node_user = node.user();
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -365,6 +443,7 @@ fn test_callback_failure(node: RuntimeNode) {
     let hash = receipt.nonce;
     let node_user = node.user();
     node_user.add_receipt(receipt).unwrap();
+    wait_for_transaction(&node_user, &hash);
 
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
@@ -393,6 +472,8 @@ fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(node_user.get_account_nonce(account_id).unwrap(), 1);
@@ -414,6 +495,8 @@ fn test_nonce_updated_when_tx_failed(node: impl Node) {
     let hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(node_user.get_account_nonce(account_id).unwrap(), 1);
@@ -433,10 +516,12 @@ fn test_upload_contract(node: impl Node) {
         amount: 10,
     })
     .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-
     let wasm_binary = include_bytes!("../core/wasm/runtest/res/wasm_with_mem.wasm");
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
         nonce: 1,
@@ -448,6 +533,8 @@ fn test_upload_contract(node: impl Node) {
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());
@@ -467,10 +554,11 @@ fn test_redeploy_contract(node: impl Node) {
         wasm_byte_array: test_binary.to_vec(),
     })
     .sign(&*node.signer());
-
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());
@@ -495,6 +583,7 @@ fn test_send_money(node: impl Node) {
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -521,7 +610,7 @@ fn test_send_money(node: impl Node) {
             account: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE + money_used,
-            stake: 0,
+            stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
         }
     );
@@ -542,6 +631,7 @@ fn test_send_money_over_balance(node: impl Node) {
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
@@ -569,7 +659,7 @@ fn test_send_money_over_balance(node: impl Node) {
             account: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
-            stake: 0,
+            stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
         }
     );
@@ -590,6 +680,7 @@ fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -597,6 +688,7 @@ fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 1);
+    wait_for_transaction(&node_user, &transaction_result.receipts[0]);
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());
@@ -633,6 +725,8 @@ fn test_create_account(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -682,7 +776,9 @@ fn test_create_account_again(node: impl Node) {
         amount: money_used,
     })
     .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
 
     let result1 = node_user.view_account(account_id);
     assert_eq!(
@@ -722,6 +818,7 @@ fn test_create_account_again(node: impl Node) {
     let tx_hash = transaction.get_hash();
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -729,6 +826,7 @@ fn test_create_account_again(node: impl Node) {
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 1);
+    wait_for_transaction(&node_user, &transaction_result.receipts[0]);
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());
@@ -773,6 +871,8 @@ fn test_create_account_failure_invalid_name(node: impl Node) {
         .sign(&*node.signer());
         let tx_hash = transaction.get_hash();
         node_user.add_transaction(transaction).unwrap();
+        wait_for_transaction(&node_user, &tx_hash);
+
         let new_root = node_user.get_state_root();
         assert_ne!(root, new_root);
         root = new_root;
@@ -808,12 +908,15 @@ fn test_create_account_failure_already_exists(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 1);
+    wait_for_transaction(&node_user, &transaction_result.receipts[0]);
     let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert!(transaction_result.receipts.is_empty());
@@ -842,7 +945,7 @@ fn test_create_account_failure_already_exists(node: impl Node) {
             account: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
-            stake: 0,
+            stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
         }
     );
@@ -862,10 +965,12 @@ fn test_swap_key(node: impl Node) {
         amount: money_used,
     })
     .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-
     let transaction = TransactionBody::SwapKey(SwapKeyTransaction {
         nonce: node.get_account_nonce(&eve_account()).unwrap_or_default() + 1,
         originator: eve_account(),
@@ -875,6 +980,8 @@ fn test_swap_key(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -898,6 +1005,8 @@ fn test_add_key(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -921,6 +1030,8 @@ fn test_add_existing_key(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -944,6 +1055,8 @@ fn test_delete_key(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -958,6 +1071,8 @@ fn test_delete_key(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -983,6 +1098,8 @@ fn test_delete_key_not_owned(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -1006,6 +1123,8 @@ fn test_delete_key_no_key_left(node: impl Node) {
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
     node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
     let transaction_result = node_user.get_transaction_result(&tx_hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -1033,6 +1152,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_simple_testnet() {
+        run_testnet_test!(test_smart_contract_simple);
+    }
+
+    #[test]
     fn test_smart_contract_bad_method_name_runtime() {
         let node = create_runtime_node();
         test_smart_contract_bad_method_name(node);
@@ -1042,6 +1166,11 @@ mod test {
     fn test_smart_contract_bad_method_name_shard_client() {
         let node = create_shard_client_node();
         test_smart_contract_bad_method_name(node);
+    }
+
+    #[test]
+    fn test_smart_contract_bad_method_name_testnet() {
+        run_testnet_test!(test_smart_contract_bad_method_name);
     }
 
     #[test]
@@ -1057,6 +1186,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_empty_method_name_with_no_tokens_testnet() {
+        run_testnet_test!(test_smart_contract_empty_method_name_with_no_tokens);
+    }
+
+    #[test]
     fn test_smart_contract_empty_method_name_with_tokens_runtime() {
         let node = create_runtime_node();
         test_smart_contract_empty_method_name_with_tokens(node);
@@ -1066,6 +1200,11 @@ mod test {
     fn test_smart_contract_empty_method_name_with_tokens_shard_client() {
         let node = create_shard_client_node();
         test_smart_contract_empty_method_name_with_tokens(node);
+    }
+
+    #[test]
+    fn test_smart_contract_empty_method_name_with_tokens_testnet() {
+        run_testnet_test!(test_smart_contract_empty_method_name_with_tokens);
     }
 
     #[test]
@@ -1081,6 +1220,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_with_args_testnet() {
+        run_testnet_test!(test_smart_contract_with_args);
+    }
+
+    #[test]
     fn test_async_call_with_no_callback_runtime() {
         let node = create_runtime_node();
         test_async_call_with_no_callback(node);
@@ -1090,6 +1234,11 @@ mod test {
     fn test_async_call_with_no_callback_shard_client() {
         let node = create_shard_client_node();
         test_async_call_with_no_callback(node);
+    }
+
+    #[test]
+    fn test_async_call_with_no_callback_testnet() {
+        run_testnet_test!(test_async_call_with_no_callback);
     }
 
     #[test]
@@ -1105,6 +1254,11 @@ mod test {
     }
 
     #[test]
+    fn test_async_call_with_callback_testnet() {
+        run_testnet_test!(test_async_call_with_callback);
+    }
+
+    #[test]
     fn test_async_call_with_logs_runtime() {
         let node = create_runtime_node();
         test_async_call_with_logs(node);
@@ -1114,6 +1268,11 @@ mod test {
     fn test_async_call_with_logs_shard_client() {
         let node = create_shard_client_node();
         test_async_call_with_logs(node);
+    }
+
+    #[test]
+    fn test_async_call_with_logs_testnet() {
+        run_testnet_test!(test_async_call_with_logs);
     }
 
     #[test]
@@ -1141,6 +1300,11 @@ mod test {
     }
 
     #[test]
+    fn test_deposit_with_callback_testnet() {
+        run_testnet_test!(test_deposit_with_callback);
+    }
+
+    #[test]
     fn test_nonce_update_when_deploying_contract_runtime() {
         let node = create_runtime_node();
         test_nonce_update_when_deploying_contract(node);
@@ -1150,6 +1314,11 @@ mod test {
     fn test_nonce_update_when_deploying_contract_shard_client() {
         let node = create_shard_client_node();
         test_nonce_update_when_deploying_contract(node);
+    }
+
+    #[test]
+    fn test_nonce_update_when_deploying_contract_testnet() {
+        run_testnet_test!(test_nonce_update_when_deploying_contract);
     }
 
     #[test]
@@ -1165,6 +1334,11 @@ mod test {
     }
 
     #[test]
+    fn test_nonce_updated_when_tx_failed_testnet() {
+        run_testnet_test!(test_nonce_updated_when_tx_failed);
+    }
+
+    #[test]
     fn test_upload_contract_runtime() {
         let node = create_runtime_node();
         test_upload_contract(node);
@@ -1174,6 +1348,11 @@ mod test {
     fn test_upload_contract_shard_client() {
         let node = create_shard_client_node();
         test_upload_contract(node);
+    }
+
+    #[test]
+    fn test_upload_contract_testnet() {
+        run_testnet_test!(test_upload_contract);
     }
 
     #[test]
@@ -1189,6 +1368,11 @@ mod test {
     }
 
     #[test]
+    fn test_redeploy_contract_testnet() {
+        run_testnet_test!(test_redeploy_contract);
+    }
+
+    #[test]
     fn test_send_money_runtime() {
         let node = create_runtime_node();
         test_send_money(node);
@@ -1198,6 +1382,11 @@ mod test {
     fn test_send_money_shard_client() {
         let node = create_shard_client_node();
         test_send_money(node);
+    }
+
+    #[test]
+    fn test_send_money_testnet() {
+        run_testnet_test!(test_send_money);
     }
 
     #[test]
@@ -1213,6 +1402,11 @@ mod test {
     }
 
     #[test]
+    fn test_send_money_over_balance_testnet() {
+        run_testnet_test!(test_send_money_over_balance);
+    }
+
+    #[test]
     fn test_refund_on_send_money_to_non_existent_account_runtime() {
         let node = create_runtime_node();
         test_refund_on_send_money_to_non_existent_account(node);
@@ -1222,6 +1416,11 @@ mod test {
     fn test_refund_on_send_money_to_non_existent_account_shard_client() {
         let node = create_shard_client_node();
         test_refund_on_send_money_to_non_existent_account(node);
+    }
+
+    #[test]
+    fn test_refund_on_send_money_to_non_existent_account_testnet() {
+        run_testnet_test!(test_refund_on_send_money_to_non_existent_account);
     }
 
     #[test]
@@ -1237,6 +1436,11 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_testnet() {
+        run_testnet_test!(test_create_account);
+    }
+
+    #[test]
     fn test_create_account_again_runtime() {
         let node = create_runtime_node();
         test_create_account_again(node);
@@ -1246,6 +1450,11 @@ mod test {
     fn test_create_account_again_shard_client() {
         let node = create_shard_client_node();
         test_create_account_again(node);
+    }
+
+    #[test]
+    fn test_create_account_again_testnet() {
+        run_testnet_test!(test_create_account_again);
     }
 
     #[test]
@@ -1261,6 +1470,11 @@ mod test {
     }
 
     #[test]
+    fn test_create_account_failure_invalid_name_testnet() {
+        run_testnet_test!(test_create_account_failure_invalid_name);
+    }
+
+    #[test]
     fn test_create_account_failure_already_exists_runtime() {
         let node = create_runtime_node();
         test_create_account_failure_already_exists(node);
@@ -1270,6 +1484,11 @@ mod test {
     fn test_create_account_failure_already_exists_shard_client() {
         let node = create_shard_client_node();
         test_create_account_failure_already_exists(node);
+    }
+
+    #[test]
+    fn test_create_account_failure_already_exists_testnet() {
+        run_testnet_test!(test_create_account_failure_already_exists);
     }
 
     #[test]
@@ -1285,6 +1504,11 @@ mod test {
     }
 
     #[test]
+    fn test_swap_key_testnet() {
+        run_testnet_test!(test_swap_key);
+    }
+
+    #[test]
     fn test_add_key_runtime() {
         let node = create_runtime_node();
         test_add_key(node);
@@ -1294,6 +1518,11 @@ mod test {
     fn test_add_key_shard_client() {
         let node = create_shard_client_node();
         test_add_key(node);
+    }
+
+    #[test]
+    fn test_add_key_testnet() {
+        run_testnet_test!(test_add_key);
     }
 
     #[test]
@@ -1309,6 +1538,11 @@ mod test {
     }
 
     #[test]
+    fn test_add_existing_key_testnet() {
+        run_testnet_test!(test_add_existing_key);
+    }
+
+    #[test]
     fn test_delete_key_runtime() {
         let node = create_runtime_node();
         test_delete_key(node);
@@ -1318,6 +1552,11 @@ mod test {
     fn test_delete_key_shard_client() {
         let node = create_shard_client_node();
         test_delete_key(node);
+    }
+
+    #[test]
+    fn test_delete_key_testnet() {
+        run_testnet_test!(test_delete_key);
     }
 
     #[test]
@@ -1333,6 +1572,11 @@ mod test {
     }
 
     #[test]
+    fn test_delete_key_not_owned_testnet() {
+        run_testnet_test!(test_delete_key_not_owned);
+    }
+
+    #[test]
     fn test_delete_key_no_key_left_runtime() {
         let node = create_runtime_node();
         test_delete_key_no_key_left(node);
@@ -1342,5 +1586,10 @@ mod test {
     fn test_delete_key_no_key_left_shard_client() {
         let node = create_shard_client_node();
         test_delete_key_no_key_left(node);
+    }
+
+    #[test]
+    fn test_delete_key_no_key_left_testnet() {
+        run_testnet_test!(test_delete_key_no_key_left);
     }
 }

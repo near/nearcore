@@ -4,7 +4,9 @@ use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use node_runtime::test_utils::to_receipt_block;
 use primitives::block_traits::SignedBlock;
 use primitives::hash::CryptoHash;
-use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::transaction::{
+    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+};
 use primitives::types::{AccountId, MerkleHash};
 use shard::{ReceiptInfo, ShardClient};
 use std::sync::Arc;
@@ -60,7 +62,7 @@ impl ShardClientUser {
             receipts = vec![self
                 .client
                 .get_receipt_block(index, 0)
-                .ok_or("Receipt does not exist".to_string())?];
+                .ok_or_else(|| "Receipt does not exist".to_string())?];
         }
         Ok(())
     }
@@ -73,8 +75,8 @@ impl User for ShardClientUser {
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        let mut state_update = self.client.get_state_update();
-        self.client.trie_viewer.view_state(&mut state_update, account_id)
+        let state_update = self.client.get_state_update();
+        self.client.trie_viewer.view_state(&state_update, account_id)
     }
 
     /// First adding transaction to the mempool and then simulate how payload are extracted from
@@ -113,6 +115,10 @@ impl User for ShardClientUser {
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
         self.client.get_transaction_result(hash)
+    }
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        self.client.get_transaction_final_result(hash)
     }
 
     fn get_state_root(&self) -> MerkleHash {

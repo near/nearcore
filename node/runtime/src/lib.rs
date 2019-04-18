@@ -729,7 +729,9 @@ impl Runtime {
                 for receipt in receipts {
                     result.receipts.push(receipt.nonce);
                     let shard_id = receipt.shard_id();
-                    new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
+                    new_receipts.entry(shard_id)
+                        .or_insert_with(|| vec![])
+                        .push(receipt);
                 }
                 state_update.commit();
                 result.status = TransactionStatus::Completed;
@@ -765,11 +767,9 @@ impl Runtime {
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);
                 let shard_id = receipt.shard_id();
-                if new_receipts.contains_key(&shard_id) {
-                    new_receipts.entry(shard_id).and_modify(|e| e.push(receipt));
-                } else {
-                    new_receipts.insert(shard_id, vec![receipt]);
-                }
+                new_receipts.entry(shard_id)
+                    .or_insert_with(|| vec![])
+                    .push(receipt);
             }
             match apply_result {
                 Ok(()) => {

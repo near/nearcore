@@ -278,17 +278,19 @@ impl NodeConfig {
     }
 }
 
-/// Create configs for nodes running in a thread. If
-pub fn create_nodes(
+/// Create configs for nodes running in a thread. Can use either Enumerated
+/// or Named for id type.
+pub fn create_nodes_with_id_type(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
     block_fetch_limit: u64,
     block_size_limit: u32,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
+    node_id_type: DefaultIdType,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let (chain_spec, _) = ChainSpec::testing_spec(
-        DefaultIdType::Enumerated,
+        node_id_type,
         num_nodes,
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
@@ -314,6 +316,26 @@ pub fn create_nodes(
         nodes.push(node);
     }
     (TESTING_INIT_BALANCE, account_names, nodes)
+}
+
+/// Create configs for nodes running in a thread.
+pub fn create_nodes(
+    num_nodes: usize,
+    test_prefix: &str,
+    test_port: u16,
+    block_fetch_limit: u64,
+    block_size_limit: u32,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
+) -> (u64, Vec<String>, Vec<NodeConfig>) {
+    create_nodes_with_id_type(
+        num_nodes,
+        test_prefix,
+        test_port,
+        block_fetch_limit,
+        block_size_limit,
+        proxy_handlers,
+        DefaultIdType::Enumerated,
+    )
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {

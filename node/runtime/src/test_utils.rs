@@ -56,7 +56,7 @@ pub fn get_runtime_and_trie_from_chain_spec(
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
     let (chain_spec, _) =
-        ChainSpec::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority);
+        ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority);
     get_runtime_and_trie_from_chain_spec(&chain_spec)
 }
 

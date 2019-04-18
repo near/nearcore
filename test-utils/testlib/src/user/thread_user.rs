@@ -5,7 +5,9 @@ use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use node_runtime::test_utils::to_receipt_block;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::CryptoHash;
-use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::transaction::{
+    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+};
 use primitives::types::{AccountId, MerkleHash};
 use shard::ReceiptInfo;
 use std::sync::Arc;
@@ -27,8 +29,8 @@ impl User for ThreadUser {
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        let mut state_update = self.client.shard_client.get_state_update();
-        self.client.shard_client.trie_viewer.view_state(&mut state_update, account_id)
+        let state_update = self.client.shard_client.get_state_update();
+        self.client.shard_client.trie_viewer.view_state(&state_update, account_id)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -64,6 +66,10 @@ impl User for ThreadUser {
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
         self.client.shard_client.get_transaction_result(hash)
+    }
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        self.client.shard_client.get_transaction_final_result(hash)
     }
 
     fn get_state_root(&self) -> MerkleHash {
