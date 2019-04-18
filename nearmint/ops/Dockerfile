@@ -8,6 +8,7 @@ RUN apt-get update -qq && apt-get install -y \
     protobuf-compiler \
     pkg-config \
     libssl-dev \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 ENV RUSTUP_HOME=/usr/local/rustup \
@@ -22,9 +23,26 @@ VOLUME [ /near ]
 WORKDIR /near
 COPY . .
 
-VOLUME [ /tmp/target ]
 ENV CARGO_TARGET_DIR=/tmp/target
+RUN --mount=type=cache,target=/tmp/target \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --release --package=nearmint && \
+    cp /tmp/target/release/nearmint /usr/local/bin/
 
-RUN cargo build --release
+RUN curl -L https://github.com/tendermint/tendermint/releases/download/v0.31.5/tendermint_v0.31.5_linux_amd64.zip > tendermint_v0.31.5_linux_amd64.zip
+RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
+#COPY target/tendermint/tendermint /usr/local/bin/
 
 EXPOSE 3030 26656 26657
+
+ENV TMHOME=/near
+
+RUN ["tendermint", "init" ]
+
+COPY nearmint/ops/tendermint-config.toml /near/config/config.toml
+COPY nearmint/ops/run_nearmint /usr/local/bin/run_nearmint
+
+ENTRYPOINT ["/sbin/my_init", "--"]
+
+CMD ["/usr/local/bin/run_nearmint"]

@@ -1,0 +1,22 @@
+#!/bin/bash
+set -e
+
+IMAGE=${!:-nearmint}
+STUDIO_IMAGE=${2:-nearprotocol/studio:0.1.8}
+NUM_NODES = 1
+
+sudo docker run -d --name testnet-0 -p 3030:3030 -p 26658:26658 \
+	-e "BOOT_NODE_IP=127.0.0.1" \
+	-e "NODE_NUM=0" \
+	${IMAGE}
+
+for NODE_ID in {1 .. NUM_NODES}
+do
+
+sudo docker run -d --name testnet-${NODE_ID} -p 303${NODE_ID}:3030 -p 2667${NODE_ID}:26658 \
+	-e "BOOT_NODE_IP=172.17.0.2" \
+	-e "NODE_NUM=${NODE_ID}" \
+	${IMAGE}
+
+done
+

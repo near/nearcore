@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+tendermint node --p2p.persistent_peers="${BOOT_NODE}" &
+
+nearmint --abci-address 127.0.0.1:26658
+
