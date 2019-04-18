@@ -42,6 +42,7 @@ cache:
     paths:
         - apt-cache
 
+# Test all but expensive integration tests.
 test_cargo:
     stage: rust
     before_script:
@@ -49,8 +50,6 @@ test_cargo:
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
-    - *setup_python
-    - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     script:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
@@ -59,6 +58,60 @@ test_cargo:
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
+
+# Regression tests.
+test_regression:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_tps_regression test --features regression_tests
+    tags:
+        - regression_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
+
+# A set of expensive tests.
+test_cases_testnet_direct:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_direct test --features expensive_tests
+    tags:
+      - expensive_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
+
+# A set of expensive tests.
+test_cases_testnet_rpc:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features expensive_tests
+    tags:
+        - expensive_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
 
 release_build:
     stage: rust
