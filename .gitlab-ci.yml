@@ -88,6 +88,8 @@ test_regression:
         - regression_tests
     after_script:
     - *cleanup_obsolete_cache
+    only:
+        - schedules
 
 # A set of expensive tests.
 test_cases_testnet_direct:
@@ -104,6 +106,8 @@ test_cases_testnet_direct:
       - expensive_tests
     after_script:
     - *cleanup_obsolete_cache
+    only:
+        - schedules
 
 # A set of expensive tests.
 test_cases_testnet_rpc:
@@ -120,6 +124,8 @@ test_cases_testnet_rpc:
         - expensive_tests
     after_script:
     - *cleanup_obsolete_cache
+    only:
+        - schedules
 
 release_build:
     stage: rust
