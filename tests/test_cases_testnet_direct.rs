@@ -1,57 +1,57 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `ThreadUser` that performs direct communication with
 //! internals of nodes.
-use configs::chain_spec::DefaultIdType;
-use node_runtime::test_utils::alice_account;
-use std::sync::atomic::{AtomicU16, Ordering};
-use testlib::node::thread_node::ThreadNode;
-use testlib::node::{
-    create_nodes_with_id_type, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
-};
-use testlib::test_helpers::heavy_test;
-const NUM_TEST_NODE: usize = 4;
-static TEST_PORT: AtomicU16 = AtomicU16::new(6000);
-
-fn create_thread_nodes(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
-    let (_, account_names, nodes) = create_nodes_with_id_type(
-        NUM_TEST_NODE,
-        test_prefix,
-        test_port,
-        TEST_BLOCK_FETCH_LIMIT,
-        TEST_BLOCK_MAX_SIZE,
-        vec![],
-        DefaultIdType::Named,
-    );
-    assert_eq!(account_names[0], alice_account());
-    let mut nodes: Vec<_> = nodes
-        .into_iter()
-        .map(|cfg| match cfg {
-            NodeConfig::Thread(config) => ThreadNode::new(config),
-            _ => unreachable!(),
-        })
-        .collect();
-    for i in 0..NUM_TEST_NODE {
-        nodes[i].start();
-    }
-    nodes
-}
-
-/// Macro for running testnet test. Increment the atomic global counter for port,
-/// and get the test_prefix from the test name.
-macro_rules! run_testnet_test {
-    ($f:expr) => {
-        let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
-        let test_prefix = stringify!($f);
-        let mut nodes = create_thread_nodes(test_prefix, port);
-        let node = nodes.pop().unwrap();
-        heavy_test(|| $f(node));
-    };
-}
-
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
-    use super::*;
     use testlib::standard_test_cases::*;
+
+    use configs::chain_spec::DefaultIdType;
+    use node_runtime::test_utils::alice_account;
+    use std::sync::atomic::{AtomicU16, Ordering};
+    use testlib::node::thread_node::ThreadNode;
+    use testlib::node::{
+        create_nodes_with_id_type, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
+    };
+    use testlib::test_helpers::heavy_test;
+    const NUM_TEST_NODE: usize = 4;
+    static TEST_PORT: AtomicU16 = AtomicU16::new(6000);
+
+    fn create_thread_nodes(test_prefix: &str, test_port: u16) -> Vec<ThreadNode> {
+        let (_, account_names, nodes) = create_nodes_with_id_type(
+            NUM_TEST_NODE,
+            test_prefix,
+            test_port,
+            TEST_BLOCK_FETCH_LIMIT,
+            TEST_BLOCK_MAX_SIZE,
+            vec![],
+            DefaultIdType::Named,
+        );
+        assert_eq!(account_names[0], alice_account());
+        let mut nodes: Vec<_> = nodes
+            .into_iter()
+            .map(|cfg| match cfg {
+                NodeConfig::Thread(config) => ThreadNode::new(config),
+                _ => unreachable!(),
+            })
+            .collect();
+        for i in 0..NUM_TEST_NODE {
+            nodes[i].start();
+        }
+        nodes
+    }
+
+    /// Macro for running testnet test. Increment the atomic global counter for port,
+    /// and get the test_prefix from the test name.
+    macro_rules! run_testnet_test {
+        ($f:expr) => {
+            let port = TEST_PORT.fetch_add(NUM_TEST_NODE as u16, Ordering::SeqCst);
+            let test_prefix = stringify!($f);
+            let mut nodes = create_thread_nodes(test_prefix, port);
+            let node = nodes.pop().unwrap();
+            heavy_test(|| $f(node));
+        };
+    }
 
     #[test]
     fn test_smart_contract_simple_testnet() {

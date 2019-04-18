@@ -1,27 +1,25 @@
-use configs::chain_spec::{AuthorityRotation, DefaultIdType};
-use configs::{ChainSpec, ClientConfig};
-use node_runtime::test_utils::alice_account;
-use testlib::node::runtime_node::RuntimeNode;
-use testlib::node::shard_client_node::ShardClientNode;
-
-fn test_chain_spec() -> ChainSpec {
-    ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority).0
-}
-
-fn create_shard_client_node() -> ShardClientNode {
-    let mut client_cfg = ClientConfig::default_devnet();
-    client_cfg.chain_spec = test_chain_spec();
-    ShardClientNode::new(client_cfg)
-}
-
-fn create_runtime_node() -> RuntimeNode {
-    RuntimeNode::new(&alice_account())
-}
-
 #[cfg(test)]
 mod test {
-    use super::*;
+    use configs::chain_spec::{AuthorityRotation, DefaultIdType};
+    use configs::{ChainSpec, ClientConfig};
+    use node_runtime::test_utils::alice_account;
+    use testlib::node::runtime_node::RuntimeNode;
+    use testlib::node::shard_client_node::ShardClientNode;
     use testlib::standard_test_cases::*;
+
+    fn test_chain_spec() -> ChainSpec {
+        ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority).0
+    }
+
+    fn create_shard_client_node() -> ShardClientNode {
+        let mut client_cfg = ClientConfig::default_devnet();
+        client_cfg.chain_spec = test_chain_spec();
+        ShardClientNode::new(client_cfg)
+    }
+
+    fn create_runtime_node() -> RuntimeNode {
+        RuntimeNode::new(&alice_account())
+    }
 
     #[test]
     fn test_smart_contract_simple_runtime() {

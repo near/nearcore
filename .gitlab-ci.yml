@@ -42,6 +42,7 @@ cache:
     paths:
         - apt-cache
 
+# Test all but integration tests.
 test_cargo:
     stage: rust
     before_script:
@@ -49,14 +50,68 @@ test_cargo:
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
-    - *setup_python
-    - (cd pynear && python setup.py install) # required for tests/test_testnet.rs
     script:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
     - cargo check --all --all-features --tests --benches
-    - cargo test --all --verbose
+    - cargo test --all --verbose --exclude nearcore  # Do not run integration tests.
+    after_script:
+    - *cleanup_obsolete_cache
+
+# Test inexpensive integration tests.
+test_inexpensive_int:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore
+    after_script:
+    - *cleanup_obsolete_cache
+
+# Regresssion tests.
+test_regression:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --features regression_tests
+    after_script:
+    - *cleanup_obsolete_cache
+
+# A set of expensive tests.
+test_cases_testnet_direct:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_direct test --features expensive_tests
+    after_script:
+    - *cleanup_obsolete_cache
+
+# A set of expensive tests.
+test_cases_testnet_rpc:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features expensive_tests
     after_script:
     - *cleanup_obsolete_cache
 
