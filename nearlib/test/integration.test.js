@@ -33,7 +33,7 @@ describe('dev connect', () => {
     let options;
     beforeEach(async () => {
         const keyStore = new InMemoryKeyStore(networkId);
-        const storage = createFakeStorage();   
+        const storage = createFakeStorage();
         deps = {
             keyStore,
             storage,
@@ -262,7 +262,7 @@ describe('with deployed contract', () => {
         expect(logs.length).toBe(3);
         expect(logs[0]).toEqual(`[${contractName}]: LOG: log before assert`);
         expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "../out/main.ts" line: \\d+ col: \\d+$`));
-        expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer(CallError(Runtime(User { msg: "Error: AssertFailed" })))`);
+        expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer("call error: Call error: user-defined, opaque")`);
     });
 
     test('test set/remove', async () => {
