@@ -9,7 +9,7 @@ use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use primitives::utils::{is_valid_account_id, key_for_account, key_for_code};
 use storage::{get, TrieUpdate};
 use wasm::executor;
-use wasm::types::{ReturnData, RuntimeContext};
+use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
@@ -96,7 +96,7 @@ impl TrieViewer {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
         let root = state_update.get_root();
-        let code: Vec<u8> =
+        let code: ContractCode =
             get(&mut state_update, &key_for_code(contract_id)).ok_or_else(|| {
                 format!("account {} does not have contract code", contract_id.clone())
             })?;

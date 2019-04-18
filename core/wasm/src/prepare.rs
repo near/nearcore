@@ -4,7 +4,7 @@
 use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
 use parity_wasm::builder;
 use pwasm_utils::{self, rules};
-use crate::types::{Config, PrepareError as Error};
+use crate::types::{Config, ContractCode, PrepareError as Error};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -177,10 +177,10 @@ impl<'a> ContractModule<'a> {
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
 pub fn prepare_contract(
-    original_code: &[u8],
+    original_code: &ContractCode,
     config: &Config,
 ) -> Result<Vec<u8>, Error> {
-    let mut contract_module = ContractModule::init(original_code, config)?;
+    let mut contract_module = ContractModule::init(original_code.get_code(), config)?;
     contract_module.standardize_mem();
     contract_module.ensure_no_internal_memory()?;
     contract_module.inject_gas_metering()?;
@@ -207,7 +207,8 @@ mod tests {
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();
         let config = Config::default();
-        prepare_contract(wasm.as_ref(), &config)
+        let code = ContractCode::new(wasm.as_ref().to_vec());
+        prepare_contract(&code, &config)
     }
 
     #[test]
