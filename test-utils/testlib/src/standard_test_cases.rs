@@ -527,7 +527,7 @@ pub fn test_send_money(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
@@ -540,7 +540,7 @@ pub fn test_send_money(node: impl Node) {
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account: bob_account(),
+            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE + money_used,
             stake: TESTING_INIT_STAKE,
@@ -576,7 +576,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -589,7 +589,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account: bob_account(),
+            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -632,7 +632,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -674,7 +674,7 @@ pub fn test_create_account(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
@@ -688,7 +688,7 @@ pub fn test_create_account(node: impl Node) {
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account: eve_account(),
+            account_id: eve_account(),
             public_keys,
             amount: money_used,
             stake: 0,
@@ -718,7 +718,7 @@ pub fn test_create_account_again(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
@@ -732,7 +732,7 @@ pub fn test_create_account_again(node: impl Node) {
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account: eve_account(),
+            account_id: eve_account(),
             public_keys,
             amount: money_used,
             stake: 0,
@@ -771,7 +771,7 @@ pub fn test_create_account_again(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 2,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
@@ -816,7 +816,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             account,
             AccountViewCallResult {
                 nonce: counter,
-                account: account_id.clone(),
+                account_id: account_id.clone(),
                 public_keys: vec![node.signer().public_key.clone()],
                 amount: TESTING_INIT_BALANCE,
                 stake: TESTING_INIT_STAKE,
@@ -861,7 +861,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         result1.unwrap(),
         AccountViewCallResult {
             nonce: 1,
-            account: account_id.clone(),
+            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -875,7 +875,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account: bob_account(),
+            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,

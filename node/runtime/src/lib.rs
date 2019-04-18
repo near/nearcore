@@ -862,7 +862,7 @@ mod tests {
         assert_eq!(
             result.unwrap(),
             AccountViewCallResult {
-                account: alice_account(),
+                account_id: alice_account(),
                 amount: TESTING_INIT_BALANCE,
                 nonce: 0,
                 public_keys: vec![signer.public_key],

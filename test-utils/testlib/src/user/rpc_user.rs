@@ -58,7 +58,7 @@ impl AsyncUser for RpcUser {
             .send()
             .and_then(|mut resp| resp.json())
             .map(|response: ViewAccountResponse| AccountViewCallResult {
-                account: response.account_id,
+                account_id: response.account_id,
                 nonce: response.nonce,
                 amount: response.amount,
                 public_keys: response.public_keys,
@@ -255,7 +255,7 @@ impl User for RpcUser {
             .map_err(|err| format!("{}", err))?;
         let response: ViewAccountResponse = response.json().map_err(|err| format!("{}", err))?;
         let result = AccountViewCallResult {
-            account: response.account_id,
+            account_id: response.account_id,
             nonce: response.nonce,
             amount: response.amount,
             public_keys: response.public_keys,

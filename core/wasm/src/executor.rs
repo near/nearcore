@@ -53,13 +53,7 @@ pub fn execute<'a>(
         return Err(Error::EmptyMethodName);
     }
 
-    let wasm_cache = cache::compile_cached_module(code, config)?;
-
-    // into_module method is unsafe because the runtime cannot confirm
-    // that this cache was not tampered with or corrupted.
-    // In our case the cache is cloned from memory, so it's safe to use.
-    let module = unsafe { wasm_cache.into_module() }
-        .map_err(|e| Error::Cache(format!("Cache error: {:?}", e)))?;
+    let module = cache::compile_cached_module(code, config)?;
 
     let memory = Memory::new(MemoryDescriptor {
         minimum: Pages(config.initial_memory_pages),
@@ -79,6 +73,15 @@ pub fn execute<'a>(
     let import_object = runtime::imports::build(memory);
 
     let mut instance = module.instantiate(&import_object)?;
+
+    // WORKAROUND: Wasmer has a thread-local panic trap, and to run correctly,
+    // we have to set the panic trap to this module.
+    //
+    // Currently it only does this in Module::new(), which is wrong because
+    // latest module created is not necessarily the one currently executing.
+    //
+    // instance.module() is a way to trigger the code we need.
+    instance.module();
 
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 
