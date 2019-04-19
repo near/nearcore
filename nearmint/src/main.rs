@@ -65,24 +65,26 @@ impl NearMint {
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
-        let storage1 = storage.clone();
-        let mut guard = storage1
-            .write()
-            .expect(POISONED_LOCK_ERR);
 
-        guard
+        storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
             .set_genesis_hash(genesis_root)
             .expect("Failed to set genesis hash");
 
-        let maybe_best_hash = guard
+        let maybe_best_hash = storage
+            .write()
+            .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
             .best_block_hash()
             .map(|x| x.cloned());
         let (root, height) = if let Ok(Some(best_hash)) = maybe_best_hash {
             (
                 best_hash,
-                guard
+                storage
+                    .write()
+                    .expect(POISONED_LOCK_ERR)
                     .blockchain_storage_mut()
                     .best_block_index()
                     .unwrap()
