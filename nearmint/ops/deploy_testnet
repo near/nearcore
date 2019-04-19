@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-ilblackdragon/nearmint:0.1}
+IMAGE=${1:-nearprotocol/nearmint:0.1.0}
 PREFIX=${2:-testnet}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.8}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.9}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=2
@@ -76,7 +76,7 @@ do
         --zone ${ZONE} \
         --tags=testnet-instance \
         --disk=name=${PREFIX}-persistent-${NODE_ID} \
-        --container-mount-disk=mount-path="/near" \
+        --container-mount-disk=mount-path="/srv/near" \
         --boot-disk-size 200GB \
         --machine-type n1-highcpu-4
 
@@ -106,7 +106,7 @@ fi
 
 if [[ !${STUDIO_EXISTS} -eq 0 ]]; then
 gcloud beta compute instances create-with-container ${PREFIX}-studio \
-    --container-env DEVNET_HOST=http://${BOOT_NODE_IP}:3030 \
+    --container-env DEVNET_HOST=http://${BOOT_NODE_IP} \
     --container-env PLATFORM=GCP \
     --container-image ${STUDIO_IMAGE} \
     --zone ${ZONE} \

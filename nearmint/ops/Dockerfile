@@ -39,11 +39,11 @@ RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
 
 EXPOSE 3030 26656 26657
 
-ENV TMHOME=/near
+ENV TMHOME=/srv/near
 
 RUN ["tendermint", "init" ]
 
-COPY nearmint/ops/tendermint-config.toml /near/config/config.toml
+COPY nearmint/ops/tendermint-config.toml /srv/near/config/config.toml
 COPY nearmint/ops/run_nearmint /usr/local/bin/run_nearmint
 
 ENTRYPOINT ["/sbin/my_init", "--"]
