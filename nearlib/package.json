@@ -8,6 +8,7 @@
   },
   "homepage": "https://github.com/nearprotocol/nearcore",
   "main": "index.js",
+  "browser": "browser.js",
   "dependencies": {
     "bs58": "^4.0.1",
     "error-polyfill": "^0.1.2",
