@@ -35,9 +35,10 @@ members = [
     "runtime/wasm",
     "runtime/wasm/runtest",
     "runtime/http",
-    "test-utils/keygen",
+    "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "nearmint/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
@@ -51,7 +52,7 @@ serde_json = "1.0.0"
 
 devnet = { path = "./chain/devnet" }
 alphanet = { path = "./chain/alphanet" }
-keystore = { path = "./test-utils/keygen" }
+keystore = { path = "./test-utils/keystore" }
 node-http = { path = "./runtime/http" }
 primitives = { path = "./runtime/primitives" }
 storage = { path = "./runtime/storage" }
