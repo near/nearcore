@@ -60,7 +60,7 @@ Link `tendermint` binary to target/release folder
 
 We use docker compose to spin up 4 node local cluster:
 
-    cargo run --release
+    cargo run --release --package nearmint
     cd ops/local
     docker-compose up
 
@@ -84,7 +84,7 @@ To run single validator mode (e.g. DevNet mode), you can set Tendermint validato
 ```
 
 
-And then when running `nearmint` use `--devnet` flag, e.g. `cargo run -- --devnet` or `target/release/nearmint --devnet`.
+And then when running `nearmint` use `--devnet` flag, e.g. `cargo run --package nearmint -- --devnet` or `target/release/nearmint --devnet`.
     
 ## Interacting
 

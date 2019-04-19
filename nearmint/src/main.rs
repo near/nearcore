@@ -14,7 +14,6 @@ use log::info;
 use node_runtime::{ApplyState, Runtime};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use primitives::crypto::signature::PublicKey;
-use primitives::hash::CryptoHash;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
@@ -210,7 +209,7 @@ impl Application for NearMint {
             root: self.root,
             shard_id: 0,
             block_index: req.header.clone().unwrap().height as u64,
-            parent_block_hash: CryptoHash::default(), //CryptoHash::try_from(req.header.clone().unwrap().last_block_id.unwrap().hash).unwrap(),
+            parent_block_hash: self.root,
         });
         self.state_update = Some(TrieUpdate::new(self.trie.clone(), self.root));
         ResponseBeginBlock::new()
