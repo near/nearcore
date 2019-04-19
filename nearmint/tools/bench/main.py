@@ -35,7 +35,6 @@ def benchmark(rpc, users, duration):
         header = rpc.get_header(index)
         index -= 1
         block_time = block_time_to_timestamp(header['result']['block_meta']['header']['time'])
-        # print(block_time, start_time, end_time)
         num_txs = int(header['result']['block_meta']['header']['num_txs'])
         if block_time > end_block_time:
             continue
