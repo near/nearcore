@@ -565,7 +565,7 @@ class NearClient {
         const serializedArgs = Buffer.from(JSON.stringify(args)).toString('hex');
         const result = await this.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, '0', false]);
         const response = result.response;
-        if (response.log.length == 0) {
+        if (response.log === undefined || response.log.length === 0) {
             const logs = [];
         } else {
             const logs = response.log.split('\n');
@@ -588,11 +588,10 @@ class NearClient {
         // tx_result has default values: code = 0, logs: '', data: ''.
         const codes = { 0: 'Completed', 1: 'Failed', 2: 'Started' };
         const status = codes[response.tx_result.code || 0] || 'Unknown';
-        const logstr = response.tx_result.log || '';
-        if (logstr.length == 0) {
+        if (response.tx_result === undefined || response.tx_result.log === undefined || response.tx_result.log.length === 0) {
             const logs = [];
         } else {
-            const logs = logstr.split('\n');
+            const logs = response.tx_result.log.split('\n');
         }
         return { logs, status, value: response.tx_result.data };
     }
