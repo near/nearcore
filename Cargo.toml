@@ -27,6 +27,7 @@ members = [
     "chain/devnet",
     "chain/network",
     "chain/shard",
+    "chain/http",
     "chain/tokio-utils",
     "protos/builder",
     "runtime/primitives",
@@ -34,7 +35,6 @@ members = [
     "runtime/runtime",
     "runtime/wasm",
     "runtime/wasm/runtest",
-    "runtime/http",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
@@ -53,7 +53,7 @@ serde_json = "1.0.0"
 devnet = { path = "./chain/devnet" }
 alphanet = { path = "./chain/alphanet" }
 keystore = { path = "./test-utils/keystore" }
-node-http = { path = "./runtime/http" }
+node-http = { path = "./chain/http" }
 primitives = { path = "./runtime/primitives" }
 storage = { path = "./runtime/storage" }
 network = { path = "./chain/network" }

@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+import "chain.proto";
+import "signed_transaction.proto";
+import "receipt.proto";
+import "nightshade.proto";
+import "wrappers.proto";
+
+message PeerInfo {
+    bytes id = 1;
+    google.protobuf.StringValue addr = 2;
+    google.protobuf.StringValue account_id = 3;
+}
+
+message ConnectedInfo {
+    ChainState chain_state = 1;
+}
+
+message HandShake {
+    uint32 version = 1;
+    bytes peer_id = 2;
+    google.protobuf.StringValue account_id = 3;
+    google.protobuf.UInt32Value listen_port = 4;
+    repeated PeerInfo peers_info = 5;
+    ConnectedInfo connected_info = 6;
+}
+
+message InfoGossip {
+    repeated PeerInfo info_gossip = 1;
+}
+
+message PeerMessage {
+    oneof message_type {
+        HandShake hand_shake = 1;
+        InfoGossip info_gossip = 2;
+        bytes message = 3;
+    }
+}
+
+message Snapshot {
+    repeated bytes transactions = 1;
+    repeated bytes receipts = 2;
+    bytes hash = 3;
+}
+
+message MissingPayloadRequest {
+    repeated bytes transactions = 1;
+    repeated bytes receipts = 2;
+    bytes snapshot_hash = 3;
+}
+
+message MissingPayloadResponse {
+    repeated SignedTransaction transactions = 1;
+    repeated ReceiptBlock receipts = 2;
+    bytes snapshot_hash = 3;
+}
+
+message Message {
+    message BlockFetchRequest {
+        uint64 request_id = 1;
+        // block request start index
+        uint64 from = 2;
+        // block request end index
+        uint64 to = 3;
+    }
+    
+    message BlockResponse {
+        uint64 request_id = 1;
+        repeated CoupledBlock response = 2;
+        // the best index that peer has
+        uint64 best_index = 3;
+    }
+    
+    message PayloadRequest {
+        uint64 request_id = 1;
+        MissingPayloadRequest payload = 2;
+    }
+    
+    message PayloadResponse {
+        uint64 request_id = 1;
+        MissingPayloadResponse payload = 2;
+    }
+
+    message PayloadSnapshotRequest {
+        uint64 request_id = 1;
+        bytes snapshot_hash = 2;
+    }
+
+    message PayloadSnapshotResponse {
+        uint64 request_id = 1;
+        Snapshot snapshot = 2;
+    }
+
+    message JointBlockBLS {
+        message Request {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+        }
+        message General {
+            uint64 sender_id = 1;
+            uint64 receiver_id = 2;
+            bytes beacon_hash = 3;
+            bytes shard_hash = 4;
+            string beacon_sig = 5;
+            string shard_sig = 6;
+        }
+        oneof type {
+            Request request = 1;
+            General general = 2;
+        }
+    }
+
+    oneof message_type {
+        ConnectedInfo connected_info = 1;
+        SignedTransaction transaction = 2;
+        ReceiptBlock receipt = 3;
+        CoupledBlock block_announce = 4;
+        Message.BlockFetchRequest block_fetch_request = 5;
+        Message.BlockResponse block_response = 6;
+        Gossip gossip = 7;
+        PayloadGossip payload_gossip = 8;
+        Message.PayloadRequest payload_request = 9;
+        Message.PayloadResponse payload_response = 10;
+        Message.PayloadSnapshotRequest payload_snapshot_request = 11;
+        Message.PayloadSnapshotResponse payload_snapshot_response = 12;
+        Message.JointBlockBLS joint_block_bls = 13;
+    }
+}

@@ -1,0 +1,10 @@
+[package]
+name = "runtest"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[dependencies]
+byteorder = { version = "1", default-features = false }
+
+wasm = { path = "../" }
+primitives = { path = "../../primitives" }

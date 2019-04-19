@@ -19,7 +19,7 @@ storage = { path = "../runtime/storage" }
 node-runtime = { path = "../runtime/runtime" }
 client = { path = "../chain/client" }
 configs = { path = "../chain/configs" }
-node-http = { path = "../runtime/http" }
+node-http = { path = "../chain/http" }
 
 [dev-dependencies]
 tempdir = "0.3"

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+message GroupSignature {
+    string signature = 1;
+    repeated bool authority_mask = 2;
+}
+
+message MerkleNode {
+    bytes hash = 1;
+    // Direction encoded as bool. true -> Left, false -> right
+    bool direction = 2;
+}
+
+message AuthorityStake {
+    string account_id = 1;
+    string public_key = 2;
+    string bls_public_key = 3;
+    uint64 amount = 4;
+}

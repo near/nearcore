@@ -1,7 +1,7 @@
 use crate::node::{Node, ProcessNode, ThreadNode};
 use crate::user::runtime_user::{MockClient, RuntimeUser};
 use crate::user::User;
-use node_runtime::test_utils::get_runtime_and_trie;
+use crate::runtime_utils::get_runtime_and_trie;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
 use std::sync::{Arc, RwLock};

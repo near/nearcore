@@ -1,8 +1,8 @@
 use crate::user::{User, POISONED_LOCK_ERR};
+use crate::runtime_utils::to_receipt_block;
 use client::Client;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use node_runtime::test_utils::to_receipt_block;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::CryptoHash;
 use primitives::transaction::{

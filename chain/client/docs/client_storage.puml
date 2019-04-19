@@ -1,0 +1,31 @@
+@startuml
+
+class BlockChainStorage
+
+interface GenericStorage
+
+
+class BlockChain
+BlockChain *-- GenericStorage
+
+package SequentializedBeacon {
+class BeaconChainStorage
+GenericStorage <|-- BeaconChainStorage
+BeaconChainStorage *-- BlockChainStorage
+
+class BeaconClient
+BeaconClient *-- BlockChain
+}
+
+package SequentializedShard {
+class ShardChainStorage
+GenericStorage <|-- ShardChainStorage
+ShardChainStorage *-- BlockChainStorage
+
+
+class ShardClient
+ShardClient *-- BlockChain
+}
+
+
+@enduml

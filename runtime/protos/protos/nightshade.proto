@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+import "chain.proto";
+
+message BlockProposal {
+    bytes hash = 1;
+    uint64 author = 2;
+}
+
+message BareState {
+    int64 primary_confidence = 1;
+    BlockProposal endorses = 2;
+    int64 secondary_confidence = 3;
+}
+
+message Proof {
+    BareState bare_state = 1;
+    repeated bool mask = 2;
+    string signature = 3;
+}
+
+message State {
+    BareState bare_state = 1;
+    Proof primary_proof = 2;
+    Proof secondary_proof = 3;
+    string signature = 4;
+}
+
+message SignedBlockProposal {
+    BlockProposal block_proposal = 1;
+    string signature = 2;
+}
+
+message Gossip {
+    message Message {
+        uint64 sender_id = 1;
+        uint64 receiver_id = 2;
+        State state = 3;
+    }
+    message PayloadRequest {
+        repeated uint64 payload_request = 1;
+    }
+    
+    message PayloadReply {
+        repeated SignedBlockProposal payload_reply = 1;
+    }
+    uint64 sender_id = 1;
+    uint64 receiver_id = 2;
+    oneof body {
+        Gossip.Message nightshade_state_update = 3;
+        Gossip.PayloadRequest payload_request = 4;
+        Gossip.PayloadReply payload_reply = 5;
+    }
+    uint64 block_index = 6;
+    string signature = 7;
+}
+
+message PayloadGossip {
+    uint64 sender_id = 1;
+    uint64 receiver_id = 2;
+    ChainPayload payload = 3;
+    uint64 block_index = 4;
+    string signature = 5;
+}

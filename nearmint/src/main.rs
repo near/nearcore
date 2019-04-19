@@ -12,6 +12,7 @@ use configs::ChainSpec;
 use env_logger::Builder;
 use log::info;
 use node_runtime::{ApplyState, Runtime};
+use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
@@ -118,7 +119,7 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
         .and_then(TryInto::try_into)
 }
 
-impl node_http::api::RuntimeAdapter for NearMint {
+impl RuntimeAdapter for NearMint {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), self.root);
         self.trie_viewer.view_account(&mut state_update, account_id)
@@ -156,7 +157,7 @@ impl Application for NearMint {
 
     fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
         let mut resp = ResponseQuery::new();
-        match node_http::api::query_client(self, &req.path, &req.data, req.height as u64, req.prove)
+        match query_client(self, &req.path, &req.data, req.height as u64, req.prove)
         {
             Ok(response) => {
                 resp.key = response.key;
@@ -353,10 +354,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use node_http::api::RuntimeAdapter;
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;
     use primitives::transaction::TransactionBody;
+    use node_runtime::adapter::RuntimeAdapter;
     use protobuf::Message;
 
     use tempdir::TempDir;
