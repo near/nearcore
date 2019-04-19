@@ -16,7 +16,9 @@ keystore keygen --tendermint --test-seed ${KEYGEN_SEED} -p ${TMHOME}/config/
 
 if [[ -n ${NODE_KEY} ]]
 then
-	echo "{\"priv_key\":{\"type\":\"tendermint/PrivKeyEd25519\",\"value\":\"${NODE_KEY}\"}}" > ${TMHOME}/config/node_key.json
+    cat << EOF > ${TMHOME}/config/node_key.json
+{"priv_key": {"type": "tendermint/PrivKeyEd25519", "value": "$NODE_KEY"}}
+EOF
 	cat ${TMHOME}/config/node_key.json
 fi
 

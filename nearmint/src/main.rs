@@ -65,25 +65,24 @@ impl NearMint {
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
-        storage
+        let storage1 = storage.clone();
+        let mut guard = storage1
             .write()
-            .expect(POISONED_LOCK_ERR)
+            .expect(POISONED_LOCK_ERR);
+
+        guard
             .blockchain_storage_mut()
             .set_genesis_hash(genesis_root)
             .expect("Failed to set genesis hash");
 
-        let maybe_best_hash = storage
-            .write()
-            .expect(POISONED_LOCK_ERR)
+        let maybe_best_hash = guard
             .blockchain_storage_mut()
             .best_block_hash()
             .map(|x| x.cloned());
         let (root, height) = if let Ok(Some(best_hash)) = maybe_best_hash {
             (
-                best_hash.clone(),
-                storage
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
+                best_hash,
+                guard
                     .blockchain_storage_mut()
                     .best_block_index()
                     .unwrap()
@@ -237,8 +236,8 @@ impl Application for NearMint {
                 if tx_result.status != TransactionStatus::Completed {
                     resp.code = 2;
                 } else {
-                    let mut receipts = incoming_receipts.remove(&0).unwrap_or(vec![]);
-                    while receipts.len() > 0 {
+                    let mut receipts = incoming_receipts.remove(&0).unwrap_or_else(|| vec![]);
+                    while !receipts.is_empty() {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
                             let receipt_result = Runtime::process_receipt(
@@ -254,7 +253,7 @@ impl Application for NearMint {
                                 resp.data = result;
                             }
                         }
-                        receipts = new_receipts.remove(&0).unwrap_or(vec![]);
+                        receipts = new_receipts.remove(&0).unwrap_or_else(|| vec![]);
                     }
                 }
                 resp.log = logs.join("\n");
@@ -280,15 +279,14 @@ impl Application for NearMint {
                 .apply_changes(db_changes)
                 .expect("Failed to commit to database");
             if let Some(apply_state) = &self.apply_state {
-                self.storage
+                let mut guard = self.storage
                     .write()
-                    .expect(POISONED_LOCK_ERR)
+                    .expect(POISONED_LOCK_ERR);
+                guard
                     .blockchain_storage_mut()
                     .set_best_block_index(apply_state.block_index)
                     .expect("FAILED");
-                self.storage
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
+                guard
                     .blockchain_storage_mut()
                     .set_best_block_hash(new_root)
                     .expect("FAILED");
@@ -305,7 +303,7 @@ impl Application for NearMint {
 fn main() {
     // Parse command line arguments.
     let matches = App::new("Nearmint")
-        .args(&vec![
+        .args(&[
             Arg::with_name("base_path")
                 .short("d")
                 .long("base-path")
@@ -355,6 +353,7 @@ fn main() {
 mod tests {
     use node_http::api::RuntimeAdapter;
     use primitives::crypto::signer::InMemorySigner;
+    use primitives::hash::CryptoHash;
     use primitives::transaction::TransactionBody;
     use protobuf::Message;
 
