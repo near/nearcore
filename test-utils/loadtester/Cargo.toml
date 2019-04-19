@@ -9,5 +9,5 @@ clap = "2.32"
 log = "0.4"
 env_logger = "0.6.0"
 
-primitives = { path = "../../core/primitives" }
+primitives = { path = "../../runtime/primitives" }
 testlib = { path = "../testlib" }
