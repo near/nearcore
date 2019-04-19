@@ -39,13 +39,18 @@ class NearClient {
         const serializedArgs = Buffer.from(JSON.stringify(args)).toString('hex');
         const result = await this.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, '0', false]);
         const response = result.response;
-        const logs = response.log || '';
-        logs.split("\n").forEach(line => {
+        if (response.log.length == 0) {
+            const logs = [];
+        } else {
+            const logs = response.log.split('\n');
+        }
+        logs.forEach(line => {
             console.log(`[${contractAccountId}]: ${line}`);
         });
         // If error, raise exception after printing logs.
-        if (response.code != 0) {
-            throw Error(response.info)
+        const code = response.code || 0;
+        if (code != 0) {
+            throw Error(response.info);
         }
         const json = JSON.parse(_base64ToBuffer(response.value).toString());
         return json;
@@ -55,10 +60,15 @@ class NearClient {
         const encodedHash = _arrayBufferToBase64(transactionHash);
         const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
         // tx_result has default values: code = 0, logs: '', data: ''.
-        const codes = {0: 'Completed', 1: 'Failed', 2: 'Started'};
+        const codes = { 0: 'Completed', 1: 'Failed', 2: 'Started' };
         const status = codes[response.tx_result.code || 0] || 'Unknown';
-        const logs = response.tx_result.log || '';
-        return {logs: logs.split('\n'), status, value: response.tx_result.data };
+        const logstr = response.tx_result.log || '';
+        if (logstr.length == 0) {
+            const logs = [];
+        } else {
+            const logs = logstr.split('\n');
+        }
+        return { logs, status, value: response.tx_result.data };
     }
 
     async getNonce(accountId) {
