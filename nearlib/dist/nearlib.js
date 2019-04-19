@@ -581,14 +581,8 @@ class NearClient {
         const encodedHash = _arrayBufferToBase64(transactionHash);
         const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
         // tx_result has default values: code = 0, logs: '', data: ''.
-        let status;
-        const code = response.tx_result.code || 0;
-        switch (code) {
-            case 0: status = 'Completed'; break;
-            case 1: status = 'Failed'; break;
-            case 2: status = 'Started'; break;
-            default: status = 'Unknown';
-        }
+        const codes = {0: 'Completed', 1: 'Failed', 2: 'Started'};
+        const status = codes[response.tx_result.code || 0] || 'Unknown';
         const logs = response.tx_result.log || '';
         return {logs: logs.split('\n'), status, value: response.tx_result.data };
     }
@@ -602,7 +596,7 @@ class NearClient {
             jsonrpc: '2.0',
             method,
             params,
-            id: 'dontcare',
+            id: Date.now().toString(),
         };
         const response = await this.nearConnection.request('', request);
         if (response.error) {
@@ -12664,9 +12658,9 @@ const KeyPair = require('./key_pair');
  */
 class AccountInfo {
     constructor(accountId, keyPair, networkId) {
-        this._accountId = accountId;
-        this._keyPair = keyPair;
-        this._networkId = networkId;
+        this.accountId = accountId;
+        this.keyPair = keyPair;
+        this.networkId = networkId;
     }
 
     /**
@@ -12685,48 +12679,18 @@ class AccountInfo {
      */
     toJSON() {
         return {
-            account_id: this._accountId,
-            public_key: this._keyPair.getPublicKey(),
-            secret_key: this._keyPair.getSecretKey(),
-            network_id: this._networkId
+            account_id: this.accountId,
+            public_key: this.keyPair.getPublicKey(),
+            secret_key: this.keyPair.getSecretKey(),
+            network_id: this.networkId
         };
-    }
-
-    /**
-     * Gets/sets a key pair for account info.
-     */
-    get keyPair() {
-        return this._keyPair;
-    }
-    set keyPair(keyPair) {
-        this._keyPair = keyPair;
-    }
-
-    /**
-     * Gets a key pair from account info.
-     */
-    get accountId() {
-        return this._accountId;
-    }
-    set accountId(accountId) {
-        this._accountId = accountId;
-    }
-
-    /**
-     * Gets/sets network id.
-     */
-    get networkId() {
-        return this._networkId;
-    }
-    set networkId(networkId) {
-        this._networkId = networkId;
     }
 
     /**
      * Utility function to download account info as a standard file.
      */
     downloadAsFile() {
-        const fileName = getKeyFileName();
+        const fileName = this.keyFileName;
         const text = JSON.stringify(this.toJSON());
       
         var element = document.createElement('a');
@@ -12741,12 +12705,13 @@ class AccountInfo {
         document.body.removeChild(element);
     }
 
-    getKeyFileName() {
-        return this._networkId + '_' + this._accountId;
+    get keyFileName() {
+        return this.networkId + '_' + this.accountId;
     }
 }
 
 module.exports = AccountInfo;
+
 },{"./key_pair":73}],71:[function(require,module,exports){
 /**
  * Stores keys in the browser local storage. This allows to retain keys between
@@ -12957,7 +12922,6 @@ module.exports = SimpleKeyStoreSigner;
 },{"bs58":20,"js-sha256":40,"tweetnacl":62}],75:[function(require,module,exports){
 const fs = require('fs');
 const keyDir = './neardev';
-const KeyPair = require('./key_pair');
 const AccountInfo = require('./account_info');
 const {promisify} = require('util');
 
@@ -13031,7 +12995,7 @@ class UnencryptedFileSystemKeyStore {
 }
 
 module.exports = UnencryptedFileSystemKeyStore;
-},{"./account_info":70,"./key_pair":73,"fs":19,"util":68}],76:[function(require,module,exports){
+},{"./account_info":70,"fs":19,"util":68}],76:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
