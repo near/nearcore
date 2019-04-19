@@ -5,9 +5,9 @@ const KeyPair = require('./key_pair');
  */
 class AccountInfo {
     constructor(accountId, keyPair, networkId) {
-        this._accountId = accountId;
-        this._keyPair = keyPair;
-        this._networkId = networkId;
+        this.accountId = accountId;
+        this.keyPair = keyPair;
+        this.networkId = networkId;
     }
 
     /**
@@ -26,48 +26,18 @@ class AccountInfo {
      */
     toJSON() {
         return {
-            account_id: this._accountId,
-            public_key: this._keyPair.getPublicKey(),
-            secret_key: this._keyPair.getSecretKey(),
-            network_id: this._networkId
+            account_id: this.accountId,
+            public_key: this.keyPair.getPublicKey(),
+            secret_key: this.keyPair.getSecretKey(),
+            network_id: this.networkId
         };
-    }
-
-    /**
-     * Gets/sets a key pair for account info.
-     */
-    get keyPair() {
-        return this._keyPair;
-    }
-    set keyPair(keyPair) {
-        this._keyPair = keyPair;
-    }
-
-    /**
-     * Gets a key pair from account info.
-     */
-    get accountId() {
-        return this._accountId;
-    }
-    set accountId(accountId) {
-        this._accountId = accountId;
-    }
-
-    /**
-     * Gets/sets network id.
-     */
-    get networkId() {
-        return this._networkId;
-    }
-    set networkId(networkId) {
-        this._networkId = networkId;
     }
 
     /**
      * Utility function to download account info as a standard file.
      */
     downloadAsFile() {
-        const fileName = getKeyFileName();
+        const fileName = this.keyFileName;
         const text = JSON.stringify(this.toJSON());
       
         var element = document.createElement('a');
@@ -82,8 +52,8 @@ class AccountInfo {
         document.body.removeChild(element);
     }
 
-    getKeyFileName() {
-        return this._networkId + '_' + this._accountId;
+    get keyFileName() {
+        return this.networkId + '_' + this.accountId;
     }
 }
 

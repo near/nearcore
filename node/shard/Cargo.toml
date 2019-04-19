@@ -19,3 +19,6 @@ node-runtime = { path = "../runtime" }
 configs = { path = "../configs" }
 mempool = { path = "../../core/mempool" }
 
+[dev-dependencies]
+testlib = { path = "../../test-utils/testlib"}
+

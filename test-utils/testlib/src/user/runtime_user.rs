@@ -5,7 +5,10 @@ use node_runtime::test_utils::to_receipt_block;
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
-use primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use primitives::transaction::{
+    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
+    TransactionLogs, TransactionResult, TransactionStatus,
+};
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use shard::ReceiptInfo;
 use storage::{Trie, TrieUpdate};
@@ -14,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-/// Fake client without chain, used in RuntimeUser and RuntimeNode
+/// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
     pub runtime: Runtime,
     // Arc here because get_runtime_and_trie returns Arc<Trie> and
@@ -96,6 +99,34 @@ impl RuntimeUser {
             txs = vec![];
         }
     }
+
+    fn collect_transaction_final_result(
+        &self,
+        transaction_result: &TransactionResult,
+        logs: &mut Vec<TransactionLogs>,
+    ) -> FinalTransactionStatus {
+        match transaction_result.status {
+            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
+            TransactionStatus::Failed => FinalTransactionStatus::Failed,
+            TransactionStatus::Completed => {
+                for r in transaction_result.receipts.iter() {
+                    let receipt_result = self.get_transaction_result(&r);
+                    logs.push(TransactionLogs {
+                        hash: *r,
+                        lines: receipt_result.logs.clone(),
+                        receipts: receipt_result.receipts.clone(),
+                        result: receipt_result.result.clone(),
+                    });
+                    match self.collect_transaction_final_result(&receipt_result, logs) {
+                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
+                        FinalTransactionStatus::Completed => {}
+                        _ => return FinalTransactionStatus::Started,
+                    };
+                }
+                FinalTransactionStatus::Completed
+            }
+        }
+    }
 }
 
 impl User for RuntimeUser {
@@ -105,8 +136,8 @@ impl User for RuntimeUser {
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        let mut state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_state(&mut state_update, account_id)
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer.view_state(&state_update, account_id)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -142,6 +173,22 @@ impl User for RuntimeUser {
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
         self.transaction_results.borrow().get(hash).cloned().unwrap()
+    }
+
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let transaction_result = self.get_transaction_result(hash);
+        let mut result = FinalTransactionResult {
+            status: FinalTransactionStatus::Unknown,
+            logs: vec![TransactionLogs {
+                hash: *hash,
+                lines: transaction_result.logs.clone(),
+                receipts: transaction_result.receipts.clone(),
+                result: transaction_result.result.clone(),
+            }],
+        };
+        result.status =
+            self.collect_transaction_final_result(&transaction_result, &mut result.logs);
+        result
     }
 
     fn get_state_root(&self) -> MerkleHash {

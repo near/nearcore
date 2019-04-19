@@ -1,0 +1,25 @@
+[package]
+name = "nearmint"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+abci = "0.4"
+log = "0.4"
+env_logger = "0.6"
+protobuf = { version = "2.2.4", features = ["with-bytes"] }
+base64 = { version = "0.10.0" }
+serde_json = "1.0"
+clap = "2.32"
+
+primitives = { path = "../core/primitives" }
+near-protos = { path = "../core/protos" }
+storage = { path = "../core/storage" }
+node-runtime = { path = "../node/runtime" }
+client = { path = "../node/client" }
+configs = { path = "../node/configs" }
+node-http = { path = "../node/http" }
+
+[dev-dependencies]
+tempdir = "0.3"

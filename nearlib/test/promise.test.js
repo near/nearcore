@@ -1,5 +1,5 @@
-const { Account, KeyPair, Near, InMemoryKeyStore } = require('../');
-const  { aliceAccountName, storageAccountIdKey, createFakeStorage, sleep } = require('./test-utils');
+const { Account, KeyPair, InMemoryKeyStore } = require('../');
+const  { aliceAccountName, createFakeStorage } = require('./test-utils');
 const dev = require('../dev');
 const fs = require('fs');
 let nearjs;

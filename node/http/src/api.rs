@@ -1,19 +1,81 @@
 use std::convert::TryInto;
 use std::sync::Arc;
 
+use protobuf::parse_from_bytes;
+use serde_json::json;
+
 use client::Client;
+use primitives::hash::CryptoHash;
 use primitives::logging::pretty_utf8;
-use primitives::types::BlockId;
+use primitives::transaction::verify_transaction_signature;
+use primitives::transaction::SignedTransaction;
+use primitives::types::{AccountId, BlockId};
 use primitives::utils::bs58_vec2str;
 
 use crate::types::*;
-use primitives::transaction::verify_transaction_signature;
-use primitives::transaction::SignedTransaction;
+use node_runtime::state_viewer::AccountViewCallResult;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+/// Adapter for querying runtime.
+pub trait RuntimeAdapter {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
+    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String>;
+}
+
+/// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
+/// Given implementation only supports latest height, thus ignoring it.
+pub fn query_client(
+    adapter: &RuntimeAdapter,
+    path: &str,
+    data: &[u8],
+    _height: u64,
+    _prove: bool,
+) -> Result<ABCIQueryResponse, String> {
+    let path_parts: Vec<&str> = path.split('/').collect();
+    if path_parts.len() == 0 {
+        return Err("Path must contain at least single token".to_string());
+    }
+    match path_parts[0] {
+        "account" => match adapter.view_account(&AccountId::from(path_parts[1]))
+        {
+            Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
+            Err(e) => Err(e),
+        },
+        "call" => {
+            let mut logs = vec![];
+            match adapter.call_function(
+                &AccountId::from(path_parts[1]),
+                path_parts[2],
+                &data,
+                &mut logs,
+            ) {
+                Ok(result) => Ok(ABCIQueryResponse::result(path, result, logs)),
+                Err(e) => Ok(ABCIQueryResponse::result_err(path, e, logs)),
+            }
+        }
+        _ => Err(format!("Unknown path {}", path)),
+    }
+}
+
 pub struct HttpApi<T> {
     client: Arc<Client<T>>,
+}
+
+impl<T> RuntimeAdapter for HttpApi<T> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+        let mut state_update = self.client.shard_client.get_state_update();
+        self.client
+            .shard_client
+            .trie_viewer
+            .view_account(&mut state_update, account_id)
+    }
+
+    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String> {
+        let best_index = self.client.shard_client.chain.best_index();
+        let state_update = self.client.shard_client.get_state_update();
+        self.client.shard_client.trie_viewer.call_function(state_update, best_index, contract_id, method_name, args, logs)
+    }
 }
 
 impl<T> HttpApi<T> {
@@ -22,19 +84,111 @@ impl<T> HttpApi<T> {
     }
 }
 
-pub enum RPCError {
-    BadRequest(String),
-    NotFound,
-    ServiceUnavailable(String),
+fn decode_transaction(value: &serde_json::Value) -> Result<SignedTransaction, RPCError> {
+    let data = base64::decode(
+        value.as_str().ok_or_else(|| RPCError::BadRequest(format!("Param should be bytes")))?,
+    )
+    .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
+    let transaction = parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
+        .map_err(|e| RPCError::BadRequest(format!("Failed to parse protobuf: {}", e)))?;
+    transaction.try_into().map_err(RPCError::BadRequest)
 }
 
 impl<T> HttpApi<T> {
+    pub fn jsonrpc(&self, r: &JsonRpcRequest) -> JsonRpcResponse {
+        let mut resp = JsonRpcResponse {
+            jsonrpc: r.jsonrpc.clone(),
+            id: r.id.clone(),
+            result: None,
+            error: None,
+        };
+        match self.jsonrpc_matcher(&r.method, &r.params) {
+            Ok(value) => resp.result = Some(value),
+            Err(err) => resp.error = Some(err.into()),
+        }
+        resp
+    }
+
+    fn jsonrpc_matcher(
+        &self,
+        method: &String,
+        params: &Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, RPCError> {
+        match method.as_ref() {
+            "abci_query" => {
+                if params.len() != 4 {
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 3"
+                    )));
+                }
+                let path = params[0]
+                    .as_str()
+                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
+                let data_str = params[1]
+                    .as_str()
+                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
+                let data = hex::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
+
+                let response = query_client(self, path, &data, 0, false)
+                    .map_err(|e| RPCError::BadRequest(e))?;
+                Ok(json!({"response": {
+                   "log": response.log,
+                    "height": response.height,
+                    "proof": response.proof,
+                    "value": base64::encode(&response.value),
+                    "key": base64::encode(&response.key),
+                    "index": response.index,
+                    "code": response.code
+                }}))
+            }
+            "broadcast_tx_async" => {
+                if params.len() != 1 {
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 1"
+                    )));
+                }
+                let transaction = decode_transaction(&params[0])?;
+                let hash = self.submit_tx(transaction)?;
+                Ok(json!({"hash": hash, "log": "", "data": "", "code": "0"}))
+            }
+            "tx" => {
+                if params.len() != 2 {
+                    return Err(RPCError::BadRequest(format!(
+                        "Invalid number of arguments, must be 2"
+                    )));
+                }
+                let hash_str = params[0].as_str().ok_or_else(|| {
+                    RPCError::BadRequest(format!("Hash param must be base64 string"))
+                })?;
+                let hash = base64::decode(hash_str)
+                    .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?
+                    .try_into()
+                    .map_err(|e| RPCError::BadRequest(format!("Bad hash: {}", e)))?;
+                let result = self.client.shard_client.get_transaction_final_result(&hash);
+                // TODO: include merkle proof if requested, tx bytes, index and block height in final result.
+                Ok(json!({
+                    "proof": "null",
+                    "tx": "null",
+                    "tx_result": {
+                        "log": result.final_log(),
+                        "data": base64::encode(&result.last_result()),
+                        "code": result.status.to_code(),
+                    },
+                    "index": 0,
+                    "height": 0,
+                    "hash": hash_str,
+                }))
+            }
+            _ => Err(RPCError::MethodNotFound(format!("{} not found", method))),
+        }
+    }
+
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {}", r.account_id);
         let mut state_update = self.client.shard_client.get_state_update();
         match self.client.shard_client.trie_viewer.view_account(&mut state_update, &r.account_id) {
             Ok(r) => Ok(ViewAccountResponse {
-                account_id: r.account,
+                account_id: r.account_id,
                 amount: r.amount,
                 stake: r.stake,
                 code_hash: r.code_hash,
@@ -72,12 +226,7 @@ impl<T> HttpApi<T> {
         }
     }
 
-    pub fn submit_transaction(
-        &self,
-        r: &SubmitTransactionRequest,
-    ) -> Result<SubmitTransactionResponse, RPCError> {
-        let transaction: SignedTransaction =
-            r.transaction.clone().try_into().map_err(RPCError::BadRequest)?;
+    fn submit_tx(&self, transaction: SignedTransaction) -> Result<CryptoHash, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:#?}", transaction);
         let originator = transaction.body.get_originator();
         let mut state_update = self.client.shard_client.get_state_update();
@@ -101,7 +250,16 @@ impl<T> HttpApi<T> {
         } else {
             // TODO(822): Relay to validator.
         }
-        Ok(SubmitTransactionResponse { hash })
+        Ok(hash)
+    }
+
+    pub fn submit_transaction(
+        &self,
+        r: &SubmitTransactionRequest,
+    ) -> Result<SubmitTransactionResponse, RPCError> {
+        let transaction: SignedTransaction =
+            r.transaction.clone().try_into().map_err(RPCError::BadRequest)?;
+        self.submit_tx(transaction).map(|hash| SubmitTransactionResponse { hash })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {

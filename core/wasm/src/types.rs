@@ -1,5 +1,6 @@
 use std::fmt;
 
+use primitives::hash::{CryptoHash, hash};
 use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
 use primitives::logging;
 use wasmer_runtime::error as WasmerError;
@@ -159,7 +160,7 @@ pub enum Error {
     /// Method is private, because it starts with '_'.
     PrivateMethod,
 
-    Wasmer(WasmerError::Error),
+    Wasmer(String), // TODO: WasmerError::Error is not shareable between threads
 
     Runtime(RuntimeError),
 
@@ -170,7 +171,7 @@ pub enum Error {
 
 impl From<WasmerError::Error> for Error {
     fn from(e: WasmerError::Error) -> Self {
-        Error::Wasmer(e)
+        Error::Wasmer(format!("{}", e))
     }
 }
 
@@ -303,5 +304,26 @@ impl RuntimeContext {
             block_index,
             random_seed,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ContractCode {
+    code: Vec<u8>,
+    hash: CryptoHash,
+}
+
+impl ContractCode {
+    pub fn new(code: Vec<u8>) -> ContractCode {
+        let hash = hash(&code);
+        ContractCode { code, hash }
+    }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.hash
+    }
+
+    pub fn get_code(&self) -> &Vec<u8> {
+        &self.code
     }
 }

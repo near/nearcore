@@ -1,4 +1,4 @@
-use crate::node::{Node, ProcessNode, ThreadNode};
+use crate::node::{Node, ProcessNode, ThreadNode, TEST_BLOCK_MAX_SIZE};
 use crate::user::{ShardClientUser, User};
 use configs::ClientConfig;
 use primitives::crypto::signer::InMemorySigner;
@@ -19,7 +19,8 @@ impl ShardClientNode {
         let (_, shard_storage) = create_beacon_shard_storages();
 
         let chain_spec = &config.chain_spec;
-        let shard_client = ShardClient::new(Some(signer.clone()), chain_spec, shard_storage);
+        let shard_client =
+            ShardClient::new(Some(signer.clone()), chain_spec, shard_storage, TEST_BLOCK_MAX_SIZE);
         ShardClientNode { client: Arc::new(shard_client), signer }
     }
 }

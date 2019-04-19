@@ -1,6 +1,5 @@
 const fs = require('fs');
 const keyDir = './neardev';
-const KeyPair = require('./key_pair');
 const AccountInfo = require('./account_info');
 const {promisify} = require('util');
 

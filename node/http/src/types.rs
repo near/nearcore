@@ -14,6 +14,18 @@ use primitives::types::{
     AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, Nonce, ShardId,
 };
 
+/// RPC errors that JSONRPC and HTTP that APIs can use to return meaningful type of errors.
+pub enum RPCError {
+    /// Error if input arguments don't match the expected types or format.
+    BadRequest(String),
+    /// Method for JSON RPC not found.
+    MethodNotFound(String),
+    /// Item / account not found.
+    NotFound,
+    /// Service is not available.
+    ServiceUnavailable(String),
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ViewAccountRequest {
     pub account_id: AccountId,
@@ -264,4 +276,105 @@ pub struct HealthzResponse {
     #[serde(with = "bs58_format")]
     pub genesis_hash: CryptoHash,
     pub latest_block_index: BlockIndex,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: Vec<serde_json::Value>,
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcResponseError {
+    code: i64,
+    message: String,
+    data: serde_json::Value,
+}
+
+impl From<RPCError> for JsonRpcResponseError {
+    fn from(error: RPCError) -> JsonRpcResponseError {
+        let (code, message) = match error {
+            RPCError::BadRequest(msg) => (-32602, format!("Bad request: {}", msg)),
+            RPCError::MethodNotFound(msg) => (-32601, format!("Method not found: {}", msg)),
+            RPCError::NotFound => (-30000, format!("Not found")),
+            RPCError::ServiceUnavailable(msg) => (-32603, format!("Service unavailable: {}", msg)),
+        };
+        JsonRpcResponseError { code, message, data: serde_json::Value::Null }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcResponseError>,
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProofOp {
+    pub field_type: String,
+    pub key: Vec<u8>,
+    pub data: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ABCIQueryResponse {
+    pub code: u32,
+    pub log: String,
+    pub info: String,
+    pub index: i64,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub proof: Vec<ProofOp>,
+    pub height: i64,
+    pub codespace: String,
+}
+
+impl ABCIQueryResponse {
+    pub fn account<T: serde::Serialize>(key: &str, value: T) -> Self {
+        ABCIQueryResponse {
+            code: 0,
+            log: "exists".to_string(),
+            info: "".to_string(),
+            index: -1,
+            key: key.as_bytes().to_vec(),
+            value: serde_json::to_string(&value).unwrap().as_bytes().to_vec(),
+            proof: vec![],
+            height: 0,
+            codespace: "".to_string(),
+        }
+    }
+
+    pub fn result(key: &str, value: Vec<u8>, logs: Vec<String>) -> Self {
+        ABCIQueryResponse {
+            code: 0,
+            log: logs.join("\n"),
+            info: "".to_string(),
+            index: -1,
+            key: key.as_bytes().to_vec(),
+            value,
+            proof: vec![],
+            height: 0,
+            codespace: "".to_string(),
+        }
+    }
+
+    pub fn result_err(key: &str, message: String, logs: Vec<String>) -> Self {
+        ABCIQueryResponse {
+            code: 1,
+            log: logs.join("\n"),
+            info: message,
+            index: -1,
+            key: key.as_bytes().to_vec(),
+            value: vec![],
+            proof: vec![],
+            height: 0,
+            codespace: "".to_string(),
+        }
+    }
 }

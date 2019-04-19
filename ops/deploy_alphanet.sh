@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/alphanet:0.1.5}
-PREFIX=${2:-loadtesting4}
+IMAGE=${1:-nearprotocol/alphanet:0.1.6}
+PREFIX=${2:-alphanet}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.8}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
@@ -105,7 +105,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-studio \
     --disk=name=${PREFIX}-studio-persistent \
     --container-mount-disk=mount-path="/srv/near" \
     --boot-disk-size 200GB \
-    --machine-type n1-standard-4
+    --machine-type n1-standard-2
 
 # borrowed from https://stackoverflow.com/a/20369590
 spinner()
@@ -125,7 +125,7 @@ spinner()
 
 STUDIO_IP=$(
 gcloud compute instances describe ${PREFIX}-studio \
-    --zone us-west2-a | grep natIP | \
+    --zone ${ZONE} | grep natIP | \
     awk '{print $2}'
 )
 

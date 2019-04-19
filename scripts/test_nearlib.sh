@@ -18,10 +18,12 @@ rm -rf new_project
 mkdir new_project
 cd new_project
 npm install git+https://git@github.com/nearprotocol/near-shell.git
-node_modules/near-shell/near new_project
+$(npm bin)/near new_project
+# Disabled running create_account / test, as it's currently deploys to general devnet instead of local.
+# $(npm bin)/near create_account --account_id=near-hello-devnet
 npm install
 npm run build
-npm test
+# npm test
 cd ..
 
 ./scripts/kill_devnet.sh

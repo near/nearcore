@@ -1,8 +1,10 @@
 use crate::node::{LocalNodeConfig, Node};
+use crate::user::rpc_user::RpcUser;
 use crate::user::{ThreadUser, User};
 use client::Client;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::types::AccountId;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -17,6 +19,7 @@ pub struct ThreadNode {
     pub config: LocalNodeConfig,
     pub client: Arc<Client<InMemorySigner>>,
     pub state: ThreadNodeState,
+    use_rpc_user: bool,
 }
 
 impl Node for ThreadNode {
@@ -66,7 +69,14 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(ThreadUser::new(self.client.clone()))
+        if self.use_rpc_user {
+            Box::new(RpcUser::new(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                self.config.rpc_cfg.rpc_port,
+            )))
+        } else {
+            Box::new(ThreadUser::new(self.client.clone()))
+        }
     }
 }
 
@@ -79,6 +89,11 @@ impl ThreadNode {
         };
         let client = Arc::new(Client::new(&config.client_cfg, signer));
         let state = ThreadNodeState::Stopped;
-        ThreadNode { config, client, state }
+        ThreadNode { config, client, state, use_rpc_user: false }
+    }
+
+    /// Enables or disables using `RPCUser` instead of `ThreadUser`.
+    pub fn use_rpc_user(&mut self, value: bool) {
+        self.use_rpc_user = value;
     }
 }

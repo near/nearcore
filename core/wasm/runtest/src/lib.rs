@@ -105,7 +105,7 @@ mod tests {
     use primitives::hash::hash;
     use std::fs;
     use wasm::executor::{self, ExecutionOutcome};
-    use wasm::types::{Config, Error, ReturnData, RuntimeContext};
+    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
 
     use super::*;
     use std::path::PathBuf;
@@ -118,12 +118,13 @@ mod tests {
         filename: &str,
     ) -> Result<ExecutionOutcome, Error> {
         let wasm_binary = fs::read(filename).expect("Unable to read file");
+        let code = ContractCode::new(wasm_binary);
 
         let mut ext = MyExt::default();
         let config = Config::default();
 
         executor::execute(
-            &wasm_binary,
+            &code,
             &method_name,
             &input_data,
             &result_data,
@@ -139,7 +140,9 @@ mod tests {
         result_data: &[Option<Vec<u8>>],
         context: &RuntimeContext,
     ) -> Result<ExecutionOutcome, Error> {
-        run_with_filename(method_name, input_data, result_data, context, "res/wasm_with_mem.wasm")
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("res/wasm_with_mem.wasm");
+        run_with_filename(method_name, input_data, result_data, context, path.to_str().unwrap())
     }
 
     fn encode_i32(val: i32) -> [u8; 4] {

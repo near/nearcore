@@ -4,6 +4,7 @@ extern crate bencher;
 use bencher::Bencher;
 
 use node_runtime::test_utils::{get_runtime_and_trie, User, setup_test_contract};
+use wasm::types::ContractCode;
 
 fn runtime_send_money(bench: &mut Bencher) {
     let (runtime, trie, root) = get_runtime_and_trie();
@@ -16,7 +17,8 @@ fn runtime_send_money(bench: &mut Bencher) {
 
 fn runtime_wasm_bad_code(bench: &mut Bencher) {
     let code = include_bytes!("../../../tests/hello.wasm");
-    let code = wasm::prepare::prepare_contract(code, &wasm::types::Config::default()).unwrap();
+    let code = ContractCode::new(code.to_vec());
+    let code = wasm::prepare::prepare_contract(&code, &wasm::types::Config::default()).unwrap();
     let (mut user, mut root) = setup_test_contract(&code);
     bench.iter(|| {
         let (new_root, _) = user.call_function(

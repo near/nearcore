@@ -71,6 +71,7 @@ impl ShardClient {
         signer: Option<Arc<T>>,
         chain_spec: &ChainSpec,
         storage: Arc<RwLock<ShardChainStorage>>,
+        max_block_size: u32,
     ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
@@ -87,7 +88,12 @@ impl ShardClient {
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
         let trie_viewer = TrieViewer {};
         let pool = match signer {
-            Some(signer) => Some(Arc::new(RwLock::new( Pool::new(signer, storage.clone(), trie.clone())))),
+            Some(signer) => Some(Arc::new(RwLock::new(Pool::new(
+                signer,
+                storage.clone(),
+                trie.clone(),
+                max_block_size,
+            )))),
             None => None,
         };
         Self { chain, trie, storage, runtime, trie_viewer, pool }
@@ -268,7 +274,7 @@ impl ShardClient {
                 .unwrap()
                 .map(|b| b.receipts[address.index].clone())?;
             let result = self.get_transaction_result(&hash);
-            Some(ReceiptInfo { receipt: receipt, block_index, result })
+            Some(ReceiptInfo { receipt, block_index, result })
         })
     }
 
@@ -345,6 +351,7 @@ mod tests {
     };
     use storage::test_utils::create_beacon_shard_storages;
     use storage::GenericStorage;
+    use testlib::node::TEST_BLOCK_MAX_SIZE;
 
     use super::*;
 
@@ -356,7 +363,12 @@ mod tests {
             AuthorityRotation::ProofOfAuthority,
         );
         let shard_storage = create_beacon_shard_storages().1;
-        let shard_client = ShardClient::new(Some(signers[0].clone()), &chain_spec, shard_storage);
+        let shard_client = ShardClient::new(
+            Some(signers[0].clone()),
+            &chain_spec,
+            shard_storage,
+            TEST_BLOCK_MAX_SIZE,
+        );
         (shard_client, signers)
     }
 
@@ -380,7 +392,8 @@ mod tests {
                 .unwrap();
             let mut nonce = self.get_account_nonce(sender.to_string()).unwrap_or_else(|| 0) + 1;
             for _ in 0..num_blocks {
-                let tx = TransactionBody::send_money(nonce, sender, receiver, 1).sign(&*sender_signer);
+                let tx =
+                    TransactionBody::send_money(nonce, sender, receiver, 1).sign(&*sender_signer);
                 let (block, block_extra) =
                     self.prepare_new_block(prev_hash, vec![], vec![tx.clone()]);
                 prev_hash = block.hash;

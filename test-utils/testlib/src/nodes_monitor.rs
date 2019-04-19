@@ -158,7 +158,7 @@ impl NodesMonitor {
                         num_transactions: b.body.transactions.len(),
                         timestamp: now,
                         block_index: b.body.header.index,
-                        time_since_prev: time_since_prev.clone(),
+                        time_since_prev,
                     });
                 }
             }
