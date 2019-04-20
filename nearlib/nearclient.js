@@ -9,7 +9,7 @@ function _arrayBufferToBase64(buffer) {
 }
 
 function _base64ToBuffer(str) {
-    return new Buffer.from(str, 'base64')
+    return new Buffer.from(str, 'base64');
 }
 
 class NearClient {

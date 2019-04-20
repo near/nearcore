@@ -8,7 +8,7 @@ const LocalNodeConnection = require('./local_node_connection');
 const KeyPair = require('./signing/key_pair');
 const WalletAccount = require('./wallet-account');
 const dev = require('./dev');
-const AccountInfo = require('./signing/account_info')
+const AccountInfo = require('./signing/account_info');
 
 module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount, dev, AccountInfo };
 
