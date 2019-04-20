@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-./target/release/devnet &
+${NEAR_DEVNET_EXE} &
 ./scripts/waitonserver.sh
 ./scripts/build_wasm.sh
 
