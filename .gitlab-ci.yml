@@ -23,7 +23,7 @@ variables:
     sudo mv protoc/bin/* /usr/local/bin/ &&
     sudo chmod 755 /usr/local/bin/protoc
 
-setup_python: &setup_python
+.setup_python: &setup_python
     sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
