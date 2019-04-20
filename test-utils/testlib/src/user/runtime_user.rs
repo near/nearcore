@@ -7,7 +7,7 @@ use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus,
+    TransactionLogs, TransactionResult, TransactionStatus
 };
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use shard::ReceiptInfo;

@@ -829,18 +829,12 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::hash;
     use primitives::types::MerkleHash;
     use storage::test_utils::create_trie;
 
-    use crate::state_viewer::AccountViewCallResult;
-
     use super::*;
-    use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use testlib::runtime_utils::{
-        alice_account, bob_account, default_code_hash, get_test_trie_viewer,
-    };
+    use testlib::runtime_utils::bob_account;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 

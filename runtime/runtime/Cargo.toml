@@ -26,7 +26,6 @@ test-utils = []
 bencher = "0.1.5"
 
 testlib = { path = "../../test-utils/testlib" }
-configs = { path = "../../chain/configs" }
 
 [[bench]]
 name = "bench"
