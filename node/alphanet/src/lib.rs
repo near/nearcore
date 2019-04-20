@@ -195,24 +195,14 @@ mod tests {
         alice.start();
         bob.start();
 
-        // Wait until alice and bob produce at least one block.
         wait(
             || {
-                alice.as_thread_ref().client.shard_client.chain.best_index() >= 3
-                    && bob.as_thread_ref().client.shard_client.chain.best_index() >= 3
+                (alice.view_balance(&"alice.near".to_string()) == Ok(init_balance - money_to_send))
+                    && (alice.view_balance(&"bob.near".to_string())
+                        == Ok(init_balance + money_to_send))
             },
             500,
-            600000,
-        );
-
-        // Check that transaction and it's receipt were included.
-        assert_eq!(
-            alice.view_balance(&"alice.near".to_string()).unwrap(),
-            init_balance - money_to_send
-        );
-        assert_eq!(
-            alice.view_balance(&"bob.near".to_string()).unwrap(),
-            init_balance + money_to_send
+            60000,
         );
     }
 
