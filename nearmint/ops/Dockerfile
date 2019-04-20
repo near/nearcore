@@ -44,7 +44,7 @@ ENV TMHOME=/srv/near
 RUN ["tendermint", "init" ]
 
 COPY nearmint/ops/run_nearmint /usr/local/bin/run_nearmint
-COPY nearmint/ops/tendermint-config.toml /tmp/config.toml
+COPY nearmint/ops/tendermint-config.toml ./config.toml
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 

@@ -4,7 +4,7 @@ set -e
 export TMHOME=/srv/near
 
 tendermint init
-cp /tmp/config.toml ${TMHOME}/config/config.toml
+cp /near/config.toml ${TMHOME}/config/config.toml
 
 cat << EOF > ${TMHOME}/config/genesis.json
 {
