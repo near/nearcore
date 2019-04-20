@@ -27,7 +27,7 @@ variables:
     sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +2 -delete
+    find "${CACHE_ROOT}/target" -atime +60 -delete
 
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
