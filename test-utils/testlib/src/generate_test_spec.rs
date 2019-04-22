@@ -3,8 +3,7 @@
 
 use clap::{App, Arg};
 use std::path::PathBuf;
-use configs::ChainSpec;
-use configs::chain_spec::{AuthorityRotation, DefaultIdType};
+use node_runtime::chain_spec::{ChainSpec,AuthorityRotation, DefaultIdType};
 
 fn main() {
     let chain_spec_path_arg = &Arg::with_name("chain_spec_file")

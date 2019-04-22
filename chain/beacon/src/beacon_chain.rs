@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use configs::authority::get_authority_config;
-use configs::ChainSpec;
+use node_runtime::chain_spec::ChainSpec;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use storage::BeaconChainStorage;
 
@@ -32,7 +32,7 @@ impl BeaconClient {
 mod tests {
     use chain::test_utils::get_blockchain_storage;
     use chain::BlockChain;
-    use configs::chain_spec::{AuthorityRotation, DefaultIdType};
+    use node_runtime::chain_spec::{AuthorityRotation, DefaultIdType};
     use primitives::block_traits::SignedBlock;
     use primitives::block_traits::SignedHeader;
     use primitives::crypto::signer::InMemorySigner;

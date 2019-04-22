@@ -4,7 +4,7 @@ use primitives::traits::Base58Encoded;
 use primitives::types::AuthorityStake;
 use std::convert::TryFrom;
 
-use crate::chain_spec::{AuthorityRotation, ChainSpec};
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec};
 
 /// Configure the authority rotation.
 #[derive(Clone)]
