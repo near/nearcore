@@ -1,0 +1,23 @@
+[package]
+name = "node-http"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+hyper = "0.12.18"
+futures = "0.1.25"
+log = "0.4"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+protobuf = { version = "2.2.4", features = ["with-bytes"] }
+base64 = { version = "0.10.0" }
+hex = { version = "0.3" }
+
+beacon = { path = "../../chain/beacon" }
+chain = { path = "../../chain/chain" }
+client = { path = "../../chain/client" }
+node-runtime = { path = "../../runtime/runtime" }
+primitives = { path = "../../runtime/primitives" }
+near-protos = { path = "../../runtime/protos", features = ["with-serde"] }
+shard = { path = "../../chain/shard" }

@@ -2,7 +2,7 @@
 mod test {
     use configs::chain_spec::{AuthorityRotation, DefaultIdType};
     use configs::{ChainSpec, ClientConfig};
-    use node_runtime::test_utils::alice_account;
+    use testlib::runtime_utils::alice_account;
     use testlib::node::runtime_node::RuntimeNode;
     use testlib::node::shard_client_node::ShardClientNode;
     use testlib::standard_test_cases::*;

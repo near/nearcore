@@ -1,0 +1,24 @@
+[package]
+name = "shard"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4"
+rand = "0.6"
+futures = "0.1"
+serde = "1.0"
+serde_derive = "1.0"
+parking_lot = "0.7.1"
+
+primitives = { path = "../../runtime/primitives" }
+storage = { path = "../../runtime/storage" }
+chain = { path = "../../chain/chain" }
+node-runtime = { path = "../../runtime/runtime" }
+configs = { path = "../configs" }
+mempool = { path = "../../chain/mempool" }
+
+[dev-dependencies]
+testlib = { path = "../../test-utils/testlib"}
+

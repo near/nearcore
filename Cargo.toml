@@ -8,40 +8,40 @@ edition = "2018"
 
 [[bin]]
 name = "nearcore"
-path = "node/src/main.rs"
+path = "chain/src/main.rs"
 
 [dependencies]
-alphanet = { path = "./node/alphanet" }
+alphanet = { path = "./chain/alphanet" }
 
 [workspace]
 members = [
-    "core/chain",
-    "core/mempool",
-    "core/primitives",
-    "core/storage",
-    "core/nightshade",
-    "core/wasm",
-    "core/wasm/runtest",
-    "node/alphanet",
-    "node/beacon",
-    "node/client",
-    "node/configs",
-    "node/consensus",
-    "node/coroutines",
-    "node/devnet",
-    "node/http",
-    "node/network",
+    "chain/chain",
+    "chain/mempool",
+    "chain/nightshade",
+    "chain/alphanet",
+    "chain/beacon",
+    "chain/client",
+    "chain/configs",
+    "chain/consensus",
+    "chain/coroutines",
+    "chain/devnet",
+    "chain/network",
+    "chain/shard",
+    "chain/http",
+    "chain/tokio-utils",
     "protos/builder",
-    "node/runtime",
-    "node/shard",
-    "node/tokio-utils",
+    "runtime/primitives",
+    "runtime/storage",
+    "runtime/runtime",
+    "runtime/wasm",
+    "runtime/wasm/runtest",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
     "nearmint/",
 ]
 exclude = [
-    "core/wasm/runtest/generate-wasm/to-wasm",
+    "runtime/wasm/runtest/generate-wasm/to-wasm",
 ]
 
 [dev-dependencies]
@@ -50,17 +50,17 @@ log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
 
-devnet = { path = "./node/devnet" }
-alphanet = { path = "./node/alphanet" }
+devnet = { path = "./chain/devnet" }
+alphanet = { path = "./chain/alphanet" }
 keystore = { path = "./test-utils/keystore" }
-node-http = { path = "./node/http" }
-primitives = { path = "./core/primitives" }
-storage = { path = "./core/storage" }
-network = { path = "./node/network" }
-configs = { path = "./node/configs" }
-client = { path = "./node/client" }
+node-http = { path = "./chain/http" }
+primitives = { path = "./runtime/primitives" }
+storage = { path = "./runtime/storage" }
+network = { path = "./chain/network" }
+configs = { path = "./chain/configs" }
+client = { path = "./chain/client" }
 testlib = { path = "./test-utils/testlib" }
-node-runtime = { path = "./node/runtime" }
+node-runtime = { path = "./runtime/runtime" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

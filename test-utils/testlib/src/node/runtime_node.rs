@@ -1,9 +1,12 @@
 use crate::node::{Node, ProcessNode, ThreadNode};
-use crate::user::runtime_user::{MockClient, RuntimeUser};
-use crate::user::User;
-use node_runtime::test_utils::get_runtime_and_trie;
+use crate::runtime_utils::get_runtime_and_trie;
+use crate::user::{User, RuntimeUser};
+use crate::user::runtime_user::MockClient;
+
 use primitives::crypto::signer::InMemorySigner;
-use primitives::types::AccountId;
+use primitives::transaction::{FunctionCallTransaction, TransactionBody};
+use primitives::types::{AccountId, Balance};
+
 use std::sync::{Arc, RwLock};
 
 pub struct RuntimeNode {
@@ -17,6 +20,36 @@ impl RuntimeNode {
         let (runtime, trie, root) = get_runtime_and_trie();
         let client = Arc::new(RwLock::new(MockClient { runtime, trie, state_root: root }));
         RuntimeNode { signer, client }
+    }
+
+
+    pub fn send_money(&self, account_id: &AccountId, amount: Balance) {
+        let nonce = self.get_account_nonce(account_id).unwrap_or_default() + 1;
+        let transaction =
+            TransactionBody::send_money(nonce, self.account_id().unwrap(), account_id, amount)
+                .sign(&*self.signer());
+        self.user().add_transaction(transaction).unwrap();
+    }
+
+    pub fn call_function(
+        &self,
+        contract_id: &str,
+        method_name: &str,
+        args: Vec<u8>,
+        amount: Balance,
+    ) {
+        let account_id = self.account_id().unwrap();
+        let nonce = self.get_account_nonce(account_id).unwrap_or_default() + 1;
+        let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce,
+            originator: account_id.to_string(),
+            contract_id: contract_id.to_string(),
+            method_name: method_name.as_bytes().to_vec(),
+            args,
+            amount,
+        })
+        .sign(&*self.signer());
+        self.user().add_transaction(transaction).unwrap();
     }
 }
 

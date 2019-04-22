@@ -1,0 +1,29 @@
+[package]
+name = "alphanet"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.32"
+env_logger = "0.6.0"
+futures="0.1"
+log = "0.4"
+rand = "0.6"
+serde = "1.0"
+serde_derive = "1.0"
+tokio = "0.1"
+
+network = { path = "../network" }
+primitives = { path = "../../runtime/primitives" }
+nightshade = { path = "../../chain/nightshade" }
+mempool = { path = "../../chain/mempool" }
+chain = { path = "../../chain/chain" }
+configs = { path = "../configs" }
+client = { path = "../client" }
+coroutines = { path = "../coroutines" }
+node-http = { path = "../../chain/http" }
+tokio-utils = { path = "../tokio-utils" }
+
+[dev-dependencies]
+testlib = { path = "../../test-utils/testlib" }

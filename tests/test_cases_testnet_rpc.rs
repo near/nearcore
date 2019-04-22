@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod test {
     use configs::chain_spec::DefaultIdType;
-    use node_runtime::test_utils::alice_account;
+    use testlib::runtime_utils::alice_account;
     use std::sync::atomic::{AtomicU16, Ordering};
     use testlib::node::thread_node::ThreadNode;
     use testlib::node::{

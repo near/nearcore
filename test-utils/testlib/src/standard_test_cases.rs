@@ -1,9 +1,9 @@
 use crate::node::{Node, RuntimeNode};
 use crate::test_helpers::wait;
 use crate::user::User;
+use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
 use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use node_runtime::state_viewer::AccountViewCallResult;
-use node_runtime::test_utils::{bob_account, default_code_hash, encode_int, eve_account};
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
@@ -393,7 +393,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
 
 pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let account_id = &node.signer().account_id;
-    let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+    let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         contract_id: account_id.clone(),
@@ -455,7 +455,7 @@ pub fn test_upload_contract(node: impl Node) {
 
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-    let wasm_binary = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm");
+    let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
         nonce: 1,
         contract_id: eve_account(),

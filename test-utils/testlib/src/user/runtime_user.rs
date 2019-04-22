@@ -1,13 +1,13 @@
 use crate::user::{User, POISONED_LOCK_ERR};
+use crate::runtime_utils::to_receipt_block;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
-use node_runtime::test_utils::to_receipt_block;
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus,
+    TransactionLogs, TransactionResult, TransactionStatus
 };
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use shard::ReceiptInfo;
