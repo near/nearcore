@@ -11,7 +11,7 @@ parity-wasm = "0.31"
 wasmer-runtime = "0.3.0"
 byteorder = "1.2"
 log = "0.4"
-cached = "0.8.0"
+cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
 serde = "1.0"
 serde_derive = "1.0"
 
