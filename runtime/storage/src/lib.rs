@@ -4,6 +4,8 @@ extern crate elastic_array;
 extern crate hex_literal;
 #[macro_use]
 extern crate log;
+#[cfg(test)]
+extern crate rand;
 extern crate primitives;
 
 use std::sync::Arc;
