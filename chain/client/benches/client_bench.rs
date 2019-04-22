@@ -6,14 +6,12 @@ use bencher::{benchmark_group, benchmark_main, Bencher};
 use serde_json::Value;
 
 use client::Client;
-use configs::{
-    chain_spec::{AuthorityRotation, DefaultIdType},
-    ChainSpec, ClientConfig,
-};
+use configs::ClientConfig;
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
+use primitives::crypto::signer::{EDSigner, InMemorySigner};
 use primitives::hash::CryptoHash;
-use primitives::crypto::signer::{InMemorySigner, EDSigner};
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
@@ -25,7 +23,9 @@ const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
 const CONTRACT_ID: &str = "contract.near";
 
-fn get_client(test_name: &str) -> (Client<InMemorySigner>, Arc<InMemorySigner>, Arc<InMemorySigner>) {
+fn get_client(
+    test_name: &str,
+) -> (Client<InMemorySigner>, Arc<InMemorySigner>, Arc<InMemorySigner>) {
     let mut base_path = Path::new(TMP_DIR).to_owned();
     base_path.push(test_name);
     if base_path.exists() {
