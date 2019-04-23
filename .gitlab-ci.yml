@@ -53,9 +53,9 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
-    - ./scripts/build_wasm.sh
-    - cargo check --all --all-features --tests --benches
-    - cargo test --all --verbose
+    #- ./scripts/build_wasm.sh
+    #- cargo check --all --all-features --tests --benches
+    #- cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
 
@@ -129,16 +129,16 @@ release_build:
         paths:
             - devnet
 
-coverage:
-    stage: libs
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *install_protos
-    script:
-    - ./scripts/build_wasm.sh
-    - cargo test --all --no-run
-    - *code_coverage
+# coverage:
+#     stage: libs
+#     before_script:
+#     - *setup_rust
+#     - *setup_cache
+#     - *install_protos
+#     script:
+#     - ./scripts/build_wasm.sh
+#     - cargo test --all --no-run
+#     - *code_coverage
 
 test_nearlib:
     stage: libs
@@ -146,9 +146,8 @@ test_nearlib:
     - release_build
     script:
     - ls -lh .
-    - ls -lh ..
     - export NEAR_DEVNET_EXE=devnet
-    - devnet &
+    - ./devnet &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
