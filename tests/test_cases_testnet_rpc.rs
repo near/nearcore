@@ -1,15 +1,15 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
-//#[cfg(feature = "expensive_tests")]
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use node_runtime::chain_spec::DefaultIdType;
-    use testlib::runtime_utils::alice_account;
     use std::sync::atomic::{AtomicU16, Ordering};
     use testlib::node::thread_node::ThreadNode;
     use testlib::node::{
         create_nodes_with_id_type, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
     };
+    use testlib::runtime_utils::alice_account;
     use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
     const NUM_TEST_NODE: usize = 4;

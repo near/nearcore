@@ -1,4 +1,5 @@
 //! Tests whether nodes can leave and rejoin the consensus.
+#[cfg(feature = "old_tests")]
 #[cfg(test)]
 mod test {
     use std::process::Command;
