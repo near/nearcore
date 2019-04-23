@@ -366,7 +366,6 @@ mod tests {
     use primitives::types::StructSignature;
 
     use super::*;
-    use primitives::crypto::signer::InMemorySigner;
 
     #[test]
     fn test_apply_block() {
