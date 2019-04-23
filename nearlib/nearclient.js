@@ -9,7 +9,7 @@ function _arrayBufferToBase64(buffer) {
 }
 
 function _base64ToBuffer(str) {
-    return new Buffer.from(str, 'base64')
+    return new Buffer.from(str, 'base64');
 }
 
 class NearClient {
@@ -39,13 +39,17 @@ class NearClient {
         const serializedArgs = Buffer.from(JSON.stringify(args)).toString('hex');
         const result = await this.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, '0', false]);
         const response = result.response;
-        const logs = response.log || '';
-        logs.split("\n").forEach(line => {
+        let logs = [];
+        if (response.log !== undefined && response.log.length > 0) {
+            logs = response.log.split('\n');
+        }
+        logs.forEach(line => {
             console.log(`[${contractAccountId}]: ${line}`);
         });
         // If error, raise exception after printing logs.
-        if (response.code != 0) {
-            throw Error(response.info)
+        const code = response.code || 0;
+        if (code != 0) {
+            throw Error(response.info);
         }
         const json = JSON.parse(_base64ToBuffer(response.value).toString());
         return json;
@@ -55,10 +59,13 @@ class NearClient {
         const encodedHash = _arrayBufferToBase64(transactionHash);
         const response = await this.jsonRpcRequest('tx', [encodedHash, false]);
         // tx_result has default values: code = 0, logs: '', data: ''.
-        const codes = {0: 'Completed', 1: 'Failed', 2: 'Started'};
+        const codes = { 0: 'Completed', 1: 'Failed', 2: 'Started' };
         const status = codes[response.tx_result.code || 0] || 'Unknown';
-        const logs = response.tx_result.log || '';
-        return {logs: logs.split('\n'), status, value: response.tx_result.data };
+        let logs = [];
+        if (response.tx_result !== undefined && response.tx_result.log !== undefined && response.tx_result.log.length > 0) {
+            logs = response.tx_result.log.split('\n');
+        }
+        return { logs, status, value: response.tx_result.data };
     }
 
     async getNonce(accountId) {
