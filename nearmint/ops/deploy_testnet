@@ -91,6 +91,8 @@ gcloud compute disks describe ${PREFIX}-studio-persistent  --zone ${ZONE} > /dev
 STUDIO_STORAGE_EXISTS=$?
 gcloud beta compute instances describe ${PREFIX}-studio --zone ${ZONE} > /dev/null 2>&1
 STUDIO_EXISTS=$?
+gcloud beta compute addresses describe ${PREFIX}-studio --region ${REGION} > /dev/null 2>&1
+STUDIO_ADDRESS_EXISTS=$?
 set -e
 
 if [[ ! ${STUDIO_FIRE_WALL_EXISTS} -eq 0 ]]; then
@@ -102,6 +104,10 @@ fi
 if [[ ! ${STUDIO_STORAGE_EXISTS} -eq 0 ]]; then
 gcloud compute disks create --size 200GB --zone ${ZONE} \
     ${PREFIX}-studio-persistent
+fi
+
+if [[ ! ${STUDIO_ADDRESS_EXISTS} -eq 0 ]]; then
+gcloud beta compute addresses create ${PREFIX}-studio --region ${REGION}
 fi
 
 if [[ !${STUDIO_EXISTS} -eq 0 ]]; then
@@ -116,6 +122,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-studio \
     --disk=name=${PREFIX}-studio-persistent \
     --container-mount-disk=mount-path="/srv/near" \
     --boot-disk-size 200GB \
+    --address ${PREFIX}-studio \
     --machine-type n1-standard-2
 fi
 
