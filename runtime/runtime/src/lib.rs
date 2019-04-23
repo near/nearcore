@@ -169,14 +169,9 @@ impl Runtime {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(transaction)?
         };
-        // Update nonce regardless of whether the transaction succeeds. This is done
-        // before verifying signatures because signatures are verified already in mempool.
-        // However, it is possible, although rare, that the key is swapped out before this
-        // transaction is applied. We do not treat this case specially now.
         originator.nonce = transaction.body.get_nonce();
         set(state_update, &key_for_account(&originator_id), &originator);
         state_update.commit();
-        // Checked in the transaction verifier
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
         let accounting_info = self

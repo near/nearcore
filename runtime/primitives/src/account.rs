@@ -19,8 +19,8 @@ impl Account {
     }
 }
 
-/// Limited Access key for some account. It implies to properties: account_id of the owner and
-/// public_key for this access key.
+/// Limited Access key to use owner's account with the given public_key.
+/// Access Key is stored using `account_id` of the owner and the `public_key` for this access key.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
