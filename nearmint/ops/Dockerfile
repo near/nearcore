@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile-upstream:experimental
+ARG PROFILE="release"
+ARG RELEASE_FLAG="$RELEASE_FLAG"
 
 FROM phusion/baseimage:0.11 AS builder
 
@@ -27,12 +29,12 @@ ENV CARGO_TARGET_DIR=/tmp/target
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p nearmint --release && \
-    cp /tmp/target/release/nearmint /usr/local/bin/ && \
-    cargo build -p keystore --release && \
-    cp /tmp/target/release/keystore /usr/local/bin/ && \
-    cargo build -p testlib --bin generate-test-spec --release && \
-    cp /tmp/target/release/generate-test-spec /usr/local/bin/
+    cargo build -p nearmint $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/nearmint /usr/local/bin/ && \
+    cargo build -p keystore $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/keystore /usr/local/bin/ && \
+    cargo build -p testlib --bin generate-test-spec $RELEASE_FLAG && \
+    cp /tmp/target/$PROFILE/generate-test-spec /usr/local/bin/
 
 RUN curl -L https://github.com/tendermint/tendermint/releases/download/v0.31.5/tendermint_v0.31.5_linux_amd64.zip > tendermint_v0.31.5_linux_amd64.zip
 RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/

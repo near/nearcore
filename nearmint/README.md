@@ -49,6 +49,21 @@ In the second console:
     cargo run --package nearmint
     
 Note, that if you want to reset state of nearmint that has already ran, use `rm -rf storage`.
+
+## Building image
+
+To build an image of the NearMint for launching on a local cluster, run the following from the root of the repo:
+
+```bash
+./nearmint/ops/build mytag1
+```
+
+To be able to deploy it to a remote cluster the tag should be in a form `nearprotocol/mysuffix1`.
+For the remote cluster the image also needs to be pushed to the docker hub:
+
+```bash
+sudo docker push nearprotocol/mysuffix1
+```
     
 ## Running local cluster
 
