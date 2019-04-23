@@ -2,87 +2,75 @@
 
 NEAR application layer running with Tendermint consensus.
 
-## Installation
+## Running Locally
 
-0. Install general development tools.
+NEARMint can be run locally in several different ways:
+* Running on a host machine as a single validator;
+* Dockerized local cluster.
 
-Ubuntu:
+If you are not planning to do development, but only want to try running the local cluster then skip to [Dockerized Local Cluster](#dockerized-local-cluster).
 
-    sudo apt-get install binutils-dev libcurl4-openssl-dev zlib1g-dev libdw-dev libiberty-dev cmake gcc build-essential libssl-dev pkg-config protobuf-compiler
+## NEARMint with Tendermint core as a single validator
 
-1. Follow instruction on Tendermint installation: https://tendermint.com/docs/introduction/install.html
+### Installation
 
-2. Install rust
+This mode of running requires compilation of the Rust code and installed Tendermint.
 
+**1. Dependencies**
+
+Install protobufs:
+```bash
+# Mac OS:
+brew install protobuf
+
+# Ubuntu:
+apt-get install protobuf-compiler
 ```
+
+**2. Rust**
+
+Currently, the only way to install NEARMint application layer is to compile it from the source.
+For that we would need to install Rust.
+
+```bash
 curl https://sh.rustup.rs -sSf | sh
+rustup default nightly
 ```
 
-3. Download this repo
 
-    git clone https://github.com/nearprotocol/nearcore
+**3. Source code**
 
-## Configure
+We would need to copy the entire repository:
 
-### Tendermint
+```bash
+git clone https://github.com/nearprotocol/nearcore
+cd nearcore
+```
 
-    tendermint init
+**4. Tendermint**
 
-You can modify configuration of the node in `~/.tendermint/config/config.toml`.
+Follow the official instructions to install Tendermint: https://tendermint.com/docs/introduction/install.html
 
-Specifically, change RPC server to 3030 port:
-```$toml
+### Configure and run
+
+To configure Tendermint run:
+
+```bash
+tendermint init
+```
+
+Configure Tendermint to use `3030` for its RPC. Open `~/.tendermint/config/config.toml` and change:
+```yaml
 [rpc]
 laddr = "tcp://0.0.0.0:3030"
 ```
 
-## Running
-
-Start in one console tendermint (from any location if it was installed, or from directory you put binary into):
-
-    tendermint node
-    
-Note, that if you want to reset state of tendermint that has already ran, use `tendermint unsafe_reset_all`.
-
-In the second console:
-
-    cargo run --package nearmint
-    
-Note, that if you want to reset state of nearmint that has already ran, use `rm -rf storage`.
-
-## Building image
-
-To build an image of the NearMint for launching on a local cluster, run the following from the root of the repo:
-
-```bash
-./nearmint/ops/build mytag1
+For local development we also recommend setting:
+```yaml
+create_empty_blocks = false
 ```
 
-To be able to deploy it to a remote cluster the tag should be in a form `nearprotocol/mysuffix1`.
-For the remote cluster the image also needs to be pushed to the docker hub:
-
-```bash
-sudo docker push nearprotocol/mysuffix1
-```
-    
-## Running local cluster
-
-Note, this is done way easier on Ubuntu and we will be working on simplifying it for Mac OS.
-
-Link `tendermint` binary to target/release folder
-
-    ln -s 
-
-We use docker compose to spin up 4 node local cluster:
-
-    cargo run --release --package nearmint
-    cd ops/local
-    docker-compose up
-
-
-## Development
-
-To run single validator mode (e.g. DevNet mode), you can set Tendermint validator key to `alice.near` key in `~/.tendermint/config/priv_validator_key.json`:
+First, we want to set `alice.near` as a single validator. Open `~/.tendermint/config/priv_validator_key.json` and replace with:
 
 ```json
 {
@@ -98,15 +86,63 @@ To run single validator mode (e.g. DevNet mode), you can set Tendermint validato
 }
 ```
 
+Navigate to the root of the repository, and run:
+```bash
+cargo run --package nearmint -- --devnet
+```
 
-And then when running `nearmint` use `--devnet` flag, e.g. `cargo run --package nearmint -- --devnet` or `target/release/nearmint --devnet`.
-    
-## Interacting
+This will start NEARMint in application mode, without consensus backing it up.
 
-Use JSONRPC to send transaction:
+To start Tendermint run:
+```bash
+tendermint node
+```
 
-    http post localhost:26657 method=broadcast_tx_commit jsonrpc=2.0 id=dontcare tx=0x<hex bytes of transaction>
+Now we can issue specific commands to the node:
+```bash
+curl http://localhost:3030/status
+curl -s 'localhost:3030/abci_query?path="account/alice.near"'
+curl -s 'localhost:3030/validators'
+```
 
-See full list of JSONRPC
+See full list of RPC endpoints here: https://tendermint.com/rpc/#endpoints
 
-    http get localhost:26657
+Unfortunately, transactions can be only submitted in base64 encoding, which is hard to do from the command line.
+
+## Dockerized Local Cluster
+
+### Installation
+
+If you are not planning to build your own NEARMint image then Docker installation is enough, otherwise follow the
+installation instructions from the previous section.
+
+To install docker, follow [the official instructions](https://www.docker.com/get-started).
+
+### Run
+
+To run local cluster simply run:
+
+```bash
+./nearmint/ops/local_testnet
+```
+
+You can then issue RPC requests either on port `3030` or `3031`.
+
+### Building image
+
+To run local code as a dockerized cluster you would need to build an image:
+
+```bash
+./nearmint/ops/build mytag1
+```
+where `mytag1` is some unique name.
+
+To start the local cluster using this image run:
+
+```bash
+./nearmint/ops/local_testnet mytag1
+```
+
+## Dockerized Local Cluster
+
+TODO
