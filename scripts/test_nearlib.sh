@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-./target/release/devnet &
+# Must start binary outside of this script.
 ./scripts/waitonserver.sh
 ./scripts/build_wasm.sh
 
