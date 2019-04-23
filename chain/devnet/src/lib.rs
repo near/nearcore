@@ -13,12 +13,16 @@ use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use primitives::crypto::signer::{InMemorySigner, AccountSigner, BLSSigner, EDSigner};
+use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
 use primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
 
 /// Re-applies blocks from the start into new client.
-fn replay_storage<T: AccountSigner + BLSSigner + EDSigner + 'static>(client: Arc<Client<T>>, client_cfg: ClientConfig, other_base_path: &str) {
+fn replay_storage<T: AccountSigner + BLSSigner + EDSigner + 'static>(
+    client: Arc<Client<T>>,
+    client_cfg: ClientConfig,
+    other_base_path: &str,
+) {
     let mut other_client_cfg = client_cfg.clone();
     other_client_cfg.base_path = PathBuf::from(other_base_path);
     let other_client = Client::<InMemorySigner>::new(&other_client_cfg, None);
@@ -174,18 +178,19 @@ mod tests {
             .write()
             .expect(POISONED_LOCK_ERR)
             .add_transaction(
-                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send).sign(&*signer),
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                    .sign(&*signer),
             )
             .unwrap();
         wait(|| client.shard_client.chain.best_index() >= 2, 50, 10000);
 
         // Check that transaction and it's receipt were included.
-        let mut state_update = client.shard_client.get_state_update();
+        let state_update = client.shard_client.get_state_update();
         assert_eq!(
             client
                 .shard_client
                 .trie_viewer
-                .view_account(&mut state_update, &"alice.near".to_string())
+                .view_account(&state_update, &"alice.near".to_string())
                 .unwrap()
                 .amount,
             init_balance - money_to_send
@@ -194,11 +199,18 @@ mod tests {
             client
                 .shard_client
                 .trie_viewer
-                .view_account(&mut state_update, &"bob.near".to_string())
+                .view_account(&state_update, &"bob.near".to_string())
                 .unwrap()
                 .amount,
             init_balance + money_to_send
         );
-        assert!(client.shard_client.pool.clone().unwrap().read().expect(POISONED_LOCK_ERR).is_empty());
+        assert!(client
+            .shard_client
+            .pool
+            .clone()
+            .unwrap()
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .is_empty());
     }
 }

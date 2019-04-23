@@ -14,19 +14,19 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 
 use serde::{de::DeserializeOwned, Serialize};
 
-pub use crate::storages::{BlockChainStorage, GenericStorage};
 pub use crate::storages::beacon::BeaconChainStorage;
-use crate::storages::NUM_COLS;
 pub use crate::storages::shard::ShardChainStorage;
-pub use crate::trie::{DBChanges, Trie};
+use crate::storages::NUM_COLS;
+pub use crate::storages::{BlockChainStorage, GenericStorage};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
+pub use crate::trie::{DBChanges, Trie};
 use primitives::serialize::{Decode, Encode};
 
 pub mod storages;
 pub mod test_utils;
 pub mod trie;
 
-pub fn get<T: DeserializeOwned>(state_update: &mut TrieUpdate, key: &[u8]) -> Option<T> {
+pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
     state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 

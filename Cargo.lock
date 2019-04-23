@@ -1613,6 +1613,7 @@ dependencies = [
  "serde_derive 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "shard 0.0.1",
+ "verifier 0.1.0",
 ]
 
 [[package]]
@@ -1632,6 +1633,7 @@ dependencies = [
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "storage 0.0.1",
  "testlib 0.1.0",
+ "verifier 0.1.0",
  "wasm 0.0.2",
 ]
 
@@ -3067,6 +3069,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "vec_map"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "verifier"
+version = "0.1.0"
+dependencies = [
+ "primitives 0.1.0",
+ "storage 0.0.1",
+]
 
 [[package]]
 name = "version_check"

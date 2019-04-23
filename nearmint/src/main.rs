@@ -122,8 +122,8 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
 
 impl RuntimeAdapter for NearMint {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), self.root);
-        self.trie_viewer.view_account(&mut state_update, account_id)
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+        self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn call_function(

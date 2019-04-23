@@ -1,9 +1,10 @@
 use bs58;
 use byteorder::{LittleEndian, WriteBytesExt};
+use lazy_static::lazy_static;
 use protobuf::{well_known_types::StringValue, SingularPtrField};
 use std::convert::{TryFrom, TryInto};
-use lazy_static::lazy_static;
 
+use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
 use regex::Regex;
@@ -14,6 +15,7 @@ pub mod col {
     pub const CODE: &[u8] = &[2];
     pub const TX_STAKE: &[u8] = &[3];
     pub const TX_STAKE_SEPARATOR: &[u8] = &[4];
+    pub const ACCESS_KEY: &[u8] = &[5];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
@@ -24,6 +26,13 @@ fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> 
 
 pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::ACCOUNT, account_key)
+}
+
+pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
+    key.extend_from_slice(col::ACCESS_KEY);
+    key.extend_from_slice(public_key.as_ref());
+    key
 }
 
 pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
@@ -49,7 +58,6 @@ pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     nonce.append(&mut index_to_bytes(salt));
     hash(&nonce)
 }
-
 
 pub fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];

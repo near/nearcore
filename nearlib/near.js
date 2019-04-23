@@ -149,7 +149,7 @@ class Near {
      * const result = await this.getTransactionStatus(transactionHash)
      */
     async getTransactionStatus(transactionHash) {
-        return this.nearClient.getTransactionStatus(transactionHash)
+        return this.nearClient.getTransactionStatus(transactionHash);
     }
 
     /**
@@ -184,9 +184,6 @@ class Near {
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
-                for (j = result.logs.length - 1; j >= 0; --j) {
-                    let r = result.logs[j];
-                }
                 if (result.value) {
                     result.lastResult = JSON.parse(Buffer.from(result.value, 'base64').toString());
                 }
@@ -194,7 +191,8 @@ class Near {
             }
             if (result.status == 'Failed') {
                 const errorMessage = result.logs.find(it => it.startsWith('ABORT:')) || '';
-                throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
+                const hash = Buffer.from(transactionHash).toString('base64');
+                throw createError(400, `Transaction ${hash} on ${contractAccountId} failed. ${errorMessage}`);
             }
         }
         throw createError(408, `Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +

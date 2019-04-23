@@ -27,7 +27,7 @@ variables:
     sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +2 -delete
+    find "${CACHE_ROOT}/target" -atime +60 -delete
 
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
@@ -122,11 +122,12 @@ release_build:
     script:
     - rustc --version && cargo --version
     - cargo build --release --package=devnet
+    - cp target/release/devnet devnet
     after_script:
     - *cleanup_obsolete_cache
     artifacts:
         paths:
-            - target/release/devnet
+            - devnet
 
 coverage:
     stage: libs
@@ -144,6 +145,7 @@ test_nearlib:
     dependencies:
     - release_build
     script:
+    - ./devnet &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
@@ -159,5 +161,5 @@ test_pynear:
     dependencies:
         - release_build
     script:
-    - export NEAR_DEVNET_EXE=../target/release/devnet
+    - export NEAR_DEVNET_EXE=../devnet
     - cd pynear && python setup.py test
