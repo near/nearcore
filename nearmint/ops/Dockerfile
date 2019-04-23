@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile-upstream:experimental
-ARG PROFILE="release"
-ARG RELEASE_FLAG="$RELEASE_FLAG"
 
 FROM phusion/baseimage:0.11 AS builder
+
+ARG PROFILE="release"
+ARG RELEASE_FLAG="--release"
 
 RUN apt-get update -qq && apt-get install -y \
     cmake \
