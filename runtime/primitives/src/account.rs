@@ -19,8 +19,8 @@ impl Account {
     }
 }
 
-/// Limited Access key to use owner's account with the given public_key.
-/// Access Key is stored using `account_id` of the owner and the `public_key` for this access key.
+/// Limited Access key to use owner's account with the fixed public_key.
+/// Access Key is stored under the key of owner's `account_id` and the `public_key`.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
