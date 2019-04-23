@@ -143,6 +143,6 @@ To start the local cluster using this image run:
 ./nearmint/ops/local_testnet mytag1
 ```
 
-## Dockerized Local Cluster
+## Remote Cluster
 
 TODO
