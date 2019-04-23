@@ -21,6 +21,7 @@ pub mod logging;
 pub mod merkle;
 pub mod network;
 pub mod serialize;
+pub mod sharding;
 pub mod test_utils;
 pub mod traits;
 pub mod transaction;

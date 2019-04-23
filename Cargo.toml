@@ -20,6 +20,7 @@ members = [
     "core/primitives",
     "core/storage",
     "core/nightshade",
+    "core/sharding",
     "core/wasm",
     "core/wasm/runtest",
     "node/alphanet",
