@@ -17,7 +17,6 @@ use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime};
 use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::InMemorySigner;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
@@ -358,6 +357,7 @@ mod tests {
     use tempdir::TempDir;
 
     use super::*;
+    use primitives::crypto::signer::InMemorySigner;
 
     #[test]
     fn test_apply_block() {

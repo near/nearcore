@@ -1,4 +1,5 @@
 //! Checks that late validator can catch-up and start validating.
+#[cfg(feature = "old_tests")]
 #[test]
 fn test_catchup() {
     use std::time::Duration;

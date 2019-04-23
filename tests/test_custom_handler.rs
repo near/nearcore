@@ -1,3 +1,4 @@
+#[cfg(feature = "old_tests")]
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
