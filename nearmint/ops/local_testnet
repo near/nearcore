@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearmint}
-TOTAL_NODES=2
+IMAGE=${1:-nearmint_test4}
+TOTAL_NODES=4
 NODE_ID=0
 RPC_PORT=3030
 P2P_PORT=26656
@@ -14,7 +14,7 @@ sudo docker run -d --name testnet-${NODE_ID} -p ${RPC_PORT}:3030 -p ${P2P_PORT}:
 	${IMAGE}
 
 while [[ ${NODE_ID} -lt $((${TOTAL_NODES} - 1)) ]]; do
-let NODE_ID=NODDE_ID+1
+let NODE_ID=NODE_ID+1
 let RPC_PORT=RPC_PORT+1
 let P2P_PORT=P2P_PORT+1
 sudo docker run -d --name testnet-${NODE_ID} -p ${RPC_PORT}:3030 -p ${P2P_PORT}:26656 \
