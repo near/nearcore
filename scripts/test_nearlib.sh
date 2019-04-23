@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-# ./${NEAR_DEVNET_EXE} &
+# Must start binary outside of this script.
 ./scripts/waitonserver.sh
 ./scripts/build_wasm.sh
 
