@@ -1,22 +1,20 @@
 //! Various configs that can be parsed from a file or/and read from a command line.
-#[macro_use]
 extern crate serde_derive;
-#[cfg_attr(test, macro_use)]
 extern crate serde_json;
 
 use clap::App;
 
 pub mod authority;
-pub mod chain_spec;
 mod client;
 mod devnet;
 pub mod network;
 mod rpc;
 
 pub use crate::{
-    authority::AuthorityConfig, chain_spec::ChainSpec, client::ClientConfig, devnet::DevNetConfig,
-    network::NetworkConfig, rpc::RPCConfig,
+    authority::AuthorityConfig, client::ClientConfig, devnet::DevNetConfig, network::NetworkConfig,
+    rpc::RPCConfig,
 };
+use node_runtime::chain_spec::ChainSpec;
 
 pub fn get_alphanet_configs() -> (ClientConfig, NetworkConfig, RPCConfig) {
     let matches = App::new("Near TestNet")

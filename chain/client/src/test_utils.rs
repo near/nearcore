@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use beacon::beacon_chain::BeaconClient;
-use configs::ChainSpec;
+use node_runtime::chain_spec::ChainSpec;
 use primitives::beacon::SignedBeaconBlock;
 use primitives::crypto::signer::InMemorySigner;
 use shard::ShardClient;

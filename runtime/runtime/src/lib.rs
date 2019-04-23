@@ -39,6 +39,7 @@ use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
 use storage::{get, set, TrieUpdate};
 
 pub mod adapter;
+pub mod chain_spec;
 mod system;
 
 mod ext;

@@ -6,7 +6,7 @@
 mod test {
     use testlib::standard_test_cases::*;
 
-    use configs::chain_spec::DefaultIdType;
+    use node_runtime::chain_spec::DefaultIdType;
     use testlib::runtime_utils::alice_account;
     use std::sync::atomic::{AtomicU16, Ordering};
     use testlib::node::thread_node::ThreadNode;

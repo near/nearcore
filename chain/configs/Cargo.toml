@@ -13,3 +13,4 @@ serde_json = "1.0"
 rand = "0.6"
 
 primitives = { path = "../../runtime/primitives" }
+node-runtime = { path = "../../runtime/runtime" }

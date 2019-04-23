@@ -188,9 +188,10 @@ impl From<&str> for ChainSpec {
 
 #[cfg(test)]
 mod tests {
-    use crate::ChainSpec;
+    use super::ChainSpec;
     use primitives::types::ReadableBlsPublicKey;
     use primitives::types::ReadablePublicKey;
+    use serde_json::json;
 
     #[test]
     fn test_deserialize() {

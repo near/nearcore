@@ -501,10 +501,7 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
 
 #[cfg(test)]
 mod tests {
-    use configs::{
-        chain_spec::{AuthorityRotation, DefaultIdType},
-        ChainSpec,
-    };
+    use node_runtime::chain_spec::{ChainSpec, AuthorityRotation, DefaultIdType};
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
     use primitives::crypto::signer::InMemorySigner;

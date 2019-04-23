@@ -448,10 +448,7 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
-    use configs::{
-        chain_spec::{AuthorityRotation, DefaultIdType},
-        ChainSpec,
-    };
+    use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
     use node_runtime::Runtime;
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;

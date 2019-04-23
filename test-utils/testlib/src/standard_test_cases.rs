@@ -2,7 +2,7 @@ use crate::node::{Node, RuntimeNode};
 use crate::test_helpers::wait;
 use crate::user::User;
 use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
-use configs::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};

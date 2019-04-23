@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use configs::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
 use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
