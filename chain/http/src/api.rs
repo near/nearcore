@@ -7,11 +7,11 @@ use serde_json::json;
 use client::Client;
 use primitives::hash::CryptoHash;
 use primitives::logging::pretty_utf8;
-use primitives::transaction::verify_transaction_signature;
+use primitives::rpc::ABCIQueryResponse;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockId};
-use primitives::rpc::ABCIQueryResponse;
 use primitives::utils::bs58_vec2str;
+use verifier::TransactionVerifier;
 
 use crate::types::*;
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -21,7 +21,13 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Adapter for querying runtime.
 pub trait RuntimeAdapter {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
-    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String>;
+    fn call_function(
+        &self,
+        contract_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+        logs: &mut Vec<String>,
+    ) -> Result<Vec<u8>, String>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
@@ -38,8 +44,7 @@ pub fn query_client(
         return Err("Path must contain at least single token".to_string());
     }
     match path_parts[0] {
-        "account" => match adapter.view_account(&AccountId::from(path_parts[1]))
-        {
+        "account" => match adapter.view_account(&AccountId::from(path_parts[1])) {
             Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
             Err(e) => Err(e),
         },
@@ -65,17 +70,27 @@ pub struct HttpApi<T> {
 
 impl<T> RuntimeAdapter for HttpApi<T> {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let mut state_update = self.client.shard_client.get_state_update();
-        self.client
-            .shard_client
-            .trie_viewer
-            .view_account(&mut state_update, account_id)
+        let state_update = self.client.shard_client.get_state_update();
+        self.client.shard_client.trie_viewer.view_account(&state_update, account_id)
     }
 
-    fn call_function(&self, contract_id: &AccountId, method_name: &str, args: &[u8], logs: &mut Vec<String>) -> Result<Vec<u8>, String> {
+    fn call_function(
+        &self,
+        contract_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+        logs: &mut Vec<String>,
+    ) -> Result<Vec<u8>, String> {
         let best_index = self.client.shard_client.chain.best_index();
         let state_update = self.client.shard_client.get_state_update();
-        self.client.shard_client.trie_viewer.call_function(state_update, best_index, contract_id, method_name, args, logs)
+        self.client.shard_client.trie_viewer.call_function(
+            state_update,
+            best_index,
+            contract_id,
+            method_name,
+            args,
+            logs,
+        )
     }
 }
 
@@ -128,7 +143,8 @@ impl<T> HttpApi<T> {
                 let data_str = params[1]
                     .as_str()
                     .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
-                let data = hex::decode(data_str).map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
+                let data = hex::decode(data_str)
+                    .map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
 
                 let response = query_client(self, path, &data, 0, false)
                     .map_err(|e| RPCError::BadRequest(e))?;
@@ -186,8 +202,8 @@ impl<T> HttpApi<T> {
 
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {}", r.account_id);
-        let mut state_update = self.client.shard_client.get_state_update();
-        match self.client.shard_client.trie_viewer.view_account(&mut state_update, &r.account_id) {
+        let state_update = self.client.shard_client.get_state_update();
+        match self.client.shard_client.trie_viewer.view_account(&state_update, &r.account_id) {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account_id,
                 amount: r.amount,
@@ -229,19 +245,9 @@ impl<T> HttpApi<T> {
 
     fn submit_tx(&self, transaction: SignedTransaction) -> Result<CryptoHash, RPCError> {
         debug!(target: "near-rpc", "Received transaction {:#?}", transaction);
-        let originator = transaction.body.get_originator();
-        let mut state_update = self.client.shard_client.get_state_update();
-        let public_keys = self
-            .client
-            .shard_client
-            .trie_viewer
-            .get_public_keys_for_account(&mut state_update, &originator)
-            .map_err(RPCError::BadRequest)?;
-        if !verify_transaction_signature(&transaction, &public_keys) {
-            let msg =
-                format!("transaction not signed with a public key of originator {:?}", originator,);
-            return Err(RPCError::BadRequest(msg));
-        }
+        let state_update = self.client.shard_client.get_state_update();
+        let verifier = TransactionVerifier::new(&state_update);
+        verifier.verify_transaction(&transaction).map_err(RPCError::BadRequest)?;
         let hash = transaction.get_hash();
         if let Some(pool) = &self.client.shard_client.pool {
             pool.write()

@@ -16,11 +16,11 @@ use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime};
+use primitives::crypto::signature::PublicKey;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
-use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::InMemorySigner;
 use protobuf::parse_from_bytes;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
@@ -123,8 +123,8 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
 
 impl RuntimeAdapter for NearMint {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), self.root);
-        self.trie_viewer.view_account(&mut state_update, account_id)
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+        self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn call_function(
