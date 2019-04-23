@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+
+docker stop $(docker ps --filter="name=testnet" -q)
+docker rm $(docker ps --filter="name=testnet" -q --all)
