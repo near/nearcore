@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-./${NEAR_DEVNET_EXE} &
+# ./${NEAR_DEVNET_EXE} &
 ./scripts/waitonserver.sh
 ./scripts/build_wasm.sh
 

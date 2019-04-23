@@ -145,7 +145,10 @@ test_nearlib:
     dependencies:
     - release_build
     script:
+    - ls -lh .
+    - ls -lh ..
     - export NEAR_DEVNET_EXE=devnet
+    - devnet &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
