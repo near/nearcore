@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Arg, ArgMatches};
-
-use crate::chain_spec::{ChainSpec, ALICE_ID};
+use node_runtime::chain_spec::{ChainSpec, ALICE_ID};
 use primitives::types::AccountId;
 
 const DEFAULT_BASE_PATH: &str = ".";

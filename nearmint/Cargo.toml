@@ -17,9 +17,6 @@ primitives = { path = "../runtime/primitives" }
 near-protos = { path = "../runtime/protos" }
 storage = { path = "../runtime/storage" }
 node-runtime = { path = "../runtime/runtime" }
-client = { path = "../chain/client" }
-configs = { path = "../chain/configs" }
-node-http = { path = "../chain/http" }
 
 [dev-dependencies]
 tempdir = "0.3"

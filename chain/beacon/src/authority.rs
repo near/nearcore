@@ -8,11 +8,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use log::Level::Debug;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use configs::{chain_spec::AuthorityRotation, AuthorityConfig};
+use configs::AuthorityConfig;
+
 use primitives::beacon::SignedBeaconBlockHeader;
 use primitives::hash::CryptoHash;
 use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
+
+use node_runtime::chain_spec::AuthorityRotation;
 
 use crate::beacon_chain::BeaconBlockChain;
 
@@ -382,7 +385,6 @@ impl Authority for ThresholdedPOSAuthority {
 mod test {
     use chain::test_utils::get_blockchain_storage;
     use configs::authority::get_authority_config;
-    use configs::ChainSpec;
     use primitives::beacon::SignedBeaconBlock;
     use primitives::block_traits::{SignedBlock, SignedHeader};
     use primitives::hash::CryptoHash;
@@ -390,7 +392,7 @@ mod test {
     use storage::test_utils::create_beacon_shard_storages;
 
     use crate::beacon_chain::BeaconClient;
-    use configs::chain_spec::DefaultIdType;
+    use node_runtime::chain_spec::{ChainSpec, DefaultIdType};
 
     use super::*;
 
@@ -530,7 +532,12 @@ mod test {
     /// Test that in case of POA authorities are not kick out even if didn't sign the block.
     fn test_poa_authority() {
         let num_authorities = 4;
-        let (chain_spec, _) = ChainSpec::testing_spec(DefaultIdType::Enumerated, num_authorities, num_authorities, AuthorityRotation::ProofOfAuthority);
+        let (chain_spec, _) = ChainSpec::testing_spec(
+            DefaultIdType::Enumerated,
+            num_authorities,
+            num_authorities,
+            AuthorityRotation::ProofOfAuthority,
+        );
 
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();

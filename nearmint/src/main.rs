@@ -8,16 +8,19 @@ use std::sync::RwLock;
 
 use abci::*;
 use clap::{App, Arg};
-use configs::ChainSpec;
 use env_logger::Builder;
 use log::info;
-use node_runtime::{ApplyState, Runtime};
+
 use node_runtime::adapter::{query_client, RuntimeAdapter};
+
+use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
-use primitives::crypto::signature::PublicKey;
+use node_runtime::{ApplyState, Runtime};
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
+use primitives::crypto::signature::PublicKey;
+use primitives::crypto::signer::InMemorySigner;
 use protobuf::parse_from_bytes;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
@@ -93,8 +96,7 @@ impl NearMint {
             )
         } else {
             // Apply genesis.
-            trie.apply_changes(db_changes)
-                .expect("Failed to commit genesis state");
+            trie.apply_changes(db_changes).expect("Failed to commit genesis state");
             (genesis_root, 0)
         };
 
@@ -157,8 +159,7 @@ impl Application for NearMint {
 
     fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
         let mut resp = ResponseQuery::new();
-        match query_client(self, &req.path, &req.data, req.height as u64, req.prove)
-        {
+        match query_client(self, &req.path, &req.data, req.height as u64, req.prove) {
             Ok(response) => {
                 resp.key = response.key;
                 resp.value = response.value;
@@ -249,7 +250,7 @@ impl Application for NearMint {
                                 0,
                                 apply_state.block_index,
                                 receipt,
-                                &mut new_receipts
+                                &mut new_receipts,
                             );
                             logs.extend(receipt_result.logs);
                             if let Some(result) = receipt_result.result {
@@ -278,21 +279,14 @@ impl Application for NearMint {
         if let Some(state_update) = self.state_update.take() {
             info!("Commit: {:?}", req);
             let (new_root, db_changes) = state_update.finalize();
-            self.trie
-                .apply_changes(db_changes)
-                .expect("Failed to commit to database");
+            self.trie.apply_changes(db_changes).expect("Failed to commit to database");
             if let Some(apply_state) = &self.apply_state {
-                let mut guard = self.storage
-                    .write()
-                    .expect(POISONED_LOCK_ERR);
+                let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
                 guard
                     .blockchain_storage_mut()
                     .set_best_block_index(apply_state.block_index)
                     .expect("FAILED");
-                guard
-                    .blockchain_storage_mut()
-                    .set_best_block_hash(new_root)
-                    .expect("FAILED");
+                guard.blockchain_storage_mut().set_best_block_hash(new_root).expect("FAILED");
             }
             self.state_update = None;
             self.apply_state = None;
@@ -330,7 +324,7 @@ fn main() {
                 .value_name("ABCI_Address")
                 .help("Specify ip address and port for Tendermint ABCI")
                 .default_value("127.0.0.1:26658")
-                .takes_value(true)
+                .takes_value(true),
         ])
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
@@ -354,10 +348,11 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use primitives::crypto::signer::InMemorySigner;
+    use node_runtime::adapter::RuntimeAdapter;
+    use node_runtime::chain_spec::ChainSpec;
     use primitives::hash::CryptoHash;
     use primitives::transaction::TransactionBody;
-    use node_runtime::adapter::RuntimeAdapter;
+
     use protobuf::Message;
 
     use tempdir::TempDir;
@@ -367,7 +362,7 @@ mod tests {
     #[test]
     fn test_apply_block() {
         let tmp_dir = TempDir::new("apply_block").unwrap();
-        let chain_spec = configs::ChainSpec::default_devnet();
+        let chain_spec = ChainSpec::default_devnet();
         let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
         let req_init = RequestInitChain::new();
         let resp_init = nearmint.init_chain(&req_init);
@@ -382,9 +377,7 @@ mod tests {
         nearmint.begin_block(&req_begin_block);
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
         let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10)
-                .sign(&signer)
-                .into();
+            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
         let deliver_resp = nearmint.deliver_tx(&deliver_req);

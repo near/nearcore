@@ -4,7 +4,7 @@ use primitives::chain::{SignedShardBlockHeader, ReceiptBlock, ShardBlockHeader};
 use primitives::crypto::group_signature::GroupSignature;
 use primitives::merkle::merklize;
 use primitives::hash::{CryptoHash, hash};
-use configs::{ChainSpec, chain_spec::{DefaultIdType, AuthorityRotation}};
+use node_runtime::chain_spec::{DefaultIdType, AuthorityRotation, ChainSpec};
 use storage::{Trie, TrieUpdate};
 use storage::test_utils::create_trie;
 use node_runtime::{Runtime, state_viewer::TrieViewer};
