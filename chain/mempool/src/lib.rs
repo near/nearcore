@@ -116,10 +116,10 @@ impl Pool {
             }
         }
 
-        let mut state_update = self.get_state_update();
+        let state_update = self.get_state_update();
         let originator = transaction.body.get_originator();
         let public_keys =
-            self.state_viewer.get_public_keys_for_account(&mut state_update, &originator)?;
+            self.state_viewer.get_public_keys_for_account(&state_update, &originator)?;
         if !verify_transaction_signature(&transaction, &public_keys) {
             return Err(format!(
                 "transaction not signed with a public key of originator {:?}",

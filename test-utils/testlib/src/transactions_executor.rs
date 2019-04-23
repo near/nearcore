@@ -97,15 +97,17 @@ impl Executor {
                         let node = sample_one(&nodes).clone();
                         tokio::spawn(
                             Delay::new(instant)
-                                .map_err(|_| format!("Timer error"))
+                                .map_err(|_| "Timer error".to_string())
                                 .and_then(move |_| {
-                                    node.write().unwrap()
-                                        .async_user().add_transaction(t)
+                                    node.write()
+                                        .unwrap()
+                                        .async_user()
+                                        .add_transaction(t)
                                         .timeout(Duration::from_secs(1))
                                         .map(|_| ())
                                         .map_err(|err| format!("Error sending transaction {}", err))
                                 })
-                                .map_err(|_| ())
+                                .map_err(|_| ()),
                         );
                         Ok(())
                     })

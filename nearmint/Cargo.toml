@@ -17,6 +17,7 @@ primitives = { path = "../runtime/primitives" }
 near-protos = { path = "../runtime/protos" }
 storage = { path = "../runtime/storage" }
 node-runtime = { path = "../runtime/runtime" }
+verifier = { path = "../runtime/verifier" }
 
 [dev-dependencies]
 tempdir = "0.3"

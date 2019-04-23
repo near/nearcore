@@ -298,7 +298,7 @@ impl From<RPCError> for JsonRpcResponseError {
         let (code, message) = match error {
             RPCError::BadRequest(msg) => (-32602, format!("Bad request: {}", msg)),
             RPCError::MethodNotFound(msg) => (-32601, format!("Method not found: {}", msg)),
-            RPCError::NotFound => (-30000, format!("Not found")),
+            RPCError::NotFound => (-30000, "Not found".to_string()),
             RPCError::ServiceUnavailable(msg) => (-32603, format!("Service unavailable: {}", msg)),
         };
         JsonRpcResponseError { code, message, data: serde_json::Value::Null }
