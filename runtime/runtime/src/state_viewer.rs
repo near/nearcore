@@ -35,7 +35,7 @@ pub struct AccountViewCallResult {
 impl TrieViewer {
     pub fn view_account(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<AccountViewCallResult, String> {
         if !is_valid_account_id(account_id) {
@@ -57,7 +57,7 @@ impl TrieViewer {
 
     pub fn get_public_keys_for_account(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
         self.view_account(state_update, account_id).map(|account| account.public_keys)
@@ -73,7 +73,7 @@ impl TrieViewer {
         }
         let mut values = HashMap::default();
         let mut prefix = key_for_account(account_id);
-        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        prefix.extend_from_slice(ACCOUNT_DATA_SEPARATOR);
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
                 values.insert(key[prefix.len()..].to_vec(), value.to_vec());
@@ -97,10 +97,10 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let code: ContractCode =
-            get(&mut state_update, &key_for_code(contract_id)).ok_or_else(|| {
+            get(&state_update, &key_for_code(contract_id)).ok_or_else(|| {
                 format!("account {} does not have contract code", contract_id.clone())
             })?;
-        let wasm_res = match get::<Account>(&mut state_update, &key_for_account(contract_id)) {
+        let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(

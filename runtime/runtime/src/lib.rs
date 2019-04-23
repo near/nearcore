@@ -18,17 +18,17 @@ use primitives::chain::ReceiptBlock;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::CryptoHash;
 use primitives::transaction::{
-    verify_transaction_signature, AsyncCall, Callback, CallbackInfo, CallbackResult,
-    FunctionCallTransaction, LogEntry, ReceiptBody, ReceiptTransaction, SignedTransaction,
-    TransactionBody, TransactionResult, TransactionStatus,
+    AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
+    ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
+    TransactionStatus,
 };
 use primitives::types::{
     AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
     MerkleHash, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
 };
 use primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, is_valid_account_id, key_for_account,
-    key_for_callback, key_for_code, key_for_tx_stake,
+    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
+    key_for_tx_stake,
 };
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -37,6 +37,7 @@ use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
 use storage::{get, set, TrieUpdate};
+use verifier::{TransactionVerifier, VerificationData};
 
 pub mod adapter;
 pub mod chain_spec;
@@ -164,100 +165,58 @@ impl Runtime {
         transaction: &SignedTransaction,
         authority_proposals: &mut Vec<AuthorityStake>,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let sender_account_id = transaction.body.get_originator();
-        let sender: Option<Account> = get(state_update, &key_for_account(&sender_account_id));
-        match sender {
-            Some(mut sender) => {
-                if transaction.body.get_nonce() <= sender.nonce {
-                    // in this case, no need to update sender's nonce
-                    return Err(format!(
-                        "Transaction nonce {} must be larger than sender nonce {}",
-                        transaction.body.get_nonce(),
-                        sender.nonce,
-                    ));
-                }
-                // Update nonce regardless of whether the transaction succeeds. This is done
-                // before verifying signatures because signatures are verified already in mempool.
-                // However, it is possible, although rare, that the key is swapped out before this
-                // transaction is applied. We do not treat this case specially now.
-                sender.nonce = transaction.body.get_nonce();
-                set(state_update, &key_for_account(&sender_account_id), &sender);
-                state_update.commit();
-
-                if !verify_transaction_signature(&transaction, &sender.public_keys) {
-                    return Err(format!(
-                        "transaction not signed with a public key of originator {:?}",
-                        transaction.body.get_originator()
-                    ));
-                }
-
-                let contract_id = transaction.body.get_contract_id();
-                if let Some(ref contract_id) = contract_id {
-                    if !is_valid_account_id(&contract_id) {
-                        return Err(format!(
-                            "Invalid contract_id / receiver {} according to requirements",
-                            contract_id
-                        ));
-                    }
-                }
-                let mana = transaction.body.get_mana();
-                let accounting_info = self
-                    .try_charge_mana(
-                        state_update,
-                        block_index,
-                        &sender_account_id,
-                        &contract_id,
-                        mana,
-                    )
-                    .ok_or_else(|| {
-                        format!("sender {} does not have enough mana {}", sender_account_id, mana)
-                    })?;
-                match transaction.body {
-                    TransactionBody::SendMoney(ref t) => system::send_money(
-                        state_update,
-                        &t,
-                        transaction.get_hash(),
-                        &mut sender,
-                        accounting_info,
-                    ),
-                    TransactionBody::Stake(ref t) => system::staking(
-                        state_update,
-                        &t,
-                        &sender_account_id,
-                        &mut sender,
-                        authority_proposals,
-                    ),
-                    TransactionBody::FunctionCall(ref t) => self.call_function(
-                        state_update,
-                        &t,
-                        transaction.get_hash(),
-                        &mut sender,
-                        accounting_info,
-                        mana,
-                    ),
-                    TransactionBody::DeployContract(ref t) => system::deploy(
-                        state_update,
-                        &t.contract_id,
-                        &t.wasm_byte_array,
-                        &mut sender,
-                    ),
-                    TransactionBody::CreateAccount(ref t) => system::create_account(
-                        state_update,
-                        t,
-                        transaction.get_hash(),
-                        &mut sender,
-                        accounting_info,
-                    ),
-                    TransactionBody::SwapKey(ref t) => {
-                        system::swap_key(state_update, t, &mut sender)
-                    }
-                    TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut sender),
-                    TransactionBody::DeleteKey(ref t) => {
-                        system::delete_key(state_update, t, &mut sender)
-                    }
-                }
+        let VerificationData { originator_id, mut originator, .. } = {
+            let verifier = TransactionVerifier::new(state_update);
+            verifier.verify_transaction(transaction)?
+        };
+        originator.nonce = transaction.body.get_nonce();
+        set(state_update, &key_for_account(&originator_id), &originator);
+        state_update.commit();
+        let contract_id = transaction.body.get_contract_id();
+        let mana = transaction.body.get_mana();
+        let accounting_info = self
+            .try_charge_mana(state_update, block_index, &originator_id, &contract_id, mana)
+            .ok_or_else(|| {
+                format!("sender {} does not have enough mana {}", originator_id, mana)
+            })?;
+        match transaction.body {
+            TransactionBody::SendMoney(ref t) => system::send_money(
+                state_update,
+                &t,
+                transaction.get_hash(),
+                &mut originator,
+                accounting_info,
+            ),
+            TransactionBody::Stake(ref t) => system::staking(
+                state_update,
+                &t,
+                &originator_id,
+                &mut originator,
+                authority_proposals,
+            ),
+            TransactionBody::FunctionCall(ref t) => self.call_function(
+                state_update,
+                &t,
+                transaction.get_hash(),
+                &mut originator,
+                accounting_info,
+                mana,
+            ),
+            TransactionBody::DeployContract(ref t) => {
+                system::deploy(state_update, &t.contract_id, &t.wasm_byte_array, &mut originator)
             }
-            _ => Err(format!("sender {} does not exist", sender_account_id)),
+            TransactionBody::CreateAccount(ref t) => system::create_account(
+                state_update,
+                t,
+                transaction.get_hash(),
+                &mut originator,
+                accounting_info,
+            ),
+            TransactionBody::SwapKey(ref t) => system::swap_key(state_update, t, &mut originator),
+            TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut originator),
+            TransactionBody::DeleteKey(ref t) => {
+                system::delete_key(state_update, t, &mut originator)
+            }
         }
     }
 
@@ -820,7 +779,7 @@ impl Runtime {
         for (account_id, _, _, amount) in initial_authorities {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
-                get(&mut state_update, &account_id_bytes).expect("account must exist");
+                get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
             set(&mut state_update, &account_id_bytes, &account);
         }
@@ -846,7 +805,7 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &key_for_account(&account_id), &test_account);
-        let get_res = get(&mut state_update, &key_for_account(&account_id)).unwrap();
+        let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 
@@ -860,8 +819,8 @@ mod tests {
         set(&mut state_update, &key_for_account(&account_id), &test_account);
         let (new_root, transaction) = state_update.finalize();
         trie.apply_changes(transaction).unwrap();
-        let mut new_state_update = TrieUpdate::new(trie.clone(), new_root);
-        let get_res = get(&mut new_state_update, &key_for_account(&account_id)).unwrap();
+        let new_state_update = TrieUpdate::new(trie.clone(), new_root);
+        let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
 }

@@ -17,6 +17,7 @@ rand_xorshift = "0.1"
 
 primitives = { path = "../../runtime/primitives" }
 storage = { path = "../../runtime/storage" }
+verifier = { path = "../../runtime/verifier" }
 wasm = { path = "../../runtime/wasm" }
 
 [features]

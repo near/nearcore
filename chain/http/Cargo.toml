@@ -19,5 +19,6 @@ chain = { path = "../../chain/chain" }
 client = { path = "../../chain/client" }
 node-runtime = { path = "../../runtime/runtime" }
 primitives = { path = "../../runtime/primitives" }
+verifier = { path = "../../runtime/verifier" }
 near-protos = { path = "../../runtime/protos", features = ["with-serde"] }
 shard = { path = "../../chain/shard" }

@@ -1,5 +1,5 @@
-use crate::user::{User, POISONED_LOCK_ERR};
 use crate::runtime_utils::to_receipt_block;
+use crate::user::{User, POISONED_LOCK_ERR};
 use client::Client;
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
@@ -24,8 +24,8 @@ impl ThreadUser {
 
 impl User for ThreadUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let mut state_update = self.client.shard_client.get_state_update();
-        self.client.shard_client.trie_viewer.view_account(&mut state_update, account_id)
+        let state_update = self.client.shard_client.get_state_update();
+        self.client.shard_client.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
