@@ -19,7 +19,7 @@ pub struct MainChainLocalBlock {
     pub body: Option<MainChainBlockBody>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ShardChunkHeader {
     pub prev_block_hash: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
@@ -61,8 +61,8 @@ impl EncodedShardChunkBody {
 }
 
 impl EncodedShardChunk {
-    pub fn from_header(header: ShardChunkHeader) -> Self {
-        Self { header, content: EncodedShardChunkBody::default() }
+    pub fn from_header(header: ShardChunkHeader, total_shards: usize) -> Self {
+        Self { header, content: EncodedShardChunkBody { parts: vec![None; total_shards] } }
     }
 
     pub fn from_parts_and_metadata(

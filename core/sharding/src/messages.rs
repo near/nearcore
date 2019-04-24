@@ -8,12 +8,15 @@ pub struct ChunkHeaderMsg {
     pub chunk_hash: CryptoHash,
     pub header: ShardChunkHeader,
 }
-pub struct RequestChunkPartMsg {}
-
 pub struct ChunkPartMsg {
     pub chunk_hash: CryptoHash,
-    pub part_id: usize,
+    pub part_id: u64,
     pub part: Shard,
 }
 
-impl RequestChunkHeaderMsg {}
+pub struct ChunkHeaderAndPartMsg {
+    pub chunk_hash: CryptoHash,
+    pub header: ShardChunkHeader,
+    pub part_id: u64,
+    pub part: Shard,
+}

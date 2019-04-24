@@ -1,4 +1,3 @@
-use primitives::hash::CryptoHash;
 use primitives::types::AuthorityId;
 
 pub trait BaseOrchestrator: Send + Sync {
@@ -9,6 +8,8 @@ pub trait BaseOrchestrator: Send + Sync {
         height: u64,
     ) -> bool;
     fn is_block_producer(&self, authority_id: AuthorityId, height: u64) -> bool;
+
+    fn get_authority_id_for_part(&self, part_id: usize) -> AuthorityId;
 
     fn get_total_chunk_parts_num(&self) -> usize;
     fn get_data_chunk_parts_num(&self) -> usize;
