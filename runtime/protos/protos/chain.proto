@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+import "types.proto";
+import "receipt.proto";
+import "signed_transaction.proto";
+
+message ChainState {
+    bytes genesis_hash = 1;
+    uint64 last_index = 2;
+}
+
+message ShardBlockHeader {
+    bytes parent_hash = 1;
+    uint32 shard_id = 2;
+    uint64 block_index = 3;
+    bytes merkle_root_state = 4;
+    bytes receipt_merkle_root = 5;
+}
+
+message SignedShardBlockHeader {
+    ShardBlockHeader body = 1;
+    bytes hash = 2;
+    GroupSignature signature = 3;
+}
+
+message ReceiptBlock {
+    SignedShardBlockHeader header = 1;
+    repeated MerkleNode path = 2;
+    repeated ReceiptTransaction receipts = 3;
+    uint32 shard_id = 4;
+    bytes hash = 5;
+}
+
+message ShardBlock {
+    ShardBlockHeader header = 1;
+    repeated SignedTransaction transactions = 2;
+    repeated ReceiptBlock receipts = 3;
+}
+
+message SignedShardBlock {
+    ShardBlock body = 1;
+    bytes hash = 2;
+    GroupSignature signature = 3;
+}
+
+message BeaconBlockHeader {
+    bytes parent_hash = 1;
+    uint64 index = 2;
+    repeated AuthorityStake authority_proposal = 3;
+    bytes shard_block_hash = 4;
+}
+
+message SignedBeaconBlockHeader {
+    BeaconBlockHeader body = 1;
+    bytes hash = 2;
+    GroupSignature signature = 3;
+}
+
+message BeaconBlock {
+    BeaconBlockHeader header = 1;
+}
+
+message SignedBeaconBlock {
+    BeaconBlock body = 1;
+    bytes hash = 2;
+    GroupSignature signature = 3;
+}
+
+message ChainPayload {
+    repeated SignedTransaction transactions = 1;
+    repeated ReceiptBlock receipts = 2;
+    bytes hash = 3;
+}
+
+message CoupledBlock {
+    SignedBeaconBlock beacon_block = 1;
+    SignedShardBlock shard_block = 2;
+}

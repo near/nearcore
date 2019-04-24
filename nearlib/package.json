@@ -1,13 +1,14 @@
 {
   "name": "nearlib",
   "description": "Javascript library to interact with near blockchain",
-  "version": "0.4.6",
+  "version": "0.5.2",
   "repository": {
     "type": "git",
     "url": "git@:nearprotocol/nearcore.git"
   },
   "homepage": "https://github.com/nearprotocol/nearcore",
   "main": "index.js",
+  "browser": "browser.js",
   "dependencies": {
     "bs58": "^4.0.1",
     "error-polyfill": "^0.1.2",
@@ -23,6 +24,10 @@
     "eslint": "^5.14.0",
     "jest": "^24.1.0",
     "uglifyify": "^5.0.1"
+  },
+  "jest": {
+    "coverageDirectory": "./coverage/",
+    "collectCoverage": true
   },
   "keywords": [],
   "license": "MIT",

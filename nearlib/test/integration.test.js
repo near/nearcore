@@ -33,7 +33,7 @@ describe('dev connect', () => {
     let options;
     beforeEach(async () => {
         const keyStore = new InMemoryKeyStore(networkId);
-        const storage = createFakeStorage();   
+        const storage = createFakeStorage();
         deps = {
             keyStore,
             storage,
@@ -77,6 +77,7 @@ describe('dev connect', () => {
             account_id: newAccountId,
             amount: 1,
             code_hash: newAccountCodeHash,
+            public_keys: viewAccountResponse.public_keys,
             stake: 0,
         };
         expect(viewAccountResponse).toEqual(expectedAccount);
@@ -97,6 +98,7 @@ describe('dev connect', () => {
             account_id: newAccountId,
             amount: 1,
             code_hash: newAccountCodeHash,
+            public_keys: viewAccountResponse.public_keys,
             stake: 0,
         };
         expect(viewAccountResponse).toEqual(expectedAccount);
@@ -129,14 +131,15 @@ test('create account and then view account returns the created account', async (
     const newAccountPublicKey = '9AhWenZ3JddamBoyMqnTbp7yVbRuvqAv3zwfrWgfVRJE';
     const createAccountResponse = await account.createAccount(newAccountName, newAccountPublicKey, 0, aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
+    const result = await account.viewAccount(newAccountName);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: 0,
         code_hash: newAccountCodeHash,
+        public_keys: result.public_keys,
         stake: 0,
     };
-    const result = await account.viewAccount(newAccountName);
     expect(result).toEqual(expectedAccount);
 });
 
@@ -150,14 +153,15 @@ test('create account with a new key and then view account returns the created ac
         aliceAccountName);
     await nearjs.waitForTransactionResult(createAccountResponse);
     expect(createAccountResponse['key']).not.toBeFalsy();
+    const result = await account.viewAccount(newAccountName);
     const expectedAccount = {
         nonce: 0,
         account_id: newAccountName,
         amount: amount,
         code_hash: newAccountCodeHash,
+        public_keys: result.public_keys,
         stake: 0,
     };
-    const result = await account.viewAccount(newAccountName);
     expect(result).toEqual(expectedAccount);
     const aliceAccountAfterCreation = await account.viewAccount(aliceAccountName);
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
@@ -258,7 +262,7 @@ describe('with deployed contract', () => {
         expect(logs.length).toBe(3);
         expect(logs[0]).toEqual(`[${contractName}]: LOG: log before assert`);
         expect(logs[1]).toMatch(new RegExp(`^\\[${contractName}\\]: ABORT: "expected to fail" filename: "../out/main.ts" line: \\d+ col: \\d+$`));
-        expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer(CallError(Runtime(User { msg: "Error: AssertFailed" })))`);
+        expect(logs[2]).toEqual(`[${contractName}]: Runtime error: wasm async call execution failed with error: Wasmer("call error: Call error: user-defined, opaque")`);
     });
 
     test('test set/remove', async () => {

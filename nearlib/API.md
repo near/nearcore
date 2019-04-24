@@ -279,7 +279,7 @@ Get a status of a single transaction identified by the transaction hash.
 
 ```javascript
 // get the result of a transaction status call
-const result = (await this.getTransactionStatus(transactionHash)).result
+const result = await this.getTransactionStatus(transactionHash)
 ```
 
 ### waitForTransactionResult

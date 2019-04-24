@@ -12,19 +12,27 @@ clap = "2.32"
 log = "0.4"
 rand = "0.6"
 rand_xorshift = "0.1"
-reqwest = "0.9"
 serde_json = "1.0.0"
 tokio = "0.1"
 futures = "0.1.25"
 lazy_static = "1.3"
+bs58 = "0.2"
+byteorder = "1.2"
 
-alphanet = { path = "../../node/alphanet" }
-chain = { path = "../../core/chain" }
-client = { path = "../../node/client" }
-configs = { path = "../../node/configs" }
-network = { path = "../../node/network" }
-primitives = { path = "../../core/primitives" }
-near-protos = { path = "../../core/protos" }
-node-http = { path = "../../node/http" }
-node-runtime = { path = "../../node/runtime" }
-tokio-utils = { path = "../../node/tokio-utils" }
+alphanet = { path = "../../chain/alphanet" }
+chain = { path = "../../chain/chain" }
+client = { path = "../../chain/client" }
+configs = { path = "../../chain/configs" }
+network = { path = "../../chain/network" }
+primitives = { path = "../../runtime/primitives" }
+near-protos = { path = "../../runtime/protos" }
+node-http = { path = "../../chain/http" }
+node-runtime = { path = "../../runtime/runtime" }
+tokio-utils = { path = "../../chain/tokio-utils" }
+storage = { path = "../../runtime/storage" }
+shard = { path = "../../chain/shard" }
+
+[dependencies.reqwest]
+version = "0.9"
+features = ["rustls-tls", "trust-dns"]
+

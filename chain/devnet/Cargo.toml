@@ -1,0 +1,23 @@
+[package]
+name = "devnet"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+futures = "0.1.25"
+tokio = "0.1"
+log = "0.4"
+
+client = { path = "../../chain/client" }
+configs = { path = "../configs" }
+consensus = { path = "../../chain/consensus" }
+coroutines = { path = "../coroutines" }
+node-http = { path = "../../chain/http" }
+primitives = { path = "../../runtime/primitives" }
+chain = { path = "../../chain/chain" }
+storage = { path = "../../runtime/storage" }
+tokio-utils = { path = "../tokio-utils" }
+
+[dev-dependencies]
+alphanet = { path = "../alphanet" }
+testlib = { path = "../../test-utils/testlib" }

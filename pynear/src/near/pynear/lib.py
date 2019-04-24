@@ -289,7 +289,7 @@ class NearLib(object):
             return result
 
     def check_health(self):
-        url = "{}healthz".format(self._server_url)
+        url = "{}status".format(self._server_url)
         response = requests.get(url)
         return response.status_code == 200
 

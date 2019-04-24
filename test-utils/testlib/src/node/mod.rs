@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use configs::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType, TESTING_INIT_BALANCE};
 use configs::network::get_peer_id_from_seed;
 use configs::ClientConfig;
 use configs::NetworkConfig;
@@ -16,26 +16,29 @@ use primitives::network::{PeerAddr, PeerInfo};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance};
 
-use crate::user::User;
+use crate::user::{AsyncUser, User};
 use std::sync::RwLock;
-
 pub mod thread_node;
 pub use thread_node::ThreadNode;
-
 pub mod process_node;
 use crate::node::remote_node::RemoteNode;
 pub use process_node::ProcessNode;
-
 pub mod remote_node;
+pub mod runtime_node;
+pub use runtime_node::RuntimeNode;
+pub mod shard_client_node;
+pub use shard_client_node::ShardClientNode;
 
 const TMP_DIR: &str = "../../tmp/testnet";
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
+pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> ChainSpec {
     ChainSpec::default_poa()
 }
 
 /// Config that can be used to start a node or connect to an existing node.
+#[allow(clippy::large_enum_variant)]
 pub enum NodeConfig {
     /// A complete node with network, RPC, client, consensus and all tasks running in a thead.
     /// Should be the default choice for the tests, since it provides the most control through the
@@ -46,8 +49,11 @@ pub enum NodeConfig {
     Process(LocalNodeConfig),
     /// A node running remotely, which we cannot start or stop, but can communicate with via RPC.
     Remote { addr: SocketAddr, signer: Arc<InMemorySigner> },
-    // TODO(#826) Add RuntimeNode and RuntimeUser. Later add ClientNode+ClientUser (for testing
-    // non-async part of our code) and ShardClient+ShardUser (for testing shard logic only).
+    /// A node with only runtime and state that is used to run runtime tests
+    Runtime { account_id: AccountId },
+    /// A node with shard client that has chain spec and mempool, which allows for more integrated
+    /// testing without network
+    ShardClient { client_cfg: ClientConfig },
 }
 
 impl NodeConfig {
@@ -63,7 +69,7 @@ impl NodeConfig {
                 ))
                 .expect("Failed to parse")
             }
-            NodeConfig::Remote { .. } => unimplemented!(),
+            _ => unimplemented!(),
         }
     }
 }
@@ -95,7 +101,7 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
+    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
         self.user().get_account_nonce(account_id)
     }
 
@@ -120,6 +126,10 @@ pub trait Node: Send + Sync {
     fn is_running(&self) -> bool;
 
     fn user(&self) -> Box<dyn User>;
+
+    fn async_user(&self) -> Box<dyn AsyncUser> {
+        unimplemented!()
+    }
 }
 
 impl Node {
@@ -130,6 +140,12 @@ impl Node {
             NodeConfig::Remote { addr, signer } => {
                 Arc::new(RwLock::new(RemoteNode::new(addr, signer)))
             }
+            NodeConfig::Runtime { account_id } => {
+                Arc::new(RwLock::new(RuntimeNode::new(&account_id)))
+            }
+            NodeConfig::ShardClient { client_cfg } => {
+                Arc::new(RwLock::new(ShardClientNode::new(client_cfg)))
+            }
         }
     }
 
@@ -137,12 +153,15 @@ impl Node {
         match config {
             NodeConfig::Thread(local_cfg) => Box::new(ThreadNode::new(local_cfg)),
             NodeConfig::Process(local_cfg) => Box::new(ProcessNode::new(local_cfg)),
-            NodeConfig::Remote { addr, signer } => Box::new(RemoteNode::new(addr, signer))
+            NodeConfig::Remote { addr, signer } => Box::new(RemoteNode::new(addr, signer)),
+            NodeConfig::Runtime { account_id } => Box::new(RuntimeNode::new(&account_id)),
+            NodeConfig::ShardClient { client_cfg } => Box::new(ShardClientNode::new(client_cfg)),
         }
     }
 }
 
 impl NodeConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn for_test(
         test_prefix: &str,
         test_port: u16,
@@ -151,6 +170,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let addr = format!("0.0.0.0:{}", test_port + peer_id);
@@ -163,11 +183,13 @@ impl NodeConfig {
             boot_nodes,
             chain_spec,
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers,
         )
     }
 
     /// Create full node that does not accept incoming connections.
+    #[allow(clippy::too_many_arguments)]
     pub fn for_test_passive(
         test_prefix: &str,
         test_port: u16,
@@ -176,6 +198,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         Self::new(
@@ -187,10 +210,12 @@ impl NodeConfig {
             boot_nodes,
             chain_spec,
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: &str,
         account_id: Option<&str>,
@@ -200,6 +225,7 @@ impl NodeConfig {
         boot_nodes: Vec<PeerAddr>,
         chain_spec: ChainSpec,
         block_fetch_limit: u64,
+        block_size_limit: u32,
         proxy_handlers: Vec<Arc<ProxyHandler>>,
     ) -> Self {
         let node_info = PeerInfo {
@@ -224,6 +250,7 @@ impl NodeConfig {
             account_id: account_id.map(String::from),
             public_key: None,
             block_fetch_limit,
+            block_size_limit,
             chain_spec,
             log_level: log::LevelFilter::Info,
         };
@@ -251,16 +278,19 @@ impl NodeConfig {
     }
 }
 
-/// Create configs for nodes running in a thread. If
-pub fn create_nodes(
+/// Create configs for nodes running in a thread. Can use either Enumerated
+/// or Named for id type.
+pub fn create_nodes_with_id_type(
     num_nodes: usize,
     test_prefix: &str,
     test_port: u16,
     block_fetch_limit: u64,
+    block_size_limit: u32,
     proxy_handlers: Vec<Arc<ProxyHandler>>,
+    node_id_type: DefaultIdType,
 ) -> (u64, Vec<String>, Vec<NodeConfig>) {
     let (chain_spec, _) = ChainSpec::testing_spec(
-        DefaultIdType::Enumerated,
+        node_id_type,
         num_nodes,
         num_nodes,
         AuthorityRotation::ProofOfAuthority,
@@ -279,12 +309,33 @@ pub fn create_nodes(
             boot_nodes,
             chain_spec.clone(),
             block_fetch_limit,
+            block_size_limit,
             proxy_handlers.clone(),
         );
         boot_nodes = vec![node.boot_addr()];
         nodes.push(node);
     }
     (TESTING_INIT_BALANCE, account_names, nodes)
+}
+
+/// Create configs for nodes running in a thread.
+pub fn create_nodes(
+    num_nodes: usize,
+    test_prefix: &str,
+    test_port: u16,
+    block_fetch_limit: u64,
+    block_size_limit: u32,
+    proxy_handlers: Vec<Arc<ProxyHandler>>,
+) -> (u64, Vec<String>, Vec<NodeConfig>) {
+    create_nodes_with_id_type(
+        num_nodes,
+        test_prefix,
+        test_port,
+        block_fetch_limit,
+        block_size_limit,
+        proxy_handlers,
+        DefaultIdType::Enumerated,
+    )
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
@@ -298,7 +349,7 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 }
 
 /// Sample a node for sending a transaction/checking balance
-pub fn sample_queryable_node(nodes: &Vec<Arc<RwLock<Node>>>) -> usize {
+pub fn sample_queryable_node(nodes: &[Arc<RwLock<Node>>]) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
     while !nodes[k].read().unwrap().is_running() {
