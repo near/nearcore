@@ -6,7 +6,7 @@ PREFIX=${2:-testnet}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.4}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
-NUM_NODES=2
+NUM_NODES=${6:-2}
 
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
