@@ -1,4 +1,4 @@
-use primitives::account::Account;
+use primitives::account::{AccessKey, Account};
 use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{hash, CryptoHash};
@@ -9,10 +9,12 @@ use primitives::transaction::{
     SwapKeyTransaction,
 };
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::utils::{is_valid_account_id, create_nonce_with_nonce, key_for_code, key_for_account,
-    key_for_tx_stake};
+use primitives::utils::{
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
+    key_for_code, key_for_tx_stake,
+};
 use std::convert::TryFrom;
-use storage::{set, TrieUpdate};
+use storage::{get, set, TrieUpdate};
 
 use crate::TxTotalStake;
 use wasm::types::ContractCode;
@@ -189,10 +191,38 @@ pub fn add_key(
     let num_keys = account.public_keys.len();
     account.public_keys.retain(|&x| x != new_key);
     if account.public_keys.len() < num_keys {
-        return Err("Cannot add key that already exists".to_string());
+        return Err("Cannot add a public key that already exists on the account".to_string());
     }
-    account.public_keys.push(new_key);
-    set(state_update, &key_for_account(&body.originator), &account);
+    if get::<AccessKey>(&state_update, &key_for_access_key(&body.originator, &new_key)).is_some() {
+        return Err("Cannot add a public key that already used for an access key".to_string());
+    }
+    if let Some(access_key) = &body.access_key {
+        if account.amount >= access_key.amount {
+            if access_key.amount > 0 {
+                account.amount -= access_key.amount;
+                set(state_update, &key_for_account(&body.originator), &account);
+            }
+        } else {
+            return Err(format!(
+                "Account {} tries to create new access key with {} amount, but only has {}",
+                body.originator, access_key.amount, account.amount
+            ));
+        }
+        if let Some(ref balance_owner) = access_key.balance_owner {
+            if !is_valid_account_id(balance_owner) {
+                return Err("Invalid account ID for balance owner in the access key".to_string());
+            }
+        }
+        if let Some(ref contract_id) = access_key.contract_id {
+            if !is_valid_account_id(contract_id) {
+                return Err("Invalid account ID for contract ID in the access key".to_string());
+            }
+        }
+        set(state_update, &key_for_access_key(&body.originator, &new_key), access_key);
+    } else {
+        account.public_keys.push(new_key);
+        set(state_update, &key_for_account(&body.originator), &account);
+    }
     Ok(vec![])
 }
 
@@ -200,21 +230,42 @@ pub fn delete_key(
     state_update: &mut TrieUpdate,
     body: &DeleteKeyTransaction,
     account: &mut Account,
+    nonce: CryptoHash,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     let cur_key = PublicKey::try_from(&body.cur_key as &[u8]).map_err(|e| format!("{}", e))?;
     let num_keys = account.public_keys.len();
+    let mut new_receipts = vec![];
     account.public_keys.retain(|&x| x != cur_key);
     if account.public_keys.len() == num_keys {
-        return Err(format!(
-            "Account {} tries to remove a key that it does not own",
-            body.originator
-        ));
+        let access_key: AccessKey = get(
+            &state_update,
+            &key_for_access_key(&body.originator, &cur_key),
+        )
+        .ok_or_else(|| {
+            format!("Account {} tries to remove a public key that it does not own", body.originator)
+        })?;
+        if access_key.amount > 0 {
+            let balance_owner_id: &AccountId =
+                access_key.balance_owner.as_ref().unwrap_or(&body.originator);
+            if balance_owner_id != &body.originator {
+                let new_receipt = ReceiptTransaction::new(
+                    body.originator.clone(),
+                    balance_owner_id.clone(),
+                    create_nonce_with_nonce(&nonce, 0),
+                    ReceiptBody::Refund(access_key.amount),
+                );
+                new_receipts.push(new_receipt);
+            } else {
+                account.amount += access_key.amount;
+                set(state_update, &key_for_account(&body.originator), &account);
+            }
+        }
+        // Remove access key
+        state_update.remove(&key_for_access_key(&body.originator, &cur_key));
+    } else {
+        set(state_update, &key_for_account(&body.originator), &account);
     }
-    if account.public_keys.is_empty() {
-        return Err("Account must have at least one public key".to_string());
-    }
-    set(state_update, &key_for_account(&body.originator), &account);
-    Ok(vec![])
+    Ok(new_receipts)
 }
 
 pub fn system_create_account(
@@ -236,4 +287,3 @@ pub fn system_create_account(
     set(state_update, &key_for_tx_stake(&account_id, &None), &tx_total_stake);
     Ok(vec![])
 }
-

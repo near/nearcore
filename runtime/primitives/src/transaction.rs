@@ -1,7 +1,7 @@
+use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::borrow::Borrow;
 
 use protobuf::well_known_types::BytesValue;
 use protobuf::SingularPtrField;
@@ -10,15 +10,16 @@ use near_protos::receipt as receipt_proto;
 use near_protos::signed_transaction as transaction_proto;
 use near_protos::Message as ProtoMessage;
 
+use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
+use crate::traits::ToBytes;
 use crate::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
     StructSignature,
 };
 use crate::utils::{account_to_shard_id, proto_to_result};
-use crate::traits::ToBytes;
 
 pub type LogEntry = String;
 
@@ -295,11 +296,17 @@ pub struct AddKeyTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
     pub new_key: Vec<u8>,
+    pub access_key: Option<AccessKey>,
 }
 
 impl From<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
     fn from(t: transaction_proto::AddKeyTransaction) -> Self {
-        AddKeyTransaction { nonce: t.nonce, originator: t.originator, new_key: t.new_key }
+        AddKeyTransaction {
+            nonce: t.nonce,
+            originator: t.originator,
+            new_key: t.new_key,
+            access_key: t.access_key.into_option().map(AccessKey::from),
+        }
     }
 }
 
@@ -309,6 +316,7 @@ impl From<AddKeyTransaction> for transaction_proto::AddKeyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             new_key: t.new_key,
+            access_key: SingularPtrField::from_option(t.access_key.map(std::convert::Into::into)),
             ..Default::default()
         }
     }
@@ -502,7 +510,9 @@ impl Hash for SignedTransaction {
 
 impl PartialEq for SignedTransaction {
     fn eq(&self, other: &SignedTransaction) -> bool {
-        self.hash == other.hash && self.signature == other.signature
+        self.hash == other.hash
+            && self.signature == other.signature
+            && self.public_key == other.public_key
     }
 }
 
@@ -548,7 +558,9 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
         let hash = hash(&bytes);
-        let public_key: Option<PublicKey> = t.public_key.into_option()
+        let public_key: Option<PublicKey> = t
+            .public_key
+            .into_option()
             .map(|v| PublicKey::try_from(&v.value as &[u8]))
             .transpose()
             .map_err(|e| format!("{}", e))?;

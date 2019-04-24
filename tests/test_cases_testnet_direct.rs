@@ -180,7 +180,32 @@ mod test {
     }
 
     #[test]
-    fn test_delete_key_no_key_left_testnet() {
-        run_testnet_test!(test_delete_key_no_key_left);
+    fn test_delete_key_last_testnet() {
+        run_testnet_test!(test_delete_key_last);
+    }
+
+    #[test]
+    fn test_add_access_key_testnet() {
+        run_testnet_test!(test_add_access_key);
+    }
+
+    #[test]
+    fn test_delete_access_key_testnet() {
+        run_testnet_test!(test_delete_access_key);
+    }
+
+    #[test]
+    fn test_add_access_key_with_funding_testnet() {
+        run_testnet_test!(test_add_access_key_with_funding);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_owner_refund_testnet() {
+        run_testnet_test!(test_delete_access_key_with_owner_refund);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_bob_refund_testnet() {
+        run_testnet_test!(test_delete_access_key_with_bob_refund);
     }
 }
