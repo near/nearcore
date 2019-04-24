@@ -24,7 +24,7 @@ pub fn query_client(
     _prove: bool,
 ) -> Result<ABCIQueryResponse, String> {
     let path_parts: Vec<&str> = path.split('/').collect();
-    if path_parts.len() == 0 {
+    if path_parts.is_empty() {
         return Err("Path must contain at least single token".to_string());
     }
     match path_parts[0] {

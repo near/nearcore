@@ -1505,6 +1505,7 @@ dependencies = [
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "storage 0.0.1",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "verifier 0.1.0",
 ]
 
 [[package]]

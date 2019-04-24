@@ -1,7 +1,7 @@
 use crate::node::{Node, RuntimeNode};
+use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
 use crate::test_helpers::wait;
 use crate::user::User;
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
 use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::crypto::signer::InMemorySigner;
@@ -51,7 +51,7 @@ pub fn test_smart_contract_simple(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         contract_id: bob_account(),
-        method_name: "run_test".as_bytes().to_vec(),
+        method_name: b"run_test".to_vec(),
         args: vec![],
         amount: 0,
     })
@@ -71,7 +71,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         contract_id: bob_account(),
-        method_name: "_run_test".as_bytes().to_vec(),
+        method_name: b"_run_test".to_vec(),
         args: vec![],
         amount: 0,
     })
@@ -141,7 +141,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         contract_id: bob_account(),
-        method_name: "run_test".as_bytes().to_vec(),
+        method_name: b"run_test".to_vec(),
         args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
         amount: 0,
     })
@@ -163,7 +163,7 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
         receiver: bob_account(),
         nonce,
         body: ReceiptBody::NewCall(AsyncCall::new(
-            "run_test".as_bytes().to_vec(),
+            b"run_test".to_vec(),
             vec![],
             0,
             0,
@@ -201,7 +201,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
         bob_account(),
-        hash(&[1, 2, 3]).into(),
+        hash(&[1, 2, 3]),
         ReceiptBody::NewCall(async_call),
     );
 
@@ -232,7 +232,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
         assert!(mana_accounting.gas_used > 0);
         assert_eq!(mana_accounting.accounting_info, accounting_info);
     } else {
-        assert!(false);
+        panic!();
     }
 }
 
@@ -244,7 +244,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
         receiver: bob_account(),
         nonce,
         body: ReceiptBody::NewCall(AsyncCall::new(
-            "log_something".as_bytes().to_vec(),
+            b"log_something".to_vec(),
             vec![],
             0,
             0,
@@ -282,7 +282,7 @@ pub fn test_deposit_with_callback(node: impl Node) {
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
         bob_account(),
-        hash(&[1, 2, 3]).into(),
+        hash(&[1, 2, 3]),
         ReceiptBody::NewCall(async_call),
     );
 
@@ -323,7 +323,7 @@ pub fn test_callback(node: RuntimeNode) {
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
         bob_account(),
-        hash(&[1, 2, 3]).into(),
+        hash(&[1, 2, 3]),
         ReceiptBody::Callback(CallbackResult::new(callback_info, None)),
     );
 
@@ -369,7 +369,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
         bob_account(),
-        hash(&[1, 2, 3]).into(),
+        hash(&[1, 2, 3]),
         ReceiptBody::Callback(CallbackResult::new(callback_info, None)),
     );
 
@@ -785,15 +785,16 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
     let node_user = node.user();
     let mut root = node_user.get_state_root();
     let money_used = 10;
-    let mut counter = 0;
-    for invalid_account_name in vec![
+    for (counter, invalid_account_name) in [
         "eve",                               // too short
         "Alice.near",                        // capital letter
         "alice(near)",                       // brackets are invalid
         "long_of_the_name_for_real_is_hard", // too long
         "qq@qq*qq",                          // * is invalid
-    ] {
-        counter += 1;
+    ]
+    .iter()
+    .enumerate()
+    {
         let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
             originator: account_id.clone(),
@@ -815,9 +816,9 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
         assert_eq!(
             account,
             AccountViewCallResult {
-                nonce: counter,
+                nonce: counter as u64 + 1,
                 account_id: account_id.clone(),
-                public_keys: vec![node.signer().public_key.clone()],
+                public_keys: vec![node.signer().public_key],
                 amount: TESTING_INIT_BALANCE,
                 stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
@@ -948,7 +949,7 @@ pub fn test_add_key(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 2);
-    assert_eq!(account.public_keys[1].clone(), signer2.public_key);
+    assert_eq!(account.public_keys[1], signer2.public_key);
 }
 
 pub fn test_add_existing_key(node: impl Node) {
@@ -1014,7 +1015,7 @@ pub fn test_delete_key(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0].clone(), signer2.public_key);
+    assert_eq!(account.public_keys[0], signer2.public_key);
 }
 
 pub fn test_delete_key_not_owned(node: impl Node) {

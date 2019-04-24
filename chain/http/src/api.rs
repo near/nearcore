@@ -40,7 +40,7 @@ pub fn query_client(
     _prove: bool,
 ) -> Result<ABCIQueryResponse, String> {
     let path_parts: Vec<&str> = path.split('/').collect();
-    if path_parts.len() == 0 {
+    if path_parts.is_empty() {
         return Err("Path must contain at least single token".to_string());
     }
     match path_parts[0] {
@@ -102,7 +102,7 @@ impl<T> HttpApi<T> {
 
 fn decode_transaction(value: &serde_json::Value) -> Result<SignedTransaction, RPCError> {
     let data = base64::decode(
-        value.as_str().ok_or_else(|| RPCError::BadRequest(format!("Param should be bytes")))?,
+        value.as_str().ok_or_else(|| RPCError::BadRequest("Param should be bytes".to_string()))?,
     )
     .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
     let transaction = parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
@@ -133,21 +133,21 @@ impl<T> HttpApi<T> {
         match method.as_ref() {
             "abci_query" => {
                 if params.len() != 4 {
-                    return Err(RPCError::BadRequest(format!(
-                        "Invalid number of arguments, must be 3"
-                    )));
+                    return Err(RPCError::BadRequest(
+                        "Invalid number of arguments, must be 3".to_string(),
+                    ));
                 }
-                let path = params[0]
-                    .as_str()
-                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
-                let data_str = params[1]
-                    .as_str()
-                    .ok_or_else(|| RPCError::BadRequest(format!("Path param should be string")))?;
+                let path = params[0].as_str().ok_or_else(|| {
+                    RPCError::BadRequest("Path param should be string".to_string())
+                })?;
+                let data_str = params[1].as_str().ok_or_else(|| {
+                    RPCError::BadRequest("Path param should be string".to_string())
+                })?;
                 let data = hex::decode(data_str)
                     .map_err(|e| RPCError::BadRequest(format!("Failed to parse base64: {}", e)))?;
 
-                let response = query_client(self, path, &data, 0, false)
-                    .map_err(|e| RPCError::BadRequest(e))?;
+                let response =
+                    query_client(self, path, &data, 0, false).map_err(RPCError::BadRequest)?;
                 Ok(json!({"response": {
                    "log": response.log,
                     "height": response.height,
@@ -160,9 +160,9 @@ impl<T> HttpApi<T> {
             }
             "broadcast_tx_async" => {
                 if params.len() != 1 {
-                    return Err(RPCError::BadRequest(format!(
-                        "Invalid number of arguments, must be 1"
-                    )));
+                    return Err(RPCError::BadRequest(
+                        "Invalid number of arguments, must be 1".to_string(),
+                    ));
                 }
                 let transaction = decode_transaction(&params[0])?;
                 let hash = self.submit_tx(transaction)?;
@@ -170,12 +170,12 @@ impl<T> HttpApi<T> {
             }
             "tx" => {
                 if params.len() != 2 {
-                    return Err(RPCError::BadRequest(format!(
-                        "Invalid number of arguments, must be 2"
-                    )));
+                    return Err(RPCError::BadRequest(
+                        "Invalid number of arguments, must be 2".to_string(),
+                    ));
                 }
                 let hash_str = params[0].as_str().ok_or_else(|| {
-                    RPCError::BadRequest(format!("Hash param must be base64 string"))
+                    RPCError::BadRequest("Hash param must be base64 string".to_string())
                 })?;
                 let hash = base64::decode(hash_str)
                     .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?

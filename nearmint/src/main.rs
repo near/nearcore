@@ -9,10 +9,10 @@ use std::sync::RwLock;
 use abci::*;
 use clap::{App, Arg};
 use env_logger::Builder;
-use log::info;
+use log::{error, info};
+use protobuf::parse_from_bytes;
 
 use node_runtime::adapter::{query_client, RuntimeAdapter};
-
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime};
@@ -20,8 +20,8 @@ use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
-use protobuf::parse_from_bytes;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
+use verifier::TransactionVerifier;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const DEFAULT_BASE_PATH: &str = "";
@@ -81,7 +81,7 @@ impl NearMint {
             .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
             .best_block_hash()
-            .map(|x| x.cloned());
+            .map(Option::<&_>::cloned);
         let (root, height) = if let Ok(Some(best_hash)) = maybe_best_hash {
             (
                 best_hash,
@@ -179,7 +179,15 @@ impl Application for NearMint {
     fn check_tx(&mut self, req: &RequestCheckTx) -> ResponseCheckTx {
         let mut resp = ResponseCheckTx::new();
         match convert_tx(&req.tx) {
-            Ok(tx) => info!("Check tx: {:?}", tx),
+            Ok(tx) => {
+                info!("Check tx: {:?}", tx);
+                let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+                let verifier = TransactionVerifier::new(&state_update);
+                if let Err(e) = verifier.verify_transaction(&tx) {
+                    error!("Failed check tx: {:?}, error: {}", req.tx, e);
+                    resp.code = 1;
+                }
+            }
             Err(err) => {
                 info!("Failed check tx: {:?}, error: {:?}", req.tx, err);
                 resp.code = 1;
@@ -347,17 +355,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use node_runtime::adapter::RuntimeAdapter;
-    use node_runtime::chain_spec::ChainSpec;
-    use primitives::hash::CryptoHash;
-    use primitives::transaction::TransactionBody;
-
     use protobuf::Message;
-
     use tempdir::TempDir;
 
-    use super::*;
+    use node_runtime::adapter::RuntimeAdapter;
+    use node_runtime::chain_spec::ChainSpec;
     use primitives::crypto::signer::InMemorySigner;
+    use primitives::hash::CryptoHash;
+    use primitives::transaction::TransactionBody;
+    use primitives::types::StructSignature;
+
+    use super::*;
 
     #[test]
     fn test_apply_block() {
@@ -401,5 +409,20 @@ mod tests {
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
         assert_eq!(resp.amount, 999999999990);
+    }
+
+    #[test]
+    fn test_invalid_transaction() {
+        let tmp_dir = TempDir::new("invalid_tx").unwrap();
+        let chain_spec = ChainSpec::default_devnet();
+        let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
+        let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
+        let body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
+        let invalid_tx: near_protos::signed_transaction::SignedTransaction =
+            SignedTransaction::new(fake_signature, body, None).into();
+        let mut req_tx = RequestCheckTx::new();
+        req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
+        let resp_tx = nearmint.check_tx(&req_tx);
+        assert_eq!(resp_tx.code, 1);
     }
 }
