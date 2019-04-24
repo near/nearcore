@@ -52,6 +52,8 @@ Note, that if you want to reset state of nearmint that has already ran, use `rm 
     
 ## Running local cluster
 
+Install docker-compose by following the instructions [here](https://docs.docker.com/compose/install/).
+
 Note, this is done way easier on Ubuntu and we will be working on simplifying it for Mac OS.
 
 Link `tendermint` binary to target/release folder
