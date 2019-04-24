@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.1.8}
-PREFIX=${2:-alphanet}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.6}
+PREFIX=${2:-testnet}
 ZONE=${3:-us-west2-a}
 
 gcloud beta compute instances update-container ${PREFIX}-studio \
