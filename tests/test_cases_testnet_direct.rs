@@ -1,18 +1,19 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `ThreadUser` that performs direct communication with
 //! internals of nodes.
+#[cfg(feature = "old_tests")]
 #[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use testlib::standard_test_cases::*;
 
     use node_runtime::chain_spec::DefaultIdType;
-    use testlib::runtime_utils::alice_account;
     use std::sync::atomic::{AtomicU16, Ordering};
     use testlib::node::thread_node::ThreadNode;
     use testlib::node::{
         create_nodes_with_id_type, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
     };
+    use testlib::runtime_utils::alice_account;
     use testlib::test_helpers::heavy_test;
     const NUM_TEST_NODE: usize = 4;
     static TEST_PORT: AtomicU16 = AtomicU16::new(6000);

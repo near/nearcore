@@ -6,29 +6,8 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
-[[bin]]
-name = "nearcore"
-path = "chain/src/main.rs"
-
-[dependencies]
-alphanet = { path = "./chain/alphanet" }
-
 [workspace]
 members = [
-    "chain/chain",
-    "chain/mempool",
-    "chain/nightshade",
-    "chain/alphanet",
-    "chain/beacon",
-    "chain/client",
-    "chain/configs",
-    "chain/consensus",
-    "chain/coroutines",
-    "chain/devnet",
-    "chain/network",
-    "chain/shard",
-    "chain/http",
-    "chain/tokio-utils",
     "protos/builder",
     "runtime/primitives",
     "runtime/storage",
@@ -50,15 +29,9 @@ log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
 
-devnet = { path = "./chain/devnet" }
-alphanet = { path = "./chain/alphanet" }
 keystore = { path = "./test-utils/keystore" }
-node-http = { path = "./chain/http" }
 primitives = { path = "./runtime/primitives" }
 storage = { path = "./runtime/storage" }
-network = { path = "./chain/network" }
-configs = { path = "./chain/configs" }
-client = { path = "./chain/client" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
 
@@ -72,3 +45,4 @@ opt-level = 3 # pairing library is too slow to use in debug
 [features]
 expensive_tests = []
 regression_tests = []
+old_tests = []

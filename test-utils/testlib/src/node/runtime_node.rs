@@ -1,7 +1,7 @@
-use crate::node::{Node, ProcessNode, ThreadNode};
+use crate::node::Node;
 use crate::runtime_utils::get_runtime_and_trie;
-use crate::user::{User, RuntimeUser};
 use crate::user::runtime_user::MockClient;
+use crate::user::{RuntimeUser, User};
 
 use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::{FunctionCallTransaction, TransactionBody};
@@ -21,7 +21,6 @@ impl RuntimeNode {
         let client = Arc::new(RwLock::new(MockClient { runtime, trie, state_root: root }));
         RuntimeNode { signer, client }
     }
-
 
     pub fn send_money(&self, account_id: &AccountId, amount: Balance) {
         let nonce = self.get_account_nonce(account_id).unwrap_or_default() + 1;
@@ -64,14 +63,6 @@ impl Node for RuntimeNode {
 
     fn signer(&self) -> Arc<InMemorySigner> {
         self.signer.clone()
-    }
-
-    fn as_process_mut(&mut self) -> &mut ProcessNode {
-        unimplemented!()
-    }
-
-    fn as_thread_mut(&mut self) -> &mut ThreadNode {
-        unimplemented!()
     }
 
     fn is_running(&self) -> bool {

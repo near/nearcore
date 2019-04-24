@@ -1,4 +1,4 @@
-use crate::node::{LocalNodeConfig, Node};
+use crate::node::Node;
 use crate::user::{RpcUser, User};
 use log::error;
 use primitives::crypto::signer::InMemorySigner;
