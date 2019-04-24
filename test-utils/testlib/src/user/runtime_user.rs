@@ -1,16 +1,15 @@
 use crate::runtime_utils::to_receipt_block;
 use crate::user::{User, POISONED_LOCK_ERR};
-use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
+use primitives::receipt::ReceiptInfo;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
 use primitives::types::{AccountId, MerkleHash, Nonce};
-use shard::ReceiptInfo;
 use storage::{Trie, TrieUpdate};
 
 use std::cell::RefCell;
@@ -199,12 +198,5 @@ impl User for RuntimeUser {
         let receipt = self.receipts.borrow().get(hash).cloned()?;
         let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
         Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
-    }
-
-    fn get_shard_blocks_by_index(
-        &self,
-        _r: GetBlocksByIndexRequest,
-    ) -> Result<SignedShardBlocksResponse, String> {
-        unimplemented!("get_shard_blocks_by_index should not be implemented for RuntimeUser");
     }
 }
