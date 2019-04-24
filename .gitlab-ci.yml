@@ -54,7 +54,7 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
-    - cargo check --all --all-features --tests --benches
+    - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
