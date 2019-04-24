@@ -171,8 +171,38 @@ mod test {
     }
 
     #[test]
-    fn test_delete_key_no_key_left_runtime() {
+    fn test_delete_key_last_runtime() {
         let node = create_runtime_node();
-        test_delete_key_no_key_left(node);
+        test_delete_key_last(node);
+    }
+
+    #[test]
+    fn test_add_access_key_runtime() {
+        let node = create_runtime_node();
+        test_add_access_key(node);
+    }
+
+    #[test]
+    fn test_delete_access_key_runtime() {
+        let node = create_runtime_node();
+        test_delete_access_key(node);
+    }
+
+    #[test]
+    fn test_add_access_key_with_funding_runtime() {
+        let node = create_runtime_node();
+        test_add_access_key_with_funding(node);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_owner_refund_runtime() {
+        let node = create_runtime_node();
+        test_delete_access_key_with_owner_refund(node);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_bob_refund_runtime() {
+        let node = create_runtime_node();
+        test_delete_access_key_with_bob_refund(node);
     }
 }

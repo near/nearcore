@@ -7,6 +7,8 @@ use primitives::types::{AccountId, Balance, MerkleHash};
 
 pub mod runtime_user;
 use futures::Future;
+use primitives::account::AccessKey;
+use primitives::crypto::signature::PublicKey;
 use primitives::receipt::ReceiptInfo;
 pub use runtime_user::RuntimeUser;
 
@@ -36,6 +38,8 @@ pub trait User {
     fn get_state_root(&self) -> MerkleHash;
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
+
+    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
@@ -90,4 +94,9 @@ pub trait AsyncUser: Send + Sync {
         &self,
         hash: &CryptoHash,
     ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
+
+    fn get_access_key(
+        &self,
+        public_key: &PublicKey,
+    ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
 }

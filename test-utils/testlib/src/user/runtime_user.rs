@@ -12,6 +12,8 @@ use primitives::transaction::{
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use storage::{Trie, TrieUpdate};
 
+use primitives::account::AccessKey;
+use primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -198,5 +200,10 @@ impl User for RuntimeUser {
         let receipt = self.receipts.borrow().get(hash).cloned()?;
         let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
         Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
+    }
+
+    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer.view_access_key(&state_update, &self.account_id, public_key)
     }
 }
