@@ -111,7 +111,7 @@ const LocalNodeConnection = require('./local_node_connection');
 const KeyPair = require('./signing/key_pair');
 const WalletAccount = require('./wallet-account');
 const dev = require('./dev');
-const AccountInfo = require('./signing/account_info')
+const AccountInfo = require('./signing/account_info');
 
 module.exports = { Near, NearClient, Account, SimpleKeyStoreSigner, InMemoryKeyStore, BrowserLocalStorageKeystore, LocalNodeConnection, KeyPair, WalletAccount, dev, AccountInfo };
 
@@ -151,24 +151,28 @@ module.exports = {
      */
     connect: async function(options = {}) {
         // construct full options objects based on params, and fill in with defaults.
-        const fullRuntimeOptions = Object.assign({deps: {}}, options);
-        if (fullRuntimeOptions.useDevAccount) {
-            fullRuntimeOptions.accountId = devAccountName;
-            fullRuntimeOptions.key = devKey;
+        this.options = Object.assign({deps: {}}, options);
+        this.deps = this.options.deps;
+        if (this.options.useDevAccount) {
+            this.options.accountId = devAccountName;
+            this.options.key = devKey;
         }
-        fullRuntimeOptions.networkId = fullRuntimeOptions.networkId || 'localhost';
-        fullRuntimeOptions.nodeUrl = fullRuntimeOptions.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
-        fullRuntimeOptions.deps.keyStore = fullRuntimeOptions.deps.keyStore || new BrowserLocalStorageKeystore(fullRuntimeOptions.networkId);
-        fullRuntimeOptions.deps.storage = fullRuntimeOptions.deps.storage || window.localStorage;
-        this.deps = fullRuntimeOptions.deps;
-        this.options = fullRuntimeOptions;
+        this.options.helperUrl = this.options.helperUrl || this.options.baseUrl;
+        if (this.options.helperUrl && !this.deps.createAccount) {
+            this.deps.createAccount = this.createAccountWithContractHelper.bind(this);
+        } 
+        this.options.networkId = this.options.networkId || 'localhost';
+        this.options.nodeUrl = this.options.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
+        this.deps.keyStore = this.deps.keyStore || new BrowserLocalStorageKeystore(this.options.networkId);
+        this.deps.storage = this.deps.storage || window.localStorage;
+
         const nearClient = new NearClient(
-            new SimpleKeyStoreSigner(this.deps.keyStore), new LocalNodeConnection(fullRuntimeOptions.nodeUrl));
+            new SimpleKeyStoreSigner(this.deps.keyStore), new LocalNodeConnection(this.options.nodeUrl));
         this.near = new Near(nearClient);
-        if (fullRuntimeOptions.accountId && fullRuntimeOptions.key) {
-            this.deps.keyStore.setKey(fullRuntimeOptions.accountId, fullRuntimeOptions.key);
+        if (this.options.accountId && this.options.key) {
+            this.deps.keyStore.setKey(this.options.accountId, this.options.key);
         }
-        if (!fullRuntimeOptions.accountId) {
+        if (!this.options.accountId) {
             await this.getOrCreateDevUser();
         }
         return this.near;
@@ -213,8 +217,8 @@ module.exports = {
     /**
      * Function to create an account on near-hosted devnet using contract helper. This will not work on non-dev environments.
      */
-    createAccountWithContractHelper: async function (nearConfig, newAccountId, publicKey) {
-        return await sendJson('POST', `${nearConfig.baseUrl}/account`, {
+    createAccountWithContractHelper: async function (newAccountId, publicKey) {
+        return await sendJson('POST', `${this.options.helperUrl}/account`, {
             newAccountId: newAccountId,
             newAccountPublicKey: publicKey
         });
@@ -415,7 +419,7 @@ class Near {
      * const result = await this.getTransactionStatus(transactionHash)
      */
     async getTransactionStatus(transactionHash) {
-        return this.nearClient.getTransactionStatus(transactionHash)
+        return this.nearClient.getTransactionStatus(transactionHash);
     }
 
     /**
@@ -450,9 +454,6 @@ class Near {
                 alreadyDisplayedLogs.push(line);
             }
             if (result.status == 'Completed') {
-                for (j = result.logs.length - 1; j >= 0; --j) {
-                    let r = result.logs[j];
-                }
                 if (result.value) {
                     result.lastResult = JSON.parse(Buffer.from(result.value, 'base64').toString());
                 }
@@ -460,7 +461,8 @@ class Near {
             }
             if (result.status == 'Failed') {
                 const errorMessage = result.logs.find(it => it.startsWith('ABORT:')) || '';
-                throw createError(400, `Transaction ${transactionHash} on ${contractAccountId} failed. ${errorMessage}`);
+                const hash = Buffer.from(transactionHash).toString('base64');
+                throw createError(400, `Transaction ${hash} on ${contractAccountId} failed. ${errorMessage}`);
             }
         }
         throw createError(408, `Exceeded ${MAX_STATUS_POLL_ATTEMPTS} status check attempts ` +
@@ -535,7 +537,7 @@ function _arrayBufferToBase64(buffer) {
 }
 
 function _base64ToBuffer(str) {
-    return new Buffer.from(str, 'base64')
+    return new Buffer.from(str, 'base64');
 }
 
 class NearClient {
