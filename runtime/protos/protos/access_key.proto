@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+import "wrappers.proto";
+
+// Limited Access key to use owner's account with the fixed public_key.
+// Access Key is stored under the key of owner's `account_id` and the `public_key`.
+message AccessKey {
+    // Balance amount on this Access Key. Can be used to pay for the transactions.
+    uint64 amount = 1;
+    // Owner of the balance of this Access Key. None means the account owner.
+    google.protobuf.StringValue balance_owner = 2;
+    // Contract ID that can be called with this Access Key. None means the account owner.
+    // Access key only allows to call given contract_id.
+    google.protobuf.StringValue contract_id = 3;
+    // The only method name that can be called with this Access Key. None means any method name.
+    google.protobuf.BytesValue method_name = 4;
+}

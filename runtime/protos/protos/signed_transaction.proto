@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "wrappers.proto";
+import "access_key.proto";
 
 message CreateAccountTransaction {
     uint64 nonce = 1;
@@ -51,6 +52,7 @@ message AddKeyTransaction {
     uint64 nonce = 1;
     string originator = 2;
     bytes new_key = 3;
+    AccessKey access_key = 4;
 }
 
 message DeleteKeyTransaction {

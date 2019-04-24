@@ -935,6 +935,7 @@ pub fn test_add_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -960,6 +961,7 @@ pub fn test_add_existing_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: node.signer().public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -985,6 +987,7 @@ pub fn test_delete_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -1044,7 +1047,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
 }
 
-pub fn test_delete_key_no_key_left(node: impl Node) {
+pub fn test_delete_key_last(node: impl Node) {
     let account_id = &node.signer().account_id;
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -1060,11 +1063,11 @@ pub fn test_delete_key_no_key_left(node: impl Node) {
     wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
+    assert_eq!(account.public_keys.len(), 0);
 }

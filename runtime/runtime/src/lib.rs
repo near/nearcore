@@ -215,7 +215,7 @@ impl Runtime {
             TransactionBody::SwapKey(ref t) => system::swap_key(state_update, t, &mut originator),
             TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut originator),
             TransactionBody::DeleteKey(ref t) => {
-                system::delete_key(state_update, t, &mut originator)
+                system::delete_key(state_update, t, &mut originator, transaction.get_hash())
             }
         }
     }

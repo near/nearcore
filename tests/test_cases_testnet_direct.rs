@@ -180,7 +180,7 @@ mod test {
     }
 
     #[test]
-    fn test_delete_key_no_key_left_testnet() {
-        run_testnet_test!(test_delete_key_no_key_left);
+    fn test_delete_key_last_testnet() {
+        run_testnet_test!(test_delete_key_last);
     }
 }
