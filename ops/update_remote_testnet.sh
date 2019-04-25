@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.1}
+IMAGE=${1:-nearprotocol/nearcore:0.1.3}
 PREFIX=${2:-testnet}
 ZONE=${3:-us-west2-a}
 NUM_NODES=${4:-2}

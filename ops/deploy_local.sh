@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.1}
+IMAGE=${1:-nearprotocol/nearcore:0.1.3}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.4}
 TOTAL_NODES=${2:-2}
 NEARLIB_COMMIT="348509b526cf4ca0495d86cb211d1013d84629a2"
