@@ -49,6 +49,7 @@ lazy_static = "1.2.0"
 log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
+reqwest = "0.9"
 
 devnet = { path = "./chain/devnet" }
 alphanet = { path = "./chain/alphanet" }
@@ -61,6 +62,8 @@ configs = { path = "./chain/configs" }
 client = { path = "./chain/client" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
+near-protos = { path = "./runtime/protos" }
+nearmint = { path = "./nearmint" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

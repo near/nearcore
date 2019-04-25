@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 use abci::*;
-use clap::{App, Arg};
-use env_logger::Builder;
 use log::{error, info};
 use protobuf::parse_from_bytes;
 
@@ -20,15 +18,15 @@ use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
+use storage::test_utils::create_beacon_shard_storages;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 use verifier::TransactionVerifier;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-const DEFAULT_BASE_PATH: &str = "";
 const STORAGE_PATH: &str = "storage";
 
 /// Connector of NEAR Core with Tendermint.
-struct NearMint {
+pub struct NearMint {
     chain_spec: ChainSpec,
     runtime: Runtime,
     trie: Arc<Trie>,
@@ -52,10 +50,10 @@ fn get_storage_path(base_path: &Path) -> String {
 }
 
 impl NearMint {
-    pub fn new(base_path: &Path, chain_spec: ChainSpec) -> Self {
-        let (_, storage) = create_storage(&get_storage_path(base_path), 1);
-        let storage = storage[0].clone();
-
+    pub fn new_from_storage(
+        storage: Arc<RwLock<ShardChainStorage>>,
+        chain_spec: ChainSpec,
+    ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
         let runtime = Runtime {};
         let trie_viewer = TrieViewer {};
@@ -111,6 +109,19 @@ impl NearMint {
             authority_proposals: Vec::default(),
             height,
         }
+    }
+
+    pub fn new(base_path: &Path, chain_spec: ChainSpec) -> Self {
+        let (_, mut storage) = create_storage(&get_storage_path(base_path), 1);
+        let storage = storage.pop().unwrap();
+
+        Self::new_from_storage(storage, chain_spec)
+    }
+
+    /// In memory instance of nearmint used for test
+    pub fn new_for_test(chain_spec: ChainSpec) -> Self {
+        let (_, storage) = create_beacon_shard_storages();
+        Self::new_from_storage(storage, chain_spec)
     }
 }
 
@@ -304,59 +315,9 @@ impl Application for NearMint {
     }
 }
 
-fn main() {
-    // Parse command line arguments.
-    let matches = App::new("Nearmint")
-        .args(&[
-            Arg::with_name("base_path")
-                .short("d")
-                .long("base-path")
-                .value_name("PATH")
-                .help("Specify a base path for persisted files.")
-                .default_value(DEFAULT_BASE_PATH)
-                .takes_value(true),
-            Arg::with_name("chain_spec_file")
-                .short("c")
-                .long("chain-spec-file")
-                .value_name("CHAIN_SPEC")
-                .help("Specify a file location to read a custom chain spec.")
-                .takes_value(true),
-            Arg::with_name("devnet")
-                .long("devnet")
-                .help("Run with DevNet validator configuration (single alice.near validator)")
-                .takes_value(false),
-            Arg::with_name("abci_address")
-                .short("a")
-                .long("abci-address")
-                .value_name("ABCI_Address")
-                .help("Specify ip address and port for Tendermint ABCI")
-                .default_value("127.0.0.1:26658")
-                .takes_value(true),
-        ])
-        .get_matches();
-    let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
-    let chain_spec = if matches.is_present("devnet") {
-        ChainSpec::default_devnet()
-    } else {
-        let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
-        ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
-    };
-    let addr = matches.value_of("abci_address").map(|address| address.parse().unwrap()).unwrap();
-
-    // Setup logging.
-    let mut builder = Builder::from_default_env();
-    builder.default_format_timestamp_nanos(true);
-    builder.filter(None, log::LevelFilter::Info);
-    builder.try_init().unwrap();
-
-    // Fire it up!
-    abci::run(addr, NearMint::new(&base_path, chain_spec));
-}
-
 #[cfg(test)]
 mod tests {
     use protobuf::Message;
-    use tempdir::TempDir;
 
     use node_runtime::adapter::RuntimeAdapter;
     use node_runtime::chain_spec::ChainSpec;
@@ -369,9 +330,8 @@ mod tests {
 
     #[test]
     fn test_apply_block() {
-        let tmp_dir = TempDir::new("apply_block").unwrap();
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
+        let mut nearmint = NearMint::new_for_test(chain_spec);
         let req_init = RequestInitChain::new();
         let resp_init = nearmint.init_chain(&req_init);
         assert_eq!(resp_init.validators.len(), 1);
@@ -413,9 +373,8 @@ mod tests {
 
     #[test]
     fn test_invalid_transaction() {
-        let tmp_dir = TempDir::new("invalid_tx").unwrap();
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
+        let mut nearmint = NearMint::new_for_test(chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
         let body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
         let invalid_tx: near_protos::signed_transaction::SignedTransaction =
