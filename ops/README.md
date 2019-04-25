@@ -126,4 +126,3 @@ curl -s 'localhost:3030/validators'
 See full list of RPC endpoints here: https://tendermint.com/rpc/#endpoints
 
 Unfortunately, transactions can be only submitted in base64 encoding, which is hard to do from the command line.
-
