@@ -39,10 +39,6 @@ RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
 
 EXPOSE 3030 26656 26657
 
-ENV TMHOME=/srv/near
-
-RUN ["tendermint", "init" ]
-
 COPY ops/run.sh /usr/local/bin/run.sh
 COPY ops/tendermint-config.toml ./config.toml
 

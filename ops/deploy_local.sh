@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.1}
+#IMAGE=${1:-nearprotocol/nearcore:0.1.1}
+IMAGE=${1:-nearcore}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.4}
-TOTAL_NODES=1
+TOTAL_NODES=4
 
 sudo docker run -d --name testnet-0 -p 3030:3030 -p 26656:26656 --rm \
 	-e "NODE_ID=0" \
