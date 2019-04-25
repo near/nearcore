@@ -22,8 +22,9 @@ Similarly you deploy the network to the GCloud:
 ```
 When the network is deployed it will print the address of the studio.
 
-## Developing locally
-Developing from the source code requires more installation and configuration.
+## Developing NEAR Runtime
+This section is for those who want to develop the NEAR Runtime. If you only want to develop dApps then the above sections suffice.
+Developing NEAR Runtime locally requires more installation and configuration.
 
 ### Installation
 
