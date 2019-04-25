@@ -3,20 +3,25 @@ set -e
 
 IMAGE=${1:-nearprotocol/nearcore:0.1.1}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.4}
-TOTAL_NODES=2
+TOTAL_NODES=1
 
 sudo docker run -d --name testnet-0 -p 3030:3030 -p 26656:26656 --rm \
-	-e "BOOT_NODES=127.0.0.1:26658" \
 	-e "NODE_ID=0" \
 	-e "TOTAL_NODES=${TOTAL_NODES}" \
 	-e "NODE_KEY=53Mr7IhcJXu3019FX+Ra+VbxSQ5y2q+pknmM463jzoFzldWZb16dSYRxrhYrLRXe/UA0wR2zFy4c3fY5yDHjlA==" \
+	-e "PRIVATE_NETWORK=y" \
 	${IMAGE}
 
-sudo docker run -d --name testnet-1 -p 3031:3030 -p 26670:26656 --add-host=testnet-0:172.17.0.2 --rm \
+for NODE_ID in $(seq 1 `expr $TOTAL_NODES - 1`)
+do
+sudo docker run -d --name testnet-${NODE_ID} -p $((3030+${NODE_ID})):3030 -p $((26656+${NODE_ID})):26656 \
+    --add-host=testnet-0:172.17.0.2 --rm \
 	-e "BOOT_NODES=6f99d7b49a10fff319cd8bbbd13c3a964dcd0248@172.17.0.2:26656" \
-	-e "NODE_ID=1" \
+	-e "NODE_ID=${NODE_ID}" \
 	-e "TOTAL_NODES=${TOTAL_NODES}" \
+	-e "PRIVATE_NETWORK=y" \
 	${IMAGE}
+done
 
 sudo docker run -d --name studio -p 80:80 --add-host=testnet-0:172.17.0.2 --rm \
     -e "DEVNET_HOST=http://172.17.0.2" \
