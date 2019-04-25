@@ -208,4 +208,29 @@ mod test {
     fn test_delete_access_key_with_bob_refund_testnet() {
         run_testnet_test!(test_delete_access_key_with_bob_refund);
     }
+
+    #[test]
+    fn test_access_key_smart_contract_testnet() {
+        run_testnet_test!(test_access_key_smart_contract);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_positive_amount_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_positive_amount);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_method_name_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_method_name);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_contract_id_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_contract_id);
+    }
+
+    #[test]
+    fn test_access_key_reject_non_function_call_testnet() {
+        run_testnet_test!(test_access_key_reject_non_function_call);
+    }
 }
