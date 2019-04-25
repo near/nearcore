@@ -9,7 +9,7 @@ let networkId;
 
 beforeAll(async () => {
     // To avoid nonce collisions with promise test on alice
-    await sleep(1000);
+    await sleep(3000);
 
     networkId = 'somenetwork';
     keyStore = new InMemoryKeyStore(networkId);
