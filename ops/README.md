@@ -1,6 +1,13 @@
-NEAR application layer running with Tendermint consensus.
+# NEAR Application Layer with Tendermint Consensus
 
-## Running locally
+#### Table of contents
+
+1. [Running Locally](#running-locally)
+2. [Running Remotely](#running-remotely)
+3. [Developing NEAR Runtime](#developing-near-runtime)
+4. [Building and Pushing Docker Image](#building-and-pushing-docker-image)
+
+## Running Locally
 
 To run NEAR locally you would need docker, see [installation instructions](https://www.docker.com/get-started).
 Then run the following:
@@ -19,7 +26,7 @@ Note, it is not advised to run more than two nodes locally, especially on low pe
 itself is able to function and produce blocks, the development tools might currently timeout on certain commands,
 because the nodes do not produce blocks fast enough.
 
-## Running remotely
+## Running Remotely
 Similarly you deploy the network to the GCloud:
 ```bash
 ./ops/deploy_remote.sh
@@ -52,6 +59,7 @@ For that we would need to install Rust.
 
 ```bash
 curl https://sh.rustup.rs -sSf | sh
+rustup component add clippy-preview
 rustup default nightly
 ```
 
@@ -126,3 +134,37 @@ curl -s 'localhost:3030/validators'
 See full list of RPC endpoints here: https://tendermint.com/rpc/#endpoints
 
 Unfortunately, transactions can be only submitted in base64 encoding, which is hard to do from the command line.
+
+## Building and Pushing Docker Image
+
+If you have modified the source code of NEAR Runtime and want to see how it performs in prod you would need to build
+an docker image from it. Once the docker image is built you can run it locally or remotely.
+
+### Building NEAR Runtime
+To build docker image run from the root:
+```bash
+make docker-nearcore
+```
+
+This will build an image with `nearcore` name.
+
+### Running locally
+
+To run this image locally, run:
+```bash
+./ops/deploy_local.sh nearcore
+```
+
+### Running remotely
+
+To run this image remotely we would need to tag and publish it to the docker hub. For instance, when using `nearprotocol` docker hub repo:
+
+```bash
+sudo docker tag nearcore nearprotocol/mynearcore
+sudo docker push nearprotocol/mynearcore
+```
+
+Then run:
+```bash
+./ops/deploy_remote.sh nearprotocol/mynearcore
+```

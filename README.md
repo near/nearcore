@@ -41,63 +41,13 @@ High level milestones:
  - [ ] MainNet: Launched as Minimum Viable Blockchain.
  - [ ] Shard chains: Support for scalable sharding.
 
-## Development
+## Running 
 
-This repo contains the core NEAR Protocol node client.  It is written using the Rust language and contains a Python-based wrapper for interfacing to it.
+Checkout the [Running Locally](https://github.com/nearprotocol/nearcore/tree/master/ops#running-locally) and [Running Remotely](https://github.com/nearprotocol/nearcore/tree/master/ops#running-remotely) sections.
 
-### Setup rust
+## Developing
 
-```bash
-curl https://sh.rustup.rs -sSf | sh
-source ~/.cargo/env
-rustup component add clippy-preview
-rustup default nightly
-```
-
-You may need to activate the environment via `source ~/.cargo/env` to use `cargo` or add it to your `.bash_profile` or similar.
-
-
-### Install dependencies
-
-Mac OS:
-```bash
-brew install protobuf
-```
-
-Ubuntu:
-```bash
-apt-get install protobuf-compiler
-```
-
-### Build & Run from source code
-
-```bash
-# Download NEAR Core code.
-git clone https://github.com/nearprotocol/nearcore
-cd nearcore
-```
-
-It will build the first time and then run:
-
-```bash
-cargo run
-```
-
-or
-
-```bash
-cargo run --package=devnet
-```
-
-### Testing
-
-In order to run tests currently, you must setup `pynear`:
-
-```bash
-cd pynear
-# sudo may be required if you are not testing with a python virtual environment
-python setup.py develop
-```
+Checkout the [Developing NEAR Runtime](https://github.com/nearprotocol/nearcore/tree/master/ops#developing-near-runtime) and [Building and Pushing Docker Image](https://github.com/nearprotocol/nearcore/tree/master/ops#building-and-pushing-docker-image) sections.
 
 ### Logging
 
