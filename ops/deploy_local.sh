@@ -1,8 +1,7 @@
 #!/bin/bash
 set -e
 
-#IMAGE=${1:-nearprotocol/nearcore:0.1.1}
-IMAGE=${1:-nearcore}
+IMAGE=${1:-nearprotocol/nearcore:0.1.1}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.4}
 TOTAL_NODES=4
 
