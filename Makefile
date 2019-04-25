@@ -1,4 +1,4 @@
 
 docker-nearcore:
-	DOCKER_BUILDKIT=1 docker build -t nearcore -f nearmint/ops/Dockerfile .
+	DOCKER_BUILDKIT=1 docker build -t nearcore -f ops/Dockerfile .
 

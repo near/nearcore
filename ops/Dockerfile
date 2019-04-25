@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile-upstream:experimental
 
-FROM phusion/baseimage:0.11 AS builder
+FROM phusion/baseimage:0.11
 
 RUN apt-get update -qq && apt-get install -y \
     cmake \
@@ -39,13 +39,9 @@ RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
 
 EXPOSE 3030 26656 26657
 
-ENV TMHOME=/srv/near
-
-RUN ["tendermint", "init" ]
-
-COPY nearmint/ops/run_nearmint /usr/local/bin/run_nearmint
-COPY nearmint/ops/tendermint-config.toml ./config.toml
+COPY ops/run.sh /usr/local/bin/run.sh
+COPY ops/tendermint-config.toml ./config.toml
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 
-CMD ["/usr/local/bin/run_nearmint"]
+CMD ["/usr/local/bin/run.sh"]
