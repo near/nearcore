@@ -8,6 +8,8 @@ ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}
 
+
+
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
 set +e

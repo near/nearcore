@@ -15,6 +15,10 @@ To tear it down run:
 ./ops/teardown_local.sh
 ```
 
+Note, it is not advised to run more than two nodes locally, especially on low performance machines. While the network
+itself is able to function and produce blocks, the development tools might currently timeout on certain commands,
+because the nodes do not produce blocks fast enough.
+
 ## Running remotely
 Similarly you deploy the network to the GCloud:
 ```bash
