@@ -38,9 +38,13 @@ module.exports = {
             this.options.key = devKey;
         }
         this.options.helperUrl = this.options.helperUrl || this.options.baseUrl;
-        if (this.options.helperUrl && !this.deps.createAccount) {
-            this.deps.createAccount = this.createAccountWithContractHelper.bind(this);
-        } 
+        if (!this.deps.createAccount) {
+            if (this.options.helperUrl) {
+                this.deps.createAccount = this.createAccountWithContractHelper.bind(this);
+            } else {
+                this.deps.createAccount = this.createAccountWithLocalNodeConnection.bind(this);
+            }
+        }
         this.options.networkId = this.options.networkId || 'localhost';
         this.options.nodeUrl = this.options.nodeUrl || (await this.getConfig()).nodeUrl || localNodeUrl;
         this.deps.keyStore = this.deps.keyStore || new BrowserLocalStorageKeystore(this.options.networkId);
