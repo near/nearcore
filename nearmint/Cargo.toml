@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
-[[bin]]
-name = "nearmint"
-path = "./bin/main.rs"
-
 [dependencies]
 abci = "0.4"
 log = "0.4"

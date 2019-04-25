@@ -1,4 +1,5 @@
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::rpc::{JsonRpcRequest, JsonRpcResponse, JsonRpcResponseError};
 use protobuf::Message;
 use serde_derive::{Deserialize, Serialize};
 use std::process::{Child, Command};
@@ -43,31 +44,6 @@ fn start_nearmint(path: &str) -> TestNode {
         .expect("fail to spawn nearmint");
     thread::sleep(Duration::from_secs(5));
     TestNode { tendermint, nearmint, storage_path: path }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcRequest {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Vec<serde_json::Value>,
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcResponse {
-    pub jsonrpc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<JsonRpcResponseError>,
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcResponseError {
-    code: i64,
-    message: String,
-    data: serde_json::Value,
 }
 
 fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
