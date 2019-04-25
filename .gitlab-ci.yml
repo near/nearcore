@@ -12,6 +12,10 @@ variables:
 .setup_rust: &setup_rust
     rustup default nightly
 
+.setup_tendermint: &setup_tendermint
+    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh
+    ./install_tendermint_ubuntu.sh
+
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
@@ -47,6 +51,7 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
+    - *setup_tendermint
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
