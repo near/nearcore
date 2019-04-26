@@ -17,7 +17,8 @@ variables:
     chmod +x install_tendermint_ubuntu.sh &&
     ./install_tendermint_ubuntu.sh &&
     source ~/.profile &&
-    tendermint init
+    tendermint init &&
+    sed -i '/^laddr = "tcp:\/\/0.0.0.0:26657"/laddr = "tcp:\/\/0.0.0.0:3030"/' ~/.tendermint/config/config.toml
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
