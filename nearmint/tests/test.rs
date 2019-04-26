@@ -1,27 +1,27 @@
 use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::rpc::{JsonRpcRequest, JsonRpcResponse, JsonRpcResponseError};
+use primitives::rpc::JsonRpcResponse;
 use protobuf::Message;
-use serde_derive::{Deserialize, Serialize};
 use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
+use testlib::test_helpers::wait;
 
 /// Test node that contains the subprocesses of tendermint and nearmint.
 /// Used for shutting down the processes gracefully.
-struct TestNode<'a> {
+struct TestNode {
     tendermint: Child,
     nearmint: Child,
-    storage_path: &'a str,
+    storage_path: String,
 }
 
-impl<'a> TestNode<'a> {
+impl TestNode {
     fn kill(&mut self) {
         self.tendermint.kill().expect("fail to kill tendermint node");
         self.nearmint.kill().expect("fail to kill nearmint");
     }
 }
 
-impl<'a> Drop for TestNode<'a> {
+impl Drop for TestNode {
     fn drop(&mut self) {
         self.kill();
         Command::new("tendermint")
@@ -29,7 +29,7 @@ impl<'a> Drop for TestNode<'a> {
             .output()
             .expect("fail to reset tendermint");
         Command::new("rm")
-            .args(&["-rf", self.storage_path])
+            .args(&["-rf", &self.storage_path])
             .output()
             .expect("fail to delete test storage");
     }
@@ -44,8 +44,17 @@ fn start_nearmint(path: &str) -> TestNode {
         .args(&["run", "--package", "nearmint", "--", "--base-path", path, "--devnet"])
         .spawn()
         .expect("fail to spawn nearmint");
+    wait(
+        || {
+            let client = reqwest::Client::new();
+            let response = client.post("http://127.0.0.1:3030/health").send();
+            response.is_ok()
+        },
+        1000,
+        60000,
+    );
     thread::sleep(Duration::from_secs(5));
-    TestNode { tendermint, nearmint, storage_path: path }
+    TestNode { tendermint, nearmint, storage_path: path.to_string() }
 }
 
 fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
