@@ -3,7 +3,7 @@ set -e
 
 IMAGE=${1:-nearprotocol/nearcore:0.1.4}
 PREFIX=${2:-testnet-${USER}}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.7}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.8}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}
@@ -112,9 +112,10 @@ fi
 
 if [[ !${STUDIO_EXISTS} -eq 0 ]]; then
 gcloud beta compute instances create-with-container ${PREFIX}-studio \
-    --container-env DEVNET_HOST=http://${BOOT_NODE_IP} \
-    --container-env NEARLIB_COMMIT="348509b526cf4ca0495d86cb211d1013d84629a2" \
-    --container-env NEARLIB_VERSION="0.5.2" \
+    --container-env DEVNET_HOST=http://${BOOT_NODE_IP}:3030 \
+    --container-env DEVNET_WS_HOST=ws://${BOOT_NODE_IP}:3030 \
+    --container-env NEARLIB_COMMIT="6e08d77eb1be1de6390ca5d0f4654ee6e5b05e38" \
+    --container-env NEARLIB_VERSION="0.5.4" \
     --container-env PLATFORM=GCP \
     --container-image ${STUDIO_IMAGE} \
     --zone ${ZONE} \

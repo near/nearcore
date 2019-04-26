@@ -2,10 +2,10 @@
 set -e
 
 IMAGE=${1:-nearprotocol/nearcore:0.1.4}
-STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.7}
+STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.8}
 TOTAL_NODES=${2:-2}
-NEARLIB_COMMIT="348509b526cf4ca0495d86cb211d1013d84629a2"
-NEARLIB_VERSION="0.5.2"
+NEARLIB_COMMIT="6e08d77eb1be1de6390ca5d0f4654ee6e5b05e38"
+NEARLIB_VERSION="0.5.4"
 STUDIO_IP=localhost
 
 sudo docker run -d --name near-testnet-0 -p 3030:3030 -p 26656:26656 --rm \
@@ -27,7 +27,8 @@ sudo docker run -d --name near-testnet-${NODE_ID} -p $((3030+${NODE_ID})):3030 -
 done
 
 sudo docker run -d --name near-studio -p 80:80 --add-host=near-testnet-0:172.17.0.2 --rm \
-    -e "DEVNET_HOST=http://172.17.0.2" \
+    -e "DEVNET_HOST=http://172.17.0.2:3030" \
+    -e "DEVNET_WS_HOST=ws://172.17.0.2:3030" \
     -e "NEARLIB_COMMIT=${NEARLIB_COMMIT}" \
     -e "NEARLIB_VERSION=${NEARLIB_VERSION}" \
     -e "EXTERNAL_HOST_NAME=http://localhost" \

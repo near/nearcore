@@ -2,7 +2,7 @@
 set -e
 
 IMAGE=${1:-nearprotocol/nearcore:0.1.4}
-PREFIX=${2:-testnet}
+PREFIX=${2:-testnet-${USER}}
 ZONE=${3:-us-west2-a}
 NUM_NODES=${4:-2}
 
