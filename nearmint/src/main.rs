@@ -260,6 +260,9 @@ impl Application for NearMint {
                                 &mut new_receipts,
                             );
                             logs.extend(receipt_result.logs);
+                            if receipt_result.status != TransactionStatus::Completed {
+                                resp.code = 1;
+                            }
                             if let Some(result) = receipt_result.result {
                                 resp.data = result;
                             }
