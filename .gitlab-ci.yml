@@ -18,6 +18,7 @@ variables:
     ./install_tendermint_ubuntu.sh &&
     source ~/.profile &&
     tendermint init &&
+    sed -i 's/^timeout_broadcast_tx_commit = "10s"/timeout_broadcast_tx_commit = "20s"/' ~/.tendermint/config/config.toml
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
