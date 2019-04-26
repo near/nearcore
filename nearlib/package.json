@@ -32,8 +32,9 @@
   "keywords": [],
   "license": "MIT",
   "scripts": {
-    "build": "browserify browser-exports.js -i node-fetch -o dist/nearlib.js && browserify browser-exports.js -i node-fetch -g uglifyify -o dist/nearlib.min.js",
-    "test": "jest test",
+    "generate-protos": "../scripts/generate_js_transaction_proto.sh",
+    "build": "npm run generate-protos && browserify browser-exports.js -i node-fetch -o dist/nearlib.js && browserify browser-exports.js -i node-fetch -g uglifyify -o dist/nearlib.min.js",
+    "test": "npm run generate-protos && jest test",
     "lint": "eslint .",
     "fix": "eslint . --fix",
     "doc": "documentation readme near.js account.js wallet-account.js signing/key_pair.js -f md --shallow --section=API --readme-file=API.md"
