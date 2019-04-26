@@ -36,8 +36,10 @@ impl<'a> Drop for TestNode<'a> {
 }
 
 fn start_nearmint(path: &str) -> TestNode {
-    let tendermint =
-        Command::new("tendermint").arg("node").spawn().expect("fail to spawn tendermint");
+    let tendermint = Command::new("tendermint")
+        .args(&["node", "--rpc.laddr", "tcp://0.0.0.0:3030"])
+        .spawn()
+        .expect("fail to spawn tendermint");
     let nearmint = Command::new("cargo")
         .args(&["run", "--package", "nearmint", "--", "--base-path", path, "--devnet"])
         .spawn()
