@@ -62,7 +62,7 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
-    - cargo build -p keystore --release && keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
+    - cargo build -p keystore --release && ./target/release/keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
     - cargo check --all --all-features --tests --benches
     - cargo test --all --verbose
     after_script:
