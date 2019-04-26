@@ -14,7 +14,9 @@ variables:
 
 .setup_tendermint: &setup_tendermint
     curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh &&
-    sudo bash install_tendermint_ubuntu.sh &&
+    chmod +x install_tendermint_ubuntu.sh &&
+    ./install_tendermint_ubuntu.sh &&
+    source ~/.profile &&
     tendermint init
 
 .setup_cache: &setup_cache
