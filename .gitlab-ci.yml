@@ -13,7 +13,7 @@ variables:
     rustup default nightly
 
 .setup_tendermint: &setup_tendermint
-    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh
+    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh &&
     ./install_tendermint_ubuntu.sh
 
 .setup_cache: &setup_cache
