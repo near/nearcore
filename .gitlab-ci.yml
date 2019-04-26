@@ -18,7 +18,6 @@ variables:
     ./install_tendermint_ubuntu.sh &&
     source ~/.profile &&
     tendermint init &&
-    sed -i 's/^timeout_broadcast_tx_commit = "10s"/timeout_broadcast_tx_commit = "20s"/' ~/.tendermint/config/config.toml
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
@@ -63,6 +62,7 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
+    - cargo build -p keystore --release && keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
     - cargo check --all --all-features --tests --benches
     - cargo test --all --verbose
     after_script:
