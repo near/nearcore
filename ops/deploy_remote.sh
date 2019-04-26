@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.3}
+IMAGE=${1:-nearprotocol/nearcore:0.1.4}
 PREFIX=${2:-testnet-${USER}}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.4}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.7}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.6}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.7}
 PREFIX=${2:-testnet}
 ZONE=${3:-us-west2-a}
 
