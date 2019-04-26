@@ -3,10 +3,12 @@ set -e
 
 IMAGE=${1:-nearprotocol/nearcore:0.1.4}
 PREFIX=${2:-testnet-${USER}}
-STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.8}
+STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.9}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}
+NEARLIB_COMMIT="6e08d77eb1be1de6390ca5d0f4654ee6e5b05e38"
+NEARLIB_VERSION="0.5.4"
 
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
@@ -55,7 +57,10 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
 fi
 
 BOOT_NODE_IP=$(
-    gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | head -n 1 | awk '{print $2}'
+    gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION}  | grep address: | awk '{print $2}'
+)
+BOOT_NODE_INTERNAL_IP=$(
+    gcloud compute instances describe ${PREFIX}-0 --zone ${ZONE}  | grep networkIP | awk '{print $2}'
 )
 echo "Connect to boot node: 6f99d7b49a10fff319cd8bbbd13c3a964dcd0248@${BOOT_NODE_IP}"
 
@@ -71,7 +76,7 @@ do
     gcloud beta compute instances create-with-container ${PREFIX}-${NODE_ID} \
         --container-env BOOT_NODES="6f99d7b49a10fff319cd8bbbd13c3a964dcd0248@${BOOT_NODE_IP}:26656" \
         --container-env NODE_ID=${NODE_ID} \
-	--container-env TOTAL_NODES=${NUM_NODES} \
+	    --container-env TOTAL_NODES=${NUM_NODES} \
         --container-image ${IMAGE} \
         --zone ${ZONE} \
         --tags=testnet-instance \
@@ -114,8 +119,9 @@ if [[ !${STUDIO_EXISTS} -eq 0 ]]; then
 gcloud beta compute instances create-with-container ${PREFIX}-studio \
     --container-env DEVNET_HOST=http://${BOOT_NODE_IP}:3030 \
     --container-env DEVNET_WS_HOST=ws://${BOOT_NODE_IP}:3030 \
-    --container-env NEARLIB_COMMIT="6e08d77eb1be1de6390ca5d0f4654ee6e5b05e38" \
-    --container-env NEARLIB_VERSION="0.5.4" \
+    --container-env DEVNET_INTERNAL_HOST=http://${BOOT_NODE_INTERNAL_IP}:3030 \
+    --container-env NEARLIB_COMMIT=${NEARLIB_COMMIT} \
+    --container-env NEARLIB_VERSION=${NEARLIB_VERSION} \
     --container-env PLATFORM=GCP \
     --container-image ${STUDIO_IMAGE} \
     --zone ${ZONE} \
