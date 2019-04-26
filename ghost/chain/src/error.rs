@@ -1,4 +1,5 @@
 use std::fmt::{self, Display};
+use std::io;
 
 use failure::{Backtrace, Context, Fail};
 
@@ -15,6 +16,24 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
+    /// Peer abusively sending us an old block we already have
+    #[fail(display = "Old Block")]
+    OldBlock,
+    /// Invalid block time given current time.
+    #[fail(display = "Invalid Block Time")]
+    InvalidBlockTime,
+    /// Block height is invalid (not previous + 1).
+    #[fail(display = "Invalid Block Height")]
+    InvalidBlockHeight,
+    /// IO Error.
+    #[fail(display = "IO Error: {}", _0)]
+    IOErr(String),
+    /// Not found record in the DB.
+    #[fail(display = "DB Not Found Error: {}", _0)]
+    DBNotFoundErr(String),
+    /// Anything else
+    #[fail(display = "Other Error: {}", _0)]
+    Other(String),
 }
 
 impl Display for Error {
@@ -32,8 +51,30 @@ impl Display for Error {
     }
 }
 
+impl Error {
+    pub fn kind(&self) -> ErrorKind {
+        self.inner.get_context().clone()
+    }
+
+    pub fn cause(&self) -> Option<&dyn Fail> {
+        self.inner.cause()
+    }
+
+    pub fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
+    }
+}
+
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Error {
         Error { inner: Context::new(kind) }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Error {
+        Error {
+            inner: Context::new(ErrorKind::IOErr(error.to_string())),
+        }
     }
 }
