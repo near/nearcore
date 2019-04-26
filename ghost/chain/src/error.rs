@@ -63,6 +63,17 @@ impl Error {
     pub fn backtrace(&self) -> Option<&Backtrace> {
         self.inner.backtrace()
     }
+
+    pub fn is_bad_data(&self) -> bool {
+        match self.kind() {
+            ErrorKind::Unfit(_) | ErrorKind::Orphan | ErrorKind::IOErr(_) | ErrorKind::Other(_) | ErrorKind::DBNotFoundErr(_) => {
+                false
+            }
+            ErrorKind::InvalidBlockTime | ErrorKind::InvalidBlockHeight | ErrorKind::OldBlock => {
+                true
+            }
+        }
+    }
 }
 
 impl From<ErrorKind> for Error {
@@ -73,8 +84,6 @@ impl From<ErrorKind> for Error {
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Error {
-        Error {
-            inner: Context::new(ErrorKind::IOErr(error.to_string())),
-        }
+        Error { inner: Context::new(ErrorKind::IOErr(error.to_string())) }
     }
 }

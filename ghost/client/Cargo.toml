@@ -1,0 +1,13 @@
+[package]
+name = "near_client"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+actix = "0.8.1"
+kvdb = "0.1"
+log = "0.4"
+
+near_chain = { path = "../chain" }
+near_network = { path = "../network" }

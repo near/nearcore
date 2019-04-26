@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use kvdb::{KeyValueDB, DBTransaction};
-use std::io;
-use serde::de::DeserializeOwned;
+use kvdb::{DBTransaction, KeyValueDB};
 use primitives::hash::CryptoHash;
-use primitives::serialize::{Encode, Decode};
+use primitives::serialize::{Decode, Encode};
+use serde::de::DeserializeOwned;
+use std::io;
+use std::sync::Arc;
 
-use crate::error::{Error, ErrorKind};
-use crate::types::{Tip, Block, BlockHeader};
 use crate::chain::Chain;
+use crate::error::{Error, ErrorKind};
+use crate::types::{Block, BlockHeader, Tip};
 
 const COL_BLOCK_MISC: Option<u32> = Some(0);
 const COL_BLOCK: Option<u32> = Some(1);
@@ -23,9 +23,7 @@ pub struct Store {
 
 impl Store {
     pub fn new(storage: Arc<KeyValueDB>) -> Store {
-        Store {
-            storage
-        }
+        Store { storage }
     }
 
     pub fn get_ser<T>(&self, column: Option<u32>, key: &[u8]) -> Result<Option<T>, io::Error> {
@@ -33,7 +31,7 @@ impl Store {
             Ok(Some(bytes)) => {
                 unimplemented!();
                 // Decode::decode(&bytes.to_vec())
-            },
+            }
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
@@ -43,7 +41,7 @@ impl Store {
         match self.storage.get(column, key) {
             Ok(Some(_)) => Ok(true),
             Ok(None) => Ok(false),
-            Err(e) => Err(e.into())
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -61,10 +59,7 @@ pub struct StoreUpdate {
 impl StoreUpdate {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate {
-            storage,
-            transaction,
-        }
+        StoreUpdate { storage, transaction }
     }
 
     pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
@@ -130,10 +125,7 @@ impl ChainStore {
 
     /// Get full block.
     pub fn get_block(&self, h: &CryptoHash) -> Result<Block, Error> {
-        option_to_not_found(
-            self.store.get_ser(COL_BLOCK, h.as_ref()),
-            &format!("BLOCK: {}", h),
-        )
+        option_to_not_found(self.store.get_ser(COL_BLOCK, h.as_ref()), &format!("BLOCK: {}", h))
     }
 
     /// Does this full block exist?
@@ -149,15 +141,14 @@ impl ChainStore {
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         option_to_not_found(
-            self.store
-                .get_ser(COL_BLOCK_HEADER, h.as_ref()),
+            self.store.get_ser(COL_BLOCK_HEADER, h.as_ref()),
             &format!("BLOCK HEADER: {}", h),
         )
     }
 }
 
 pub struct ChainStoreUpdate {
-    store_update: StoreUpdate
+    store_update: StoreUpdate,
 }
 
 impl ChainStoreUpdate {

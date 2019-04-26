@@ -12,7 +12,7 @@ use primitives::types::BlockIndex;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate, Store};
-use crate::types::{Block, BlockHeader, ChainAdapter, RuntimeAdapter, Tip};
+use crate::types::{Block, BlockHeader, BlockStatus, ChainAdapter, RuntimeAdapter, Tip};
 
 const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
@@ -111,6 +111,15 @@ impl Chain {
         self.store.clone()
     }
 
+    /// Process a block header received during "header first" propagation.
+    pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+        // We create new chain update, but it's not going to be committed so it's read only.
+        let mut chain_update =
+            ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
+        chain_update.process_block_header(header)?;
+        Ok(())
+    }
+
     pub fn process_block(&mut self, block: Block) -> Result<Option<Tip>, Error> {
         let height = block.header.height;
         let res = self.process_block_single(block);
@@ -120,7 +129,25 @@ impl Chain {
         res
     }
 
+    fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
+        let has_head = head.is_some();
+        let mut is_next_block = false;
+
+        if let Some(head) = head {
+            if head.prev_block_hash == prev_head.last_block_hash {
+                is_next_block = true;
+            }
+        }
+
+        match (has_head, is_next_block) {
+            (true, true) => BlockStatus::Next,
+            (true, false) => BlockStatus::Reorg,
+            (false, _) => BlockStatus::Fork,
+        }
+    }
+
     fn process_block_single(&mut self, block: Block) -> Result<Option<Tip>, Error> {
+        let prev_head = self.store.head()?;
         let mut chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
         let maybe_new_head = chain_update.process_block(&block);
@@ -130,7 +157,14 @@ impl Chain {
         }
 
         match maybe_new_head {
-            Ok(head) => Ok(head),
+            Ok(head) => {
+                let status = self.determine_status(head.clone(), prev_head);
+
+                // Notify other parts of the system of the update.
+                self.chain_adapter.block_accepted(&block, status);
+
+                Ok(head)
+            }
             Err(e) => match e.kind() {
                 ErrorKind::Orphan => {
                     let block_hash = block.hash();
@@ -186,7 +220,7 @@ impl Chain {
 /// and decide to accept it or reject it.
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
-pub struct ChainUpdate<'a> {
+struct ChainUpdate<'a> {
     store: Arc<ChainStore>,
     runtime_adapter: Arc<RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate,

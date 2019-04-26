@@ -24,6 +24,19 @@ impl BlockHeader {
     }
 }
 
+impl Default for BlockHeader {
+    fn default() -> BlockHeader {
+        BlockHeader {
+            height: 0,
+            prev_hash: CryptoHash::default(),
+            prev_state_root: CryptoHash::default(),
+            timestamp: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(0, 0), Utc),
+            signatures: vec![],
+            total_weight: 0.into(),
+        }
+    }
+}
+
 pub struct Bytes(Vec<u8>);
 
 pub struct Block {
@@ -67,6 +80,12 @@ pub trait RuntimeAdapter {}
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Weight {
     num: u64,
+}
+
+impl From<u64> for Weight {
+    fn from(num: u64) -> Self {
+        Weight { num }
+    }
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
