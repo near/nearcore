@@ -4,6 +4,7 @@ use crate::test_helpers::wait;
 use crate::user::User;
 use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::account::AccessKey;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::serialize::Decode;
@@ -33,7 +34,35 @@ pub fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoH
     assert_ne!(root, new_root);
 }
 
+/// Adds given access key to the given account_id using signer2. Ruturns account_id and signer.
+#[allow(clippy::borrowed_box)]
+fn add_access_key(
+    node: &impl Node,
+    node_user: &Box<dyn User>,
+    access_key: &AccessKey,
+    signer2: &InMemorySigner,
+) {
+    let root = node_user.get_state_root();
+    let account_id = &node.signer().account_id;
+    let transaction = TransactionBody::AddKey(AddKeyTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        new_key: signer2.public_key.0[..].to_vec(),
+        access_key: Some(access_key.clone()),
+    })
+    .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+    let transaction_result = node_user.get_transaction_result(&tx_hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_ne!(root, new_root);
+}
+
 /// Wait until transaction finishes (either succeeds or fails).
+#[allow(clippy::borrowed_box)]
 pub fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
     wait(
         || match node_user.get_transaction_final_result(hash).status {
@@ -935,6 +964,7 @@ pub fn test_add_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -960,6 +990,7 @@ pub fn test_add_existing_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: node.signer().public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -985,6 +1016,7 @@ pub fn test_delete_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
+        access_key: None,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -1044,7 +1076,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
 }
 
-pub fn test_delete_key_no_key_left(node: impl Node) {
+pub fn test_delete_key_last(node: impl Node) {
     let account_id = &node.signer().account_id;
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -1060,11 +1092,317 @@ pub fn test_delete_key_no_key_left(node: impl Node) {
     wait_for_transaction(&node_user, &tx_hash);
 
     let transaction_result = node_user.get_transaction_result(&tx_hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_ne!(new_root, root);
+
+    let account = node_user.view_account(account_id).unwrap();
+    assert_eq!(account.public_keys.len(), 0);
+}
+
+pub fn test_add_access_key(node: impl Node) {
+    let node_user = node.user();
+    let access_key =
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let account = node_user.view_account(account_id).unwrap();
+    assert_eq!(account.public_keys.len(), 1);
+
+    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    assert_eq!(view_access_key, Some(access_key));
+}
+
+pub fn test_delete_access_key(node: impl Node) {
+    let node_user = node.user();
+    let access_key =
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let root = node_user.get_state_root();
+    let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        cur_key: signer2.public_key.0[..].to_vec(),
+    })
+    .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
+    let transaction_result = node_user.get_transaction_result(&tx_hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
     assert_eq!(transaction_result.receipts.len(), 0);
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
+    assert_eq!(account.public_keys[0], node.signer().public_key);
+
+    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    assert_eq!(view_access_key, None);
+}
+
+pub fn test_add_access_key_with_funding(node: impl Node) {
+    let access_key =
+        AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    let account = node_user.view_account(account_id).unwrap();
+    let initial_balance = account.amount;
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let account = node_user.view_account(account_id).unwrap();
+    assert_eq!(account.public_keys.len(), 1);
+    assert_eq!(account.amount, initial_balance - 10);
+
+    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    assert_eq!(view_access_key, Some(access_key));
+}
+
+pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
+    let access_key =
+        AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    let account = node_user.view_account(account_id).unwrap();
+    let initial_balance = account.amount;
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let root = node_user.get_state_root();
+    let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        cur_key: signer2.public_key.0[..].to_vec(),
+    })
+    .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
+    let transaction_result = node_user.get_transaction_result(&tx_hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_ne!(new_root, root);
+
+    let account = node_user.view_account(account_id).unwrap();
+    assert_eq!(account.public_keys.len(), 1);
+    assert_eq!(account.public_keys[0], node.signer().public_key);
+    assert_eq!(account.amount, initial_balance);
+
+    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    assert_eq!(view_access_key, None);
+}
+
+pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
+    let access_key = AccessKey {
+        amount: 10,
+        balance_owner: Some(bob_account()),
+        contract_id: None,
+        method_name: None,
+    };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    let account = node_user.view_account(account_id).unwrap();
+    let initial_balance = account.amount;
+    let bob_account_result = node_user.view_account(&bob_account()).unwrap();
+    let bobs_initial_balance = bob_account_result.amount;
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let root = node_user.get_state_root();
+    let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        cur_key: signer2.public_key.0[..].to_vec(),
+    })
+    .sign(&*node.signer());
+    let tx_hash = transaction.get_hash();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &tx_hash);
+
+    let transaction_result = node_user.get_transaction_result(&tx_hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    assert_eq!(transaction_result.receipts.len(), 1);
+
+    let account = node_user.view_account(account_id).unwrap();
+    assert_eq!(account.public_keys.len(), 1);
+    assert_eq!(account.public_keys[0], node.signer().public_key);
+    assert_eq!(account.amount, initial_balance - 10);
+
+    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    assert_eq!(view_access_key, None);
+
+    wait_for_transaction(&node_user, &transaction_result.receipts[0]);
+    let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
+    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    assert!(transaction_result.receipts.is_empty());
+    let new_root = node_user.get_state_root();
+    assert_ne!(new_root, root);
+
+    let bob_account_result = node_user.view_account(&bob_account()).unwrap();
+    assert_eq!(bob_account_result.amount, bobs_initial_balance + 10);
+}
+
+pub fn test_access_key_smart_contract(node: impl Node) {
+    let access_key = AccessKey {
+        amount: 0,
+        balance_owner: None,
+        contract_id: Some(bob_account()),
+        method_name: None,
+    };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: bob_account(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: 0,
+    })
+    .sign(&signer2);
+
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    validate_tx_result(node_user, root, &hash);
+}
+
+pub fn test_access_key_smart_contract_reject_positive_amount(node: impl Node) {
+    let access_key = AccessKey {
+        amount: 0,
+        balance_owner: None,
+        contract_id: Some(bob_account()),
+        method_name: None,
+    };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: bob_account(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: 10,
+    })
+    .sign(&signer2);
+
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    let transaction_result = node_user.get_transaction_result(&hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_eq!(root, new_root);
+}
+
+pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
+    let access_key = AccessKey {
+        amount: 0,
+        balance_owner: None,
+        contract_id: Some(bob_account()),
+        method_name: Some(b"log_something".to_vec()),
+    };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: bob_account(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: 0,
+    })
+    .sign(&signer2);
+
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    let transaction_result = node_user.get_transaction_result(&hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_eq!(root, new_root);
+}
+
+pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
+    let access_key = AccessKey {
+        amount: 0,
+        balance_owner: None,
+        contract_id: Some(bob_account()),
+        method_name: None,
+    };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: eve_account(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: 0,
+    })
+    .sign(&signer2);
+
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    let transaction_result = node_user.get_transaction_result(&hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_eq!(root, new_root);
+}
+
+pub fn test_access_key_reject_non_function_call(node: impl Node) {
+    let access_key =
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
+    let node_user = node.user();
+    let account_id = &node.signer().account_id;
+    let signer2 = InMemorySigner::from_random();
+    add_access_key(&node, &node_user, &access_key, &signer2);
+
+    let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        cur_key: node.signer().public_key.0[..].to_vec(),
+    })
+    .sign(&signer2);
+
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    let transaction_result = node_user.get_transaction_result(&hash);
+    assert_eq!(transaction_result.status, TransactionStatus::Failed);
+    assert_eq!(transaction_result.receipts.len(), 0);
+    let new_root = node_user.get_state_root();
+    assert_eq!(root, new_root);
 }

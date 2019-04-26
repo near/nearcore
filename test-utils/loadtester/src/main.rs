@@ -11,16 +11,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use std::thread;
-use std::time::Duration;
-use testlib::node::{Node, NodeConfig};
-use testlib::nodes_monitor::NodesMonitor;
-use testlib::transactions_executor::{Executor, TrafficType};
-use testlib::transactions_generator::TransactionType;
+use testlib::node::Node;
 
 const NUMBER_OF_NODES_ERR: &str =
     "Number of addresses, public keys, and account ids should be the same";
 
+#[allow(dead_code)]
 fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
     let matches = App::new("Near Load Tester")
         .arg(
@@ -91,12 +87,15 @@ fn parse_args() -> Vec<(Arc<InMemorySigner>, SocketAddr)> {
     res
 }
 
-fn connect_nodes(args: Vec<(Arc<InMemorySigner>, SocketAddr)>) -> Vec<Arc<RwLock<dyn Node>>> {
-    args.into_iter()
-        .map(|(signer, addr)| Node::new_sharable(NodeConfig::Remote { signer, addr }))
-        .collect()
+#[allow(dead_code)]
+fn connect_nodes(_args: Vec<(Arc<InMemorySigner>, SocketAddr)>) -> Vec<Arc<RwLock<dyn Node>>> {
+    unimplemented!()
+    //    args.into_iter()
+    //        .map(|(signer, addr)| Node::new_sharable(NodeConfig::Remote { signer, addr }))
+    //        .collect()
 }
 
+#[allow(dead_code)]
 fn configure_logging(log_level: log::LevelFilter) {
     let internal_targets = vec!["observer"];
     let mut builder = Builder::from_default_env();
@@ -108,31 +107,31 @@ fn configure_logging(log_level: log::LevelFilter) {
 }
 
 fn main() {
-    configure_logging(log::LevelFilter::Debug);
-    let args = parse_args();
-    let nodes = connect_nodes(args);
-    let nodes_monitor =
-        Arc::new(NodesMonitor::new(nodes.to_vec(), Duration::from_secs(1), Duration::from_secs(1)));
-    nodes_monitor.start();
-    // Wait for all nodes to start running.
-    while !nodes_monitor.all_nodes_running() {}
-    println!("All nodes started.");
-
-    // Start the monitor.
-    {
-        let nodes_monitor = nodes_monitor.clone();
-        thread::spawn(move || loop {
-            let tps = nodes_monitor
-                .average_tps(Duration::from_secs(10))
-                .map(|d| format!("{}", d))
-                .unwrap_or_else(|| "Pending".to_owned());
-            println!("TPS: {}", tps);
-            thread::sleep(Duration::from_secs(1));
-        });
-    }
-
-    // Start the executor.
-    let handle =
-        Executor::spawn(nodes, TransactionType::Monetary, None, None, 700, TrafficType::Regular);
-    handle.join().unwrap();
+    //    configure_logging(log::LevelFilter::Debug);
+    //    let args = parse_args();
+    //    let nodes = connect_nodes(args);
+    //    let nodes_monitor =
+    //        Arc::new(NodesMonitor::new(nodes.to_vec(), Duration::from_secs(1), Duration::from_secs(1)));
+    //    nodes_monitor.start();
+    //    // Wait for all nodes to start running.
+    //    while !nodes_monitor.all_nodes_running() {}
+    //    println!("All nodes started.");
+    //
+    //    // Start the monitor.
+    //    {
+    //        let nodes_monitor = nodes_monitor.clone();
+    //        thread::spawn(move || loop {
+    //            let tps = nodes_monitor
+    //                .average_tps(Duration::from_secs(10))
+    //                .map(|d| format!("{}", d))
+    //                .unwrap_or_else(|| "Pending".to_owned());
+    //            println!("TPS: {}", tps);
+    //            thread::sleep(Duration::from_secs(1));
+    //        });
+    //    }
+    //
+    //    // Start the executor.
+    //    let handle =
+    //        Executor::spawn(nodes, TransactionType::Monetary, None, None, 700, TrafficType::Regular);
+    //    handle.join().unwrap();
 }

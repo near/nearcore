@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
-use primitives::account::Account;
+use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use primitives::utils::{is_valid_account_id, key_for_account, key_for_code};
+use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
 use storage::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -53,6 +53,19 @@ impl TrieViewer {
             }),
             _ => Err(format!("account {} does not exist while viewing", account_id)),
         }
+    }
+
+    pub fn view_access_key(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, String> {
+        if !is_valid_account_id(account_id) {
+            return Err(format!("Account ID '{}' is not valid", account_id));
+        }
+
+        Ok(get(state_update, &key_for_access_key(account_id, public_key)))
     }
 
     pub fn get_public_keys_for_account(

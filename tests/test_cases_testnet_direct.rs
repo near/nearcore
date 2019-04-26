@@ -1,18 +1,19 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `ThreadUser` that performs direct communication with
 //! internals of nodes.
+#[cfg(feature = "old_tests")]
 #[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use testlib::standard_test_cases::*;
 
     use node_runtime::chain_spec::DefaultIdType;
-    use testlib::runtime_utils::alice_account;
     use std::sync::atomic::{AtomicU16, Ordering};
     use testlib::node::thread_node::ThreadNode;
     use testlib::node::{
         create_nodes_with_id_type, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
     };
+    use testlib::runtime_utils::alice_account;
     use testlib::test_helpers::heavy_test;
     const NUM_TEST_NODE: usize = 4;
     static TEST_PORT: AtomicU16 = AtomicU16::new(6000);
@@ -179,7 +180,57 @@ mod test {
     }
 
     #[test]
-    fn test_delete_key_no_key_left_testnet() {
-        run_testnet_test!(test_delete_key_no_key_left);
+    fn test_delete_key_last_testnet() {
+        run_testnet_test!(test_delete_key_last);
+    }
+
+    #[test]
+    fn test_add_access_key_testnet() {
+        run_testnet_test!(test_add_access_key);
+    }
+
+    #[test]
+    fn test_delete_access_key_testnet() {
+        run_testnet_test!(test_delete_access_key);
+    }
+
+    #[test]
+    fn test_add_access_key_with_funding_testnet() {
+        run_testnet_test!(test_add_access_key_with_funding);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_owner_refund_testnet() {
+        run_testnet_test!(test_delete_access_key_with_owner_refund);
+    }
+
+    #[test]
+    fn test_delete_access_key_with_bob_refund_testnet() {
+        run_testnet_test!(test_delete_access_key_with_bob_refund);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_testnet() {
+        run_testnet_test!(test_access_key_smart_contract);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_positive_amount_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_positive_amount);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_method_name_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_method_name);
+    }
+
+    #[test]
+    fn test_access_key_smart_contract_reject_contract_id_testnet() {
+        run_testnet_test!(test_access_key_smart_contract_reject_contract_id);
+    }
+
+    #[test]
+    fn test_access_key_reject_non_function_call_testnet() {
+        run_testnet_test!(test_access_key_reject_non_function_call);
     }
 }

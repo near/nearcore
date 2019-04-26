@@ -4,18 +4,13 @@ use primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use primitives::types::{AccountId, Balance, MerkleHash};
-use shard::ReceiptInfo;
 
-pub mod thread_user;
-pub use thread_user::ThreadUser;
-pub mod rpc_user;
-pub use rpc_user::RpcUser;
 pub mod runtime_user;
-pub use runtime_user::RuntimeUser;
-pub mod shard_client_user;
 use futures::Future;
-use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
-pub use shard_client_user::ShardClientUser;
+use primitives::account::AccessKey;
+use primitives::crypto::signature::PublicKey;
+use primitives::receipt::ReceiptInfo;
+pub use runtime_user::RuntimeUser;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -44,10 +39,7 @@ pub trait User {
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 
-    fn get_shard_blocks_by_index(
-        &self,
-        r: GetBlocksByIndexRequest,
-    ) -> Result<SignedShardBlocksResponse, String>;
+    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
@@ -103,8 +95,8 @@ pub trait AsyncUser: Send + Sync {
         hash: &CryptoHash,
     ) -> Box<dyn Future<Item = ReceiptInfo, Error = String>>;
 
-    fn get_shard_blocks_by_index(
+    fn get_access_key(
         &self,
-        r: GetBlocksByIndexRequest,
-    ) -> Box<dyn Future<Item = SignedShardBlocksResponse, Error = String>>;
+        public_key: &PublicKey,
+    ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
 }

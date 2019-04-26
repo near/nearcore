@@ -11,14 +11,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use mempool::Pool;
-use node_runtime::state_viewer::TrieViewer;
 use node_runtime::chain_spec::ChainSpec;
+use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 use primitives::block_traits::{SignedBlock, SignedHeader};
 use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
 use primitives::crypto::signer::EDSigner;
 use primitives::hash::CryptoHash;
 use primitives::merkle::{merklize, MerklePath};
+use primitives::receipt::ReceiptInfo;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus,
@@ -31,13 +32,6 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct SignedTransactionInfo {
     pub transaction: SignedTransaction,
-    pub block_index: u64,
-    pub result: TransactionResult,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct ReceiptInfo {
-    pub receipt: ReceiptTransaction,
     pub block_index: u64,
     pub result: TransactionResult,
 }

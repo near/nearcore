@@ -7,6 +7,8 @@ docs/
 docker/
 !docker/scripts/
 ops/
+!ops/run.sh
+!ops/tendermint-config.toml
 
 **/target
 storage/
