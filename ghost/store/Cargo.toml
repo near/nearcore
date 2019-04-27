@@ -1,17 +1,13 @@
 [package]
-name = "near_chain"
+name = "near-store"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-chrono = "0.4.4"
-log = "0.4"
-failure = "0.1"
-failure_derive = "0.1"
 kvdb = "0.1"
+kvdb-memorydb = "0.1"
 serde = "1.0"
 serde_derive = "1.0"
 
 primitives = { path = "../../runtime/primitives" }
-near-store = { path = "../store" }

@@ -1,4 +1,3 @@
-use kvdb::{DBTransaction, KeyValueDB};
 use primitives::hash::CryptoHash;
 use primitives::serialize::{Decode, Encode};
 use serde::de::DeserializeOwned;
@@ -9,77 +8,9 @@ use crate::chain::Chain;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
 
-const COL_BLOCK_MISC: Option<u32> = Some(0);
-const COL_BLOCK: Option<u32> = Some(1);
-const COL_BLOCK_HEADER: Option<u32> = Some(2);
-
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
-
-pub struct Store {
-    storage: Arc<KeyValueDB>,
-}
-
-impl Store {
-    pub fn new(storage: Arc<KeyValueDB>) -> Store {
-        Store { storage }
-    }
-
-    pub fn get_ser<T>(&self, column: Option<u32>, key: &[u8]) -> Result<Option<T>, io::Error> {
-        match self.storage.get(column, key) {
-            Ok(Some(bytes)) => {
-                unimplemented!();
-                // Decode::decode(&bytes.to_vec())
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, Error> {
-        match self.storage.get(column, key) {
-            Ok(Some(_)) => Ok(true),
-            Ok(None) => Ok(false),
-            Err(e) => Err(e.into()),
-        }
-    }
-
-    pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(self.storage.clone())
-    }
-}
-
-/// Keeps track of current changes to the database and can commit all of them to the database.
-pub struct StoreUpdate {
-    storage: Arc<KeyValueDB>,
-    transaction: DBTransaction,
-}
-
-impl StoreUpdate {
-    pub fn new(storage: Arc<KeyValueDB>) -> Self {
-        let transaction = storage.transaction();
-        StoreUpdate { storage, transaction }
-    }
-
-    pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
-        self.transaction.put(column, key, value)
-    }
-
-    pub fn set_ser<T>(&mut self, column: Option<u32>, key: &[u8], value: &T) -> Result<(), Error> {
-        // TODO serialize
-        self.set(column, key, &vec![]);
-        Ok(())
-    }
-
-    pub fn delete(&mut self, column: Option<u32>, key: &[u8]) {
-        self.transaction.delete(column, key);
-    }
-
-    pub fn commit(mut self) -> Result<(), Error> {
-        self.storage.write(self.transaction).map_err(|e| e.into())
-    }
-}
 
 /// All chain-related database operations.
 pub struct ChainStore {
