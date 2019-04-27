@@ -1,16 +1,18 @@
 use actix::{Actor, System};
-use std::sync::{Arc, RwLock};
 use kvdb::KeyValueDB;
+use std::sync::{Arc, RwLock};
 
 use primitives::transaction::SignedTransaction;
 
+use near_chain::{
+    Block, BlockHeader, BlockStatus, Chain, ChainAdapter, Provenance, RuntimeAdapter, Store,
+};
 use near_client::ClientActor;
-use near_chain::{ChainAdapter, RuntimeAdapter, Block, BlockStatus, Chain, BlockHeader, Store, Provenance};
 use near_network::NetworkActor;
 use near_pool::TransactionPool;
 
 mod adapters;
-use adapters::{PoolToChainAdapter, ChainToPoolAndNetworkAdapter};
+use adapters::{ChainToPoolAndNetworkAdapter, PoolToChainAdapter};
 
 struct SampleRuntime {
     storage: Arc<KeyValueDB>,
@@ -18,9 +20,7 @@ struct SampleRuntime {
 
 impl SampleRuntime {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
-        SampleRuntime {
-            storage
-        }
+        SampleRuntime { storage }
     }
 }
 
@@ -45,7 +45,7 @@ fn main() {
     let chain = Arc::new(RwLock::new(Chain::new(store, chain_adapter, runtime, genesis).unwrap()));
     pool_adapter.set_chain(chain.clone());
 
-    let network_actor = NetworkActor{}.start();
+    let network_actor = NetworkActor {}.start();
     let client_actor = ClientActor::new(chain, network_actor.recipient()).unwrap();
     let addr = client_actor.start();
 

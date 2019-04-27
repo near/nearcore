@@ -39,7 +39,10 @@ pub struct ClientActor {
 }
 
 impl ClientActor {
-    pub fn new(chain: Arc<RwLock<Chain>>, network_actor: Recipient<NetworkRequests>) -> Result<Self, Error> {
+    pub fn new(
+        chain: Arc<RwLock<Chain>>,
+        network_actor: Recipient<NetworkRequests>,
+    ) -> Result<Self, Error> {
         Ok(ClientActor { chain, network_actor })
     }
 }
@@ -56,7 +59,9 @@ impl Handler<NetworkMessages> for ClientActor {
             NetworkMessages::BlockHeader(header, peer_info) => {
                 self.receive_header(header, peer_info)
             }
-            NetworkMessages::Block(block, peer_info, was_requested) => self.receive_block(block, peer_info, was_requested),
+            NetworkMessages::Block(block, peer_info, was_requested) => {
+                self.receive_block(block, peer_info, was_requested)
+            }
             _ => Ok(false),
         }
     }
@@ -72,30 +77,33 @@ impl ClientActor {
         let hash = block.hash();
         debug!(target: "client_actor", "Received block {} at {} from {:?}", hash, block.header.height, peer_info);
 
-        let previous = self.chain.read().expect(POISONED_LOCK_ERR).get_previous_header(&block.header);
+        let previous =
+            self.chain.read().expect(POISONED_LOCK_ERR).get_previous_header(&block.header);
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         let result = self.chain.write().expect(POISONED_LOCK_ERR).process_block(block, provenance);
         match result {
             Ok(_) => Ok(true),
             Err(ref e) if e.is_bad_data() => Ok(false),
-            Err(e) => {
-                match e.kind() {
-                    near_chain::ErrorKind::Orphan => {
-                        if let Ok(previous) = previous {
-                            if !self.chain.read().expect(POISONED_LOCK_ERR).is_orphan(&previous.hash()) {
-                                debug!("Process block: received an orphan block, checking the parent: {:}", previous.hash());
-                                self.request_block_by_hash(previous.hash(), peer_info)
-                            }
+            Err(e) => match e.kind() {
+                near_chain::ErrorKind::Orphan => {
+                    if let Ok(previous) = previous {
+                        if !self.chain.read().expect(POISONED_LOCK_ERR).is_orphan(&previous.hash())
+                        {
+                            debug!(
+                                "Process block: received an orphan block, checking the parent: {:}",
+                                previous.hash()
+                            );
+                            self.request_block_by_hash(previous.hash(), peer_info)
                         }
-                        Ok(true)
                     }
-                    _ => {
-                        debug!("Process block: block {} refused by chain: {}", hash, e.kind());
-                        Ok(true)
-                    }
+                    Ok(true)
                 }
-            }
+                _ => {
+                    debug!("Process block: block {} refused by chain: {}", hash, e.kind());
+                    Ok(true)
+                }
+            },
         }
     }
 
@@ -133,4 +141,3 @@ impl ClientActor {
         }
     }
 }
-

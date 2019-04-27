@@ -1,7 +1,7 @@
 use failure::Fail;
 
-use primitives::transaction::SignedTransaction;
 use near_chain::ValidTransaction;
+use primitives::transaction::SignedTransaction;
 
 /// Possible errors whe interacting with transaction pool.
 #[derive(Debug, Fail)]

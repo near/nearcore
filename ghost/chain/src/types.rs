@@ -2,8 +2,8 @@ use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 
 use primitives::crypto::signature::Signature;
 use primitives::hash::CryptoHash;
-use primitives::types::BlockIndex;
 use primitives::transaction::SignedTransaction;
+use primitives::types::BlockIndex;
 
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).

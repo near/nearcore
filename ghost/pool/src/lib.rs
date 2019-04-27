@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use primitives::transaction::SignedTransaction;
 use near_chain::Block;
+use primitives::transaction::SignedTransaction;
 
 use crate::types::{ChainAdapter, Error};
 
@@ -16,10 +16,7 @@ pub struct TransactionPool {
 
 impl TransactionPool {
     pub fn new(chain_adapter: Arc<ChainAdapter>) -> Self {
-        TransactionPool {
-            chain_adapter,
-            transactions: vec![],
-        }
+        TransactionPool { chain_adapter, transactions: vec![] }
     }
 
     /// Insert new transaction into the pool if didn't exist yet and passes validation.
@@ -31,7 +28,10 @@ impl TransactionPool {
 
     /// Take transactions from the pool, in the appropriate order to be put in a new block.
     /// Ensure that on average they will fit into expected weight.
-    pub fn prepare_transactions(&mut self, expected_weight: u32) -> Result<Vec<SignedTransaction>, Error> {
+    pub fn prepare_transactions(
+        &mut self,
+        expected_weight: u32,
+    ) -> Result<Vec<SignedTransaction>, Error> {
         let result = self.transactions.drain(..).collect();
         Ok(result)
     }
