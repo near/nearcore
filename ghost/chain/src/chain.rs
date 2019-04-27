@@ -4,7 +4,6 @@ use std::time::{Duration as TimeDuration, Instant};
 
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
-
 use log::debug;
 
 use primitives::hash::CryptoHash;
@@ -12,7 +11,10 @@ use primitives::types::BlockIndex;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate, Store};
-use crate::types::{Block, BlockHeader, BlockStatus, ChainAdapter, RuntimeAdapter, Tip};
+use crate::types::{
+    Block, BlockHeader, BlockStatus, ChainAdapter, Provenance, RuntimeAdapter, Tip,
+};
+use crate::ValidTransaction;
 
 const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
@@ -22,6 +24,7 @@ const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
 struct Orphan {
     block: Block,
+    provenance: Provenance,
     added: Instant,
 }
 
@@ -120,9 +123,13 @@ impl Chain {
         Ok(())
     }
 
-    pub fn process_block(&mut self, block: Block) -> Result<Option<Tip>, Error> {
+    pub fn process_block(
+        &mut self,
+        block: Block,
+        provenance: Provenance,
+    ) -> Result<Option<Tip>, Error> {
         let height = block.header.height;
-        let res = self.process_block_single(block);
+        let res = self.process_block_single(block, provenance);
         if res.is_ok() {
             self.check_orphans(height + 1);
         }
@@ -146,7 +153,11 @@ impl Chain {
         }
     }
 
-    fn process_block_single(&mut self, block: Block) -> Result<Option<Tip>, Error> {
+    fn process_block_single(
+        &mut self,
+        block: Block,
+        provenance: Provenance,
+    ) -> Result<Option<Tip>, Error> {
         let prev_head = self.store.head()?;
         let mut chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
@@ -161,14 +172,14 @@ impl Chain {
                 let status = self.determine_status(head.clone(), prev_head);
 
                 // Notify other parts of the system of the update.
-                self.chain_adapter.block_accepted(&block, status);
+                self.chain_adapter.block_accepted(&block, status, provenance);
 
                 Ok(head)
             }
             Err(e) => match e.kind() {
                 ErrorKind::Orphan => {
                     let block_hash = block.hash();
-                    let orphan = Orphan { block, added: Instant::now() };
+                    let orphan = Orphan { block, provenance, added: Instant::now() };
 
                     self.orphans.add(orphan);
 
@@ -200,6 +211,11 @@ impl Chain {
         }
     }
 
+    /// Check if hash is for a known orphan.
+    pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
+        self.orphans.contains(hash)
+    }
+
     /// Check for orphans, once a block is successfully added.
     fn check_orphans(&self, height: BlockIndex) {
         let initial_height = height;
@@ -213,6 +229,21 @@ impl Chain {
                 self.orphans.len(),
             );
         }
+    }
+
+    /// Get previous block header.
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+        self.store.get_previous_header(header)
+    }
+
+    /// Check if block exists.
+    pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
+        self.store.block_exists(hash)
+    }
+
+    /// Validate the tx against the current runtime and return transaction info.
+    pub fn validate_tx(&self, tx: &[u8]) -> Result<ValidTransaction, Error> {
+        Err(ErrorKind::Other("test failed".to_string()).into())
     }
 }
 
@@ -263,7 +294,7 @@ impl<'a> ChainUpdate<'a> {
         // Check if we have already processed this block previously.
         self.check_known(&block)?;
 
-        // Delay hitting the db for current chain head untl we know this block is not already known.
+        // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.store.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 

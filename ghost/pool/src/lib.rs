@@ -5,7 +5,7 @@ use near_chain::Block;
 
 use crate::types::{ChainAdapter, Error};
 
-mod types;
+pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 pub struct TransactionPool {
@@ -24,8 +24,8 @@ impl TransactionPool {
 
     /// Insert new transaction into the pool if didn't exist yet and passes validation.
     pub fn insert_transaction(&mut self, transaction: Vec<u8>) -> Result<(), Error> {
-        let (transaction, ) = self.chain_adapter.validate_tx(&transaction)?;
-        self.transactions.push(transaction);
+        let valid_transaction = self.chain_adapter.validate_tx(&transaction)?;
+        self.transactions.push(valid_transaction.transaction);
         Ok(())
     }
 
@@ -38,7 +38,7 @@ impl TransactionPool {
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
-    pub fn reconcile_block(&mut self, block: Block) {
+    pub fn reconcile_block(&mut self, block: &Block) {
         // TODO
     }
 }

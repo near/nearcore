@@ -7,4 +7,3 @@ pub struct PeerAddr(pub SocketAddr);
 pub struct PeerInfo {
     pub addr: PeerAddr,
 }
-

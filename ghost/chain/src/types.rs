@@ -1,7 +1,9 @@
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+
 use primitives::crypto::signature::Signature;
 use primitives::hash::CryptoHash;
 use primitives::types::BlockIndex;
+use primitives::transaction::SignedTransaction;
 
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
@@ -50,6 +52,7 @@ impl Block {
     }
 }
 
+#[derive(Eq, PartialEq)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
     Next,
@@ -60,16 +63,32 @@ pub enum BlockStatus {
     Reorg,
 }
 
+/// Options for block origin.
+#[derive(Eq, PartialEq)]
+pub enum Provenance {
+    /// No provenance.
+    NONE,
+    /// Adds block while in syncing mode.
+    SYNC,
+    /// Block we produced ourselves.
+    PRODUCED,
+}
+
 /// Bridge between the chain and the rest of the system.
 /// Handles downstream processing of valid blocks by the rest tof the system.
 pub trait ChainAdapter {
-    fn block_accepted(&self, block: &Block, status: BlockStatus);
+    fn block_accepted(&self, block: &Block, status: BlockStatus, provenance: Provenance);
 }
 
 pub struct NoopAdapter {}
 
 impl ChainAdapter for NoopAdapter {
-    fn block_accepted(&self, _block: &Block, _status: BlockStatus) {}
+    fn block_accepted(&self, _block: &Block, _status: BlockStatus, _provenance: Provenance) {}
+}
+
+/// Information about valid transaction that was processed by chain + runtime.
+pub struct ValidTransaction {
+    pub transaction: SignedTransaction,
 }
 
 /// Bridge between the chain and the runtime.

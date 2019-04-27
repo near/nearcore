@@ -11,6 +11,7 @@ kvdb-memorydb = "0.1"
 log = "0.4"
 env_logger = "0.6.0"
 
+primitives = { path = "../../runtime/primitives" }
 near_chain = { path = "../chain" }
 near_client = { path = "../client" }
 near_pool = { path = "../pool" }

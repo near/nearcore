@@ -1,6 +1,7 @@
 use failure::Fail;
 
 use primitives::transaction::SignedTransaction;
+use near_chain::ValidTransaction;
 
 /// Possible errors whe interacting with transaction pool.
 #[derive(Debug, Fail)]
@@ -17,5 +18,5 @@ pub enum Error {
 pub trait ChainAdapter {
     /// Verify transaction validity.
     // TODO: possible return values: deserialized transaction, it's expected "weight", nonce and account id for grouping.
-    fn validate_tx(&self, tx: &[u8]) -> Result<(SignedTransaction, ), Error>;
+    fn validate_tx(&self, tx: &[u8]) -> Result<ValidTransaction, Error>;
 }

@@ -1367,6 +1367,7 @@ dependencies = [
  "near_client 0.1.0",
  "near_network 0.1.0",
  "near_pool 0.1.0",
+ "primitives 0.1.0",
 ]
 
 [[package]]
@@ -1403,6 +1404,8 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near_chain 0.1.0",
  "near_network 0.1.0",
+ "near_pool 0.1.0",
+ "primitives 0.1.0",
 ]
 
 [[package]]
@@ -1411,6 +1414,7 @@ version = "0.1.0"
 dependencies = [
  "actix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "primitives 0.1.0",
 ]
 
 [[package]]
