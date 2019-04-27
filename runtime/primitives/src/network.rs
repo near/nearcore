@@ -215,6 +215,16 @@ pub enum PeerMessage {
     Message(Vec<u8>),
 }
 
+impl fmt::Display for PeerMessage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PeerMessage::Handshake(_) => f.write_str("Handshake"),
+            PeerMessage::InfoGossip(_) => f.write_str("InfoGossip"),
+            PeerMessage::Message(_) => f.write_str("Message"),
+        }
+    }
+}
+
 impl TryFrom<network_proto::PeerMessage> for PeerMessage {
     type Error = String;
 

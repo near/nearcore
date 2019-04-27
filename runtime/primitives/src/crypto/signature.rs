@@ -2,6 +2,7 @@ extern crate exonum_sodiumoxide as sodiumoxide;
 
 use std::convert::TryFrom;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use bs58;
 
@@ -62,6 +63,12 @@ impl PublicKey {
     }
 }
 
+impl Hash for PublicKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.as_ref());
+    }
+}
+
 impl SecretKey {
     pub fn to_base64(&self) -> String {
         base64::encode(&self.to_bytes())
@@ -79,6 +86,15 @@ impl TryFrom<&[u8]> for PublicKey {
         array.copy_from_slice(bytes);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         Ok(PublicKey(public_key))
+    }
+}
+
+impl TryFrom<Vec<u8>> for PublicKey {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        let bytes: &[u8] = bytes.as_ref();
+        Self::try_from(bytes).map_err(|e| format!("{}", e))
     }
 }
 
@@ -170,6 +186,12 @@ impl std::convert::AsRef<[u8]> for PublicKey {
     }
 }
 
+impl From<PublicKey> for Vec<u8> {
+    fn from(public_key: PublicKey) -> Vec<u8> {
+        public_key.as_ref().to_vec()
+    }
+}
+
 impl<'a> From<&'a PublicKey> for String {
     fn from(h: &'a PublicKey) -> Self {
         bs58::encode(h.0).into_string()
@@ -237,10 +259,11 @@ impl fmt::Display for Signature {
 }
 
 pub mod bs58_pub_key_format {
+    use std::convert::TryInto;
+
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::PublicKey;
-    use std::convert::TryInto;
 
     pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -258,10 +281,11 @@ pub mod bs58_pub_key_format {
 }
 
 pub mod bs58_secret_key_format {
+    use std::convert::TryInto;
+
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::SecretKey;
-    use std::convert::TryInto;
 
     pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -279,10 +303,11 @@ pub mod bs58_secret_key_format {
 }
 
 pub mod bs58_signature_format {
+    use std::convert::TryInto;
+
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
     use super::Signature;
-    use std::convert::TryInto;
 
     pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
     where
