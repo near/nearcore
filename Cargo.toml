@@ -18,10 +18,11 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "nearmint/",
+    "ghost/store",
     "ghost/chain",
     "ghost/pool",
     "ghost/client",
-    "ghost/store",
+    "ghost/validator",
     "ghost/network",
     "ghost/near",
 ]
