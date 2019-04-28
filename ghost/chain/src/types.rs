@@ -10,7 +10,7 @@ use primitives::crypto::signature::Signature;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{BlockIndex, MerkleHash};
-use protobuf::{RepeatedField, Message as ProtoMessage};
+use protobuf::{Message as ProtoMessage, RepeatedField};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockHeader {
@@ -19,7 +19,9 @@ pub struct BlockHeader {
     /// Hash of the block previous to this in the chain.
     pub prev_hash: CryptoHash,
     /// Root hash of the state at the previous block.
-    pub prev_state_root: CryptoHash,
+    pub prev_state_root: MerkleHash,
+    /// Root hash of the transactions in the given block.
+    pub tx_root: MerkleHash,
     /// Timestamp at which the block was built.
     #[serde(with = "ts_nanoseconds")]
     pub timestamp: DateTime<Utc>,
@@ -33,16 +35,32 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
-    pub fn genesis(timestamp: DateTime<Utc>, state_root: MerkleHash) -> BlockHeader {
+    pub fn new(
+        height: BlockIndex,
+        prev_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        tx_root: MerkleHash,
+        timestamp: DateTime<Utc>,
+        signatures: Vec<Signature>,
+        total_weight: Weight,
+    ) -> Self {
         let h = chain_proto::BlockHeader {
-            height: 0,
-            prev_hash: CryptoHash::default().into(),
-            prev_state_root: state_root.into(),
+            height: height,
+            prev_hash: prev_hash.into(),
+            prev_state_root: prev_state_root.into(),
+            tx_root: tx_root.into(),
             timestamp: timestamp.timestamp() as u64,
-            total_weight: 0,
+            signatures: RepeatedField::from_iter(
+                signatures.iter().map(std::convert::Into::into),
+            ),
+            total_weight: total_weight.to_num(),
             ..Default::default()
         };
         h.try_into().unwrap()
+    }
+
+    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+        Self::new(0, CryptoHash::default(), state_root, MerkleHash::default(), timestamp, vec![], 0.into())
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -58,11 +76,22 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
         let height = proto.height;
         let prev_hash = proto.prev_hash.try_into()?;
         let prev_state_root = proto.prev_state_root.try_into()?;
-        let timestamp = DateTime::from_utc(NaiveDateTime::from_timestamp(proto.timestamp as i64, 0), Utc);
+        let tx_root = proto.tx_root.try_into()?;
+        let timestamp =
+            DateTime::from_utc(NaiveDateTime::from_timestamp(proto.timestamp as i64, 0), Utc);
         let signatures =
             proto.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let total_weight = proto.total_weight.into();
-        Ok(BlockHeader { height, prev_hash, prev_state_root, timestamp, signatures, total_weight, hash })
+        Ok(BlockHeader {
+            height,
+            prev_hash,
+            prev_state_root,
+            tx_root,
+            timestamp,
+            signatures,
+            total_weight,
+            hash,
+        })
     }
 }
 
@@ -72,6 +101,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
             height: header.height,
             prev_hash: header.prev_hash.into(),
             prev_state_root: header.prev_state_root.into(),
+            tx_root: header.tx_root.into(),
             timestamp: header.timestamp.timestamp() as u64,
             signatures: RepeatedField::from_iter(
                 header.signatures.iter().map(std::convert::Into::into),
@@ -88,14 +118,38 @@ pub struct Bytes(Vec<u8>);
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Block {
     pub header: BlockHeader,
-    pub transactions: Vec<Bytes>,
+    pub transactions: Vec<SignedTransaction>,
 }
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(timestamp: DateTime<Utc>, state_root: MerkleHash) -> Self {
-        Block { header: BlockHeader::genesis(timestamp, state_root), transactions: vec![] }
+    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+        Block { header: BlockHeader::genesis(state_root, timestamp), transactions: vec![] }
     }
+
+    /// Produces new block from header of previous block, current state root and set of transactions.
+    pub fn produce(
+        prev: &BlockHeader,
+        state_root: MerkleHash,
+        transactions: Vec<SignedTransaction>,
+        // TODO: add collected signatures for previous block and total weight.
+    ) -> Self {
+        // TODO: merkalize transactions.
+        let tx_root = CryptoHash::default();
+        Block {
+            header: BlockHeader::new(
+                prev.height + 1,
+                prev.hash(),
+                state_root,
+                tx_root,
+                Utc::now(),
+                vec![],
+                prev.total_weight,
+            ),
+            transactions,
+        }
+    }
+
     pub fn hash(&self) -> CryptoHash {
         self.header.hash()
     }

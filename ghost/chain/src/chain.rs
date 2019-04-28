@@ -101,7 +101,7 @@ impl Chain {
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_root) = runtime_adapter.genesis_state();
-        let genesis = Block::genesis(genesis_timestamp, state_root);
+        let genesis = Block::genesis(state_root, genesis_timestamp);
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
