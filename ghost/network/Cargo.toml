@@ -1,11 +1,24 @@
 [package]
-name = "near_network"
+name = "near-network"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+bytes = "0.4"
 actix = "0.8.1"
 log = "0.4"
+tokio = "0.1"
+protobuf = "2.4"
+futures = "0.1"
+chrono = { version = "0.4.4", features = ["serde"] }
+serde = "1.0"
+serde_derive = "1.0"
+rand = "0.6.5"
 
 primitives = { path = "../../runtime/primitives" }
+near-protos = { path = "../../runtime/protos" }
+near-store = { path = "../store" }
+
+[dev-dependencies]
+env_logger = "0.6.0"

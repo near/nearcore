@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{Store, NUM_COLS};
 
-pub fn create_test_store() -> Store {
+pub fn create_test_store() -> Arc<Store> {
     let db = Arc::new(kvdb_memorydb::create(NUM_COLS));
-    Store::new(db)
+    Arc::new(Store::new(db))
 }
