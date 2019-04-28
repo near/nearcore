@@ -1,29 +1,26 @@
 use std::sync::Arc;
 
-use near_chain::Block;
+use near_chain::{Block, ValidTransaction};
 use primitives::transaction::SignedTransaction;
 
-use crate::types::{ChainAdapter, Error};
+use crate::types::{Error};
 
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 pub struct TransactionPool {
-    pub chain_adapter: Arc<ChainAdapter>,
     // TODO: replace with proper map.
     pub transactions: Vec<SignedTransaction>,
 }
 
 impl TransactionPool {
-    pub fn new(chain_adapter: Arc<ChainAdapter>) -> Self {
-        TransactionPool { chain_adapter, transactions: vec![] }
+    pub fn new() -> Self {
+        TransactionPool { transactions: vec![] }
     }
 
-    /// Insert new transaction into the pool if didn't exist yet and passes validation.
-    pub fn insert_transaction(&mut self, transaction: Vec<u8>) -> Result<(), Error> {
-        let valid_transaction = self.chain_adapter.validate_tx(&transaction)?;
+    /// Insert new transaction into the pool that passed validation.
+    pub fn insert_transaction(&mut self, valid_transaction: ValidTransaction) {
         self.transactions.push(valid_transaction.transaction);
-        Ok(())
     }
 
     /// Take transactions from the pool, in the appropriate order to be put in a new block.

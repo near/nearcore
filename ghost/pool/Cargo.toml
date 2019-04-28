@@ -1,5 +1,5 @@
 [package]
-name = "near_pool"
+name = "near-pool"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -11,4 +11,4 @@ failure = "0.1"
 failure_derive = "0.1"
 
 primitives = { path = "../../runtime/primitives" }
-near_chain = { path = "../chain" }
+near-chain = { path = "../chain" }

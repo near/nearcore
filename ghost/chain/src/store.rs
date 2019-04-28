@@ -4,6 +4,8 @@ use serde::de::DeserializeOwned;
 use std::io;
 use std::sync::Arc;
 
+use near_store::{Store, StoreUpdate, COL_BLOCK_MISC, COL_BLOCK, COL_BLOCK_HEADER};
+
 use crate::chain::Chain;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
@@ -61,7 +63,7 @@ impl ChainStore {
 
     /// Does this full block exist?
     pub fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
-        self.store.exists(COL_BLOCK, h.as_ref())
+        self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
     }
 
     /// Get previous header.
@@ -88,19 +90,19 @@ impl ChainStoreUpdate {
     }
 
     pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, t)
+        self.store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, t).map_err(|e| e.into())
     }
 
     pub fn save_body_tail(&mut self, t: &Tip) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, t)
+        self.store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, t).map_err(|e| e.into())
     }
 
     pub fn save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, t)
+        self.store_update.set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, t).map_err(|e| e.into())
     }
 
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK, block.hash().as_ref(), block)
+        self.store_update.set_ser(COL_BLOCK, block.hash().as_ref(), block).map_err(|e| e.into())
     }
 
     pub fn delete_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
@@ -109,7 +111,7 @@ impl ChainStoreUpdate {
     }
 
     pub fn save_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK_HEADER, header.hash().as_ref(), header)
+        self.store_update.set_ser(COL_BLOCK_HEADER, header.hash().as_ref(), header).map_err(|e| e.into())
     }
 
     pub fn finalize(mut self) -> StoreUpdate {

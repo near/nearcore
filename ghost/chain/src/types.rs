@@ -5,6 +5,7 @@ use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::BlockIndex;
 
+#[derive(Serialize, Deserialize)]
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -39,8 +40,10 @@ impl Default for BlockHeader {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Bytes(Vec<u8>);
 
+#[derive(Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<Bytes>,
@@ -74,18 +77,6 @@ pub enum Provenance {
     PRODUCED,
 }
 
-/// Bridge between the chain and the rest of the system.
-/// Handles downstream processing of valid blocks by the rest tof the system.
-pub trait ChainAdapter {
-    fn block_accepted(&self, block: &Block, status: BlockStatus, provenance: Provenance);
-}
-
-pub struct NoopAdapter {}
-
-impl ChainAdapter for NoopAdapter {
-    fn block_accepted(&self, _block: &Block, _status: BlockStatus, _provenance: Provenance) {}
-}
-
 /// Information about valid transaction that was processed by chain + runtime.
 pub struct ValidTransaction {
     pub transaction: SignedTransaction,
@@ -96,7 +87,7 @@ pub struct ValidTransaction {
 pub trait RuntimeAdapter {}
 
 /// The weight is defined as the number of unique authorities approving this fork.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Weight {
     num: u64,
 }
@@ -110,7 +101,7 @@ impl From<u64> for Weight {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience and the total weight.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: u64,

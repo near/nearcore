@@ -14,12 +14,8 @@ use near_network::test_utils::open_port;
 use near_network::types::NumActivePeers;
 use near_network::{NetworkConfig, PeerInfo, PeerManagerActor};
 use near_store::test_utils::create_test_store;
-use primitives::test_utils::get_key_pair_from_seed;
+use primitives::test_utils::{get_key_pair_from_seed, init_test_logger};
 use actix::utils::IntervalFunc;
-
-fn init_test_logger() {
-    env_logger::Builder::new().filter(Some("network"), LevelFilter::Debug).init();
-}
 
 fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
     let store = create_test_store();

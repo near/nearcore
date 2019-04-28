@@ -18,12 +18,12 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "nearmint/",
-#    "ghost/chain",
-#    "ghost/pool",
-#    "ghost/client",
+    "ghost/chain",
+    "ghost/pool",
+    "ghost/client",
     "ghost/store",
     "ghost/network",
-#    "ghost/near",
+    "ghost/near",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",

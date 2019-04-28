@@ -4,15 +4,13 @@ use std::sync::{Arc, RwLock};
 
 use primitives::transaction::SignedTransaction;
 
+use near_store::Store;
 use near_chain::{
-    Block, BlockHeader, BlockStatus, Chain, ChainAdapter, Provenance, RuntimeAdapter, Store,
+    Block, BlockHeader, BlockStatus, Chain, ChainAdapter, Provenance, RuntimeAdapter,
 };
 use near_client::ClientActor;
-use near_network::NetworkActor;
+use near_network::PeerManagerActor;
 use near_pool::TransactionPool;
-
-mod adapters;
-use adapters::{ChainToPoolAndNetworkAdapter, PoolToChainAdapter};
 
 struct SampleRuntime {
     storage: Arc<KeyValueDB>,
@@ -37,17 +35,17 @@ fn main() {
     let runtime = Arc::new(SampleRuntime::new(storage.clone()));
     let store = Arc::new(Store::new(storage));
     let genesis = BlockHeader::default();
-    let pool_adapter = Arc::new(PoolToChainAdapter::new());
+//    let pool_adapter = Arc::new(PoolToChainAdapter::new());
 
-    let tx_pool = Arc::new(RwLock::new(TransactionPool::new(pool_adapter.clone())));
+//    let tx_pool = Arc::new(RwLock::new(TransactionPool::new(pool_adapter.clone())));
 
-    let chain_adapter = Arc::new(ChainToPoolAndNetworkAdapter::new(tx_pool.clone()));
-    let chain = Arc::new(RwLock::new(Chain::new(store, chain_adapter, runtime, genesis).unwrap()));
-    pool_adapter.set_chain(chain.clone());
+//    let chain_adapter = Arc::new(ChainToPoolAndNetworkAdapter::new(tx_pool.clone()));
+//    let chain = Arc::new(RwLock::new(Chain::new(store, chain_adapter, runtime, genesis).unwrap()));
+//    pool_adapter.set_chain(chain.clone());
 
-    let network_actor = NetworkActor {}.start();
-    let client_actor = ClientActor::new(chain, network_actor.recipient()).unwrap();
-    let addr = client_actor.start();
+//    let network_actor = PeerManagerActor {}.start();
+//    let client_actor = ClientActor::new(chain, network_actor.recipient()).unwrap();
+//    let addr = client_actor.start();
 
     system.run().unwrap();
 }

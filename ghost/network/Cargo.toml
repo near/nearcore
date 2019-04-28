@@ -19,6 +19,3 @@ rand = "0.6.5"
 primitives = { path = "../../runtime/primitives" }
 near-protos = { path = "../../runtime/protos" }
 near-store = { path = "../store" }
-
-[dev-dependencies]
-env_logger = "0.6.0"

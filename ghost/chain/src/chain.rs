@@ -8,11 +8,12 @@ use log::debug;
 
 use primitives::hash::CryptoHash;
 use primitives::types::BlockIndex;
+use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
-use crate::store::{ChainStore, ChainStoreUpdate, Store};
+use crate::store::{ChainStore, ChainStoreUpdate};
 use crate::types::{
-    Block, BlockHeader, BlockStatus, ChainAdapter, Provenance, RuntimeAdapter, Tip,
+    Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip,
 };
 use crate::ValidTransaction;
 
@@ -87,7 +88,6 @@ impl OrphanBlockPool {
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     store: Arc<ChainStore>,
-    chain_adapter: Arc<ChainAdapter>,
     runtime_adapter: Arc<RuntimeAdapter>,
     orphans: OrphanBlockPool,
     genesis: BlockHeader,
@@ -96,18 +96,16 @@ pub struct Chain {
 impl Chain {
     pub fn new(
         store: Arc<Store>,
-        chain_adapter: Arc<ChainAdapter>,
         runtime_adapter: Arc<RuntimeAdapter>,
         genesis: BlockHeader,
-    ) -> Result<Chain, Error> {
+    ) -> Chain {
         let store = Arc::new(ChainStore::new(store));
-        Ok(Chain {
+        Chain {
             store,
-            chain_adapter,
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             genesis,
-        })
+        }
     }
 
     pub fn store(&self) -> Arc<ChainStore> {
@@ -123,13 +121,14 @@ impl Chain {
         Ok(())
     }
 
-    pub fn process_block(
+    pub fn process_block<F>(
         &mut self,
         block: Block,
         provenance: Provenance,
-    ) -> Result<Option<Tip>, Error> {
+        block_accepted: F
+    ) -> Result<Option<Tip>, Error> where F: FnMut(&Block, BlockStatus, Provenance) -> () {
         let height = block.header.height;
-        let res = self.process_block_single(block, provenance);
+        let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
             self.check_orphans(height + 1);
         }
@@ -153,11 +152,12 @@ impl Chain {
         }
     }
 
-    fn process_block_single(
+    fn process_block_single<F>(
         &mut self,
         block: Block,
         provenance: Provenance,
-    ) -> Result<Option<Tip>, Error> {
+        mut block_accepted: F
+    ) -> Result<Option<Tip>, Error> where F: FnMut(&Block, BlockStatus, Provenance) -> () {
         let prev_head = self.store.head()?;
         let mut chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
@@ -172,7 +172,7 @@ impl Chain {
                 let status = self.determine_status(head.clone(), prev_head);
 
                 // Notify other parts of the system of the update.
-                self.chain_adapter.block_accepted(&block, status, provenance);
+                block_accepted(&block, status, provenance);
 
                 Ok(head)
             }
@@ -271,7 +271,7 @@ impl<'a> ChainUpdate<'a> {
     /// Commit changes to the chain into the database.
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.chain_store_update.finalize();
-        store_update.commit()
+        store_update.commit().map_err(|e| e.into())
     }
 
     /// Process block header as part of "header first" block propagation.

@@ -4,10 +4,11 @@ use actix::{Actor, Addr, Arbiter, Context, Handler, Message, Recipient, System};
 use kvdb::KeyValueDB;
 use log::{debug, error};
 
-use near_chain::{Block, BlockHeader, BlockStatus, Chain, ChainAdapter, RuntimeAdapter, Store};
+use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
 use near_network::types::PeerInfo;
 use near_network::NetworkRequests;
 use near_pool::TransactionPool;
+use near_store::Store;
 use primitives::hash::CryptoHash;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -34,16 +35,21 @@ impl Message for NetworkMessages {
 }
 
 pub struct ClientActor {
-    chain: Arc<RwLock<Chain>>,
+    chain: Chain,
+    tx_pool: TransactionPool,
     network_actor: Recipient<NetworkRequests>,
 }
 
 impl ClientActor {
     pub fn new(
-        chain: Arc<RwLock<Chain>>,
+        store: Arc<Store>,
+        runtime_adapter: Arc<RuntimeAdapter>,
+        genesis: BlockHeader,
         network_actor: Recipient<NetworkRequests>,
     ) -> Result<Self, Error> {
-        Ok(ClientActor { chain, network_actor })
+        let chain = Chain::new(store, runtime_adapter, genesis);
+        let tx_pool = TransactionPool::new();
+        Ok(ClientActor { chain, tx_pool, network_actor })
     }
 }
 
@@ -68,6 +74,14 @@ impl Handler<NetworkMessages> for ClientActor {
 }
 
 impl ClientActor {
+    pub fn on_block_accepted(
+        &self,
+        block: &Block,
+        block_status: BlockStatus,
+        provenance: Provenance,
+    ) {
+
+    }
     fn receive_block(
         &mut self,
         block: Block,
@@ -77,19 +91,38 @@ impl ClientActor {
         let hash = block.hash();
         debug!(target: "client_actor", "Received block {} at {} from {:?}", hash, block.header.height, peer_info);
 
-        let previous =
-            self.chain.read().expect(POISONED_LOCK_ERR).get_previous_header(&block.header);
+        let previous = self.chain.get_previous_header(&block.header);
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        let result = self.chain.write().expect(POISONED_LOCK_ERR).process_block(block, provenance);
+
+        let mut tx_pool = &mut self.tx_pool;
+        let result = {
+            self.chain.process_block(block, provenance, |block, status, provenance| {
+                if provenance != Provenance::SYNC {
+                    // If we produced the block, then we want to broadcast it.
+                    // If received the block from another node then broadcast "header first" to minimise network traffic.
+                    if provenance == Provenance::PRODUCED {
+                        // self.peers().broadcast_block(&block);
+                    } else {
+                        // self.peers().broadcast_header(&block);
+                    }
+                }
+
+                // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
+                // This may be slow and we do not want to delay block propagation.
+                // We only want to reconcile the txpool against the new block *if* total weight has increased.
+                if status == BlockStatus::Next || status == BlockStatus::Reorg {
+                    tx_pool.reconcile_block(block);
+                }
+            })
+        };
         match result {
             Ok(_) => Ok(true),
             Err(ref e) if e.is_bad_data() => Ok(false),
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
                     if let Ok(previous) = previous {
-                        if !self.chain.read().expect(POISONED_LOCK_ERR).is_orphan(&previous.hash())
-                        {
+                        if !self.chain.is_orphan(&previous.hash()) {
                             debug!(
                                 "Process block: received an orphan block, checking the parent: {:}",
                                 previous.hash()
@@ -112,7 +145,7 @@ impl ClientActor {
         debug!(target: "client_actor", "Received block header {} at {} from {:?}", hash, header.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
-        let result = self.chain.read().expect(POISONED_LOCK_ERR).process_block_header(&header);
+        let result = self.chain.process_block_header(&header);
 
         if let Err(e) = result {
             debug!(target: "client_actor", "Block header {} refused by chain: {:?}", hash, e.kind());
@@ -131,7 +164,7 @@ impl ClientActor {
     }
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_info: PeerInfo) {
-        match self.chain.read().expect(POISONED_LOCK_ERR).block_exists(&hash) {
+        match self.chain.block_exists(&hash) {
             Ok(false) => {
                 // TODO: ??
                 self.network_actor.send(NetworkRequests::Block { hash, peer_info });

@@ -8,11 +8,11 @@ use primitives::serialize::{Decode, Encode};
 
 pub mod test_utils;
 
-const COL_BLOCK_MISC: Option<u32> = Some(0);
-const COL_BLOCK: Option<u32> = Some(1);
-const COL_BLOCK_HEADER: Option<u32> = Some(2);
-const COL_STATE: Option<u32> = Some(3);
-const COL_PEERS: Option<u32> = Some(4);
+pub const COL_BLOCK_MISC: Option<u32> = Some(0);
+pub const COL_BLOCK: Option<u32> = Some(1);
+pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
+pub const COL_STATE: Option<u32> = Some(3);
+pub const COL_PEERS: Option<u32> = Some(4);
 const NUM_COLS: u32 = 5;
 
 pub struct Store {

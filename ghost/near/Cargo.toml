@@ -12,7 +12,8 @@ log = "0.4"
 env_logger = "0.6.0"
 
 primitives = { path = "../../runtime/primitives" }
-near_chain = { path = "../chain" }
-near_client = { path = "../client" }
-near_pool = { path = "../pool" }
-near_network = { path = "../network" }
+near-store = { path = "../store" }
+near-chain = { path = "../chain" }
+near-client = { path = "../client" }
+near-pool = { path = "../pool" }
+near-network = { path = "../network" }

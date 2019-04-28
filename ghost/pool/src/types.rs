@@ -14,9 +14,11 @@ pub enum Error {
     Other(String),
 }
 
-/// Interface that the transaction pool requires from a blockchain implementation.
-pub trait ChainAdapter {
-    /// Verify transaction validity.
-    // TODO: possible return values: deserialized transaction, it's expected "weight", nonce and account id for grouping.
-    fn validate_tx(&self, tx: &[u8]) -> Result<ValidTransaction, Error>;
-}
+pub type ValidateTxCallback = fn(&[u8]) -> Result<ValidTransaction, Error>;
+
+// Interface that the transaction pool requires from a blockchain implementation.
+//pub trait ChainAdapter {
+//    /// Verify transaction validity.
+//    // TODO: possible return values: deserialized transaction, it's expected "weight", nonce and account id for grouping.
+//    fn validate_tx(&self, tx: &[u8]) -> Result<ValidTransaction, Error>;
+//}
