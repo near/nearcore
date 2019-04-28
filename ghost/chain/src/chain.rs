@@ -453,7 +453,7 @@ impl<'a> ChainUpdate<'a> {
     /// Rewind the header chain and reapply headers on a fork.
     pub fn rewind_and_apply_header_fork(&mut self, header: &BlockHeader) -> Result<(), Error> {
         unimplemented!();
-        Ok(())
+        // Ok(())
     }
 
     /// Utility function to handle forks. From the forked block, jump backward
@@ -462,7 +462,7 @@ impl<'a> ChainUpdate<'a> {
     /// the expected state.
     fn rewind_and_apply_fork(&mut self, block: &Block) -> Result<(), Error> {
         unimplemented!();
-        Ok(())
+        // Ok(())
     }
 
     /// Quick in-memory check to fast-reject any block header we've already handled

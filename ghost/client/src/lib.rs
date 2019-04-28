@@ -1,3 +1,6 @@
+//! Client is responsible for tracking the chain and related pieces of infrastructure.
+//! Block production is done in separate agent.
+
 use std::sync::{Arc, RwLock};
 
 use actix::{Actor, Addr, Arbiter, Context, Handler, Message, Recipient, System};

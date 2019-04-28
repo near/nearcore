@@ -1,7 +1,7 @@
 use std::io;
 use std::sync::Arc;
 
-use kvdb::{DBTransaction, KeyValueDB};
+use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use serde::de::DeserializeOwned;
 
 use primitives::serialize::{Decode, Encode};
@@ -24,9 +24,16 @@ impl Store {
         Store { storage }
     }
 
-    pub fn get_ser<T: Decode + DeserializeOwned>(&self, column: Option<u32>, key: &[u8]) -> Result<Option<T>, io::Error> {
+    pub fn get_ser<T: Decode + DeserializeOwned + std::fmt::Debug>(
+        &self,
+        column: Option<u32>,
+        key: &[u8],
+    ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
-            Ok(Some(bytes)) => Decode::decode(bytes.as_ref()),
+            Ok(Some(bytes)) => match Decode::decode(bytes.as_ref()) {
+                Ok(result) => Ok(Some(result)),
+                Err(e) => Err(e),
+            },
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
@@ -61,7 +68,12 @@ impl StoreUpdate {
         self.transaction.put(column, key, value)
     }
 
-    pub fn set_ser<T: Encode>(&mut self, column: Option<u32>, key: &[u8], value: &T) -> Result<(), io::Error> {
+    pub fn set_ser<T: Encode>(
+        &mut self,
+        column: Option<u32>,
+        key: &[u8],
+        value: &T,
+    ) -> Result<(), io::Error> {
         let data = Encode::encode(value)?;
         self.set(column, key, &data);
         Ok(())
@@ -69,6 +81,16 @@ impl StoreUpdate {
 
     pub fn delete(&mut self, column: Option<u32>, key: &[u8]) {
         self.transaction.delete(column, key);
+    }
+
+    /// Merge another store update into this one.
+    pub fn merge(&mut self, other: StoreUpdate) {
+        for op in other.transaction.ops {
+            match op {
+                DBOp::Insert { col, key, value } => self.transaction.put(col, &key, &value),
+                DBOp::Delete { col, key } => self.transaction.delete(col, &key),
+            }
+        }
     }
 
     pub fn commit(self) -> Result<(), io::Error> {

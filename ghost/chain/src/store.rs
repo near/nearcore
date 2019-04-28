@@ -1,12 +1,9 @@
-use primitives::hash::CryptoHash;
-use primitives::serialize::{Decode, Encode};
-use serde::de::DeserializeOwned;
 use std::io;
 use std::sync::Arc;
 
-use near_store::{Store, StoreUpdate, COL_BLOCK_MISC, COL_BLOCK, COL_BLOCK_HEADER};
+use near_store::{Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_MISC};
+use primitives::hash::CryptoHash;
 
-use crate::chain::Chain;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
 
@@ -121,7 +118,9 @@ impl ChainStoreUpdate {
     }
 
     pub fn save_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        self.store_update.set_ser(COL_BLOCK_HEADER, header.hash().as_ref(), header).map_err(|e| e.into())
+        self.store_update
+            .set_ser(COL_BLOCK_HEADER, header.hash().as_ref(), header)
+            .map_err(|e| e.into())
     }
 
     /// Merge another StoreUpdate into this one

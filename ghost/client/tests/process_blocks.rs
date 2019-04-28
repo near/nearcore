@@ -1,8 +1,8 @@
 use actix::actors::mocker::Mocker;
 use actix::{Actor, System};
-use near_chain::{BlockHeader, RuntimeAdapter};
-use near_client::ClientActor;
-use near_network::PeerManagerActor;
+use near_chain::{BlockHeader, RuntimeAdapter, Block};
+use near_client::{ClientActor, NetworkMessages};
+use near_network::{PeerManagerActor, PeerInfo};
 use near_store::test_utils::create_test_store;
 use primitives::test_utils::init_test_logger;
 use std::sync::Arc;
@@ -26,7 +26,8 @@ fn accept_correct_blocks() {
         )
         .unwrap()
         .start();
-        client.do_send();
+        // let block = Block { header: BlockHeader::default(), transactions: vec![] };
+        // client.do_send(NetworkMessages::Block(block, PeerInfo { id:  }));
         System::current().stop();
     })
     .unwrap();

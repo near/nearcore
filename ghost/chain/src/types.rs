@@ -1,13 +1,18 @@
+use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
+
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 
+use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
 use primitives::crypto::signature::Signature;
-use primitives::hash::CryptoHash;
+use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{BlockIndex, MerkleHash};
+use protobuf::{RepeatedField, Message as ProtoMessage};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -22,41 +27,65 @@ pub struct BlockHeader {
     pub signatures: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
+
+    /// Cached value of hash for this block.
+    hash: CryptoHash,
 }
 
 impl BlockHeader {
     pub fn genesis(timestamp: DateTime<Utc>, state_root: MerkleHash) -> BlockHeader {
-        BlockHeader {
+        let h = chain_proto::BlockHeader {
             height: 0,
-            prev_hash: CryptoHash::default(),
-            prev_state_root: state_root,
-            timestamp,
-            signatures: vec![],
-            total_weight: 0.into(),
-        }
+            prev_hash: CryptoHash::default().into(),
+            prev_state_root: state_root.into(),
+            timestamp: timestamp.timestamp() as u64,
+            total_weight: 0,
+            ..Default::default()
+        };
+        h.try_into().unwrap()
     }
+
     pub fn hash(&self) -> CryptoHash {
-        CryptoHash::default()
+        self.hash
     }
 }
 
-impl Default for BlockHeader {
-    fn default() -> BlockHeader {
-        BlockHeader {
-            height: 0,
-            prev_hash: CryptoHash::default(),
-            prev_state_root: CryptoHash::default(),
-            timestamp: DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(0, 0), Utc),
-            signatures: vec![],
-            total_weight: 0.into(),
+impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
+        let hash = hash(&proto.write_to_bytes().map_err(|err| err.to_string())?);
+        let height = proto.height;
+        let prev_hash = proto.prev_hash.try_into()?;
+        let prev_state_root = proto.prev_state_root.try_into()?;
+        let timestamp = DateTime::from_utc(NaiveDateTime::from_timestamp(proto.timestamp as i64, 0), Utc);
+        let signatures =
+            proto.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let total_weight = proto.total_weight.into();
+        Ok(BlockHeader { height, prev_hash, prev_state_root, timestamp, signatures, total_weight, hash })
+    }
+}
+
+impl From<BlockHeader> for chain_proto::BlockHeader {
+    fn from(header: BlockHeader) -> Self {
+        chain_proto::BlockHeader {
+            height: header.height,
+            prev_hash: header.prev_hash.into(),
+            prev_state_root: header.prev_state_root.into(),
+            timestamp: header.timestamp.timestamp() as u64,
+            signatures: RepeatedField::from_iter(
+                header.signatures.iter().map(std::convert::Into::into),
+            ),
+            total_weight: header.total_weight.to_num(),
+            ..Default::default()
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Bytes(Vec<u8>);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<Bytes>,
@@ -72,7 +101,7 @@ impl Block {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
     Next,

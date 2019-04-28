@@ -162,6 +162,15 @@ impl TryFrom<&[u8]> for Signature {
     }
 }
 
+impl TryFrom<Vec<u8>> for Signature {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        let bytes: &[u8] = bytes.as_ref();
+        Self::try_from(bytes).map_err(|e| format!("{}", e))
+    }
+}
+
 impl TryFrom<&str> for Signature {
     type Error = String;
 
@@ -243,6 +252,12 @@ impl fmt::Display for SecretKey {
 impl<'a> From<&'a Signature> for String {
     fn from(h: &'a Signature) -> Self {
         bs58::encode(h).into_string()
+    }
+}
+
+impl<'a> From<&'a Signature> for Vec<u8> {
+    fn from(h: &'a Signature) -> Self {
+        (h.0).0.to_vec()
     }
 }
 

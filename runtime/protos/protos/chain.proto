@@ -76,3 +76,17 @@ message CoupledBlock {
     SignedBeaconBlock beacon_block = 1;
     SignedShardBlock shard_block = 2;
 }
+
+message BlockHeader {
+    uint64 height = 1;
+    bytes prev_hash = 2;
+    bytes prev_state_root = 3;
+    uint64 timestamp = 4;
+    repeated bytes signatures = 5;
+    uint64 total_weight = 6;
+}
+
+message Block {
+    BlockHeader header = 1;
+    repeated SignedTransaction transactions = 2;
+}

@@ -22,10 +22,6 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-fn genesis_dev() -> Block {
-    Block { header: BlockHeader::default(), transactions: vec![] }
-}
-
 fn setup() -> Chain {
     init_test_logger();
     let store = create_test_store();
