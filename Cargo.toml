@@ -22,7 +22,6 @@ members = [
     "ghost/chain",
     "ghost/pool",
     "ghost/client",
-    "ghost/validator",
     "ghost/network",
     "ghost/near",
 ]
