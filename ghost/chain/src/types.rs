@@ -1,9 +1,11 @@
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+use chrono::serde::ts_nanoseconds;
 
+use near_store::StoreUpdate;
 use primitives::crypto::signature::Signature;
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::types::BlockIndex;
+use primitives::types::{BlockIndex, MerkleHash};
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockHeader {
@@ -14,6 +16,7 @@ pub struct BlockHeader {
     /// Root hash of the state at the previous block.
     pub prev_state_root: CryptoHash,
     /// Timestamp at which the block was built.
+    #[serde(with = "ts_nanoseconds")]
     pub timestamp: DateTime<Utc>,
     /// Authority signatures.
     pub signatures: Vec<Signature>,
@@ -22,6 +25,16 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
+    pub fn genesis(timestamp: DateTime<Utc>, state_root: MerkleHash) -> BlockHeader {
+        BlockHeader {
+            height: 0,
+            prev_hash: CryptoHash::default(),
+            prev_state_root: state_root,
+            timestamp,
+            signatures: vec![],
+            total_weight: 0.into(),
+        }
+    }
     pub fn hash(&self) -> CryptoHash {
         CryptoHash::default()
     }
@@ -50,6 +63,10 @@ pub struct Block {
 }
 
 impl Block {
+    /// Returns genesis block for given genesis date and state root.
+    pub fn genesis(timestamp: DateTime<Utc>, state_root: MerkleHash) -> Self {
+        Block { header: BlockHeader::genesis(timestamp, state_root), transactions: vec![] }
+    }
     pub fn hash(&self) -> CryptoHash {
         self.header.hash()
     }
@@ -84,12 +101,22 @@ pub struct ValidTransaction {
 
 /// Bridge between the chain and the runtime.
 /// Handles updating state given transactions.
-pub trait RuntimeAdapter {}
+pub trait RuntimeAdapter {
+    /// Initialize state to genesis state and returns StoreUpdate and state root.
+    /// StoreUpdate can be discarded if the chain past the genesis.
+    fn genesis_state(&self) -> (StoreUpdate, MerkleHash);
+}
 
 /// The weight is defined as the number of unique authorities approving this fork.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Weight {
     num: u64,
+}
+
+impl Weight {
+    pub fn to_num(&self) -> u64 {
+        self.num
+    }
 }
 
 impl From<u64> for Weight {

@@ -89,18 +89,28 @@ impl ChainStoreUpdate {
         ChainStoreUpdate { store_update }
     }
 
+    /// Update both header and block body head.
+    pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
+        self.save_body_head(t)?;
+        self.save_header_head(t)
+    }
+
+    /// Update block body head.
     pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, t).map_err(|e| e.into())
     }
 
+    /// Update block body tail.
     pub fn save_body_tail(&mut self, t: &Tip) -> Result<(), Error> {
         self.store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, t).map_err(|e| e.into())
     }
 
+    /// Update header head.
     pub fn save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.store_update.set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, t).map_err(|e| e.into())
     }
 
+    /// Save block.
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         self.store_update.set_ser(COL_BLOCK, block.hash().as_ref(), block).map_err(|e| e.into())
     }
@@ -112,6 +122,11 @@ impl ChainStoreUpdate {
 
     pub fn save_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         self.store_update.set_ser(COL_BLOCK_HEADER, header.hash().as_ref(), header).map_err(|e| e.into())
+    }
+
+    /// Merge another StoreUpdate into this one
+    pub fn merge(&mut self, store_update: StoreUpdate) {
+        self.store_update.merge(store_update);
     }
 
     pub fn finalize(mut self) -> StoreUpdate {

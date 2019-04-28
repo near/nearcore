@@ -4,17 +4,15 @@ use std::time::{Duration as TimeDuration, Instant};
 
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
-use log::debug;
+use log::{debug, info};
 
+use near_store::Store;
 use primitives::hash::CryptoHash;
 use primitives::types::BlockIndex;
-use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate};
-use crate::types::{
-    Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip,
-};
+use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
 use crate::ValidTransaction;
 
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -90,24 +88,60 @@ pub struct Chain {
     store: Arc<ChainStore>,
     runtime_adapter: Arc<RuntimeAdapter>,
     orphans: OrphanBlockPool,
-    genesis: BlockHeader,
+    genesis: Block,
 }
 
 impl Chain {
     pub fn new(
         store: Arc<Store>,
         runtime_adapter: Arc<RuntimeAdapter>,
-        genesis: BlockHeader,
-    ) -> Chain {
+        genesis_timestamp: DateTime<Utc>,
+    ) -> Result<Chain, Error> {
         let store = Arc::new(ChainStore::new(store));
-        Chain {
-            store,
-            runtime_adapter,
-            orphans: OrphanBlockPool::new(),
-            genesis,
+
+        // Get runtime initial state and create genesis block out of it.
+        let (state_store_update, state_root) = runtime_adapter.genesis_state();
+        let genesis = Block::genesis(genesis_timestamp, state_root);
+
+        // Check if we have a head in the store, otherwise pick genesis block.
+        let mut store_update = store.store_update();
+        let head_res = store.head();
+        let mut head: Tip;
+        match head_res {
+            Ok(h) => {
+                head = h;
+                // Check we have the header corresponding to the header_head.
+                let header_head = store.header_head()?;
+                if store.get_block_header(&header_head.last_block_hash).is_err() {
+                    // Reset header_head to be consistent with current head.
+                    store_update.save_header_head(&head);
+                }
+                // TODO: check that genesis root / timestamp matches.
+                // TODO: perform validation that state matches the stored chain.
+            }
+            Err(err) => match err.kind() {
+                ErrorKind::DBNotFoundErr(_) => {
+                    store_update.save_block_header(&genesis.header)?;
+                    store_update.save_block(&genesis)?;
+
+                    head = Tip::from_header(&genesis.header);
+                    store_update.save_head(&head);
+
+                    store_update.merge(state_store_update);
+
+                    info!(target: "chain", "Init: saved genesis: {:?}", genesis.hash());
+                }
+                e => return Err(e.into()),
+            },
         }
+        store_update.finalize().commit()?;
+
+        info!(target: "chain", "Init: head: {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+
+        Ok(Chain { store, runtime_adapter, orphans: OrphanBlockPool::new(), genesis })
     }
 
+    /// Returns underlying ChainStore.
     pub fn store(&self) -> Arc<ChainStore> {
         self.store.clone()
     }
@@ -121,12 +155,17 @@ impl Chain {
         Ok(())
     }
 
+    /// Process a received or produced block, and unroll any orphans that may depend on it.
+    /// Changes current state, and calls `block_accepted` callback in case block was successfully applied.
     pub fn process_block<F>(
         &mut self,
         block: Block,
         provenance: Provenance,
-        block_accepted: F
-    ) -> Result<Option<Tip>, Error> where F: FnMut(&Block, BlockStatus, Provenance) -> () {
+        block_accepted: F,
+    ) -> Result<Option<Tip>, Error>
+    where
+        F: FnMut(&Block, BlockStatus, Provenance) -> (),
+    {
         let height = block.header.height;
         let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
@@ -156,8 +195,11 @@ impl Chain {
         &mut self,
         block: Block,
         provenance: Provenance,
-        mut block_accepted: F
-    ) -> Result<Option<Tip>, Error> where F: FnMut(&Block, BlockStatus, Provenance) -> () {
+        mut block_accepted: F,
+    ) -> Result<Option<Tip>, Error>
+    where
+        F: FnMut(&Block, BlockStatus, Provenance) -> (),
+    {
         let prev_head = self.store.head()?;
         let mut chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
