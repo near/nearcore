@@ -10,7 +10,7 @@ use log::LevelFilter;
 use tokio::timer::{Delay, Interval};
 use futures::stream::Stream;
 
-use near_network::test_utils::open_port;
+use near_network::test_utils::{open_port, convert_boot_nodes};
 use near_network::types::NumActivePeers;
 use near_network::{NetworkConfig, PeerInfo, PeerManagerActor};
 use near_store::test_utils::create_test_store;
@@ -20,10 +20,7 @@ use actix::utils::IntervalFunc;
 fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
-    for (peer_seed, port) in boot_nodes {
-        let (id, _) = get_key_pair_from_seed(peer_seed);
-        config.boot_nodes.push(PeerInfo::new(id, format!("127.0.0.1:{}", port).parse().unwrap()))
-    }
+    config.boot_nodes = convert_boot_nodes(boot_nodes);
     PeerManagerActor::new(store, config)
 }
 

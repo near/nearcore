@@ -22,7 +22,7 @@ fn setup(authorities: Vec<&str>, account_id: &str, recipient: Recipient<NetworkR
         authorities.into_iter().map(Into::into).collect(),
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-    ClientActor::new(ClientConfig::default(), store, runtime, recipient, Some(signer.into()))
+    ClientActor::new(ClientConfig::test(), store, runtime, recipient, Some(signer.into()))
         .unwrap()
         .start()
 }

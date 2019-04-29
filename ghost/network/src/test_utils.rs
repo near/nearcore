@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use primitives::test_utils::get_key_pair_from_seed;
 
+use crate::types::PeerInfo;
 use crate::NetworkConfig;
 
 /// Returns available port.
@@ -29,4 +30,13 @@ impl NetworkConfig {
             peer_max_count: 3,
         }
     }
+}
+
+pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
+    let mut result = vec![];
+    for (peer_seed, port) in boot_nodes {
+        let (id, _) = get_key_pair_from_seed(peer_seed);
+        result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
+    }
+    result
 }

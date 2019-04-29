@@ -73,37 +73,42 @@ impl Peer {
         debug!(target: "network", "Sending {} message to peer {:?}", msg, self.peer_info);
         self.framed.write(msg.into());
     }
+
+    fn send_handshake(&mut self) {
+        let handshake = Handshake::new(
+            self.node_info.id,
+            self.node_info.account_id.clone(),
+            self.node_info.addr_port(),
+        );
+        self.send_message(PeerMessage::Handshake(handshake));
+    }
 }
 
 impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        debug!(target: "network", "Peer {:?} {:?} started", self.peer_info, self.peer_type);
-        let peer_info = self.peer_info.clone();
+        debug!(target: "network", "Peer {:?} {:?} started", self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
         ctx.run_later(self.handshake_timeout, move |act, ctx| {
             if act.peer_status != PeerStatus::Ready {
-                info!(target: "network", "Handshake timeout expired for {:?}", peer_info);
+                info!(target: "network", "Handshake timeout expired for {:?}", act.peer_info);
                 ctx.stop();
             }
         });
 
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {
-            let handshake = Handshake::new(
-                self.node_info.id,
-                self.node_info.account_id.clone(),
-                self.node_info.addr_port(),
-            );
-            self.send_message(PeerMessage::Handshake(handshake));
+            self.send_handshake();
         }
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
         debug!(target: "network", "Peer {:?} disconnected.", self.peer_info);
         if let Some(peer_info) = &self.peer_info {
-            self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
+            if self.peer_status == PeerStatus::Ready {
+                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
+            }
         }
         Running::Stop
     }
@@ -115,6 +120,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
     fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
         match (self.peer_type, self.peer_status, msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
+                debug!(target: "network", "{} received handshake {:?}", self.node_info.id, handshake);
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
@@ -137,6 +143,10 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                                 debug!(target: "network", "Peer {:?} successfully consolidated", act.peer_addr);
                                 act.peer_info = Some(peer_info);
                                 act.peer_status = PeerStatus::Ready;
+                                // Respond to handshake if it's inbound and connection was consolidated.
+                                if act.peer_type == PeerType::Inbound {
+                                    act.send_handshake();
+                                }
                                 actix::fut::ok(())
                             },
                             _ => {
@@ -153,8 +163,8 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
             }
             (_, PeerStatus::Ready, PeerMessage::Message(bytes)) => match decode_message(&bytes) {
                 Ok(message) => {
-//                    let protocol_addr = Protocol::from_registry();
-//                    protocol_addr.do_send(message);
+                    //                    let protocol_addr = Protocol::from_registry();
+                    //                    protocol_addr.do_send(message);
                 }
                 Err(err) => {
                     warn!(target: "network", "Invalid proto received from {:?}: {}", self.peer_info, err);

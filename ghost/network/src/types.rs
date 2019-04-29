@@ -4,15 +4,18 @@ use std::iter::FromIterator;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 
-use actix::{Message, Recipient};
+use actix::{Actor, Message, Recipient};
 use chrono::{DateTime, Utc};
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 
+use near_chain::{Block, BlockHeader};
 use near_protos::network as network_proto;
 use primitives::crypto::signature::{PublicKey, SecretKey};
+use primitives::hash::CryptoHash;
+use primitives::logging::pretty_str;
 use primitives::transaction::SignedTransaction;
 use primitives::types::AccountId;
 use primitives::utils::{proto_to_result, proto_to_type, to_string_value};
@@ -21,9 +24,37 @@ use primitives::utils::{proto_to_result, proto_to_type, to_string_value};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 use crate::peer::Peer;
+use actix::dev::{MessageResponse, ResponseChannel};
+use primitives::traits::Base58Encoded;
+use std::hash::{Hash, Hasher};
 
 /// Peer id is the public key.
-pub type PeerId = PublicKey;
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Debug)]
+pub struct PeerId(PublicKey);
+
+impl From<PeerId> for Vec<u8> {
+    fn from(peer_id: PeerId) -> Vec<u8> {
+        peer_id.0.into()
+    }
+}
+
+impl From<PublicKey> for PeerId {
+    fn from(public_key: PublicKey) -> PeerId {
+        PeerId(public_key)
+    }
+}
+
+impl Hash for PeerId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.0.as_ref());
+    }
+}
+
+impl fmt::Display for PeerId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", pretty_str(&self.0.to_base58(), 4))
+    }
+}
 
 /// Peer information.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -61,7 +92,7 @@ impl TryFrom<network_proto::PeerInfo> for PeerInfo {
     fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
         let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
         let account_id = proto.account_id.into_option().map(|s| s.value);
-        Ok(PeerInfo { id: PublicKey::try_from(proto.id)?, addr, account_id })
+        Ok(PeerInfo { id: PublicKey::try_from(proto.id)?.into(), addr, account_id })
     }
 }
 
@@ -72,7 +103,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: id.into(), addr, account_id, ..Default::default() }
+        network_proto::PeerInfo { id: id.0.into(), addr, account_id, ..Default::default() }
     }
 }
 
@@ -128,10 +159,11 @@ impl TryFrom<network_proto::HandShake> for Handshake {
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
         let peers_info =
             proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
         // let connected_info = proto_to_type(proto.connected_info)?;
         Ok(Handshake {
             version: proto.version,
-            peer_id: proto.peer_id.try_into().map_err(|e| format!("{}", e))?,
+            peer_id: peer_id.into(),
             account_id,
             listen_port,
             peers_info,
@@ -546,14 +578,36 @@ impl Message for Consolidate {
     type Result = bool;
 }
 
-/// Actor message to request number of active peers.
-pub struct NumActivePeers {}
-
-impl Message for NumActivePeers {
-    type Result = usize;
-}
-
 #[derive(Message)]
 pub struct Unregister {
     pub peer_id: PeerId,
+}
+
+#[derive(Debug)]
+pub enum NetworkRequests {
+    FetchInfo,
+    BlockAnnounce { block: Block },
+    BlockHeaderAnnounce { header: BlockHeader },
+    BlockRequest { hash: CryptoHash, peer_info: PeerInfo },
+}
+
+pub enum NetworkResponses {
+    NoResponse,
+    Info { num_active_peers: usize, peer_max_count: u32 },
+}
+
+impl<A, M> MessageResponse<A, M> for NetworkResponses
+where
+    A: Actor,
+    M: Message<Result = NetworkResponses>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+impl Message for NetworkRequests {
+    type Result = NetworkResponses;
 }

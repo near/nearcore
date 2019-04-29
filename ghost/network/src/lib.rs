@@ -1,9 +1,5 @@
-use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::{FramedWrite, WriteHandler};
@@ -20,18 +16,18 @@ use tokio::io::AsyncRead;
 use tokio::io::WriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 
-use near_store::Store;
 use near_chain::{Block, BlockHeader};
+use near_store::Store;
 use primitives::crypto::signature::{PublicKey, SecretKey};
 use primitives::hash::CryptoHash;
 
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::types::{
-    Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, NumActivePeers,
-    OutboundTcpConnect, PeerId, PeerType, SendMessage, Unregister,
+    Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId,
+    PeerType, SendMessage, Unregister,
 };
-pub use crate::types::{NetworkConfig, PeerInfo};
+pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo};
 
 mod codec;
 mod peer;
@@ -39,15 +35,9 @@ pub mod types;
 
 pub mod test_utils;
 
-#[derive(Message, Debug)]
-pub enum NetworkRequests {
-    BlockAnnounce { block: Block },
-    BlockHeaderAnnounce { header: BlockHeader },
-    BlockRequest { hash: CryptoHash, peer_info: PeerInfo },
-}
-
 pub struct PeerManagerActor {
     store: Arc<Store>,
+    peer_id: PeerId,
     config: NetworkConfig,
     outgoing_peers: HashSet<PeerId>,
     active_peers: HashMap<PeerId, Recipient<SendMessage>>,
@@ -63,6 +53,7 @@ impl PeerManagerActor {
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_states.len(), config.boot_nodes.len());
         PeerManagerActor {
             store,
+            peer_id: config.public_key.into(),
             config,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
@@ -85,6 +76,11 @@ impl PeerManagerActor {
     }
 
     fn unregister_peer(&mut self, peer_id: PeerId) {
+        // If this is an unconsolidated peer because failed / connected inbound, just delete it.
+        if self.outgoing_peers.contains(&peer_id) {
+            self.outgoing_peers.remove(&peer_id);
+            return;
+        }
         if let Some(peer_state) = self.peer_states.get_mut(&peer_id) {
             self.active_peers.remove(&peer_id);
             peer_state.last_seen = Utc::now();
@@ -110,7 +106,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
     ) {
-        let public_key = self.config.public_key;
+        let peer_id = self.peer_id;
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
         Peer::create(move |ctx| {
@@ -121,7 +117,7 @@ impl PeerManagerActor {
             Peer::add_stream(FramedRead::new(read, Codec::new()), ctx);
             Peer::new(
                 // TODO: add node's account id if given.
-                PeerInfo { id: public_key, addr: Some(server_addr), account_id: None },
+                PeerInfo { id: peer_id, addr: Some(server_addr), account_id: None },
                 remote_addr,
                 peer_info,
                 peer_type,
@@ -192,13 +188,16 @@ impl Actor for PeerManagerActor {
 }
 
 impl Handler<NetworkRequests> for PeerManagerActor {
-    type Result = ();
+    type Result = NetworkResponses;
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkRequests::BlockAnnounce { block } => {},
-            NetworkRequests::BlockHeaderAnnounce { header } => {},
-            NetworkRequests::BlockRequest { hash, peer_info } => {},
+            NetworkRequests::FetchInfo => {
+                NetworkResponses::Info { num_active_peers: self.num_active_peers(), peer_max_count: self.config.peer_max_count }
+            }
+            NetworkRequests::BlockAnnounce { block } => NetworkResponses::NoResponse,
+            NetworkRequests::BlockHeaderAnnounce { header } => NetworkResponses::NoResponse,
+            NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
             _ => panic!("123"),
         }
     }
@@ -258,15 +257,15 @@ impl Handler<Consolidate> for PeerManagerActor {
         if self.active_peers.contains_key(&msg.peer_info.id) {
             return false;
         }
-        // This is incoming connection but we have it in outgoing.
-        // This only happens when both of us connect at the same time, break tie.
+        // This is incoming connection but we have this peer already in outgoing.
+        // This only happens when both of us connect at the same time, break tie using higher peer id.
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
             // We pick connection that has lower id.
-            if msg.peer_info.id > self.config.public_key {
+            if msg.peer_info.id > self.peer_id {
                 return false;
             }
         }
-        // TODO: check that address works and add account id.
+        // TODO: double check that address is connectable and add account id.
         self.register_peer(msg.peer_info, msg.actor);
         true
     }
@@ -277,13 +276,5 @@ impl Handler<Unregister> for PeerManagerActor {
 
     fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
         self.unregister_peer(msg.peer_id);
-    }
-}
-
-impl Handler<NumActivePeers> for PeerManagerActor {
-    type Result = usize;
-
-    fn handle(&mut self, msg: NumActivePeers, _: &mut Self::Context) -> Self::Result {
-        self.num_active_peers()
     }
 }
