@@ -338,11 +338,6 @@ impl Chain {
     pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
         self.store.block_exists(hash)
     }
-
-    /// Validate the tx against the current runtime and return transaction info.
-    pub fn validate_tx(&self, tx: &[u8]) -> Result<ValidTransaction, Error> {
-        Err(ErrorKind::Other("test failed".to_string()).into())
-    }
 }
 
 /// Chain update helper, contains information that is needed to process block
@@ -464,7 +459,7 @@ impl<'a> ChainUpdate<'a> {
     fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
-            return Err(ErrorKind::InvalidBlockTime.into());
+            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
         }
 
         // First I/O cost, delayed as late as possible.
@@ -478,7 +473,7 @@ impl<'a> ChainUpdate<'a> {
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.timestamp <= prev_header.timestamp {
-            return Err(ErrorKind::InvalidBlockTime.into());
+            return Err(ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into());
         }
 
         // Check that state root we computed from previous block matches recorded in header.

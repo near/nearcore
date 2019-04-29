@@ -11,11 +11,16 @@ use primitives::transaction::SignedTransaction;
 pub struct KeyValueRuntime {
     store: Arc<Store>,
     root: MerkleHash,
+    authorities: Vec<AccountId>,
 }
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        KeyValueRuntime { store, root: MerkleHash::default() }
+        Self::new_with_authorities(store, vec!["test".to_string()])
+    }
+
+    pub fn new_with_authorities(store: Arc<Store>, authorities: Vec<AccountId>) -> Self {
+        KeyValueRuntime { store, root: MerkleHash::default(), authorities }
     }
 
     pub fn get_root(&self) -> MerkleHash {
@@ -37,7 +42,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId> {
-        None
+        Some(self.authorities[(height as usize) % self.authorities.len()].clone())
     }
 
     fn apply_transactions(

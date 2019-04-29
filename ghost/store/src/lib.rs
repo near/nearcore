@@ -12,7 +12,8 @@ pub const COL_BLOCK_MISC: Option<u32> = Some(0);
 pub const COL_BLOCK: Option<u32> = Some(1);
 pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
 pub const COL_STATE: Option<u32> = Some(3);
-pub const COL_PEERS: Option<u32> = Some(4);
+pub const COL_STATE_REF: Option<u32> = Some(4);
+pub const COL_PEERS: Option<u32> = Some(5);
 const NUM_COLS: u32 = 5;
 
 pub struct Store {

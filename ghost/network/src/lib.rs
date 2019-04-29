@@ -21,6 +21,7 @@ use tokio::io::WriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 
 use near_store::Store;
+use near_chain::{Block, BlockHeader};
 use primitives::crypto::signature::{PublicKey, SecretKey};
 use primitives::hash::CryptoHash;
 
@@ -34,17 +35,15 @@ pub use crate::types::{NetworkConfig, PeerInfo};
 
 mod codec;
 mod peer;
-mod protocol;
 pub mod types;
 
 pub mod test_utils;
 
+#[derive(Message, Debug)]
 pub enum NetworkRequests {
-    Block { hash: CryptoHash, peer_info: PeerInfo },
-}
-
-impl Message for NetworkRequests {
-    type Result = ();
+    BlockAnnounce { block: Block },
+    BlockHeaderAnnounce { header: BlockHeader },
+    BlockRequest { hash: CryptoHash, peer_info: PeerInfo },
 }
 
 pub struct PeerManagerActor {
@@ -197,6 +196,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
+            NetworkRequests::BlockAnnounce { block } => {},
+            NetworkRequests::BlockHeaderAnnounce { header } => {},
+            NetworkRequests::BlockRequest { hash, peer_info } => {},
             _ => panic!("123"),
         }
     }

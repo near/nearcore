@@ -4,16 +4,16 @@ use std::iter::FromIterator;
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 
+use crate::error::Error;
 use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
 use primitives::crypto::signature::Signature;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
-use primitives::types::{BlockIndex, MerkleHash, AccountId};
+use primitives::types::{AccountId, BlockIndex, MerkleHash};
 use protobuf::{Message as ProtoMessage, RepeatedField};
-use crate::error::Error;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -51,9 +51,7 @@ impl BlockHeader {
             prev_state_root: prev_state_root.into(),
             tx_root: tx_root.into(),
             timestamp: timestamp.timestamp_nanos() as u64,
-            signatures: RepeatedField::from_iter(
-                signatures.iter().map(std::convert::Into::into),
-            ),
+            signatures: RepeatedField::from_iter(signatures.iter().map(std::convert::Into::into)),
             total_weight: total_weight.to_num(),
             ..Default::default()
         };
@@ -61,7 +59,15 @@ impl BlockHeader {
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        Self::new(0, CryptoHash::default(), state_root, MerkleHash::default(), timestamp, vec![], 0.into())
+        Self::new(
+            0,
+            CryptoHash::default(),
+            state_root,
+            MerkleHash::default(),
+            timestamp,
+            vec![],
+            0.into(),
+        )
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -78,8 +84,13 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
         let prev_hash = proto.prev_hash.try_into()?;
         let prev_state_root = proto.prev_state_root.try_into()?;
         let tx_root = proto.tx_root.try_into()?;
-        let timestamp =
-            DateTime::from_utc(NaiveDateTime::from_timestamp((proto.timestamp / 1_000_000_000) as i64, (proto.timestamp % 1_000_000_00) as u32), Utc);
+        let timestamp = DateTime::from_utc(
+            NaiveDateTime::from_timestamp(
+                (proto.timestamp / 1_000_000_000) as i64,
+                (proto.timestamp % 1_000_000_00) as u32,
+            ),
+            Utc,
+        );
         let signatures =
             proto.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let total_weight = proto.total_weight.into();
@@ -116,7 +127,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bytes(Vec<u8>);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -192,13 +203,20 @@ pub trait RuntimeAdapter {
     fn genesis_state(&self) -> (StoreUpdate, MerkleHash);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
-    fn compute_block_weight(&self, prev_header: &BlockHeader, header: &BlockHeader) -> Result<Weight, Error>;
+    fn compute_block_weight(
+        &self,
+        prev_header: &BlockHeader,
+        header: &BlockHeader,
+    ) -> Result<Weight, Error>;
 
     /// Block proposer for given height. Return None if outside of known boundaries.
     fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId>;
 
     /// Apply transactions and return store update and new state root.
-    fn apply_transactions(&self, transactions: &Vec<SignedTransaction>) -> (StoreUpdate, MerkleHash);
+    fn apply_transactions(
+        &self,
+        transactions: &Vec<SignedTransaction>,
+    ) -> (StoreUpdate, MerkleHash);
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.

@@ -1,51 +1,40 @@
-use actix::{Actor, System};
-use kvdb::KeyValueDB;
 use std::sync::{Arc, RwLock};
 
+use actix::{Actor, System};
+use chrono::Utc;
+use kvdb::KeyValueDB;
+use log::LevelFilter;
+
+use near_chain::test_utils::KeyValueRuntime;
+use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
+use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_network::{NetworkConfig, PeerManagerActor};
+use near_store::test_utils::create_test_store;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
 
-use near_store::Store;
-use near_chain::{
-    Block, BlockHeader, BlockStatus, Chain, ChainAdapter, Provenance, RuntimeAdapter,
-};
-use near_client::ClientActor;
-use near_network::PeerManagerActor;
-use near_pool::TransactionPool;
-
-struct SampleRuntime {
-    storage: Arc<KeyValueDB>,
-}
-
-impl SampleRuntime {
-    pub fn new(storage: Arc<KeyValueDB>) -> Self {
-        SampleRuntime { storage }
-    }
-}
-
-impl RuntimeAdapter for SampleRuntime {}
-
 fn main() {
-    let _ = env_logger::init();
+    env_logger::Builder::new().filter(None, LevelFilter::Debug).init();
 
     let system = System::new("NEAR");
 
     // TODO: Replace with rocksdb.
-    let storage = Arc::new(kvdb_memorydb::create(5));
+    let store = create_test_store();
+    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
 
-    let runtime = Arc::new(SampleRuntime::new(storage.clone()));
-    let store = Arc::new(Store::new(storage));
-    let genesis = BlockHeader::default();
-//    let pool_adapter = Arc::new(PoolToChainAdapter::new());
+    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
 
-//    let tx_pool = Arc::new(RwLock::new(TransactionPool::new(pool_adapter.clone())));
-
-//    let chain_adapter = Arc::new(ChainToPoolAndNetworkAdapter::new(tx_pool.clone()));
-//    let chain = Arc::new(RwLock::new(Chain::new(store, chain_adapter, runtime, genesis).unwrap()));
-//    pool_adapter.set_chain(chain.clone());
-
-//    let network_actor = PeerManagerActor {}.start();
-//    let client_actor = ClientActor::new(chain, network_actor.recipient()).unwrap();
-//    let addr = client_actor.start();
+    let network_config = NetworkConfig::from_seed("test", 25648);
+    let network_actor = PeerManagerActor::new(store.clone(), network_config).start();
+    let client_actor = ClientActor::new(
+        ClientConfig::default(),
+        store.clone(),
+        runtime,
+        network_actor.recipient(),
+        Some(signer.into()),
+    )
+    .unwrap();
+    let addr = client_actor.start();
 
     system.run().unwrap();
 }

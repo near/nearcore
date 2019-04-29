@@ -3,7 +3,7 @@ use std::sync::Arc;
 use near_chain::{Block, ValidTransaction};
 use primitives::transaction::SignedTransaction;
 
-use crate::types::{Error};
+pub use crate::types::Error;
 
 pub mod types;
 

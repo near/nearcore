@@ -1,34 +1,123 @@
 use actix::actors::mocker::Mocker;
-use actix::{Actor, System};
-use near_chain::{BlockHeader, RuntimeAdapter, Block};
-use near_client::{ClientActor, NetworkMessages};
-use near_network::{PeerManagerActor, PeerInfo};
+use actix::{Actor, Addr, Context, System, Recipient};
+use chrono::{DateTime, Utc};
+use near_chain::{test_utils::KeyValueRuntime, Block, BlockHeader, RuntimeAdapter};
+use near_client::{ClientActor, ClientConfig, NetworkMessages};
+use near_network::{NetworkRequests, PeerInfo, PeerManagerActor};
 use near_store::test_utils::create_test_store;
+use primitives::crypto::signer::InMemorySigner;
 use primitives::test_utils::init_test_logger;
+use primitives::transaction::SignedTransaction;
+use primitives::types::{AccountId, MerkleHash};
+use std::any::Any;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-pub struct NoopAdapter {}
-
-impl RuntimeAdapter for NoopAdapter {}
 
 type NetworkMock = Mocker<PeerManagerActor>;
 
+fn setup(authorities: Vec<&str>, account_id: &str, recipient: Recipient<NetworkRequests>) -> Addr<ClientActor> {
+    let store = create_test_store();
+    let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
+        store.clone(),
+        authorities.into_iter().map(Into::into).collect(),
+    ));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    ClientActor::new(ClientConfig::default(), store, runtime, recipient, Some(signer.into()))
+        .unwrap()
+        .start()
+}
+
+fn setup_mock(
+    authorities: Vec<&str>,
+    account_id: &str,
+    mut network_mock: Box<FnMut(&NetworkRequests, &mut Context<NetworkMock>)>,
+) -> Addr<ClientActor> {
+    let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+        network_mock(msg, ctx);
+        Box::new(Some(()))
+    }))
+    .start();
+    setup(authorities, account_id, pm.recipient())
+}
+
+/// Runs block producing client and stops after network mock received two blocks.
 #[test]
-fn accept_correct_blocks() {
+fn produce_two_blocks() {
     init_test_logger();
     System::run(|| {
-        let pm = NetworkMock::mock(Box::new(|msg, ctx| Box::new(()))).start();
-        let client = ClientActor::new(
-            create_test_store(),
-            Arc::new(NoopAdapter {}),
-            BlockHeader::default(),
-            pm.recipient(),
-        )
-        .unwrap()
-        .start();
-        // let block = Block { header: BlockHeader::default(), transactions: vec![] };
-        // client.do_send(NetworkMessages::Block(block, PeerInfo { id:  }));
-        System::current().stop();
+        let count = Arc::new(AtomicUsize::new(0));
+        setup_mock(
+            vec!["test"],
+            "test",
+            Box::new(move |msg, _ctx| {
+                if let NetworkRequests::BlockAnnounce { .. } = msg {
+                    count.fetch_add(1, Ordering::Relaxed);
+                    if count.load(Ordering::Relaxed) >= 2 {
+                        System::current().stop();
+                    }
+                }
+            }),
+        );
     })
     .unwrap();
 }
+
+/// Runs block producing client and sends it a transaction.
+#[test]
+fn produce_blocks_with_tx() {
+    let count = Arc::new(AtomicUsize::new(0));
+    init_test_logger();
+    System::run(|| {
+        let client = setup_mock(
+            vec!["test"],
+            "test",
+            Box::new(move |msg, _ctx| {
+                if let NetworkRequests::BlockAnnounce { block } = msg {
+                    count.fetch_add(block.transactions.len(), Ordering::Relaxed);
+                    if count.load(Ordering::Relaxed) >= 1 {
+                        System::current().stop();
+                    }
+                }
+            }),
+        );
+        client.do_send(NetworkMessages::Transaction(SignedTransaction::empty()));
+    })
+    .unwrap();
+}
+
+// Runs two clients that produce blocks.
+//#[test]
+//fn two_clients() {
+//    let count = Arc::new(AtomicUsize::new(0));
+//    init_test_logger();
+//    System::run(|| {
+//        let authorities = vec!["test1", "test2"];
+//        let client1 = setup_mock(
+//            authorities.clone(),
+//            "test1",
+//            Box::new(move |msg, _ctx| {
+//                if let NetworkRequests::BlockAnnounce { block } = msg {
+//                    count.fetch_add(block.transactions.len(), Ordering::Relaxed);
+//                    if count.load(Ordering::Relaxed) >= 1 {
+//                        System::current().stop();
+//                    }
+//                }
+//            }),
+//        );
+//        let client2 = setup_mock(
+//            authorities,
+//            "test2",
+//            Box::new(move |msg, _ctx| {
+//                //            if let NetworkRequests::BlockAnnounce { block } = msg {
+//                //                count.fetch_add(block.transactions.len(), Ordering::Relaxed);
+//                //                if count.load(Ordering::Relaxed) >= 1 {
+//                //                    System::current().stop();
+//                //                }
+//                //            }
+//            }),
+//        );
+//        client1.do_send(NetworkMessages::Transaction(SignedTransaction::empty()));
+//    })
+//    .unwrap();
+//}

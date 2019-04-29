@@ -3,10 +3,12 @@ extern crate serde_derive;
 
 pub use chain::Chain;
 pub use error::{Error, ErrorKind};
-pub use types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ValidTransaction};
+pub use types::{
+    Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip, ValidTransaction,
+};
 
 mod chain;
 mod error;
 mod store;
-mod types;
 pub mod test_utils;
+mod types;

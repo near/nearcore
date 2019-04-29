@@ -22,7 +22,6 @@ use near_protos::network as network_proto;
 use primitives::transaction::SignedTransaction;
 
 use crate::codec::Codec;
-use crate::protocol::Protocol;
 use crate::types::{
     Consolidate, Handshake, PeerInfo, PeerMessage, PeerStatus, PeerType, ProtocolMessage,
     SendMessage, Unregister, PROTOCOL_VERSION,
@@ -154,8 +153,8 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
             }
             (_, PeerStatus::Ready, PeerMessage::Message(bytes)) => match decode_message(&bytes) {
                 Ok(message) => {
-                    let protocol_addr = Protocol::from_registry();
-                    protocol_addr.do_send(message);
+//                    let protocol_addr = Protocol::from_registry();
+//                    protocol_addr.do_send(message);
                 }
                 Err(err) => {
                     warn!(target: "network", "Invalid proto received from {:?}: {}", self.peer_info, err);

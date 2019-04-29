@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 actix = "0.8.1"
+chrono = { version = "0.4.4", features = ["serde"] }
 kvdb = "0.1"
 log = "0.4"
 

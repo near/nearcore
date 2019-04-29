@@ -19,3 +19,4 @@ rand = "0.6.5"
 primitives = { path = "../../runtime/primitives" }
 near-protos = { path = "../../runtime/protos" }
 near-store = { path = "../store" }
+near-chain = { path = "../chain" }

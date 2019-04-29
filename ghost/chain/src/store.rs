@@ -71,7 +71,10 @@ impl ChainStore {
 
     /// Get state root hash after applying header with given hash.
     pub fn get_post_state_root(&self, h: &CryptoHash) -> Result<MerkleHash, Error> {
-        option_to_not_found(self.store.get_ser(COL_STATE_REF, h.as_ref()), &format!("STATE ROOT: {}", h))
+        option_to_not_found(
+            self.store.get_ser(COL_STATE_REF, h.as_ref()),
+            &format!("STATE ROOT: {}", h),
+        )
     }
 
     /// Get block header.
@@ -119,7 +122,11 @@ impl ChainStoreUpdate {
     }
 
     /// Save post applying block state root.
-    pub fn save_post_state_root(&mut self, hash: &CryptoHash, state_root: &CryptoHash) -> Result<(), Error> {
+    pub fn save_post_state_root(
+        &mut self,
+        hash: &CryptoHash,
+        state_root: &CryptoHash,
+    ) -> Result<(), Error> {
         self.store_update.set_ser(COL_STATE_REF, hash.as_ref(), state_root).map_err(|e| e.into())
     }
 
