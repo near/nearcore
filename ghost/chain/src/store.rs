@@ -1,11 +1,12 @@
 use std::io;
 use std::sync::Arc;
 
-use near_store::{Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_MISC};
+use near_store::{Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_MISC, COL_STATE_REF};
 use primitives::hash::CryptoHash;
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
+use primitives::types::MerkleHash;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -68,6 +69,11 @@ impl ChainStore {
         self.get_block_header(&header.prev_hash)
     }
 
+    /// Get state root hash after applying header with given hash.
+    pub fn get_post_state_root(&self, h: &CryptoHash) -> Result<MerkleHash, Error> {
+        option_to_not_found(self.store.get_ser(COL_STATE_REF, h.as_ref()), &format!("STATE ROOT: {}", h))
+    }
+
     /// Get block header.
     pub fn get_block_header(&self, h: &CryptoHash) -> Result<BlockHeader, Error> {
         option_to_not_found(
@@ -112,8 +118,13 @@ impl ChainStoreUpdate {
         self.store_update.set_ser(COL_BLOCK, block.hash().as_ref(), block).map_err(|e| e.into())
     }
 
-    pub fn delete_block(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
-        self.store_update.delete(COL_BLOCK, block_hash.as_ref());
+    /// Save post applying block state root.
+    pub fn save_post_state_root(&mut self, hash: &CryptoHash, state_root: &CryptoHash) -> Result<(), Error> {
+        self.store_update.set_ser(COL_STATE_REF, hash.as_ref(), state_root).map_err(|e| e.into())
+    }
+
+    pub fn delete_block(&mut self, hash: &CryptoHash) -> Result<(), Error> {
+        self.store_update.delete(COL_BLOCK, hash.as_ref());
         Ok(())
     }
 

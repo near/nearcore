@@ -9,4 +9,4 @@ mod chain;
 mod error;
 mod store;
 mod types;
-
+pub mod test_utils;

@@ -25,6 +25,18 @@ pub enum ErrorKind {
     /// Block height is invalid (not previous + 1).
     #[fail(display = "Invalid Block Height")]
     InvalidBlockHeight,
+    /// Invalid block proposed signature.
+    #[fail(display = "Invalid Block Proposer Signature")]
+    InvalidBlockProposer,
+    /// Invalid block confirmation signature.
+    #[fail(display = "Invalid Block Confirmation Signature")]
+    InvalidBlockConfirmation,
+    /// Invalid block weight.
+    #[fail(display = "Invalid Block Weight")]
+    InvalidBlockWeight,
+    /// Invalid state root hash.
+    #[fail(display = "Invalid State Root Hash")]
+    InvalidStateRoot,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -66,12 +78,18 @@ impl Error {
 
     pub fn is_bad_data(&self) -> bool {
         match self.kind() {
-            ErrorKind::Unfit(_) | ErrorKind::Orphan | ErrorKind::IOErr(_) | ErrorKind::Other(_) | ErrorKind::DBNotFoundErr(_) => {
-                false
-            }
-            ErrorKind::InvalidBlockTime | ErrorKind::InvalidBlockHeight | ErrorKind::OldBlock => {
-                true
-            }
+            ErrorKind::Unfit(_)
+            | ErrorKind::Orphan
+            | ErrorKind::IOErr(_)
+            | ErrorKind::Other(_)
+            | ErrorKind::DBNotFoundErr(_) => false,
+            ErrorKind::InvalidBlockTime
+            | ErrorKind::InvalidBlockHeight
+            | ErrorKind::OldBlock
+            | ErrorKind::InvalidBlockProposer
+            | ErrorKind::InvalidBlockConfirmation
+            | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidStateRoot => true,
         }
     }
 }

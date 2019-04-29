@@ -9,8 +9,9 @@ use near_store::StoreUpdate;
 use primitives::crypto::signature::Signature;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
-use primitives::types::{BlockIndex, MerkleHash};
+use primitives::types::{BlockIndex, MerkleHash, AccountId};
 use protobuf::{Message as ProtoMessage, RepeatedField};
+use crate::error::Error;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockHeader {
@@ -183,11 +184,21 @@ pub struct ValidTransaction {
 }
 
 /// Bridge between the chain and the runtime.
-/// Handles updating state given transactions.
+/// Main function is to update state given transactions.
+/// Additionally handles authorities and block weight computation.
 pub trait RuntimeAdapter {
     /// Initialize state to genesis state and returns StoreUpdate and state root.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (StoreUpdate, MerkleHash);
+
+    /// Verify block producer validity and return weight of given block for fork choice rule.
+    fn compute_block_weight(&self, prev_header: &BlockHeader, header: &BlockHeader) -> Result<Weight, Error>;
+
+    /// Block proposer for given height. Return None if outside of known boundaries.
+    fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId>;
+
+    /// Apply transactions and return store update and new state root.
+    fn apply_transactions(&self, transactions: &Vec<SignedTransaction>) -> (StoreUpdate, MerkleHash);
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.

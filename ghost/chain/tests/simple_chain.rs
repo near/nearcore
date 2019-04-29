@@ -2,31 +2,11 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_chain::{Block, Chain, Provenance, RuntimeAdapter, ErrorKind};
+use near_chain::test_utils::KeyValueRuntime;
+use near_chain::{Block, BlockHeader, Chain, ErrorKind, Provenance, RuntimeAdapter};
 use near_store::{test_utils::create_test_store, Store, StoreUpdate};
 use primitives::test_utils::init_test_logger;
 use primitives::types::MerkleHash;
-
-struct KeyValueRuntime {
-    store: Arc<Store>,
-    root: MerkleHash,
-}
-
-impl KeyValueRuntime {
-    pub fn new(store: Arc<Store>) -> Self {
-        KeyValueRuntime { store, root: MerkleHash::default() }
-    }
-
-    pub fn get_root(&self) -> MerkleHash {
-        self.root
-    }
-}
-
-impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, MerkleHash) {
-        (self.store.store_update(), MerkleHash::default())
-    }
-}
 
 fn setup() -> (Chain, Arc<KeyValueRuntime>) {
     init_test_logger();
@@ -62,8 +42,27 @@ fn build_chain_with_orhpans() {
         let block = Block::produce(&blocks[i - 1].header, MerkleHash::default(), vec![]);
         blocks.push(block);
     }
-    assert_eq!(chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}).unwrap_err().kind(), ErrorKind::Orphan);
-    assert_eq!(chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}).unwrap().unwrap().height, 3);
-    assert_eq!(chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}).unwrap_err().kind(), ErrorKind::Unfit("already known in store".to_string()));
+    assert_eq!(
+        chain
+            .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Orphan
+    );
+    assert_eq!(
+        chain
+            .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Orphan
+    );
+    let res = chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {});
+    assert_eq!(res.unwrap().unwrap().height, 3);
+    assert_eq!(
+        chain
+            .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Unfit("already known in store".to_string())
+    );
 }

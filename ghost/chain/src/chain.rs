@@ -123,12 +123,14 @@ impl Chain {
                     store_update.save_header_head(&head)?;
                 }
                 // TODO: check that genesis root / timestamp matches.
-                // TODO: perform validation that state matches the stored chain.
+                // TODO: perform validation that latest state in runtime matches the stored chain.
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     store_update.save_block_header(&genesis.header)?;
                     store_update.save_block(&genesis)?;
+                    store_update
+                        .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root)?;
 
                     head = Tip::from_header(&genesis.header);
                     store_update.save_head(&head)?;
@@ -185,7 +187,9 @@ impl Chain {
         let height = block.header.height;
         let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
-            return Ok(self.check_orphans(height + 1, block_accepted));
+            if let Some(new_res) = self.check_orphans(height + 1, block_accepted) {
+                return Ok(Some(new_res));
+            }
         }
         res
     }
@@ -219,7 +223,7 @@ impl Chain {
         let prev_head = self.store.head()?;
         let mut chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
-        let maybe_new_head = chain_update.process_block(&block);
+        let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
             chain_update.commit()?;
@@ -292,9 +296,14 @@ impl Chain {
                 for orphan in orphans.into_iter() {
                     let res =
                         self.process_block_single(orphan.block, orphan.provenance, block_accepted);
-                    if let Ok(maybe_tip) = res {
-                        maybe_new_head = maybe_tip;
-                        orphan_accepted = true;
+                    match res {
+                        Ok(maybe_tip) => {
+                            maybe_new_head = maybe_tip;
+                            orphan_accepted = true;
+                        }
+                        Err(err) => {
+                            debug!(target: "chain", "Orphan declined: {}", err);
+                        }
                     }
                 }
 
@@ -371,7 +380,7 @@ impl<'a> ChainUpdate<'a> {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height);
 
         self.check_header_known(header)?;
-        self.validate_header(header)?;
+        self.validate_header(header, &Provenance::NONE)?;
         Ok(())
     }
 
@@ -385,7 +394,11 @@ impl<'a> ChainUpdate<'a> {
 
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
     /// Returns new head if chain head updated.
-    fn process_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
+    fn process_block(
+        &mut self,
+        block: &Block,
+        provenance: &Provenance,
+    ) -> Result<Option<Tip>, Error> {
         debug!(target: "chain", "Process block {} at {}, tx: {}", block.hash(), block.header.height, block.transactions.len());
 
         // Check if we have already processed this block previously.
@@ -409,7 +422,7 @@ impl<'a> ChainUpdate<'a> {
         let is_fork = !is_next;
 
         // Check the header is valid before we proceed with the full block.
-        self.process_header_for_block(&block.header, is_fork)?;
+        self.process_header_for_block(&block.header, provenance, is_fork)?;
 
         // Rewind current fork to the point of forking and re-apply ancestors of this block.
         if is_fork {
@@ -417,7 +430,10 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Apply block to runtime.
-        // TODO: call runtime adapter.
+        let (state_store_update, state_root) =
+            self.runtime_adapter.apply_transactions(&block.transactions);
+        self.chain_store_update.merge(state_store_update);
+        self.chain_store_update.save_post_state_root(&block.hash(), &state_root)?;
 
         // Add validated block to the db, even if it's not the selected fork.
         self.chain_store_update.save_block(block)?;
@@ -432,19 +448,20 @@ impl<'a> ChainUpdate<'a> {
     fn process_header_for_block(
         &mut self,
         header: &BlockHeader,
+        provenance: &Provenance,
         is_fork: bool,
     ) -> Result<(), Error> {
         if is_fork {
             self.rewind_and_apply_header_fork(header)?;
         }
 
-        self.validate_header(header)?;
+        self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header)?;
         self.update_header_head(header)?;
         Ok(())
     }
 
-    fn validate_header(&self, header: &BlockHeader) -> Result<(), Error> {
+    fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockTime.into());
@@ -452,9 +469,6 @@ impl<'a> ChainUpdate<'a> {
 
         // First I/O cost, delayed as late as possible.
         let prev_header = self.get_previous_header(header)?;
-
-        // Validate the block producer.
-        // TODO: not implemented.
 
         // Make sure this header has a height exactly one higher than the previous header.
         if header.height != prev_header.height + 1 {
@@ -467,8 +481,20 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidBlockTime.into());
         }
 
-        // Validate the total_weight calculation given previous block and attestations.
-        // TODO: not implemented.
+        // Check that state root we computed from previous block matches recorded in header.
+        let state_root = self.store.get_post_state_root(&prev_header.hash())?;
+        if header.prev_state_root != state_root {
+            return Err(ErrorKind::InvalidStateRoot.into());
+        }
+
+        // If this is not the block we produced (hence trust in it) - validates block
+        // producer, confirmation signatures and returns new total weight.
+        if *provenance != Provenance::PRODUCED {
+            let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
+            if weight != header.total_weight {
+                return Err(ErrorKind::InvalidBlockWeight.into());
+            }
+        }
 
         Ok(())
     }
