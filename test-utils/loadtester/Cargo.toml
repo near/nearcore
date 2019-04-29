@@ -8,6 +8,17 @@ edition = "2018"
 clap = "2.32"
 log = "0.4"
 env_logger = "0.6.0"
+rand = "0.6"
+rand_xorshift = "0.1"
+hex = "0.3"
+futures = "0.1.25"
+tokio = "0.1"
+protobuf = { version = "2.2.4", features = ["with-bytes"] }
 
 primitives = { path = "../../runtime/primitives" }
 testlib = { path = "../testlib" }
+near-protos = { path = "../../runtime/protos", features = ["with-serde"] }
+
+[dependencies.reqwest]
+version = "0.9"
+features = ["rustls-tls", "trust-dns"]
