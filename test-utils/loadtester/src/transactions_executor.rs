@@ -71,7 +71,7 @@ impl Executor {
                 let task = Interval::new_interval(interval)
                     .take_while(move |_| {
                         if let Some(t_limit) = timeout {
-                            if t_limit > Instant::now() {
+                            if t_limit <= Instant::now() {
                                 // We hit timeout.
                                 return Ok(false);
                             }
@@ -87,7 +87,40 @@ impl Executor {
                     .map(|_| ())
                     .map_err(|_| ());
 
-                tokio::spawn(task);
+                let node = nodes[0].clone();
+                let first_height = node.read().unwrap().get_current_height().map_err(|_| ());
+                let last_height = node.read().unwrap().get_current_height().map_err(|_| ());
+                let ft = Instant::now();
+                tokio::spawn(
+                    first_height
+                        .and_then(|fh: u64| task.map(move |_| fh))
+                        .and_then(move |fh: u64| {
+                            last_height.and_then(move |lh: u64| {
+                                let lt = Instant::now();
+                                node.read()
+                                    .unwrap()
+                                    .get_transactions(fh, lh)
+                                    .map(move |total_txs: u64| {
+                                        println!("Start block: {}", fh);
+                                        println!("End block: {}", lh);
+                                        let time_passed = lt.duration_since(ft).as_secs();
+                                        println!("Time passed: {} secs", time_passed);
+                                        let bps = ((lh - fh + 1) as f64) / (time_passed as f64);
+                                        println!("Blocks per second: {:.2}", bps);
+                                        println!(
+                                            "Transactions per second: {}",
+                                            total_txs / time_passed
+                                        );
+                                        println!(
+                                            "Transactions per block: {}",
+                                            total_txs / (lh - fh + 1)
+                                        );
+                                    })
+                                    .map_err(|_| ())
+                            })
+                        })
+                        .map_err(|_| ()),
+                );
                 Ok(())
             }));
         })

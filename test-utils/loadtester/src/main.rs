@@ -7,7 +7,9 @@ pub mod remote_node;
 pub mod sampler;
 pub mod transactions_executor;
 pub mod transactions_generator;
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
 use remote_node::RemoteNode;
+use std::time::Duration;
 
 #[allow(dead_code)]
 fn configure_logging(log_level: log::LevelFilter) {
@@ -22,12 +24,15 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
+    let (chain_spec, _) =
+        ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+    let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
     let nodes = vec![RemoteNode::new(
         SocketAddr::from_str("127.0.0.1:3030").unwrap(),
-        &vec!["bob.near", "alice.near"],
-        1_000_000,
+        &accounts,
+        3_000_000,
     )];
     // Start the executor.
-    let handle = Executor::spawn(nodes, None, 800);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 800);
     handle.join().unwrap();
 }

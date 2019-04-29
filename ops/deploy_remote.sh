@@ -7,6 +7,7 @@ STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.4}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}
+NUM_ACCOUNTS=${7:-4}
 
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
@@ -43,6 +44,7 @@ if [[ ! ${BOOTNODE_EXISTS} -eq 0 ]]; then
 gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-env NODE_ID=0 \
     --container-env TOTAL_NODES=${NUM_NODES} \
+    --container-env NUM_ACCOUNTS=${NUM_ACCOUNTS} \
     --container-env NODE_KEY="53Mr7IhcJXu3019FX+Ra+VbxSQ5y2q+pknmM463jzoFzldWZb16dSYRxrhYrLRXe/UA0wR2zFy4c3fY5yDHjlA==" \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
@@ -71,7 +73,8 @@ do
     gcloud beta compute instances create-with-container ${PREFIX}-${NODE_ID} \
         --container-env BOOT_NODES="6f99d7b49a10fff319cd8bbbd13c3a964dcd0248@${BOOT_NODE_IP}:26656" \
         --container-env NODE_ID=${NODE_ID} \
-	--container-env TOTAL_NODES=${NUM_NODES} \
+	    --container-env TOTAL_NODES=${NUM_NODES} \
+        --container-env NUM_ACCOUNTS=${NUM_ACCOUNTS} \
         --container-image ${IMAGE} \
         --zone ${ZONE} \
         --tags=testnet-instance \
