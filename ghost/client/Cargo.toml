@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 ansi_term = "0.11.0"
 actix = "0.8.1"
+futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 kvdb = "0.1"
 log = "0.4"

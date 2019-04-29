@@ -23,11 +23,8 @@ use primitives::hash::CryptoHash;
 
 use crate::codec::Codec;
 use crate::peer::Peer;
-use crate::types::{
-    Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId,
-    PeerType, SendMessage, Unregister,
-};
-pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo};
+use crate::types::{Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId, PeerType, SendMessage, Unregister, PeerMessage};
+pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, NetworkMessages};
 
 mod codec;
 mod peer;
@@ -42,10 +39,11 @@ pub struct PeerManagerActor {
     outgoing_peers: HashSet<PeerId>,
     active_peers: HashMap<PeerId, Recipient<SendMessage>>,
     peer_states: HashMap<PeerId, KnownPeerState>,
+    client_addr: Recipient<NetworkMessages>,
 }
 
 impl PeerManagerActor {
-    pub fn new(store: Arc<Store>, config: NetworkConfig) -> Self {
+    pub fn new(store: Arc<Store>, config: NetworkConfig, client_addr: Recipient<NetworkMessages>) -> Self {
         let mut peer_states = HashMap::default();
         for peer_info in config.boot_nodes.iter() {
             peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
@@ -58,6 +56,7 @@ impl PeerManagerActor {
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
             peer_states,
+            client_addr,
         }
     }
 
@@ -109,6 +108,7 @@ impl PeerManagerActor {
         let peer_id = self.peer_id;
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
+        let client_addr = self.client_addr.clone();
         Peer::create(move |ctx| {
             let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
             let remote_addr = stream.peer_addr().unwrap();
@@ -124,6 +124,7 @@ impl PeerManagerActor {
                 FramedWrite::new(write, Codec::new(), ctx),
                 handshake_timeout,
                 recipient,
+                client_addr
             )
         });
     }
@@ -191,14 +192,21 @@ impl Handler<NetworkRequests> for PeerManagerActor {
     type Result = NetworkResponses;
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
+        // TODO: figure out here do_send -> it's locking.
         match msg {
-            NetworkRequests::FetchInfo => {
-                NetworkResponses::Info { num_active_peers: self.num_active_peers(), peer_max_count: self.config.peer_max_count }
-            }
-            NetworkRequests::BlockAnnounce { block } => NetworkResponses::NoResponse,
+            NetworkRequests::FetchInfo => NetworkResponses::Info {
+                num_active_peers: self.num_active_peers(),
+                peer_max_count: self.config.peer_max_count,
+            },
+            NetworkRequests::BlockAnnounce { block } => {
+                for (_, peer) in self.active_peers.iter() {
+                    let _ = peer.do_send(SendMessage { message: PeerMessage::BlockAnnounce(block.clone()) });
+                }
+                NetworkResponses::NoResponse
+            },
             NetworkRequests::BlockHeaderAnnounce { header } => NetworkResponses::NoResponse,
             NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
-            _ => panic!("123"),
+            _ => panic!("Unhandled network request"),
         }
     }
 }

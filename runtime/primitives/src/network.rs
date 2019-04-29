@@ -241,10 +241,11 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(PeerMessage::InfoGossip(peer_info))
             }
-            Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
-                Ok(PeerMessage::Message(message))
-            }
+//            Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
+//                Ok(PeerMessage::Message(message))
+//            }
             None => unreachable!(),
+            _ => unreachable!(),
         }
     }
 }
@@ -264,9 +265,10 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
-            PeerMessage::Message(message) => {
-                Some(network_proto::PeerMessage_oneof_message_type::message(message))
-            }
+//            PeerMessage::Message(message) => {
+//                Some(network_proto::PeerMessage_oneof_message_type::message(message))
+//            }
+            _ => unreachable!(),
         };
         network_proto::PeerMessage {
             message_type,

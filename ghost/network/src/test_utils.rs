@@ -1,6 +1,7 @@
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
+use primitives::crypto::signature::get_key_pair;
 use primitives::test_utils::get_key_pair_from_seed;
 
 use crate::types::PeerInfo;
@@ -39,4 +40,16 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
+}
+
+impl PeerInfo {
+    /// Creates random peer info.
+    pub fn random() -> Self {
+        let (id, _) = get_key_pair();
+        PeerInfo {
+            id: id.into(),
+            addr: None,
+            account_id: None
+        }
+    }
 }

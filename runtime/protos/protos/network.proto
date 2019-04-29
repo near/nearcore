@@ -33,7 +33,9 @@ message PeerMessage {
     oneof message_type {
         HandShake hand_shake = 1;
         InfoGossip info_gossip = 2;
-        bytes message = 3;
+        Block block_announce = 3;
+        BlockHeader block_header_announce = 4;
+        SignedTransaction transaction = 5;
     }
 }
 

@@ -1,14 +1,15 @@
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, Context, System, Recipient};
+use actix::{Actor, Addr, Context, System, Recipient, Arbiter};
+use futures::{future, Future};
 use chrono::{DateTime, Utc};
 use near_chain::{test_utils::KeyValueRuntime, Block, BlockHeader, RuntimeAdapter};
-use near_client::{ClientActor, ClientConfig, NetworkMessages};
-use near_network::{NetworkRequests, PeerInfo, PeerManagerActor};
+use near_client::{ClientActor, ClientConfig, GetBlock};
+use near_network::{NetworkRequests, PeerInfo, PeerManagerActor, NetworkMessages, NetworkResponses};
 use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::test_utils::init_test_logger;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, MerkleHash};
+use primitives::types::{AccountId, MerkleHash, BlockId};
 use std::any::Any;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,12 +31,12 @@ fn setup(authorities: Vec<&str>, account_id: &str, recipient: Recipient<NetworkR
 fn setup_mock(
     authorities: Vec<&str>,
     account_id: &str,
-    mut network_mock: Box<FnMut(&NetworkRequests, &mut Context<NetworkMock>)>,
+    mut network_mock: Box<FnMut(&NetworkRequests, &mut Context<NetworkMock>) -> NetworkResponses>,
 ) -> Addr<ClientActor> {
     let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
         let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-        network_mock(msg, ctx);
-        Box::new(Some(()))
+        let resp = network_mock(msg, ctx);
+        Box::new(Some(resp))
     }))
     .start();
     setup(authorities, account_id, pm.recipient())
@@ -57,6 +58,7 @@ fn produce_two_blocks() {
                         System::current().stop();
                     }
                 }
+                NetworkResponses::NoResponse
             }),
         );
     })
@@ -79,11 +81,32 @@ fn produce_blocks_with_tx() {
                         System::current().stop();
                     }
                 }
+                NetworkResponses::NoResponse
             }),
         );
         client.do_send(NetworkMessages::Transaction(SignedTransaction::empty()));
     })
     .unwrap();
+}
+
+// Runs client that receives a block from network and announces header to the network.
+#[test]
+fn receive_network_block() {
+    init_test_logger();
+    System::run(|| {
+        let client = setup_mock(vec!["test"], "other", Box::new(move |msg, _ctx| {
+            if let NetworkRequests::BlockHeaderAnnounce { header } = msg {
+                System::current().stop();
+            }
+            NetworkResponses::NoResponse
+        }));
+        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![]);
+            client.do_send(NetworkMessages::Block(block, PeerInfo::random(), false));
+            future::result(Ok(()))
+        }));
+    }).unwrap();
 }
 
 // Runs two clients that produce blocks.

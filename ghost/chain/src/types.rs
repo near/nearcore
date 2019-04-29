@@ -3,17 +3,22 @@ use std::iter::FromIterator;
 
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
+use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 
-use crate::error::Error;
 use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
 use primitives::crypto::signature::Signature;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex, MerkleHash};
-use protobuf::{Message as ProtoMessage, RepeatedField};
+use primitives::utils::proto_to_type;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+use crate::error::Error;
+
+/// Number of nano seconds in one second.
+const NS_IN_SECOND: u64 = 1_000_000_000;
+
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -79,15 +84,16 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
     type Error = String;
 
     fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
-        let hash = hash(&proto.write_to_bytes().map_err(|err| err.to_string())?);
+        let bytes = proto.write_to_bytes().map_err(|err| err.to_string())?;
+        let hash = hash(&bytes);
         let height = proto.height;
         let prev_hash = proto.prev_hash.try_into()?;
         let prev_state_root = proto.prev_state_root.try_into()?;
         let tx_root = proto.tx_root.try_into()?;
         let timestamp = DateTime::from_utc(
             NaiveDateTime::from_timestamp(
-                (proto.timestamp / 1_000_000_000) as i64,
-                (proto.timestamp % 1_000_000_00) as u32,
+                (proto.timestamp / NS_IN_SECOND) as i64,
+                (proto.timestamp % NS_IN_SECOND) as u32,
             ),
             Utc,
         );
@@ -127,7 +133,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bytes(Vec<u8>);
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -164,6 +170,26 @@ impl Block {
 
     pub fn hash(&self) -> CryptoHash {
         self.header.hash()
+    }
+}
+
+impl TryFrom<chain_proto::Block> for Block {
+    type Error = String;
+
+    fn try_from(proto: chain_proto::Block) -> Result<Self, Self::Error> {
+        let transactions =
+            proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        Ok(Block { header: proto_to_type(proto.header)?, transactions })
+    }
+}
+
+impl From<Block> for chain_proto::Block {
+    fn from(block: Block) -> Self {
+        chain_proto::Block {
+            header: SingularPtrField::some(block.header.into()),
+            transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
+            ..Default::default()
+        }
     }
 }
 

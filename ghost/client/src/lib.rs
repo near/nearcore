@@ -4,11 +4,11 @@
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use ansi_term::Color::{White, Cyan};
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Message, Recipient, System, WrapFuture,
 };
+use ansi_term::Color::{Cyan, White};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info};
 
@@ -16,7 +16,7 @@ use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_network::types::PeerInfo;
-use near_network::{NetworkRequests, NetworkResponses, NetworkConfig};
+use near_network::{NetworkConfig, NetworkMessages, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -24,116 +24,11 @@ use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 
-#[derive(Debug)]
-pub enum Error {
-    Chain(near_chain::Error),
-    Pool(near_pool::Error),
-    BlockProducer(String),
-}
+pub use crate::types::{
+    BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus,
+};
 
-impl From<near_chain::Error> for Error {
-    fn from(e: near_chain::Error) -> Self {
-        Error::Chain(e)
-    }
-}
-
-impl From<near_pool::Error> for Error {
-    fn from(e: near_pool::Error) -> Self {
-        Error::Pool(e)
-    }
-}
-
-pub struct ClientConfig {
-    /// Genesis timestamp. Client will wait until this date to start.
-    pub genesis_timestamp: DateTime<Utc>,
-    /// Duration before producing block.
-    pub block_production_delay: Duration,
-    /// Expected block weight (num of tx, gas, etc).
-    pub block_expected_weight: u32,
-    /// Skip waiting for sync (for testing or single node testnet).
-    pub skip_sync_wait: bool,
-    /// Sync period.
-    pub sync_period: Duration,
-    /// Minimum number of peers to start syncing.
-    pub min_num_peers: usize,
-    /// Period between logging summary information.
-    pub log_summary_period: Duration,
-}
-
-impl ClientConfig {
-    pub fn test() -> Self {
-        ClientConfig {
-            genesis_timestamp: Utc::now(),
-            block_production_delay: Duration::from_millis(100),
-            block_expected_weight: 1000,
-            skip_sync_wait: true,
-            sync_period: Duration::from_millis(100),
-            min_num_peers: 0,
-            log_summary_period: Duration::from_secs(10),
-        }
-    }
-}
-
-impl Default for ClientConfig {
-    fn default() -> Self {
-        ClientConfig {
-            genesis_timestamp: Utc::now(),
-            block_production_delay: Duration::from_millis(100),
-            block_expected_weight: 1000,
-            skip_sync_wait: false,
-            sync_period: Duration::from_millis(100),
-            min_num_peers: 1,
-            log_summary_period: Duration::from_secs(10),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum NetworkMessages {
-    Transaction(SignedTransaction),
-    BlockHeader(BlockHeader, PeerInfo),
-    Block(Block, PeerInfo, bool),
-}
-
-impl Message for NetworkMessages {
-    type Result = Result<bool, Error>;
-}
-
-/// Required information to produce blocks.
-pub struct BlockProducer {
-    pub account_id: AccountId,
-    pub signer: Arc<EDSigner>,
-}
-
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
-        BlockProducer { account_id: signer.account_id(), signer }
-    }
-}
-
-/// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SyncStatus {
-    /// Not syncing / Done syncing.
-    NoSync,
-    /// Not enough peers to do anything yet.
-    AwaitingPeers,
-    /// Downloading block headers for fast sync.
-    HeaderSync,
-    /// Downloading state for fasy sync.
-    StateDownload,
-    /// Validating the full state.
-    StateValidation,
-    /// Finalizing state sync.
-    StateDone,
-    /// Catch up on blocks.
-    BodySync,
-}
-
-pub struct NetworkInfo {
-    num_active_peers: usize,
-    peer_max_count: u32,
-}
+mod types;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -167,7 +62,7 @@ impl ClientActor {
             tx_pool,
             network_actor,
             block_producer,
-            network_info: NetworkInfo { num_active_peers: 0, peer_max_count: 0 }
+            network_info: NetworkInfo { num_active_peers: 0, peer_max_count: 0 },
         })
     }
 }
@@ -176,22 +71,19 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        match self.sync_status {
-            SyncStatus::NoSync => {
-                // If there is no syncing, start producing blocks.
-                let _ = self.produce_block(ctx);
-            }
-            _ => self.sync(ctx),
-        }
+        // Start syncing job.
+        self.sync(ctx);
 
+        // Start fetching information from network.
         self.fetch_network_info(ctx);
 
+        // Start periodic logging of current state of the client.
         self.log_summary(ctx);
     }
 }
 
 impl Handler<NetworkMessages> for ClientActor {
-    type Result = Result<bool, Error>;
+    type Result = Result<bool, String>;
 
     fn handle(&mut self, msg: NetworkMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
@@ -209,6 +101,25 @@ impl Handler<NetworkMessages> for ClientActor {
                 self.receive_block(ctx, block, peer_info, was_requested)
             }
             _ => Ok(false),
+        }
+        .map_err(|e| format!("Client error: {:?}", e))
+    }
+}
+
+impl Handler<GetBlock> for ClientActor {
+    type Result = Option<Block>;
+
+    fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
+        match msg {
+            GetBlock::Best => {
+                let head = self.chain.store().head().ok();
+                if let Some(head) = head {
+                    self.chain.store().get_block(&head.last_block_hash).ok()
+                } else {
+                    None
+                }
+            }
+            GetBlock::Hash(hash) => self.chain.store().get_block(&hash).ok(),
         }
     }
 }
@@ -235,9 +146,12 @@ impl ClientActor {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
-                let _ = self.network_actor.do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
+                let _ = self
+                    .network_actor
+                    .do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
             } else {
-                let _ = self.network_actor
+                let _ = self
+                    .network_actor
                     .do_send(NetworkRequests::BlockHeaderAnnounce { header: block.header.clone() });
             }
 
@@ -369,7 +283,8 @@ impl ClientActor {
         match self.chain.block_exists(&hash) {
             Ok(false) => {
                 // TODO: ?? should we add a wait for response here?
-                self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_info });
+                let _ =
+                    self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_info });
             }
             Ok(true) => debug!("send_block_request_to_peer: block {} already known", hash),
             Err(e) => error!("send_block_request_to_peer: failed to check block exists: {:?}", e),
@@ -381,15 +296,18 @@ impl ClientActor {
         Some(ValidTransaction { transaction: tx })
     }
 
+    /// Job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         match self.sync_status {
             SyncStatus::NoSync => {
+                // Stops syncing and switches to producing blocks.
+                let _ = self.produce_block(ctx);
                 return;
             }
             SyncStatus::AwaitingPeers => {
                 // Check current number of peers and if enough move to next step.
                 if self.network_info.num_active_peers >= self.config.min_num_peers {
-                    self.sync_status = SyncStatus::HeaderSync;
+                    self.sync_status = SyncStatus::NoSync;
                 }
             }
             _ => {}
@@ -418,7 +336,7 @@ impl ClientActor {
             .wait(ctx);
 
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
-           act.fetch_network_info(ctx);
+            act.fetch_network_info(ctx);
         });
     }
 

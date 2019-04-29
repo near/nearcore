@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::io;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -20,10 +21,11 @@ use tokio::net::{TcpListener, TcpStream};
 
 use near_protos::network as network_proto;
 use primitives::transaction::SignedTransaction;
+use primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
 use crate::types::{
-    Consolidate, Handshake, PeerInfo, PeerMessage, PeerStatus, PeerType, ProtocolMessage,
+    Consolidate, Handshake, NetworkMessages, PeerInfo, PeerMessage, PeerStatus, PeerType,
     SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::PeerManagerActor;
@@ -34,7 +36,7 @@ pub struct Peer {
     /// Peer address from connection.
     pub peer_addr: SocketAddr,
     /// Peer id and info. Present if outbound or ready.
-    pub peer_info: Option<PeerInfo>,
+    pub peer_info: DisplayOption<PeerInfo>,
     /// Peer type.
     pub peer_type: PeerType,
     /// Peer status.
@@ -44,7 +46,8 @@ pub struct Peer {
     /// Handshake timeout.
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
-    peer_manager_addr: Addr<PeerManagerActor>, //Recipient<Consolidate>,
+    peer_manager_addr: Addr<PeerManagerActor>,
+    client_addr: Recipient<NetworkMessages>,
 }
 
 impl Peer {
@@ -55,22 +58,24 @@ impl Peer {
         peer_type: PeerType,
         framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
         handshake_timeout: Duration,
-        peer_manager_addr: Addr<PeerManagerActor>, //Recipient<Consolidate>,
+        peer_manager_addr: Addr<PeerManagerActor>,
+        client_addr: Recipient<NetworkMessages>,
     ) -> Self {
         Peer {
             node_info,
             peer_addr,
-            peer_info,
+            peer_info: peer_info.into(),
             peer_type,
             peer_status: PeerStatus::Connecting,
             framed,
             handshake_timeout,
             peer_manager_addr,
+            client_addr,
         }
     }
 
     fn send_message(&mut self, msg: PeerMessage) {
-        debug!(target: "network", "Sending {} message to peer {:?}", msg, self.peer_info);
+        debug!(target: "network", "Sending {:?} message to peer {}", msg, self.peer_info);
         self.framed.write(msg.into());
     }
 
@@ -82,6 +87,46 @@ impl Peer {
         );
         self.send_message(PeerMessage::Handshake(handshake));
     }
+
+    fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+//            (_, PeerStatus::Ready, PeerMessage::Message(bytes)) => match decode_message(&bytes) {
+//                Ok(message) => {
+//                    info!(target: "network", "Received {:?} message from {:?}", message, self.peer_info);
+//                    match message {
+//                        ProtocolMessage::BlockAnnounce(block) => {
+//                            self.client_addr.do_send(NetworkMessages::Block(
+//                                block,
+//                                self.peer_info.unwrap(),
+//                                false,
+//                            ));
+//                        }
+//                        _ => {}
+//                    }
+//                }
+//                Err(err) => {
+//                    warn!(target: "network", "Invalid proto received from {:?}: {}", self.peer_info, err);
+//                }
+//            },
+        debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
+        let peer_info = match self.peer_info.as_ref() {
+            Some(peer_info) => peer_info.clone(),
+            None => { return; }
+        };
+        // TODO: we are waiting here until we processed, should we?
+        let result = match msg {
+            PeerMessage::BlockAnnounce(block) => {
+                self.client_addr.do_send(NetworkMessages::Block(block, peer_info, false))
+            }
+            PeerMessage::BlockHeaderAnnounce(header) => {
+                self.client_addr.do_send(NetworkMessages::BlockHeader(header, peer_info))
+            }
+            PeerMessage::Transaction(transaction) => {
+                self.client_addr.do_send(NetworkMessages::Transaction(transaction))
+            }
+            _ => unreachable!()
+        };
+        // TODO: deal with result -> ban peer or whatever.
+    }
 }
 
 impl Actor for Peer {
@@ -92,7 +137,7 @@ impl Actor for Peer {
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
         ctx.run_later(self.handshake_timeout, move |act, ctx| {
             if act.peer_status != PeerStatus::Ready {
-                info!(target: "network", "Handshake timeout expired for {:?}", act.peer_info);
+                info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
                 ctx.stop();
             }
         });
@@ -104,8 +149,8 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        debug!(target: "network", "Peer {:?} disconnected.", self.peer_info);
-        if let Some(peer_info) = &self.peer_info {
+        debug!(target: "network", "Peer {} disconnected.", self.peer_info);
+        if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
                 self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
             }
@@ -141,7 +186,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                         match res {
                             Ok(true) => {
                                 debug!(target: "network", "Peer {:?} successfully consolidated", act.peer_addr);
-                                act.peer_info = Some(peer_info);
+                                act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
@@ -161,15 +206,9 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
             (_, PeerStatus::Ready, PeerMessage::InfoGossip(_)) => {
                 // TODO: implement gossip of peers.
             }
-            (_, PeerStatus::Ready, PeerMessage::Message(bytes)) => match decode_message(&bytes) {
-                Ok(message) => {
-                    //                    let protocol_addr = Protocol::from_registry();
-                    //                    protocol_addr.do_send(message);
-                }
-                Err(err) => {
-                    warn!(target: "network", "Invalid proto received from {:?}: {}", self.peer_info, err);
-                }
-            },
+            (_, PeerStatus::Ready, msg) => {
+                self.receive_message(ctx, msg);
+            }
             (_, _, msg) => {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
             }
@@ -181,17 +220,6 @@ impl Handler<SendMessage> for Peer {
     type Result = ();
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
-        self.send_message(PeerMessage::Message(encode_message(msg.message).unwrap()));
+        self.send_message(msg.message);
     }
-}
-
-fn encode_message(message: ProtocolMessage) -> ProtobufResult<Vec<u8>> {
-    let proto: network_proto::Message = message.into();
-    proto.write_to_bytes()
-}
-
-fn decode_message(data: &[u8]) -> Result<ProtocolMessage, String> {
-    parse_from_bytes::<network_proto::Message>(data)
-        .map_err(|e| format!("Protobuf error: {}", e))
-        .and_then(TryInto::try_into)
 }

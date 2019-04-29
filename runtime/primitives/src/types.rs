@@ -120,6 +120,7 @@ impl From<ManaAccounting> for receipt_proto::ManaAccounting {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {
+    Best,
     Number(BlockIndex),
     Hash(CryptoHash),
 }

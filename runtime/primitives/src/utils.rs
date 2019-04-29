@@ -1,13 +1,15 @@
+use std::convert::{TryFrom, TryInto};
+use std::fmt;
+
 use bs58;
 use byteorder::{LittleEndian, WriteBytesExt};
 use lazy_static::lazy_static;
 use protobuf::{well_known_types::StringValue, SingularPtrField};
-use std::convert::{TryFrom, TryInto};
+use regex::Regex;
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
-use regex::Regex;
 
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
@@ -98,4 +100,31 @@ where
     U: TryFrom<T, Error = String>,
 {
     proto_to_result(proto).and_then(TryInto::try_into)
+}
+
+pub struct DisplayOption<T>(pub Option<T>);
+
+impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.0 {
+            Some(ref v) => write!(f, "Some({})", v),
+            None => write!(f, "None"),
+        }
+    }
+}
+
+impl<T> DisplayOption<T> {
+    pub fn into(self) -> Option<T> {
+        self.0
+    }
+
+    pub fn as_ref(&self) -> &Option<T> {
+        &self.0
+    }
+}
+
+impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
+    fn from(o: Option<T>) -> Self {
+        DisplayOption(o)
+    }
 }

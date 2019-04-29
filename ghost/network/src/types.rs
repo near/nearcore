@@ -199,7 +199,9 @@ pub type PeersInfo = Vec<PeerInfo>;
 pub enum PeerMessage {
     Handshake(Handshake),
     InfoGossip(PeersInfo),
-    Message(Vec<u8>),
+    BlockAnnounce(Block),
+    BlockHeaderAnnounce(BlockHeader),
+    Transaction(SignedTransaction),
 }
 
 impl fmt::Display for PeerMessage {
@@ -207,7 +209,9 @@ impl fmt::Display for PeerMessage {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::InfoGossip(_) => f.write_str("InfoGossip"),
-            PeerMessage::Message(_) => f.write_str("Message"),
+            PeerMessage::BlockAnnounce(_) => f.write_str("BlockAnnounce"),
+            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
+            PeerMessage::Transaction(_) => f.write_str("Transaction"),
         }
     }
 }
@@ -228,8 +232,14 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(PeerMessage::InfoGossip(peer_info))
             }
-            Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
-                Ok(PeerMessage::Message(message))
+            Some(network_proto::PeerMessage_oneof_message_type::block_announce(block)) => {
+                Ok(PeerMessage::BlockAnnounce(block.try_into()?))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_header_announce(header)) => {
+                Ok(PeerMessage::BlockHeaderAnnounce(header.try_into()?))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction)) => {
+                Ok(PeerMessage::Transaction(transaction.try_into()?))
             }
             None => unreachable!(),
         }
@@ -251,8 +261,14 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
-            PeerMessage::Message(message) => {
-                Some(network_proto::PeerMessage_oneof_message_type::message(message))
+            PeerMessage::BlockAnnounce(block) => {
+                Some(network_proto::PeerMessage_oneof_message_type::block_announce(block.into()))
+            }
+            PeerMessage::BlockHeaderAnnounce(header) => {
+                Some(network_proto::PeerMessage_oneof_message_type::block_header_announce(header.into()))
+            }
+            PeerMessage::Transaction(transaction) => {
+                Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction.into()))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -300,246 +316,6 @@ impl KnownPeerState {
     }
 }
 
-/// Message passed over the network from peer to peer.
-/// Box's are used when message is significantly larger than other enum members.
-#[derive(PartialEq, Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum ProtocolMessage {
-    /// Incoming transaction.
-    Transaction(Box<SignedTransaction>),
-}
-
-impl TryFrom<network_proto::Message> for ProtocolMessage {
-    type Error = String;
-
-    fn try_from(proto: network_proto::Message) -> Result<Self, Self::Error> {
-        match proto.message_type {
-            //            Some(network_proto::Message_oneof_message_type::connected_info(info)) => {
-            //                info.try_into().map(Message::Connected)
-            //            }
-            Some(network_proto::Message_oneof_message_type::transaction(tx)) => {
-                tx.try_into().map(|tx| ProtocolMessage::Transaction(Box::new(tx)))
-            }
-            //            Some(network_proto::Message_oneof_message_type::receipt(receipt)) => {
-            //                receipt.try_into().map(|receipt| Message::Receipt(Box::new(receipt)))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::block_announce(ann)) => {
-            //                match (proto_to_type(ann.beacon_block), proto_to_type(ann.shard_block)) {
-            //                    (Ok(beacon), Ok(shard)) => {
-            //                        Ok(Message::BlockAnnounce(Box::new((beacon, shard))))
-            //                    }
-            //                    _ => Err(PROTO_ERROR.to_string()),
-            //                }
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::block_fetch_request(request)) => {
-            //                Ok(Message::BlockFetchRequest(request.request_id, request.from, request.to))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::block_response(response)) => {
-            //                let blocks: Result<Vec<_>, _> = response
-            //                    .response
-            //                    .into_iter()
-            //                    .map(|coupled| {
-            //                        match (
-            //                            proto_to_type(coupled.beacon_block),
-            //                            proto_to_type(coupled.shard_block),
-            //                        ) {
-            //                            (Ok(beacon), Ok(shard)) => Ok((beacon, shard)),
-            //                            _ => Err(PROTO_ERROR.to_string()),
-            //                        }
-            //                    })
-            //                    .collect();
-            //                match blocks {
-            //                    Ok(blocks) => {
-            //                        Ok(Message::BlockResponse(response.request_id, blocks, response.best_index))
-            //                    }
-            //                    Err(e) => Err(e),
-            //                }
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::gossip(gossip)) => {
-            //                gossip.try_into().map(|g| Message::Gossip(Box::new(g)))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::payload_gossip(payload_gossip)) => {
-            //                payload_gossip.try_into().map(|g| Message::PayloadGossip(Box::new(g)))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::payload_request(request)) => {
-            //                let payload_request = proto_to_type(request.payload)?;
-            //                Ok(Message::PayloadRequest(request.request_id, payload_request))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::payload_snapshot_request(request)) => {
-            //                Ok(Message::PayloadSnapshotRequest(
-            //                    request.request_id,
-            //                    request.snapshot_hash.try_into()?,
-            //                ))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::payload_response(response)) => {
-            //                match proto_to_type(response.payload) {
-            //                    Ok(payload) => Ok(Message::PayloadResponse(response.request_id, payload)),
-            //                    Err(e) => Err(e),
-            //                }
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::payload_snapshot_response(
-            //                     response,
-            //                 )) => {
-            //                let snapshot = proto_to_type(response.snapshot)?;
-            //                Ok(Message::PayloadSnapshotResponse(response.request_id, snapshot))
-            //            }
-            //            Some(network_proto::Message_oneof_message_type::joint_block_bls(joint)) => {
-            //                match joint.field_type {
-            //                    Some(network_proto::Message_JointBlockBLS_oneof_type::general(general)) => {
-            //                        let beacon_sig = Base58Encoded::from_base58(&general.beacon_sig)
-            //                            .map_err(|e| format!("cannot decode signature: {:?}", e))?;
-            //                        let shard_sig = Base58Encoded::from_base58(&general.shard_sig)
-            //                            .map_err(|e| format!("cannot deocde signature: {:?}", e))?;
-            //                        Ok(Message::JointBlockBLS(JointBlockBLS::General {
-            //                            sender_id: general.sender_id as AuthorityId,
-            //                            receiver_id: general.receiver_id as AuthorityId,
-            //                            beacon_hash: general.beacon_hash.try_into()?,
-            //                            shard_hash: general.shard_hash.try_into()?,
-            //                            beacon_sig,
-            //                            shard_sig,
-            //                        }))
-            //                    }
-            //                    Some(network_proto::Message_JointBlockBLS_oneof_type::request(request)) => {
-            //                        Ok(Message::JointBlockBLS(JointBlockBLS::Request {
-            //                            sender_id: request.sender_id as AuthorityId,
-            //                            receiver_id: request.receiver_id as AuthorityId,
-            //                            beacon_hash: request.beacon_hash.try_into()?,
-            //                            shard_hash: request.shard_hash.try_into()?,
-            //                        }))
-            //                    }
-            //                    None => unreachable!(),
-            //                }
-            //            }
-            _ => panic!("!!"),
-            None => unreachable!(),
-        }
-    }
-}
-
-impl From<ProtocolMessage> for network_proto::Message {
-    fn from(message: ProtocolMessage) -> Self {
-        let message_type = match message {
-//            Message::Connected(connected_info) => {
-//                network_proto::Message_oneof_message_type::connected_info(connected_info.into())
-//            }
-            ProtocolMessage::Transaction(tx) => {
-                network_proto::Message_oneof_message_type::transaction((*tx).into())
-            }
-//            Message::Receipt(receipt) => {
-//                network_proto::Message_oneof_message_type::receipt((*receipt).into())
-//            }
-//            Message::BlockAnnounce(ann) => {
-//                let blocks = to_coupled_block(*ann);
-//                network_proto::Message_oneof_message_type::block_announce(blocks)
-//            }
-//            Message::BlockFetchRequest(request_id, from, to) => {
-//                let request = network_proto::Message_BlockFetchRequest {
-//                    request_id,
-//                    from,
-//                    to,
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::block_fetch_request(request)
-//            }
-//            Message::BlockResponse(request_id, blocks, best_index) => {
-//                let response = network_proto::Message_BlockResponse {
-//                    request_id,
-//                    response: RepeatedField::from_iter(blocks.into_iter().map(to_coupled_block)),
-//                    best_index,
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::block_response(response)
-//            }
-//            Message::Gossip(gossip) => {
-//                network_proto::Message_oneof_message_type::gossip((*gossip).into())
-//            }
-//            Message::PayloadGossip(payload_gossip) => {
-//                network_proto::Message_oneof_message_type::payload_gossip((*payload_gossip).into())
-//            }
-//            Message::PayloadRequest(request_id, request) => {
-//                let request = network_proto::Message_PayloadRequest {
-//                    request_id,
-//                    payload: SingularPtrField::some(request.into()),
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::payload_request(request)
-//            }
-//            Message::PayloadSnapshotRequest(request_id, snapshot_hash) => {
-//                let snapshot_request = network_proto::Message_PayloadSnapshotRequest {
-//                    request_id,
-//                    snapshot_hash: snapshot_hash.into(),
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::payload_snapshot_request(
-//                    snapshot_request,
-//                )
-//            }
-//            Message::PayloadResponse(request_id, payload) => {
-//                let response = network_proto::Message_PayloadResponse {
-//                    request_id,
-//                    payload: SingularPtrField::some(payload.into()),
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::payload_response(response)
-//            }
-//            Message::PayloadSnapshotResponse(request_id, snapshot) => {
-//                let response = network_proto::Message_PayloadSnapshotResponse {
-//                    request_id,
-//                    snapshot: SingularPtrField::some(snapshot.into()),
-//                    ..Default::default()
-//                };
-//                network_proto::Message_oneof_message_type::payload_snapshot_response(response)
-//            }
-//            Message::JointBlockBLS(joint_bls) => match joint_bls {
-//                JointBlockBLS::General {
-//                    sender_id,
-//                    receiver_id,
-//                    beacon_hash,
-//                    shard_hash,
-//                    beacon_sig,
-//                    shard_sig,
-//                } => {
-//                    let proto = network_proto::Message_JointBlockBLS_General {
-//                        sender_id: sender_id as u64,
-//                        receiver_id: receiver_id as u64,
-//                        beacon_hash: beacon_hash.into(),
-//                        shard_hash: shard_hash.into(),
-//                        beacon_sig: beacon_sig.to_base58(),
-//                        shard_sig: shard_sig.to_base58(),
-//                        ..Default::default()
-//                    };
-//                    let bls_proto = network_proto::Message_JointBlockBLS {
-//                        field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::general(
-//                            proto,
-//                        )),
-//                        ..Default::default()
-//                    };
-//                    network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
-//                }
-//                JointBlockBLS::Request { sender_id, receiver_id, beacon_hash, shard_hash } => {
-//                    let proto = network_proto::Message_JointBlockBLS_Request {
-//                        sender_id: sender_id as u64,
-//                        receiver_id: receiver_id as u64,
-//                        beacon_hash: beacon_hash.into(),
-//                        shard_hash: shard_hash.into(),
-//                        unknown_fields: Default::default(),
-//                        cached_size: Default::default(),
-//                    };
-//                    let bls_proto = network_proto::Message_JointBlockBLS {
-//                        field_type: Some(network_proto::Message_JointBlockBLS_oneof_type::request(
-//                            proto,
-//                        )),
-//                        unknown_fields: Default::default(),
-//                        cached_size: Default::default(),
-//                    };
-//                    network_proto::Message_oneof_message_type::joint_block_bls(bls_proto)
-//                }
-//            },
-        };
-        network_proto::Message { message_type: Some(message_type), ..Default::default() }
-    }
-}
-
 /// Actor message that holds the TCP stream from an inbound TCP connection
 #[derive(Message)]
 pub struct InboundTcpConnect {
@@ -563,7 +339,7 @@ pub struct OutboundTcpConnect {
 
 #[derive(Message)]
 pub struct SendMessage {
-    pub message: ProtocolMessage,
+    pub message: PeerMessage,
 }
 
 /// Actor message to consolidate potential new peer.
@@ -610,4 +386,15 @@ where
 
 impl Message for NetworkRequests {
     type Result = NetworkResponses;
+}
+
+#[derive(Debug)]
+pub enum NetworkMessages {
+    Transaction(SignedTransaction),
+    BlockHeader(BlockHeader, PeerInfo),
+    Block(Block, PeerInfo, bool),
+}
+
+impl Message for NetworkMessages {
+    type Result = Result<bool, String>;
 }
