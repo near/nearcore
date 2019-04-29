@@ -22,9 +22,12 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let nodes =
-        vec![RemoteNode::new(SocketAddr::from_str("127.0.0.1:3030").unwrap(), &vec!["near.0"], 1)];
+    let nodes = vec![RemoteNode::new(
+        SocketAddr::from_str("127.0.0.1:3030").unwrap(),
+        &vec!["bob.near", "alice.near"],
+        1_000_000,
+    )];
     // Start the executor.
-    let handle = Executor::spawn(nodes, None, 700);
+    let handle = Executor::spawn(nodes, None, 800);
     handle.join().unwrap();
 }

@@ -9,23 +9,23 @@ pub struct Generator {}
 impl Generator {
     /// Create send money transaction.
     pub fn send_money(
-        node_from: &Arc<RwLock<RemoteNode>>,
-        node_to: &Arc<RwLock<RemoteNode>>,
+        node: &Arc<RwLock<RemoteNode>>,
+        signer_ind: usize,
+        all_accounts: &Vec<String>,
     ) -> SignedTransaction {
         let (signer_from, nonce) = {
-            let mut node_from = node_from.write().unwrap();
-            let acc_ind = rand::random::<usize>() % node_from.nonces.len();
-            node_from.nonces[acc_ind] += 1;
-            (node_from.signers[acc_ind].clone(), node_from.nonces[acc_ind])
+            let mut node = node.write().unwrap();
+            node.nonces[signer_ind] += 1;
+            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
         };
 
-        let signer_to = {
-            let node_to = node_to.write().unwrap();
-            let acc_ind = rand::random::<usize>() % node_to.nonces.len();
-            node_to.signers[acc_ind].clone()
-        };
         let acc_from = signer_from.account_id.clone();
-        let acc_to = signer_to.account_id.clone();
+        let acc_to = loop {
+            let ind = rand::random::<usize>() % all_accounts.len();
+            if all_accounts[ind] != acc_from {
+                break all_accounts[ind].clone();
+            }
+        };
 
         TransactionBody::send_money(nonce, acc_from.as_str(), acc_to.as_str(), 1)
             .sign(&*signer_from)
