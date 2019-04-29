@@ -28,12 +28,15 @@ lazy_static = "1.2.0"
 log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
+reqwest = "0.9"
 
 keystore = { path = "./test-utils/keystore" }
 primitives = { path = "./runtime/primitives" }
 storage = { path = "./runtime/storage" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
+near-protos = { path = "./runtime/protos" }
+nearmint = { path = "./nearmint" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

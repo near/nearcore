@@ -12,6 +12,13 @@ variables:
 .setup_rust: &setup_rust
     rustup default nightly
 
+.setup_tendermint: &setup_tendermint
+    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh &&
+    chmod +x install_tendermint_ubuntu.sh &&
+    ./install_tendermint_ubuntu.sh &&
+    source ~/.profile &&
+    tendermint init &&
+
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
@@ -47,6 +54,7 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
+    - *setup_tendermint
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
@@ -54,10 +62,65 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
+    - cargo build -p keystore --release && ./target/release/keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
     - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
+
+# Regression tests.
+test_regression:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_tps_regression test --features regression_tests
+    tags:
+        - regression_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
+
+# A set of expensive tests.
+test_cases_testnet_direct:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_direct test --features expensive_tests
+    tags:
+      - expensive_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
+
+# A set of expensive tests.
+test_cases_testnet_rpc:
+    stage: rust
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *install_protos
+    script:
+    - rustc --version && cargo --version
+    - ./scripts/build_wasm.sh
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features expensive_tests
+    tags:
+        - expensive_tests
+    after_script:
+    - *cleanup_obsolete_cache
+    only:
+        - schedules
 
 release_build:
     stage: rust
@@ -67,13 +130,8 @@ release_build:
     - *install_protos
     script:
     - rustc --version && cargo --version
-#    - cargo build --release --package=devnet
-#    - cp target/release/devnet devnet
     after_script:
     - *cleanup_obsolete_cache
-#    artifacts:
-#        paths:
-#            - devnet
 
 coverage:
     stage: libs
