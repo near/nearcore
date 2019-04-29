@@ -21,7 +21,7 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-struct Orphan {
+pub struct Orphan {
     block: Block,
     provenance: Provenance,
     added: Instant,
@@ -80,6 +80,12 @@ impl OrphanBlockPool {
     pub fn contains(&self, hash: &CryptoHash) -> bool {
         self.orphans.contains_key(hash)
     }
+
+    pub fn remove_by_height(&mut self, height: BlockIndex) -> Option<Vec<Orphan>> {
+        self.height_idx
+            .remove(&height)
+            .map(|hs| hs.iter().filter_map(|h| self.orphans.remove(h)).collect())
+    }
 }
 
 /// Facade to the blockchain block processing and storage.
@@ -88,7 +94,7 @@ pub struct Chain {
     store: Arc<ChainStore>,
     runtime_adapter: Arc<RuntimeAdapter>,
     orphans: OrphanBlockPool,
-    genesis: Block,
+    genesis: BlockHeader,
 }
 
 impl Chain {
@@ -106,7 +112,7 @@ impl Chain {
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
         let head_res = store.head();
-        let mut head: Tip;
+        let head: Tip;
         match head_res {
             Ok(h) => {
                 head = h;
@@ -114,7 +120,7 @@ impl Chain {
                 let header_head = store.header_head()?;
                 if store.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header_head to be consistent with current head.
-                    store_update.save_header_head(&head);
+                    store_update.save_header_head(&head)?;
                 }
                 // TODO: check that genesis root / timestamp matches.
                 // TODO: perform validation that state matches the stored chain.
@@ -125,7 +131,7 @@ impl Chain {
                     store_update.save_block(&genesis)?;
 
                     head = Tip::from_header(&genesis.header);
-                    store_update.save_head(&head);
+                    store_update.save_head(&head)?;
 
                     store_update.merge(state_store_update);
 
@@ -138,7 +144,12 @@ impl Chain {
 
         info!(target: "chain", "Init: head: {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
 
-        Ok(Chain { store, runtime_adapter, orphans: OrphanBlockPool::new(), genesis })
+        Ok(Chain {
+            store,
+            runtime_adapter,
+            orphans: OrphanBlockPool::new(),
+            genesis: genesis.header,
+        })
     }
 
     /// Returns underlying ChainStore.
@@ -146,10 +157,15 @@ impl Chain {
         self.store.clone()
     }
 
+    /// Returns genesis block header.
+    pub fn genesis(&self) -> &BlockHeader {
+        &self.genesis
+    }
+
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update =
+        let chain_update =
             ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
         chain_update.process_block_header(header)?;
         Ok(())
@@ -164,12 +180,12 @@ impl Chain {
         block_accepted: F,
     ) -> Result<Option<Tip>, Error>
     where
-        F: FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let height = block.header.height;
         let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
-            self.check_orphans(height + 1);
+            return Ok(self.check_orphans(height + 1, block_accepted));
         }
         res
     }
@@ -259,18 +275,49 @@ impl Chain {
     }
 
     /// Check for orphans, once a block is successfully added.
-    fn check_orphans(&self, height: BlockIndex) {
+    fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
+    where
+        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+    {
         let initial_height = height;
+
+        let mut orphan_accepted = false;
+        let mut maybe_new_head = None;
+
+        // Check if there are orphans we can process.
+        debug!(target: "chain", "Check orphans: at {}, # orphans {}", height, self.orphans.len());
+        loop {
+            if let Some(orphans) = self.orphans.remove_by_height(height) {
+                debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
+                for orphan in orphans.into_iter() {
+                    let res =
+                        self.process_block_single(orphan.block, orphan.provenance, block_accepted);
+                    if let Ok(maybe_tip) = res {
+                        maybe_new_head = maybe_tip;
+                        orphan_accepted = true;
+                    }
+                }
+
+                if orphan_accepted {
+                    // Accepted a block, so should check if there are now new orphans unlocked.
+                    height += 1;
+                    continue;
+                }
+            }
+            break;
+        }
 
         if initial_height != height {
             debug!(
                 target: "chain",
-                "check_orphans: {} blocks accepted since height {}, remaining # orphans {}",
+                "Check orphans: {} blocks accepted since height {}, remaining # orphans {}",
                 height - initial_height,
                 initial_height,
                 self.orphans.len(),
             );
         }
+
+        maybe_new_head
     }
 
     /// Get previous block header.
@@ -311,7 +358,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Commit changes to the chain into the database.
-    pub fn commit(mut self) -> Result<(), Error> {
+    pub fn commit(self) -> Result<(), Error> {
         let store_update = self.chain_store_update.finalize();
         store_update.commit().map_err(|e| e.into())
     }
@@ -328,6 +375,14 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Find previous header or return Orphan error if not found.
+    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+        self.store.get_previous_header(header).map_err(|e| match e.kind() {
+            ErrorKind::DBNotFoundErr(_) => ErrorKind::Orphan.into(),
+            other => other.into(),
+        })
+    }
+
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
     /// Returns new head if chain head updated.
     fn process_block(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
@@ -340,7 +395,7 @@ impl<'a> ChainUpdate<'a> {
         let head = self.store.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
-        let prev = self.store.get_previous_header(&block.header)?;
+        let prev = self.get_previous_header(&block.header)?;
 
         // Block is an orphan if we do not know about the previous full block.
         // Skip this check if we have just processed the previous block
@@ -396,7 +451,7 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // First I/O cost, delayed as late as possible.
-        let prev_header = self.store.get_previous_header(header)?;
+        let prev_header = self.get_previous_header(header)?;
 
         // Validate the block producer.
         // TODO: not implemented.

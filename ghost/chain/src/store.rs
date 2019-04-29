@@ -128,7 +128,7 @@ impl ChainStoreUpdate {
         self.store_update.merge(store_update);
     }
 
-    pub fn finalize(mut self) -> StoreUpdate {
+    pub fn finalize(self) -> StoreUpdate {
         self.store_update
     }
 }

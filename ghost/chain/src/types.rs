@@ -49,7 +49,7 @@ impl BlockHeader {
             prev_hash: prev_hash.into(),
             prev_state_root: prev_state_root.into(),
             tx_root: tx_root.into(),
-            timestamp: timestamp.timestamp() as u64,
+            timestamp: timestamp.timestamp_nanos() as u64,
             signatures: RepeatedField::from_iter(
                 signatures.iter().map(std::convert::Into::into),
             ),
@@ -78,7 +78,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
         let prev_state_root = proto.prev_state_root.try_into()?;
         let tx_root = proto.tx_root.try_into()?;
         let timestamp =
-            DateTime::from_utc(NaiveDateTime::from_timestamp(proto.timestamp as i64, 0), Utc);
+            DateTime::from_utc(NaiveDateTime::from_timestamp((proto.timestamp / 1_000_000_000) as i64, (proto.timestamp % 1_000_000_00) as u32), Utc);
         let signatures =
             proto.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let total_weight = proto.total_weight.into();
@@ -102,7 +102,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
             prev_hash: header.prev_hash.into(),
             prev_state_root: header.prev_state_root.into(),
             tx_root: header.tx_root.into(),
-            timestamp: header.timestamp.timestamp() as u64,
+            timestamp: header.timestamp.timestamp_nanos() as u64,
             signatures: RepeatedField::from_iter(
                 header.signatures.iter().map(std::convert::Into::into),
             ),
@@ -144,7 +144,7 @@ impl Block {
                 tx_root,
                 Utc::now(),
                 vec![],
-                prev.total_weight,
+                (prev.total_weight.to_num() + 1).into(),
             ),
             transactions,
         }
