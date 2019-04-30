@@ -218,21 +218,19 @@ describe('with access key', function () {
             newAccountId,
             keyForAccessKey.getPublicKey(),
             contractId,
-            '',
-            '',
-            0,
+            '',  // methodName
+            '',  // fundingOwner
+            0,  // fundingAmount
         );
         await nearjs.waitForTransactionResult(addAccessKeyResponse);
         // Replacing public key for the account with the access key
         await keyStore.setKey(newAccountId, keyForAccessKey);
         // test that load contract works and we can make calls afterwards
         const contract = await nearjs.loadContract(contractId, {
-            viewMethods: ['hello', 'getValue'],
+            viewMethods: ['getValue'],
             changeMethods: ['setValue'],
             sender: newAccountId,
         });
-        const helloResult = await contract.hello({ name: 'trex' });
-        expect(helloResult).toEqual('hello trex');
         const setCallValue2 = await generateUniqueString('setCallPrefix');
         const setValueResult = await contract.setValue({ value: setCallValue2 });
         expect(setValueResult.status).toBe('Completed');
