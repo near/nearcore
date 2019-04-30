@@ -12,6 +12,13 @@ variables:
 .setup_rust: &setup_rust
     rustup default nightly
 
+.setup_tendermint: &setup_tendermint
+    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh &&
+    chmod +x install_tendermint_ubuntu.sh &&
+    ./install_tendermint_ubuntu.sh &&
+    source ~/.profile &&
+    tendermint init &&
+
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
@@ -47,6 +54,7 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
+    - *setup_tendermint
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
@@ -54,7 +62,8 @@ test_cargo:
     - rustc --version && cargo --version
     #- ./scripts/run_clippy.sh
     - ./scripts/build_wasm.sh
-    - cargo check --all --all-features --tests --benches
+    - cargo build -p keystore --release && ./target/release/keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
+    - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
@@ -121,13 +130,8 @@ release_build:
     - *install_protos
     script:
     - rustc --version && cargo --version
-    - cargo build --release --package=devnet
-    - cp target/release/devnet devnet
     after_script:
     - *cleanup_obsolete_cache
-    artifacts:
-        paths:
-            - devnet
 
 coverage:
     stage: libs
@@ -140,26 +144,26 @@ coverage:
     - cargo test --all --no-run
     - *code_coverage
 
-test_nearlib:
-    stage: libs
-    dependencies:
-    - release_build
-    script:
-    - ./devnet &
-    - ./scripts/test_nearlib.sh
+#test_nearlib:
+#    stage: libs
+#    dependencies:
+#    - release_build
+#    script:
+#    - ./devnet &
+#    - ./scripts/test_nearlib.sh
 
 lint_nearlib:
     stage: libs
     script:
     - cd nearlib && npm install eslint && npm run lint
 
-test_pynear:
-    stage: libs
-    before_script:
-        - *install_protos
-        - *setup_python
-    dependencies:
-        - release_build
-    script:
-    - export NEAR_DEVNET_EXE=../devnet
-    - cd pynear && python setup.py test
+#test_pynear:
+#    stage: libs
+#    before_script:
+#        - *install_protos
+#        - *setup_python
+#    dependencies:
+#        - release_build
+#    script:
+#    - export NEAR_DEVNET_EXE=../devnet
+#    - cd pynear && python setup.py test

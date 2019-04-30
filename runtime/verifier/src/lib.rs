@@ -86,11 +86,10 @@ impl<'a> TransactionVerifier<'a> {
                                         function_call.contract_id,
                                     ));
                                 }
-                                if function_call.amount > access_key.amount {
+                                if function_call.amount > 0 {
                                     return Err(format!(
-                                        "Transaction amount {} is larger than the access key amount {}",
+                                        "Transaction amount {} should be 0 for the access key",
                                         function_call.amount,
-                                        access_key.amount,
                                     ));
                                 }
                                 if let Some(ref access_method_name) = access_key.method_name {

@@ -19,18 +19,10 @@ lazy_static = "1.3"
 bs58 = "0.2"
 byteorder = "1.2"
 
-alphanet = { path = "../../chain/alphanet" }
-chain = { path = "../../chain/chain" }
-client = { path = "../../chain/client" }
-configs = { path = "../../chain/configs" }
-network = { path = "../../chain/network" }
 primitives = { path = "../../runtime/primitives" }
 near-protos = { path = "../../runtime/protos" }
-node-http = { path = "../../chain/http" }
 node-runtime = { path = "../../runtime/runtime" }
-tokio-utils = { path = "../../chain/tokio-utils" }
 storage = { path = "../../runtime/storage" }
-shard = { path = "../../chain/shard" }
 
 [dependencies.reqwest]
 version = "0.9"

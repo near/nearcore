@@ -21,6 +21,7 @@ pub mod hash;
 pub mod logging;
 pub mod merkle;
 pub mod network;
+pub mod receipt;
 pub mod rpc;
 pub mod serialize;
 pub mod test_utils;
