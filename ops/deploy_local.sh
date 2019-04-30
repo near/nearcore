@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.3}
+IMAGE=${1:-nearprotocol/nearcore:0.1.5}
 STUDIO_IMAGE=${2:-nearprotocol/studio:0.2.4}
 TOTAL_NODES=${3:-2}
 NUM_ACCOUNTS=${4:-10}
@@ -28,6 +28,8 @@ sudo docker run -d --name testnet-${NODE_ID} -p $((3030+${NODE_ID})):3030 -p $((
 	-e "PRIVATE_NETWORK=y" \
 	${IMAGE}
 done
+
+exit
 
 sudo docker run -d --name studio -p 80:80 --add-host=testnet-0:172.17.0.2 --rm \
     -e "DEVNET_HOST=http://172.17.0.2" \

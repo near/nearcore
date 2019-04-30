@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 pub mod remote_node;
 pub mod sampler;
+pub mod stats;
 pub mod transactions_executor;
 pub mod transactions_generator;
 use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
@@ -26,15 +27,14 @@ fn main() {
     configure_logging(log::LevelFilter::Debug);
     let (chain_spec, _) = ChainSpec::testing_spec(
         DefaultIdType::Enumerated,
-        100,
-        4,
+        10,
+        2,
         AuthorityRotation::ProofOfAuthority,
     );
     let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
 
-    let start_nonces = 5_000_000;
-    let addrs =
-        ["35.236.106.188:3030", "35.236.44.50:3030", "35.236.113.178:3030", "35.236.59.222:3030"];
+    let start_nonces = 1_000_000;
+    let addrs = ["127.0.0.1:3030", "127.0.0.1:3031"];
 
     let num_nodes = addrs.len();
     let accounts_per_node = accounts.len() / num_nodes;

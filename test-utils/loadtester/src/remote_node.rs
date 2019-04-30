@@ -1,4 +1,3 @@
-use futures::stream::Stream;
 use futures::Future;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
@@ -10,6 +9,10 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Maximum number of blocks that can be fetched through a single RPC request.
+pub const MAX_BLOCKS_FETCH: u64 = 20;
+const VALUE_NOT_STR_ERR: &str = "Value is not str";
+const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 
 pub struct RemoteNode {
     pub addr: SocketAddr,
@@ -44,7 +47,7 @@ impl RemoteNode {
         Arc::new(RwLock::new(Self { addr, signers, nonces, url, async_client, sync_client }))
     }
 
-    pub fn add_transaction(
+    pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
@@ -61,64 +64,38 @@ impl RemoteNode {
         Box::new(response)
     }
 
-    pub fn get_current_height(&self) -> Box<dyn Future<Item = u64, Error = String> + Send> {
+    pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        let res = self
-            .async_client
-            .post(url.as_str())
-            .send()
-            .and_then(|mut resp| resp.json())
-            .map(|response: serde_json::Value| {
-                response["result"]["sync_info"]["latest_block_height"]
-                    .as_str()
-                    .unwrap()
-                    .parse()
-                    .unwrap()
-            })
-            .map_err(|err| format!("{}", err));
-        Box::new(res)
+        let response: serde_json::Value = self.sync_client.post(url.as_str()).send()?.json()?;
+        Ok(response["result"]["sync_info"]["latest_block_height"]
+            .as_str()
+            .ok_or(VALUE_NOT_STR_ERR)?
+            .parse()?)
     }
 
     pub fn get_transactions(
         &self,
         min_height: u64,
         max_height: u64,
-    ) -> Box<dyn Future<Item = u64, Error = String> + Send> {
-        let chunk_size = 20u64;
-        let mut chunks = vec![];
-        let mut curr = min_height;
-        loop {
-            chunks.push((curr, curr + chunk_size));
-            curr += chunk_size + 1;
-            if curr > max_height {
-                break;
-            }
+    ) -> Result<u64, Box<dyn std::error::Error>> {
+        assert!(max_height - min_height <= MAX_BLOCKS_FETCH, "Too many blocks to fetch");
+        let url = format!("{}{}", self.url, "/blockchain");
+        let response: serde_json::Value = self
+            .sync_client
+            .post(url.as_str())
+            .form(&[
+                ("minHeight", format!("{}", min_height)),
+                ("maxHeight", format!("{}", max_height)),
+            ])
+            .send()?
+            .json()?;
+        let mut result = 0u64;
+        for block_meta in response["result"]["block_metas"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
+            result += block_meta["header"]["num_txs"]
+                .as_str()
+                .ok_or(VALUE_NOT_STR_ERR)?
+                .parse::<u64>()?;
         }
-        let client = self.async_client.clone();
-        let url = self.url.clone();
-        let result =
-            futures::stream::iter_ok(chunks).fold(0u64, move |total_tx: u64, (from, to)| {
-                let url = format!("{}{}", url, "/blockchain");
-                client
-                    .post(url.as_str())
-                    .form(&[("minHeight", format!("{}", from)), ("maxHeight", format!("{}", to))])
-                    .send()
-                    .and_then(|mut resp| resp.json())
-                    .map(move |response: serde_json::Value| {
-                        response["result"]["block_metas"].as_array().unwrap().iter().fold(
-                            total_tx,
-                            move |num_tx: u64, bm: &serde_json::Value| {
-                                num_tx
-                                    + bm["header"]["num_txs"]
-                                        .as_str()
-                                        .unwrap()
-                                        .parse::<u64>()
-                                        .unwrap()
-                            },
-                        )
-                    })
-                    .map_err(|err| format!("{}", err))
-            });
-        Box::new(result)
+        Ok(result)
     }
 }

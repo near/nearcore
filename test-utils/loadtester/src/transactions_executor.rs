@@ -1,16 +1,16 @@
 //! Executes a single transaction or a list of transactions on a set of nodes.
 
 use crate::remote_node::RemoteNode;
+use crate::stats::Stats;
 use crate::transactions_generator::Generator;
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tokio::timer::{Delay, Interval};
+use tokio::timer::Interval;
 use tokio::util::FutureExt;
 
 pub struct Executor {
@@ -24,7 +24,7 @@ impl Executor {
         timeout: Option<Duration>,
         tps: u64,
     ) -> JoinHandle<()> {
-        let out_tx_counter = Arc::new(AtomicU64::new(0));
+        let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
             tokio::run(futures::lazy(move || {
                 // Channels into which we can signal to send a transaction.
@@ -44,7 +44,7 @@ impl Executor {
 
                 for node in &nodes {
                     for (signer_ind, _) in node.read().unwrap().signers.iter().enumerate() {
-                        let out_tx_counter = out_tx_counter.clone();
+                        let stats = stats.clone();
                         let node = node.clone();
                         let all_account_ids = all_account_ids.to_vec();
                         let (tx, rx) = tokio::sync::mpsc::channel(1024);
@@ -54,14 +54,14 @@ impl Executor {
                         tokio::spawn(
                             rx.map_err(|_| ())
                                 .for_each(move |_| {
-                                    let out_tx_counter = out_tx_counter.clone();
+                                    let stats = stats.clone();
                                     let t =
                                         Generator::send_money(&node, signer_ind, &all_account_ids);
-                                    let f = { node.write().unwrap().add_transaction(t) };
+                                    let f = { node.write().unwrap().add_transaction_async(t) };
                                     f.map_err(|_| ())
                                         .timeout(Duration::from_secs(1))
                                         .map(move |_| {
-                                            out_tx_counter.fetch_add(1, Ordering::SeqCst);
+                                            stats.read().unwrap().inc_out_tx();
                                         })
                                         .map_err(|_| ())
                                 })
@@ -95,42 +95,18 @@ impl Executor {
                     .map_err(|_| ());
 
                 let node = nodes[0].clone();
-                let first_height = node.read().unwrap().get_current_height().map_err(|_| ());
-                let last_height = node.read().unwrap().get_current_height().map_err(|_| ());
-                let ft = Instant::now();
+                stats.write().unwrap().measure_from(&*node.write().unwrap());
                 tokio::spawn(
-                    first_height
-                        .and_then(|fh: u64| task.map(move |_| fh))
-                        .and_then(move |fh: u64| {
-                            last_height.and_then(move |lh: u64| {
-                                let lt = Instant::now();
-                                node.read()
-                                    .unwrap()
-                                    .get_transactions(fh, lh)
-                                    .map(move |total_txs: u64| {
-                                        println!("Start block: {}", fh);
-                                        println!("End block: {}", lh);
-                                        let time_passed = lt.duration_since(ft).as_secs();
-                                        println!("Time passed: {} secs", time_passed);
-                                        let bps = ((lh - fh + 1) as f64) / (time_passed as f64);
-                                        println!("Blocks per second: {:.2}", bps);
-                                        println!(
-                                            "Transactions per second: {}",
-                                            total_txs / time_passed
-                                        );
-                                        println!(
-                                            "Outgoing transactions per second: {}",
-                                            out_tx_counter.load(Ordering::SeqCst) / time_passed
-                                        );
-                                        println!(
-                                            "Transactions per block: {}",
-                                            total_txs / (lh - fh + 1)
-                                        );
-                                    })
-                                    .map_err(|_| ())
-                            })
+                    task.then(move |_| {
+                        futures::future::lazy(move || {
+                            let mut stats = stats.write().unwrap();
+                            stats.measure_to(&*node.write().unwrap());
+                            stats.collect_transactions(&*node.write().unwrap());
+                            println!("{}", stats);
+                            Ok(())
                         })
-                        .map_err(|_| ()),
+                    })
+                    .map_err(|_: ()| ()),
                 );
                 Ok(())
             }));
