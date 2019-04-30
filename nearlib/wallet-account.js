@@ -1,5 +1,5 @@
 /**
- * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
+ * Wallet based account and signer that uses external wallet through the iframe to sign transactions.
  */
 
 const { sha256 } = require('js-sha256');

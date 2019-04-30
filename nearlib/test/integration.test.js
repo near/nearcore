@@ -175,7 +175,7 @@ describe('with access key', function () {
     let newAccountKeyPair;
 
     beforeAll(async () => {
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResponse = await account.createAccount(
             contractId,
             keyWithRandomSeed.getPublicKey(),
@@ -197,7 +197,7 @@ describe('with access key', function () {
         };
 
         newAccountId = await generateUniqueString('create.account.test');
-        newAccountKeyPair = await KeyPair.fromRandomSeed();
+        newAccountKeyPair = KeyPair.fromRandomSeed();
         const createAccountResponse = await account.createAccount(
             newAccountId,
             newAccountKeyPair.getPublicKey(),
@@ -213,7 +213,7 @@ describe('with access key', function () {
 
     test('make function calls using access key', async () => {
         // Adding access key
-        const keyForAccessKey = await KeyPair.fromRandomSeed();
+        const keyForAccessKey = KeyPair.fromRandomSeed();
         const addAccessKeyResponse = await account.addAccessKey(
             newAccountId,
             keyForAccessKey.getPublicKey(),
@@ -249,7 +249,7 @@ describe('with deployed contract', () => {
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResponse = await account.createAccount(
             contractName,
             keyWithRandomSeed.getPublicKey(),

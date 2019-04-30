@@ -21,7 +21,7 @@ beforeAll(async () => {
     account = new Account(nearjs.nearClient);
 
     mainTestAccountName = 'dev_acc_' + Math.random();
-    const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+    const keyWithRandomSeed = KeyPair.fromRandomSeed();
     const createAccountResponse = await account.createAccount(
         mainTestAccountName,
         keyWithRandomSeed.getPublicKey(),
@@ -42,7 +42,7 @@ describe('with promises', () => {
     jasmine.DEFAULT_TIMEOUT_INTERVAL = 20000;
 
     const deploy = async (contractName) => {
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResponse = await account.createAccount(
             contractName,
             keyWithRandomSeed.getPublicKey(),
