@@ -164,12 +164,12 @@ class Account {
         const result = {
             authorizedApps : [
                 {
-                    id: 'cryptomonsters',
+                    contractId: 'cryptomonsters',
                     name: 'Monsters',
                     balance: 10,
                 },
                 {
-                    id: 'pay_mo',
+                    contractId: 'pay_mo',
                     name: 'Paymo',
                     balance: 20 
                 }
@@ -177,7 +177,10 @@ class Account {
             activity : [
                 {
                     id: '24359uy1dfsgwr',
-                    description: 'Send 10 Near to alice.near' // localization? 
+                    activityType: 'TRANSFER_MONEY', // to be converted to a description string on front end for easier localization
+                    activityDetails: {
+                        amount: 10
+                    }
                 }
 
             ]
