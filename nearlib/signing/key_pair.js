@@ -49,8 +49,8 @@ class KeyPair {
      * keyWithRandomSeed.getSecretKey()
      * // returns [SECRET_KEY]
      */
-    static async fromRandomSeed() {
-        var newKeypair = nacl.sign.keyPair();
+    static fromRandomSeed() {
+        let newKeypair = nacl.sign.keyPair();
         const result = new KeyPair(
             KeyPair.encodeBufferInBs58(newKeypair.publicKey),
             KeyPair.encodeBufferInBs58(newKeypair.secretKey));
