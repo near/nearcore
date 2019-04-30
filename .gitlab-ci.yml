@@ -151,7 +151,6 @@ test_nearlib:
     before_script:
     - *setup_tendermint
     script:
-    - ./devnet &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
