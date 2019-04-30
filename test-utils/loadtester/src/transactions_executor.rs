@@ -47,7 +47,7 @@ impl Executor {
     ) -> JoinHandle<()> {
         // Deploy the testing contract, if needed.
         if let TransactionType::Set | TransactionType::HeavyStorageBlock = transaction_type {
-            Executor::deploy_contract(&nodes);
+            //            Executor::deploy_contract(&nodes);
         }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
@@ -99,7 +99,8 @@ impl Executor {
                                         .map(move |_| {
                                             stats.read().unwrap().inc_out_tx();
                                         })
-                                        .map_err(|_| ())
+                                        .or_else(|_| Ok(())) // Ignore errors.
+                                        .map_err(|_: ()| ())
                                 })
                                 .map(|_| ())
                                 .map_err(|_| ()),

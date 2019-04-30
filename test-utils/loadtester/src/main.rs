@@ -28,13 +28,24 @@ fn main() {
     configure_logging(log::LevelFilter::Debug);
     let (chain_spec, _) = ChainSpec::testing_spec(
         DefaultIdType::Enumerated,
+        400,
         10,
-        2,
         AuthorityRotation::ProofOfAuthority,
     );
     let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
 
-    let addrs = ["127.0.0.1:3030", "127.0.0.1:3031"];
+    let addrs = [
+        "35.236.106.188:3030",
+        "35.235.115.64:3030",
+        "35.235.75.161:3030",
+        "35.236.113.178:3030",
+        "35.236.42.186:3030",
+        "35.236.29.55:3030",
+        "35.235.84.221:3030",
+        "35.236.44.50:3030",
+        "35.236.84.38:3030",
+        "35.236.37.104:3030",
+    ];
 
     let num_nodes = addrs.len();
     let accounts_per_node = accounts.len() / num_nodes;
@@ -48,6 +59,6 @@ fn main() {
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 200, TransactionType::Set);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600, TransactionType::Set);
     handle.join().unwrap();
 }
