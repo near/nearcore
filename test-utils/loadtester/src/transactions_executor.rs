@@ -1,6 +1,6 @@
 //! Executes a single transaction or a list of transactions on a set of nodes.
 
-use crate::remote_node::RemoteNode;
+use crate::remote_node::{try_wait, wait, RemoteNode};
 use crate::stats::Stats;
 use crate::transactions_generator::Generator;
 use futures::future::Future;
@@ -19,11 +19,33 @@ pub struct Executor {
 }
 
 impl Executor {
+    /// Deploys test contract to each account of each node and waits for it to be committed.
+    fn deploy_contract(nodes: &Vec<Arc<RwLock<RemoteNode>>>) {
+        for n in nodes {
+            // Create deploy contract transactions.
+            let transactions = Generator::deploy_test_contract(n);
+            let mut hashes = vec![];
+            // Submit deploy contract transactions.
+            for tx in transactions {
+                hashes.push(wait(|| n.write().unwrap().add_transaction(tx.clone())));
+            }
+            // Wait for them to propagate.
+            wait(|| {
+                for h in &hashes {
+                    try_wait(|| n.write().unwrap().transaction_committed(h))?;
+                }
+                Ok(())
+            });
+        }
+    }
+
     pub fn spawn(
         nodes: Vec<Arc<RwLock<RemoteNode>>>,
         timeout: Option<Duration>,
         tps: u64,
     ) -> JoinHandle<()> {
+        // First, deploy the testing contract.
+        Executor::deploy_contract(&nodes);
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
             tokio::run(futures::lazy(move || {

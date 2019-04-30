@@ -53,6 +53,25 @@ where
     }
 }
 
+pub fn try_wait<F, T>(mut f: F) -> Result<T, Box<dyn std::error::Error>>
+where
+    F: FnMut() -> Result<T, Box<dyn std::error::Error>>,
+{
+    let started = Instant::now();
+    loop {
+        match f() {
+            Ok(r) => return Ok(r),
+            Err(err) => {
+                if Instant::now().duration_since(started) > MAX_WAIT_RPC {
+                    return Err(err);
+                } else {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    }
+}
+
 pub fn get_result<F, T>(f: F) -> T
 where
     F: Fn() -> Result<T, Box<dyn std::error::Error>>,
@@ -133,6 +152,7 @@ impl RemoteNode {
         Ok(serde_json::from_str(s)?)
     }
 
+    /// Sends transaction using `broadcast_tx_sync` using non-blocking Futures.
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
@@ -148,6 +168,36 @@ impl RemoteNode {
             .map(|_| ())
             .map_err(|err| format!("{}", err));
         Box::new(response)
+    }
+
+    /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of
+    /// the transaction.
+    pub fn add_transaction(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let transaction: near_protos::signed_transaction::SignedTransaction = transaction.into();
+        let tx_bytes = transaction.write_to_bytes().expect("write to bytes failed");
+        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
+        let result: serde_json::Value = self
+            .sync_client
+            .post(url.as_str())
+            .form(&[("tx", format!("0x{}", hex::encode(&tx_bytes)))])
+            .send()?
+            .json()?;
+        Ok(result["result"]["hash"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
+    }
+
+    /// Returns block height if transaction is committed to a block.
+    pub fn transaction_committed(&self, hash: &String) -> Result<u64, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/tx");
+        let response: serde_json::Value = self
+            .sync_client
+            .post(url.as_str())
+            .form(&[("hash", format!("0x{}", hash))])
+            .send()?
+            .json()?;
+        Ok(response["result"]["height"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse()?)
     }
 
     pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {

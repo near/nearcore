@@ -1,7 +1,7 @@
 //! Set of methods that construct transactions of various kind.
 
 use crate::remote_node::RemoteNode;
-use primitives::transaction::{SignedTransaction, TransactionBody};
+use primitives::transaction::{DeployContractTransaction, SignedTransaction, TransactionBody};
 use std::sync::{Arc, RwLock};
 
 pub struct Generator {}
@@ -31,20 +31,25 @@ impl Generator {
             .sign(&*signer_from)
     }
 
-    //    /// Returns transactions that deploy test contract to an account of every node.
-    //    pub fn deploy_test_contract(&mut self) -> Vec<SignedTransaction> {
-    //        let wasm_binary: &[u8] = include_bytes!("../../../tests/hello.wasm");
-    //        let mut res = vec![];
-    //        for node in &self.nodes {
-    //            let t = DeployContractTransaction {
-    //                nonce: self.nonce(node),
-    //                contract_id: Self::account_id(node),
-    //                wasm_byte_array: wasm_binary.to_vec(),
-    //            };
-    //            res.push(TransactionBody::DeployContract(t).sign(&*Self::signer(node)));
-    //        }
-    //        res
-    //    }
+    /// Returns transactions that deploy test contract to an every account used by the node.
+    pub fn deploy_test_contract(node: &Arc<RwLock<RemoteNode>>) -> Vec<SignedTransaction> {
+        let wasm_binary: &[u8] = include_bytes!("../../../tests/hello.wasm");
+        let mut res = vec![];
+        let mut node = node.write().unwrap();
+        for ind in 0..node.signers.len() {
+            node.nonces[ind] += 1;
+            let nonce = node.nonces[ind];
+            let signer = node.signers[ind].clone();
+            let contract_id = signer.account_id.clone();
+            let t = DeployContractTransaction {
+                nonce,
+                contract_id,
+                wasm_byte_array: wasm_binary.to_vec(),
+            };
+            res.push(TransactionBody::DeployContract(t).sign(&*signer));
+        }
+        res
+    }
     //
     //    /// Returns a transaction that calls `setKeyValue` on a random contract from a random account.
     //    pub fn call_set(&mut self) -> SignedTransaction {
