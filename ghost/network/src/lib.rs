@@ -24,7 +24,7 @@ use primitives::hash::CryptoHash;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::types::{Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId, PeerType, SendMessage, Unregister, PeerMessage};
-pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, NetworkMessages};
+pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, NetworkClientMessages};
 
 mod codec;
 mod peer;
@@ -39,11 +39,11 @@ pub struct PeerManagerActor {
     outgoing_peers: HashSet<PeerId>,
     active_peers: HashMap<PeerId, Recipient<SendMessage>>,
     peer_states: HashMap<PeerId, KnownPeerState>,
-    client_addr: Recipient<NetworkMessages>,
+    client_addr: Recipient<NetworkClientMessages>,
 }
 
 impl PeerManagerActor {
-    pub fn new(store: Arc<Store>, config: NetworkConfig, client_addr: Recipient<NetworkMessages>) -> Self {
+    pub fn new(store: Arc<Store>, config: NetworkConfig, client_addr: Recipient<NetworkClientMessages>) -> Self {
         let mut peer_states = HashMap::default();
         for peer_info in config.boot_nodes.iter() {
             peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));

@@ -389,12 +389,13 @@ impl Message for NetworkRequests {
 }
 
 #[derive(Debug)]
-pub enum NetworkMessages {
+pub enum NetworkClientMessages {
     Transaction(SignedTransaction),
     BlockHeader(BlockHeader, PeerInfo),
     Block(Block, PeerInfo, bool),
+    Blocks(Vec<Block>, PeerInfo),
 }
 
-impl Message for NetworkMessages {
+impl Message for NetworkClientMessages {
     type Result = Result<bool, String>;
 }

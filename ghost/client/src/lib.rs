@@ -16,7 +16,7 @@ use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_network::types::PeerInfo;
-use near_network::{NetworkConfig, NetworkMessages, NetworkRequests, NetworkResponses};
+use near_network::{NetworkConfig, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -82,22 +82,22 @@ impl Actor for ClientActor {
     }
 }
 
-impl Handler<NetworkMessages> for ClientActor {
+impl Handler<NetworkClientMessages> for ClientActor {
     type Result = Result<bool, String>;
 
-    fn handle(&mut self, msg: NetworkMessages, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkMessages::Transaction(tx) => match self.validate_tx(tx) {
+            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
                 Some(valid_transaction) => {
                     self.tx_pool.insert_transaction(valid_transaction);
                     Ok(true)
                 }
                 None => Ok(false),
             },
-            NetworkMessages::BlockHeader(header, peer_info) => {
+            NetworkClientMessages::BlockHeader(header, peer_info) => {
                 self.receive_header(header, peer_info)
             }
-            NetworkMessages::Block(block, peer_info, was_requested) => {
+            NetworkClientMessages::Block(block, peer_info, was_requested) => {
                 self.receive_block(ctx, block, peer_info, was_requested)
             }
             _ => Ok(false),

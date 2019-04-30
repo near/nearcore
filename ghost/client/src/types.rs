@@ -11,7 +11,7 @@ use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_network::types::PeerInfo;
-use near_network::{NetworkConfig, NetworkMessages, NetworkRequests, NetworkResponses};
+use near_network::{NetworkConfig, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -56,12 +56,12 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn test() -> Self {
+    pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
             genesis_timestamp: Utc::now(),
             block_production_delay: Duration::from_millis(100),
             block_expected_weight: 1000,
-            skip_sync_wait: true,
+            skip_sync_wait,
             sync_period: Duration::from_millis(100),
             min_num_peers: 0,
             log_summary_period: Duration::from_secs(10),

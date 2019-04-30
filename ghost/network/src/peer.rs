@@ -25,7 +25,7 @@ use primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
 use crate::types::{
-    Consolidate, Handshake, NetworkMessages, PeerInfo, PeerMessage, PeerStatus, PeerType,
+    Consolidate, Handshake, NetworkClientMessages, PeerInfo, PeerMessage, PeerStatus, PeerType,
     SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::PeerManagerActor;
@@ -47,7 +47,7 @@ pub struct Peer {
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
     peer_manager_addr: Addr<PeerManagerActor>,
-    client_addr: Recipient<NetworkMessages>,
+    client_addr: Recipient<NetworkClientMessages>,
 }
 
 impl Peer {
@@ -59,7 +59,7 @@ impl Peer {
         framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
-        client_addr: Recipient<NetworkMessages>,
+        client_addr: Recipient<NetworkClientMessages>,
     ) -> Self {
         Peer {
             node_info,
@@ -89,24 +89,6 @@ impl Peer {
     }
 
     fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-//            (_, PeerStatus::Ready, PeerMessage::Message(bytes)) => match decode_message(&bytes) {
-//                Ok(message) => {
-//                    info!(target: "network", "Received {:?} message from {:?}", message, self.peer_info);
-//                    match message {
-//                        ProtocolMessage::BlockAnnounce(block) => {
-//                            self.client_addr.do_send(NetworkMessages::Block(
-//                                block,
-//                                self.peer_info.unwrap(),
-//                                false,
-//                            ));
-//                        }
-//                        _ => {}
-//                    }
-//                }
-//                Err(err) => {
-//                    warn!(target: "network", "Invalid proto received from {:?}: {}", self.peer_info, err);
-//                }
-//            },
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_info = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.clone(),
@@ -115,17 +97,17 @@ impl Peer {
         // TODO: we are waiting here until we processed, should we?
         let result = match msg {
             PeerMessage::BlockAnnounce(block) => {
-                self.client_addr.do_send(NetworkMessages::Block(block, peer_info, false))
+                self.client_addr.do_send(NetworkClientMessages::Block(block, peer_info, false))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
-                self.client_addr.do_send(NetworkMessages::BlockHeader(header, peer_info))
+                self.client_addr.do_send(NetworkClientMessages::BlockHeader(header, peer_info))
             }
             PeerMessage::Transaction(transaction) => {
-                self.client_addr.do_send(NetworkMessages::Transaction(transaction))
+                self.client_addr.do_send(NetworkClientMessages::Transaction(transaction))
             }
             _ => unreachable!()
         };
-        // TODO: deal with result -> ban peer or whatever.
+        // TODO: deal with the result -> ban peer or whatever.
     }
 }
 
