@@ -5,11 +5,12 @@ use crate::transactions_generator::Generator;
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tokio::timer::Interval;
+use tokio::timer::{Delay, Interval};
 use tokio::util::FutureExt;
 
 pub struct Executor {
@@ -23,6 +24,7 @@ impl Executor {
         timeout: Option<Duration>,
         tps: u64,
     ) -> JoinHandle<()> {
+        let out_tx_counter = Arc::new(AtomicU64::new(0));
         thread::spawn(move || {
             tokio::run(futures::lazy(move || {
                 // Channels into which we can signal to send a transaction.
@@ -42,6 +44,7 @@ impl Executor {
 
                 for node in &nodes {
                     for (signer_ind, _) in node.read().unwrap().signers.iter().enumerate() {
+                        let out_tx_counter = out_tx_counter.clone();
                         let node = node.clone();
                         let all_account_ids = all_account_ids.to_vec();
                         let (tx, rx) = tokio::sync::mpsc::channel(1024);
@@ -51,11 +54,15 @@ impl Executor {
                         tokio::spawn(
                             rx.map_err(|_| ())
                                 .for_each(move |_| {
+                                    let out_tx_counter = out_tx_counter.clone();
                                     let t =
                                         Generator::send_money(&node, signer_ind, &all_account_ids);
                                     let f = { node.write().unwrap().add_transaction(t) };
                                     f.map_err(|_| ())
                                         .timeout(Duration::from_secs(1))
+                                        .map(move |_| {
+                                            out_tx_counter.fetch_add(1, Ordering::SeqCst);
+                                        })
                                         .map_err(|_| ())
                                 })
                                 .map(|_| ())
@@ -110,6 +117,10 @@ impl Executor {
                                         println!(
                                             "Transactions per second: {}",
                                             total_txs / time_passed
+                                        );
+                                        println!(
+                                            "Outgoing transactions per second: {}",
+                                            out_tx_counter.load(Ordering::SeqCst) / time_passed
                                         );
                                         println!(
                                             "Transactions per block: {}",

@@ -1,21 +1,19 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.3}
+IMAGE=${1:-nearprotocol/nearcore:0.1.5}
 PREFIX=${2:-testnet-${USER}}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.4}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
 NUM_NODES=${6:-4}
-NUM_ACCOUNTS=${7:-4}
+NUM_ACCOUNTS=${7:-100}
 
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
 set +e
 gcloud compute firewall-rules describe nearmint-instance > /dev/null 2>&1
 INSTANCE_FIRE_WALL_EXISTS=$?
-gcloud compute disks describe ${PREFIX}-persistent-0  --zone ${ZONE} > /dev/null 2>&1
-STORAGE_EXISTS=$?
 gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION} > /dev/null 2>&1
 ADDRESS_EXISTS=$?
 gcloud beta compute instances describe ${PREFIX}-0 --zone ${ZONE} > /dev/null 2>&1
@@ -26,14 +24,6 @@ if [[ ! ${INSTANCE_FIRE_WALL_EXISTS} -eq 0 ]]; then
 gcloud compute firewall-rules create nearmint-instance \
     --allow tcp:26656,tcp:3030 \
     --target-tags=nearmint-instance
-fi
-
-if [[ ! ${STORAGE_EXISTS} -eq 0 ]]; then
-gcloud compute disks create --size 200GB --zone ${ZONE} \
-    ${PREFIX}-persistent-0 \
-    ${PREFIX}-persistent-1 \
-    ${PREFIX}-persistent-2 \
-    ${PREFIX}-persistent-3
 fi
 
 if [[ ! ${ADDRESS_EXISTS} -eq 0 ]]; then
@@ -49,7 +39,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
     --tags=nearmint-instance \
-    --disk name=${PREFIX}-persistent-0 \
+    --create-disk=name=${PREFIX}-persistent-0,auto-delete=yes \
     --container-mount-disk mount-path="/srv/near" \
     --boot-disk-size 200GB \
     --address ${PREFIX}-0 \
@@ -78,13 +68,19 @@ do
         --container-image ${IMAGE} \
         --zone ${ZONE} \
         --tags=testnet-instance \
-        --disk=name=${PREFIX}-persistent-${NODE_ID} \
+        --create-disk=name=${PREFIX}-persistent-${NODE_ID},auto-delete=yes \
         --container-mount-disk=mount-path="/srv/near" \
         --boot-disk-size 200GB \
-        --machine-type n1-highcpu-4
+        --machine-type n1-highcpu-4 &
 
     fi
+done
+wait
 
+echo "RPCs of the nodes"
+for NODE_IP in $(gcloud compute instances list --filter="name:${PREFIX}*" | grep "RUNNING" | awk '{print $5}')
+do
+  echo "\"${NODE_IP}:3030\","
 done
 
 set +e
@@ -97,6 +93,8 @@ STUDIO_EXISTS=$?
 gcloud beta compute addresses describe ${PREFIX}-studio --region ${REGION} > /dev/null 2>&1
 STUDIO_ADDRESS_EXISTS=$?
 set -e
+
+exit
 
 if [[ ! ${STUDIO_FIRE_WALL_EXISTS} -eq 0 ]]; then
 gcloud compute firewall-rules create testnet-studio \

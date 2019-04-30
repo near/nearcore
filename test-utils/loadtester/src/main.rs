@@ -24,12 +24,17 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let (chain_spec, _) =
-        ChainSpec::testing_spec(DefaultIdType::Named, 10, 2, AuthorityRotation::ProofOfAuthority);
+    let (chain_spec, _) = ChainSpec::testing_spec(
+        DefaultIdType::Enumerated,
+        100,
+        4,
+        AuthorityRotation::ProofOfAuthority,
+    );
     let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
 
     let start_nonces = 5_000_000;
-    let addrs = ["127.0.0.1:3030", "127.0.0.1:3031"];
+    let addrs =
+        ["35.236.106.188:3030", "35.236.44.50:3030", "35.236.113.178:3030", "35.236.59.222:3030"];
 
     let num_nodes = addrs.len();
     let accounts_per_node = accounts.len() / num_nodes;
@@ -42,7 +47,8 @@ fn main() {
         );
         nodes.push(node);
     }
+
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 800);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600);
     handle.join().unwrap();
 }
