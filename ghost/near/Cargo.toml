@@ -11,6 +11,7 @@ kvdb-memorydb = "0.1"
 log = "0.4"
 env_logger = "0.6.0"
 chrono = { version = "0.4.4", features = ["serde"] }
+futures = "0.1"
 
 primitives = { path = "../../runtime/primitives" }
 near-store = { path = "../store" }

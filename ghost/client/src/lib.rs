@@ -8,7 +8,7 @@ use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Message, Recipient, System, WrapFuture,
 };
-use ansi_term::Color::{Cyan, White};
+use ansi_term::Color::{Cyan, Yellow};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
@@ -364,7 +364,7 @@ impl ClientActor {
             })
             .wait(ctx);
 
-        ctx.run_later(self.config.log_summary_period, move |act, ctx| {
+            ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             act.fetch_network_info(ctx);
         });
     }
@@ -378,8 +378,8 @@ impl ClientActor {
                 Err(_) => {return; }
             };
             info!(target: "client", "{} {} {}",
-                  White.bold().paint(format!("#{:>8}", head.height)),
-                  White.bold().paint(format!("{}", head.last_block_hash)),
+                  Yellow.bold().paint(format!("#{:>8}", head.height)),
+                  Yellow.bold().paint(format!("{}", head.last_block_hash)),
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)));
 
             act.log_summary(ctx);

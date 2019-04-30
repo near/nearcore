@@ -1,5 +1,5 @@
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::convert::{TryFrom, TryInto};
 use std::iter::FromIterator;
 
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};

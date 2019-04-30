@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix::{Actor, System, AsyncContext};
+use actix::{Actor, System, AsyncContext, Addr};
 use log::LevelFilter;
 use chrono::{DateTime, Utc};
 
@@ -29,7 +29,7 @@ impl NearConfig {
     }
 }
 
-pub fn start_with_config(config: NearConfig) {
+pub fn start_with_config(config: NearConfig) -> Addr<ClientActor> {
     // TODO: Replace with rocksdb.
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
@@ -47,5 +47,5 @@ pub fn start_with_config(config: NearConfig) {
             network_actor.recipient(),
             config.block_producer,
         ).unwrap()
-    });
+    })
 }

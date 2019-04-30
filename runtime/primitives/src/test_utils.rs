@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use log::LevelFilter;
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
+use log::LevelFilter;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
@@ -19,7 +19,10 @@ use crate::transaction::{SignedTransaction, TransactionBody};
 use crate::types::{AccountId, AuthorityId, AuthorityStake};
 
 pub fn init_test_logger() {
-    env_logger::Builder::new().filter(None, LevelFilter::Debug).init();
+    env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
+        .init();
 }
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {

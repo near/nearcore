@@ -403,6 +403,7 @@ impl<'a> ChainUpdate<'a> {
         let head = self.store.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
+        // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
 
         // Block is an orphan if we do not know about the previous full block.
