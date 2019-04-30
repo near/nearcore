@@ -144,13 +144,15 @@ coverage:
     - cargo test --all --no-run
     - *code_coverage
 
-#test_nearlib:
-#    stage: libs
-#    dependencies:
-#    - release_build
-#    script:
-#    - ./devnet &
-#    - ./scripts/test_nearlib.sh
+test_nearlib:
+    stage: libs
+    dependencies:
+    - release_build
+    before_script:
+    - *setup_tendermint
+    script:
+    - ./devnet &
+    - ./scripts/test_nearlib.sh
 
 lint_nearlib:
     stage: libs
