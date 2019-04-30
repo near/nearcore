@@ -48,6 +48,6 @@ fn main() {
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600, TransactionType::Set);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 200, TransactionType::Set);
     handle.join().unwrap();
 }

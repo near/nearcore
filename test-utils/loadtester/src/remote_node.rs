@@ -209,6 +209,29 @@ impl RemoteNode {
             .parse()?)
     }
 
+    // This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6
+    pub fn block_result_codes(
+        &self,
+        height: u64,
+    ) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/block_results");
+        let response: serde_json::Value = self
+            .sync_client
+            .post(url.as_str())
+            .form(&[("height", format!("{}", height))])
+            .send()?
+            .json()?;
+
+        let mut results = vec![];
+        for result in response["result"]["results"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
+            results.push((
+                result["code"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse::<u32>()?,
+                result["data"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned(),
+            ));
+        }
+        Ok(results)
+    }
+
     pub fn get_transactions(
         &self,
         min_height: u64,
@@ -232,6 +255,7 @@ impl RemoteNode {
                 .ok_or(VALUE_NOT_STR_ERR)?
                 .parse::<u64>()?;
         }
+
         Ok(result)
     }
 }
