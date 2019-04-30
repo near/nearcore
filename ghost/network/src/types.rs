@@ -150,6 +150,8 @@ pub enum PeerStatus {
     Connecting,
     /// Ready to go.
     Ready,
+    /// Banned, should shutdown this peer.
+    Banned,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -393,6 +395,11 @@ impl Message for Consolidate {
 
 #[derive(Message)]
 pub struct Unregister {
+    pub peer_id: PeerId,
+}
+
+#[derive(Message)]
+pub struct Ban {
     pub peer_id: PeerId,
 }
 

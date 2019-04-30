@@ -24,7 +24,10 @@ use primitives::transaction::SignedTransaction;
 use primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
-use crate::types::{Consolidate, Handshake, NetworkClientMessages, PeerInfo, PeerMessage, PeerStatus, PeerType, SendMessage, Unregister, PROTOCOL_VERSION, PeerChainInfo};
+use crate::types::{
+    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
+    PeerStatus, PeerType, SendMessage, Unregister, PROTOCOL_VERSION,
+};
 use crate::PeerManagerActor;
 
 pub struct Peer {
@@ -81,9 +84,13 @@ impl Peer {
             self.node_info.id,
             self.node_info.account_id.clone(),
             self.node_info.addr_port(),
-            PeerChainInfo { height: 0, total_weight: 0.into() }
+            PeerChainInfo { height: 0, total_weight: 0.into() },
         );
         self.send_message(PeerMessage::Handshake(handshake));
+    }
+
+    fn send_ban(&mut self, ctx: &mut Context<Peer>) {
+        ctx.stop();
     }
 
     fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
@@ -94,20 +101,45 @@ impl Peer {
                 return;
             }
         };
-        // TODO: we are waiting here until we processed, should we?
-        let result = match msg {
+
+        // Wrap peer message into what client expects.
+        let network_client_msg = match msg {
             PeerMessage::BlockAnnounce(block) => {
-                self.client_addr.do_send(NetworkClientMessages::Block(block, peer_info, false))
+                NetworkClientMessages::Block(block, peer_info, false)
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
-                self.client_addr.do_send(NetworkClientMessages::BlockHeader(header, peer_info))
+                NetworkClientMessages::BlockHeader(header, peer_info)
             }
             PeerMessage::Transaction(transaction) => {
-                self.client_addr.do_send(NetworkClientMessages::Transaction(transaction))
+                NetworkClientMessages::Transaction(transaction)
             }
             _ => unreachable!(),
         };
-        // TODO: deal with the result -> ban peer or whatever.
+        self.client_addr
+            .send(network_client_msg)
+            .into_actor(self)
+            .then(|res, act, ctx| {
+                // Ban peer if client concerned with information received.
+                match res {
+                    Ok(Ok(true)) => {
+                        act.peer_status = PeerStatus::Banned;
+                        ctx.stop();
+                    }
+                    Ok(Err(err)) => {
+                        error!("Received error {} processing message from {}", err, act.peer_info);
+                    }
+                    Err(err) => {
+                        error!(
+                            "Received error sending message to client: {} for {}",
+                            err, act.peer_info
+                        );
+                        return actix::fut::err(());
+                    }
+                    _ => {}
+                };
+                actix::fut::ok(())
+            })
+            .wait(ctx);
     }
 }
 
@@ -135,6 +167,8 @@ impl Actor for Peer {
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
                 self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
+            } else if self.peer_status == PeerStatus::Banned {
+                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id });
             }
         }
         Running::Stop
