@@ -153,6 +153,38 @@ class Account {
     async viewAccount (accountId) {
         return await this.nearClient.viewAccount(accountId);
     }
+
+    /**
+     * Returns full details for a given account.
+     * @param {string} accountId id of the account to look up 
+     */
+    async getAccountDetails(accountId) {
+        accountId; // make linter happy
+        // Hardcoded for now
+        const result = {
+            authorizedApps : [
+                {
+                    id: 'cryptomonsters',
+                    name: 'Monsters',
+                    balance: 10,
+                },
+                {
+                    id: 'pay_mo',
+                    name: 'Paymo',
+                    balance: 20 
+                }
+            ],
+            activity : [
+                {
+                    id: '24359uy1dfsgwr',
+                    description: 'Send 10 Near to alice.near' // localization? 
+                }
+
+            ]
+        };
+        return result;
+
+    }
 }
 module.exports = Account;
 
