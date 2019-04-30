@@ -21,49 +21,52 @@
     -   [createAccount](#createaccount)
         -   [Parameters](#parameters-3)
         -   [Examples](#examples-4)
-    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
+    -   [addAccessKey](#addaccesskey)
         -   [Parameters](#parameters-4)
         -   [Examples](#examples-5)
-    -   [viewAccount](#viewaccount)
+    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
         -   [Parameters](#parameters-5)
         -   [Examples](#examples-6)
--   [Near](#near)
-    -   [Parameters](#parameters-6)
-    -   [callViewFunction](#callviewfunction)
-        -   [Parameters](#parameters-7)
+    -   [viewAccount](#viewaccount)
+        -   [Parameters](#parameters-6)
         -   [Examples](#examples-7)
-    -   [scheduleFunctionCall](#schedulefunctioncall)
+-   [Near](#near)
+    -   [Parameters](#parameters-7)
+    -   [callViewFunction](#callviewfunction)
         -   [Parameters](#parameters-8)
         -   [Examples](#examples-8)
-    -   [deployContract](#deploycontract)
+    -   [scheduleFunctionCall](#schedulefunctioncall)
         -   [Parameters](#parameters-9)
         -   [Examples](#examples-9)
-    -   [getTransactionStatus](#gettransactionstatus)
+    -   [deployContract](#deploycontract)
         -   [Parameters](#parameters-10)
         -   [Examples](#examples-10)
-    -   [waitForTransactionResult](#waitfortransactionresult)
+    -   [getTransactionStatus](#gettransactionstatus)
         -   [Parameters](#parameters-11)
         -   [Examples](#examples-11)
-    -   [loadContract](#loadcontract)
+    -   [waitForTransactionResult](#waitfortransactionresult)
         -   [Parameters](#parameters-12)
         -   [Examples](#examples-12)
-    -   [createDefaultConfig](#createdefaultconfig)
+    -   [loadContract](#loadcontract)
         -   [Parameters](#parameters-13)
         -   [Examples](#examples-13)
+    -   [createDefaultConfig](#createdefaultconfig)
+        -   [Parameters](#parameters-14)
+        -   [Examples](#examples-14)
 -   [WalletAccount](#walletaccount)
-    -   [Parameters](#parameters-14)
-    -   [Examples](#examples-14)
+    -   [Parameters](#parameters-15)
+    -   [Examples](#examples-15)
     -   [isSignedIn](#issignedin)
-        -   [Examples](#examples-15)
-    -   [getAccountId](#getaccountid)
         -   [Examples](#examples-16)
-    -   [requestSignIn](#requestsignin)
-        -   [Parameters](#parameters-15)
+    -   [getAccountId](#getaccountid)
         -   [Examples](#examples-17)
-    -   [signOut](#signout)
-        -   [Examples](#examples-18)
-    -   [signTransactionBody](#signtransactionbody)
+    -   [requestSignIn](#requestsignin)
         -   [Parameters](#parameters-16)
+        -   [Examples](#examples-18)
+    -   [signOut](#signout)
+        -   [Examples](#examples-19)
+    -   [signBuffer](#signbuffer)
+        -   [Parameters](#parameters-17)
 
 ## require
 
@@ -161,6 +164,36 @@ const createAccountResponse = await account.createAccount(
    keyWithRandomSeed.getPublicKey(),
    1000,
    aliceAccountName);
+```
+
+### addAccessKey
+
+Adds a new access key to the owners account for an some app to use.
+
+#### Parameters
+
+-   `ownersAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the owner's account.
+-   `newPublicKey` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** public key for the access key.
+-   `contractId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** if the given contractId is not empty, then this access key will only be able to call
+         the given contractId.
+-   `methodName` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** If the given method name is not empty, then this access key will only be able to call
+         the given method name.
+-   `fundingOwner` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id to own the funding of this access key. If empty then account owner is used by default.
+         fundingOwner should be used if this access key would be sponsored by the app. In this case the app would
+         prefer to own funding of this access key, to get it back when the key is removed.
+-   `fundingAmount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of funding to withdraw from the owner's account and put to this access key.
+         Make sure you that you don't fund the access key when the fundingOwner is different from the account's owner.
+
+#### Examples
+
+```javascript
+const addAccessKeyResponse = await account.addAccessKey(
+   accountId,
+   keyWithRandomSeed.getPublicKey(),
+   contractId,
+   "",
+   "",
+   10);
 ```
 
 ### createAccountWithRandomKey
@@ -420,12 +453,12 @@ Sign out from the current account
 walletAccount.signOut();
 ```
 
-### signTransactionBody
+### signBuffer
 
-Sign a transaction body. If the key for senderAccountId is not present,
+Sign a buffer. If the key for originator is not present,
 this operation will fail.
 
 #### Parameters
 
--   `body` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** 
--   `senderAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
+-   `buffer` **[Uint8Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)** 
+-   `originator` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 

@@ -1,7 +1,8 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+(function (Buffer){
 const bs58 = require('bs58');
 
-const { CreateAccountTransaction, SignedTransaction } = require('./protos');
+const { google, AccessKey, AddKeyTransaction, CreateAccountTransaction, SignedTransaction } = require('./protos');
 const KeyPair = require('./signing/key_pair');
 
 /**
@@ -31,28 +32,91 @@ class Account {
         const nonce = await this.nearClient.getNonce(originator);
         publicKey = bs58.decode(publicKey);
         const createAccount = CreateAccountTransaction.create({
+            nonce,
             originator,
             newAccountId,
             publicKey,
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
-        if (nonce !== 0) {
-            createAccount.nonce = nonce;
-        }
         if (amount !== 0) {
             createAccount.amount = amount;
         }
 
         const buffer = CreateAccountTransaction.encode(createAccount).finish();
-        const signature = await this.nearClient.signer.signTransactionBody(
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
             buffer,
             originator,
         );
 
         const signedTransaction = SignedTransaction.create({
             createAccount,
-            signature,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
+        });
+        return this.nearClient.submitTransaction(signedTransaction);
+    }
+
+    /**
+     * Adds a new access key to the owners account for an some app to use.
+     * @param {string} ownersAccountId id of the owner's account.
+     * @param {string} newPublicKey public key for the access key.
+     * @param {string} contractId if the given contractId is not empty, then this access key will only be able to call
+     *      the given contractId.
+     * @param {string} methodName If the given method name is not empty, then this access key will only be able to call
+     *      the given method name.
+     * @param {string} fundingOwner account id to own the funding of this access key. If empty then account owner is used by default.
+     *      fundingOwner should be used if this access key would be sponsored by the app. In this case the app would
+     *      prefer to own funding of this access key, to get it back when the key is removed.
+     * @param {number} fundingAmount amount of funding to withdraw from the owner's account and put to this access key.
+     *      Make sure you that you don't fund the access key when the fundingOwner is different from the account's owner.
+     * @example
+     * const addAccessKeyResponse = await account.addAccessKey(
+     *    accountId,
+     *    keyWithRandomSeed.getPublicKey(),
+     *    contractId,
+     *    "",
+     *    "",
+     *    10);
+     */
+    async addAccessKey(ownersAccountId, newPublicKey, contractId, methodName, fundingOwner, fundingAmount) {
+        const nonce = await this.nearClient.getNonce(ownersAccountId);
+        newPublicKey = bs58.decode(newPublicKey);
+        const accessKey = AccessKey.create({});
+        if (contractId) {
+            accessKey.contractId = google.protobuf.StringValue.create({
+                value: contractId,
+            });
+        }
+        if (methodName) {
+            accessKey.methodName = google.protobuf.BytesValue.create({
+                value: new Uint8Array(Buffer.from(methodName)),
+            });
+        }
+        if (fundingOwner) {
+            accessKey.balanceOwner = google.protobuf.StringValue.create({
+                value: fundingOwner,
+            });
+        }
+        if (fundingAmount > 0) {
+            accessKey.amount = fundingAmount;
+        }
+        const addKey = AddKeyTransaction.create({
+            nonce,
+            originator: ownersAccountId,
+            newKey: newPublicKey,
+            accessKey,
+        });
+        const buffer = AddKeyTransaction.encode(addKey).finish();
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
+            buffer,
+            ownersAccountId,
+        );
+
+        const signedTransaction = SignedTransaction.create({
+            addKey,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
         });
         return this.nearClient.submitTransaction(signedTransaction);
     }
@@ -92,7 +156,8 @@ class Account {
 }
 module.exports = Account;
 
-},{"./protos":67,"./signing/key_pair":71,"bs58":20}],2:[function(require,module,exports){
+}).call(this,require("buffer").Buffer)
+},{"./protos":67,"./signing/key_pair":71,"bs58":20,"buffer":21}],2:[function(require,module,exports){
 (function (Buffer){
 require('error-polyfill');
 window.nearlib = require('./index');
@@ -355,6 +420,7 @@ class Near {
         args = new Uint8Array(Buffer.from(JSON.stringify(args)));
         const nonce = await this.nearClient.getNonce(originator);
         const functionCall = FunctionCallTransaction.create({
+            nonce,
             originator,
             contractId,
             methodName,
@@ -362,22 +428,20 @@ class Near {
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
-        if (nonce !== 0) {
-            functionCall.nonce = nonce;
-        }
         if (amount !== 0) {
             functionCall.amount = amount;
         }
 
         const buffer = FunctionCallTransaction.encode(functionCall).finish();
-        const signature = await this.nearClient.signer.signTransactionBody(
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
             buffer,
             originator,
         );
 
         const signedTransaction = SignedTransaction.create({
             functionCall,
-            signature,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
         });
         return await this.nearClient.submitTransaction(signedTransaction);
     }
@@ -393,24 +457,21 @@ class Near {
         const nonce = await this.nearClient.getNonce(contractId);
 
         const deployContract = DeployContractTransaction.create({
+            nonce,
             contractId,
             wasmByteArray,
         });
-        // Integers with value of 0 must be omitted
-        // https://github.com/dcodeIO/protobuf.js/issues/1138
-        if (nonce !== 0) {
-            deployContract.nonce = nonce;
-        }
 
         const buffer = DeployContractTransaction.encode(deployContract).finish();
-        const signature = await this.nearClient.signer.signTransactionBody(
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
             buffer,
             contractId,
         );
 
         const signedTransaction = SignedTransaction.create({
             deployContract,
-            signature,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
         });
         return await this.nearClient.submitTransaction(signedTransaction);
     }
@@ -15009,6 +15070,7 @@ module.exports = KeyPair;
 const bs58 = require('bs58');
 const nacl = require('tweetnacl');
 const { sha256 } = require('js-sha256');
+const { google } = require('../protos');
 
 class SimpleKeyStoreSigner {
     constructor(keyStore) {
@@ -15016,30 +15078,34 @@ class SimpleKeyStoreSigner {
     }
 
     /**
-     * Sign a transaction body. If the key for senderAccountId is not present, 
+     * Signs a buffer. If the key for originator is not present,
      * this operation will fail.
-     * @param {object} body
-     * @param {string} senderAccountId
-     * @param {string} networkId
+     * @param {Uint8Array} buffer
+     * @param {string} originator
      */
-    async signTransactionBody(body, senderAccountId) {
-        return this.signHash(new Uint8Array(sha256.array(body)), senderAccountId);
+    async signBuffer(buffer, originator) {
+        return this.signHash(new Uint8Array(sha256.array(buffer)), originator);
     }
 
-    async signHash(hash, senderAccountId) {
-        const encodedKey = await this.keyStore.getKey(senderAccountId);
+    async signHash(hash, originator) {
+        const encodedKey = await this.keyStore.getKey(originator);
         if (!encodedKey) {
-            throw new Error(`Cannot find key for sender ${senderAccountId}`);
+            throw new Error(`Cannot find key for originator ${originator}`);
         }
         const key = bs58.decode(encodedKey.getSecretKey());
         const signature = [...nacl.sign.detached(Uint8Array.from(hash), key)];
-        return signature;
+        return {
+            signature,
+            publicKey: google.protobuf.BytesValue.create({
+                value: bs58.decode(encodedKey.getPublicKey()),
+            }),
+        };
     }
 }
 
 module.exports = SimpleKeyStoreSigner;
 
-},{"bs58":20,"js-sha256":40,"tweetnacl":62}],73:[function(require,module,exports){
+},{"../protos":67,"bs58":20,"js-sha256":40,"tweetnacl":62}],73:[function(require,module,exports){
 (function (Buffer){
 /**
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
@@ -15215,20 +15281,22 @@ class WalletAccount {
     }
 
     /**
-     * Sign a transaction body. If the key for senderAccountId is not present,
+     * Sign a buffer. If the key for originator is not present,
      * this operation will fail.
-     * @param {object} body
-     * @param {string} senderAccountId
+     * @param {Uint8Array} buffer
+     * @param {string} originator
      */
-    async signTransactionBody(body, senderAccountId) {
-        if (!this.isSignedIn() || senderAccountId !== this.getAccountId()) {
-            throw 'Unauthorized account_id ' + senderAccountId;
+    async signBuffer(buffer, originator) {
+        if (!this.isSignedIn() || originator !== this.getAccountId()) {
+            throw 'Unauthorized account_id ' + originator;
         }
-        const txBody = FunctionCallTransaction.decode(body);
-        let methodName = Buffer.from(txBody.methodName).toString();
-        let args = JSON.parse(Buffer.from(txBody.args).toString());
-        let signature = await this._remoteSign(sha256.array(body), methodName, args);
-        return signature;
+        const body = FunctionCallTransaction.decode(buffer);
+        let methodName = Buffer.from(body.methodName).toString();
+        let args = JSON.parse(Buffer.from(body.args).toString());
+        let signature = await this._remoteSign(sha256.array(buffer), methodName, args);
+        return {
+            signature,
+        };
     }
 
 }

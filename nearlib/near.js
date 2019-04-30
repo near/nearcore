@@ -81,6 +81,7 @@ class Near {
         args = new Uint8Array(Buffer.from(JSON.stringify(args)));
         const nonce = await this.nearClient.getNonce(originator);
         const functionCall = FunctionCallTransaction.create({
+            nonce,
             originator,
             contractId,
             methodName,
@@ -88,22 +89,20 @@ class Near {
         });
         // Integers with value of 0 must be omitted
         // https://github.com/dcodeIO/protobuf.js/issues/1138
-        if (nonce !== 0) {
-            functionCall.nonce = nonce;
-        }
         if (amount !== 0) {
             functionCall.amount = amount;
         }
 
         const buffer = FunctionCallTransaction.encode(functionCall).finish();
-        const signature = await this.nearClient.signer.signTransactionBody(
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
             buffer,
             originator,
         );
 
         const signedTransaction = SignedTransaction.create({
             functionCall,
-            signature,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
         });
         return await this.nearClient.submitTransaction(signedTransaction);
     }
@@ -119,24 +118,21 @@ class Near {
         const nonce = await this.nearClient.getNonce(contractId);
 
         const deployContract = DeployContractTransaction.create({
+            nonce,
             contractId,
             wasmByteArray,
         });
-        // Integers with value of 0 must be omitted
-        // https://github.com/dcodeIO/protobuf.js/issues/1138
-        if (nonce !== 0) {
-            deployContract.nonce = nonce;
-        }
 
         const buffer = DeployContractTransaction.encode(deployContract).finish();
-        const signature = await this.nearClient.signer.signTransactionBody(
+        const signatureAndPublicKey = await this.nearClient.signer.signBuffer(
             buffer,
             contractId,
         );
 
         const signedTransaction = SignedTransaction.create({
             deployContract,
-            signature,
+            signature: signatureAndPublicKey.signature,
+            publicKey: signatureAndPublicKey.publicKey,
         });
         return await this.nearClient.submitTransaction(signedTransaction);
     }
