@@ -24,10 +24,7 @@ WORKDIR /near
 COPY . .
 
 ENV CARGO_TARGET_DIR=/tmp/target
-RUN --mount=type=cache,target=/tmp/target \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p nearmint --release && \
+RUN cargo build -p nearmint --release && \
     cp /tmp/target/release/nearmint /usr/local/bin/ && \
     cargo build -p keystore --release && \
     cp /tmp/target/release/keystore /usr/local/bin/ && \
