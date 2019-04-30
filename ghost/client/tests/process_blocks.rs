@@ -11,6 +11,7 @@ use futures::{future, Future};
 
 use near_chain::{test_utils::KeyValueRuntime, Block, BlockHeader, RuntimeAdapter};
 use near_client::{ClientActor, ClientConfig, GetBlock};
+use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{
     NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
 };
@@ -194,8 +195,16 @@ fn client_sync() {
             Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::FetchInfo => {
                     System::current().stop();
-                    NetworkResponses::Info { num_active_peers: 1, peer_max_count: 1 }
-                }
+                    NetworkResponses::Info {
+                        num_active_peers: 1,
+                        peer_max_count: 1,
+                        max_weight_peer: Some(FullPeerInfo {
+                            peer_info: PeerInfo::random(),
+                            chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
+                        }),
+                    }
+                },
+                // NetworkRequests::
                 _ => NetworkResponses::NoResponse,
             }),
         );

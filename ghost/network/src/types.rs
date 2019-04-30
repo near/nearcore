@@ -11,13 +11,13 @@ use protobuf::{RepeatedField, SingularPtrField};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::{TcpListener, TcpStream};
 
-use near_chain::{Block, BlockHeader};
+use near_chain::{Block, BlockHeader, Weight};
 use near_protos::network as network_proto;
 use primitives::crypto::signature::{PublicKey, SecretKey};
 use primitives::hash::CryptoHash;
 use primitives::logging::pretty_str;
 use primitives::transaction::SignedTransaction;
-use primitives::types::AccountId;
+use primitives::types::{AccountId, BlockIndex};
 use primitives::utils::{proto_to_result, proto_to_type, to_string_value};
 
 /// Current latest version of the protocol
@@ -107,6 +107,33 @@ impl From<PeerInfo> for network_proto::PeerInfo {
     }
 }
 
+/// Peer chain information.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct PeerChainInfo {
+    /// Last known chain height of the peer.
+    pub height: BlockIndex,
+    /// Last known chain weight of the peer.
+    pub total_weight: Weight,
+}
+
+impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
+    type Error = String;
+
+    fn try_from(proto: network_proto::PeerChainInfo) -> Result<Self, Self::Error> {
+        Ok(PeerChainInfo { height: proto.height, total_weight: proto.total_weight.into() })
+    }
+}
+
+impl From<PeerChainInfo> for network_proto::PeerChainInfo {
+    fn from(chain_peer_info: PeerChainInfo) -> network_proto::PeerChainInfo {
+        network_proto::PeerChainInfo {
+            height: chain_peer_info.height,
+            total_weight: chain_peer_info.total_weight.to_num(),
+            ..Default::default()
+        }
+    }
+}
+
 /// Peer type.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PeerType {
@@ -137,57 +164,66 @@ pub struct Handshake {
     pub listen_port: Option<u16>,
     /// Sender's information about known peers.
     pub peers_info: PeersInfo,
+    /// Peer's chain information.
+    pub chain_info: PeerChainInfo,
 }
 
 impl Handshake {
-    pub fn new(peer_id: PeerId, account_id: Option<AccountId>, listen_port: Option<u16>) -> Self {
+    pub fn new(
+        peer_id: PeerId,
+        account_id: Option<AccountId>,
+        listen_port: Option<u16>,
+        chain_info: PeerChainInfo,
+    ) -> Self {
         Handshake {
             version: PROTOCOL_VERSION,
             peer_id,
             account_id,
             listen_port,
             peers_info: vec![],
+            chain_info,
         }
     }
 }
 
-impl TryFrom<network_proto::HandShake> for Handshake {
+impl TryFrom<network_proto::Handshake> for Handshake {
     type Error = String;
 
-    fn try_from(proto: network_proto::HandShake) -> Result<Self, Self::Error> {
+    fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
         let peers_info =
             proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
-        // let connected_info = proto_to_type(proto.connected_info)?;
+        let chain_info = proto_to_type(proto.chain_info)?;
         Ok(Handshake {
             version: proto.version,
             peer_id: peer_id.into(),
             account_id,
             listen_port,
             peers_info,
+            chain_info,
         })
     }
 }
 
-impl From<Handshake> for network_proto::HandShake {
-    fn from(hand_shake: Handshake) -> network_proto::HandShake {
-        let account_id = SingularPtrField::from_option(hand_shake.account_id.map(to_string_value));
-        let listen_port = SingularPtrField::from_option(hand_shake.listen_port.map(|v| {
+impl From<Handshake> for network_proto::Handshake {
+    fn from(handshake: Handshake) -> network_proto::Handshake {
+        let account_id = SingularPtrField::from_option(handshake.account_id.map(to_string_value));
+        let listen_port = SingularPtrField::from_option(handshake.listen_port.map(|v| {
             let mut res = UInt32Value::new();
             res.set_value(u32::from(v));
             res
         }));
-        network_proto::HandShake {
-            version: hand_shake.version,
-            peer_id: hand_shake.peer_id.into(),
+        network_proto::Handshake {
+            version: handshake.version,
+            peer_id: handshake.peer_id.into(),
             peers_info: RepeatedField::from_iter(
-                hand_shake.peers_info.into_iter().map(std::convert::Into::into),
+                handshake.peers_info.into_iter().map(std::convert::Into::into),
             ),
-            connected_info: SingularPtrField::none(), //SingularPtrField::some(hand_shake.connected_info.into()),
             account_id,
             listen_port,
+            chain_info: SingularPtrField::some(handshake.chain_info.into()),
             ..Default::default()
         }
     }
@@ -253,7 +289,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake.into()))
             }
             PeerMessage::InfoGossip(peers_info) => {
-                let gossip = network_proto::InfoGossip {
+                let gossip = network_proto::PeerInfoGossip {
                     info_gossip: RepeatedField::from_iter(
                         peers_info.into_iter().map(std::convert::Into::into),
                     ),
@@ -348,6 +384,7 @@ pub struct Consolidate {
     pub actor: Recipient<SendMessage>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
+    pub chain_info: PeerChainInfo,
 }
 
 impl Message for Consolidate {
@@ -367,9 +404,16 @@ pub enum NetworkRequests {
     BlockRequest { hash: CryptoHash, peer_info: PeerInfo },
 }
 
+/// Combines peer address info and chain information.
+#[derive(Debug, Clone)]
+pub struct FullPeerInfo {
+    pub peer_info: PeerInfo,
+    pub chain_info: PeerChainInfo,
+}
+
 pub enum NetworkResponses {
     NoResponse,
-    Info { num_active_peers: usize, peer_max_count: u32 },
+    Info { num_active_peers: usize, peer_max_count: u32, max_weight_peer: Option<FullPeerInfo> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses

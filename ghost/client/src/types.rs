@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
-use near_network::types::PeerInfo;
+use near_network::types::{PeerInfo, FullPeerInfo};
 use near_network::{NetworkConfig, NetworkClientMessages, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
@@ -49,6 +49,10 @@ pub struct ClientConfig {
     pub skip_sync_wait: bool,
     /// Sync period.
     pub sync_period: Duration,
+    /// Sync weight threshold: below this difference in weight don't start syncing.
+    pub sync_weight_threshold: u64,
+    /// Sync height threshold: below this difference in height don't start syncing.
+    pub sync_height_threshold: u64,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between logging summary information.
@@ -63,6 +67,8 @@ impl ClientConfig {
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_period: Duration::from_millis(100),
+            sync_weight_threshold: 0,
+            sync_height_threshold: 1,
             min_num_peers: 0,
             log_summary_period: Duration::from_secs(10),
         }
@@ -77,6 +83,8 @@ impl ClientConfig {
             block_expected_weight: 1000,
             skip_sync_wait: false,
             sync_period: Duration::from_millis(100),
+            sync_weight_threshold: 0,
+            sync_height_threshold: 1,
             min_num_peers: 1,
             log_summary_period: Duration::from_secs(10),
         }
@@ -114,9 +122,20 @@ pub enum SyncStatus {
     BodySync,
 }
 
+impl SyncStatus {
+    /// True if currently engaged in syncing the chain.
+    pub fn is_syncing(&self) -> bool {
+        match self {
+            SyncStatus::NoSync | SyncStatus::AwaitingPeers => false,
+            _ => true
+        }
+    }
+}
+
 pub struct NetworkInfo {
     pub num_active_peers: usize,
     pub peer_max_count: u32,
+    pub max_weight_peer: Option<FullPeerInfo>,
 }
 
 /// Actor message requesting block by id or hash.

@@ -24,10 +24,7 @@ use primitives::transaction::SignedTransaction;
 use primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
-use crate::types::{
-    Consolidate, Handshake, NetworkClientMessages, PeerInfo, PeerMessage, PeerStatus, PeerType,
-    SendMessage, Unregister, PROTOCOL_VERSION,
-};
+use crate::types::{Consolidate, Handshake, NetworkClientMessages, PeerInfo, PeerMessage, PeerStatus, PeerType, SendMessage, Unregister, PROTOCOL_VERSION, PeerChainInfo};
 use crate::PeerManagerActor;
 
 pub struct Peer {
@@ -84,6 +81,7 @@ impl Peer {
             self.node_info.id,
             self.node_info.account_id.clone(),
             self.node_info.addr_port(),
+            PeerChainInfo { height: 0, total_weight: 0.into() }
         );
         self.send_message(PeerMessage::Handshake(handshake));
     }
@@ -164,6 +162,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                         actor: ctx.address().recipient(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
+                        chain_info: handshake.chain_info,
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {

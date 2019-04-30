@@ -10,7 +10,7 @@ use actix::{
 };
 use ansi_term::Color::{Cyan, White};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
@@ -62,7 +62,7 @@ impl ClientActor {
             tx_pool,
             network_actor,
             block_producer,
-            network_info: NetworkInfo { num_active_peers: 0, peer_max_count: 0 },
+            network_info: NetworkInfo { num_active_peers: 0, peer_max_count: 0, max_weight_peer: None },
         })
     }
 }
@@ -291,9 +291,36 @@ impl ClientActor {
         }
     }
 
+    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(&self, tx: SignedTransaction) -> Option<ValidTransaction> {
         // TODO: add actual validation.
         Some(ValidTransaction { transaction: tx })
+    }
+
+    /// Check whether need to (continue) sync.
+    fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
+        let head = self.chain.store().head()?;
+        let mut is_syncing = self.sync_status.is_syncing();
+
+        let full_peer_info = if let Some(full_peer_info) = &self.network_info.max_weight_peer {
+            full_peer_info
+        } else {
+            warn!(target: "client", "Sync: no peers available, disabling sync");
+            return Ok((false, 0));
+        };
+
+        if is_syncing {
+            if full_peer_info.chain_info.total_weight <= head.total_weight {
+                info!(target: "chain", "Sync: synced at {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+                is_syncing = false;
+            }
+        } else {
+            if full_peer_info.chain_info.total_weight.to_num() > head.total_weight.to_num() + self.config.sync_weight_threshold && full_peer_info.chain_info.height > head.height + self.config.sync_height_threshold {
+                info!("Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync", head.height, head.total_weight, full_peer_info.chain_info.height, full_peer_info.chain_info.total_weight);
+                is_syncing = true;
+            }
+        }
+        Ok((is_syncing, full_peer_info.chain_info.height))
     }
 
     /// Job responsible for syncing client with other peers.
@@ -319,13 +346,15 @@ impl ClientActor {
 
     /// Periodically fetch network info.
     fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
+        // TODO: replace with push from network?
         self.network_actor
             .send(NetworkRequests::FetchInfo)
             .into_actor(self)
             .then(move |res, act, ctx| match res {
-                Ok(NetworkResponses::Info { num_active_peers, peer_max_count }) => {
+                Ok(NetworkResponses::Info { num_active_peers, peer_max_count, max_weight_peer }) => {
                     act.network_info.num_active_peers = num_active_peers;
                     act.network_info.peer_max_count = peer_max_count;
+                    act.network_info.max_weight_peer = max_weight_peer;
                     actix::fut::ok(())
                 }
                 _ => {

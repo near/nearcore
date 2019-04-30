@@ -1,4 +1,5 @@
 use std::convert::{TryFrom, TryInto};
+use std::fmt;
 use std::iter::FromIterator;
 
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
@@ -261,6 +262,12 @@ impl Weight {
 impl From<u64> for Weight {
     fn from(num: u64) -> Self {
         Weight { num }
+    }
+}
+
+impl fmt::Display for Weight {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.num)
     }
 }
 

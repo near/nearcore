@@ -25,12 +25,13 @@ use primitives::hash::CryptoHash;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::types::{
-    Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId,
-    PeerMessage, PeerType, SendMessage, Unregister,
+    Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    OutboundTcpConnect, PeerId, PeerMessage, PeerType, SendMessage, Unregister,
 };
 pub use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
+use rand::seq::SliceRandom;
 
 mod codec;
 mod peer;
@@ -43,7 +44,7 @@ pub struct PeerManagerActor {
     peer_id: PeerId,
     config: NetworkConfig,
     outgoing_peers: HashSet<PeerId>,
-    active_peers: HashMap<PeerId, Recipient<SendMessage>>,
+    active_peers: HashMap<PeerId, (Recipient<SendMessage>, FullPeerInfo)>,
     peer_states: HashMap<PeerId, KnownPeerState>,
     client_addr: Recipient<NetworkClientMessages>,
 }
@@ -74,14 +75,17 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
-    fn register_peer(&mut self, peer_info: PeerInfo, addr: Recipient<SendMessage>) {
-        if self.outgoing_peers.contains(&peer_info.id) {
-            self.outgoing_peers.remove(&peer_info.id);
+    fn register_peer(&mut self, peer_info: FullPeerInfo, addr: Recipient<SendMessage>) {
+        if self.outgoing_peers.contains(&peer_info.peer_info.id) {
+            self.outgoing_peers.remove(&peer_info.peer_info.id);
         }
-        self.active_peers.insert(peer_info.id, addr);
-        let entry = self.peer_states.entry(peer_info.id).or_insert(KnownPeerState::new(peer_info));
+        let entry = self
+            .peer_states
+            .entry(peer_info.peer_info.id)
+            .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
         entry.last_seen = Utc::now();
         entry.status = KnownPeerStatus::Connected;
+        self.active_peers.insert(peer_info.peer_info.id, (addr, peer_info));
     }
 
     fn unregister_peer(&mut self, peer_id: PeerId) {
@@ -143,6 +147,24 @@ impl PeerManagerActor {
         self.active_peers.len() < (self.config.peer_max_count as usize)
     }
 
+    /// Returns single random peer with the most weight.
+    fn max_weight_peer(&self) -> Option<FullPeerInfo> {
+        let max_weight =
+            match self.active_peers.values().map(|(_, x)| x.chain_info.total_weight).max() {
+                Some(w) => w,
+                None => return None,
+            };
+        let mut max_weight_peers = self
+            .active_peers
+            .values()
+            .filter_map(
+                |(_, x)| if x.chain_info.total_weight == max_weight { Some(x) } else { None },
+            )
+            .collect::<Vec<_>>();
+        max_weight_peers.shuffle(&mut thread_rng());
+        max_weight_peers.pop().map(Clone::clone)
+    }
+
     /// Get a random peer we are not connected to from the known list.
     fn sample_random_peer(&self) -> Option<PeerInfo> {
         let unconnected_peers: Vec<PeerInfo> = self
@@ -182,7 +204,8 @@ impl PeerManagerActor {
 
     /// Broadcast message to all active peers.
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
-        let requests: Vec<_> = self.active_peers.values().map(|peer| peer.send(msg.clone())).collect();
+        let requests: Vec<_> =
+            self.active_peers.values().map(|peer| peer.0.send(msg.clone())).collect();
         future::join_all(requests)
             .into_actor(self)
             .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
@@ -217,13 +240,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::FetchInfo => NetworkResponses::Info {
                 num_active_peers: self.num_active_peers(),
                 peer_max_count: self.config.peer_max_count,
+                max_weight_peer: self.max_weight_peer(),
             },
             NetworkRequests::BlockAnnounce { block } => {
-                for (_, peer) in self.active_peers.iter() {
-                    let _ = peer.do_send(SendMessage {
-                        message: PeerMessage::BlockAnnounce(block.clone()),
-                    });
-                }
                 self.broadcast_message(
                     ctx,
                     SendMessage { message: PeerMessage::BlockAnnounce(block) },
@@ -306,7 +325,10 @@ impl Handler<Consolidate> for PeerManagerActor {
             }
         }
         // TODO: double check that address is connectable and add account id.
-        self.register_peer(msg.peer_info, msg.actor);
+        self.register_peer(
+            FullPeerInfo { peer_info: msg.peer_info, chain_info: msg.chain_info },
+            msg.actor,
+        );
         true
     }
 }

@@ -12,27 +12,28 @@ message PeerInfo {
     google.protobuf.StringValue account_id = 3;
 }
 
-message ConnectedInfo {
-    ChainState chain_state = 1;
+message PeerChainInfo {
+    uint64 height = 1;
+    uint64 total_weight = 2;
 }
 
-message HandShake {
+message Handshake {
     uint32 version = 1;
     bytes peer_id = 2;
     google.protobuf.StringValue account_id = 3;
     google.protobuf.UInt32Value listen_port = 4;
     repeated PeerInfo peers_info = 5;
-    ConnectedInfo connected_info = 6;
+    PeerChainInfo chain_info = 6;
 }
 
-message InfoGossip {
+message PeerInfoGossip {
     repeated PeerInfo info_gossip = 1;
 }
 
 message PeerMessage {
     oneof message_type {
-        HandShake hand_shake = 1;
-        InfoGossip info_gossip = 2;
+        Handshake hand_shake = 1;
+        PeerInfoGossip info_gossip = 2;
         Block block_announce = 3;
         BlockHeader block_header_announce = 4;
         SignedTransaction transaction = 5;
@@ -115,7 +116,6 @@ message Message {
     }
 
     oneof message_type {
-        ConnectedInfo connected_info = 1;
         SignedTransaction transaction = 2;
         ReceiptBlock receipt = 3;
         CoupledBlock block_announce = 4;

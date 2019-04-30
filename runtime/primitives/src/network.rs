@@ -127,29 +127,6 @@ impl From<PeerInfo> for network_proto::PeerInfo {
 
 pub type PeersInfo = Vec<PeerInfo>;
 
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Clone)]
-pub struct ConnectedInfo {
-    pub chain_state: ChainState,
-}
-
-impl TryFrom<network_proto::ConnectedInfo> for ConnectedInfo {
-    type Error = String;
-
-    fn try_from(proto: network_proto::ConnectedInfo) -> Result<Self, Self::Error> {
-        proto_to_result(proto.chain_state)
-            .and_then(|state| Ok(ConnectedInfo { chain_state: state.try_into()? }))
-    }
-}
-
-impl From<ConnectedInfo> for network_proto::ConnectedInfo {
-    fn from(connected_info: ConnectedInfo) -> network_proto::ConnectedInfo {
-        network_proto::ConnectedInfo {
-            chain_state: SingularPtrField::some(connected_info.chain_state.into()),
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct Handshake {
     /// Protocol version.
@@ -162,45 +139,40 @@ pub struct Handshake {
     pub listen_port: Option<u16>,
     /// Sender's information about known peers.
     pub peers_info: PeersInfo,
-    /// Connected info message that peer receives.
-    pub connected_info: ConnectedInfo,
 }
 
-impl TryFrom<network_proto::HandShake> for Handshake {
+impl TryFrom<network_proto::Handshake> for Handshake {
     type Error = String;
 
-    fn try_from(proto: network_proto::HandShake) -> Result<Self, Self::Error> {
+    fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
         let peers_info =
             proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
-        let connected_info = proto_to_type(proto.connected_info)?;
         Ok(Handshake {
             version: proto.version,
             peer_id: proto.peer_id.try_into()?,
             account_id,
             listen_port,
             peers_info,
-            connected_info,
         })
     }
 }
 
-impl From<Handshake> for network_proto::HandShake {
-    fn from(hand_shake: Handshake) -> network_proto::HandShake {
+impl From<Handshake> for network_proto::Handshake {
+    fn from(hand_shake: Handshake) -> network_proto::Handshake {
         let account_id = SingularPtrField::from_option(hand_shake.account_id.map(to_string_value));
         let listen_port = SingularPtrField::from_option(hand_shake.listen_port.map(|v| {
             let mut res = UInt32Value::new();
             res.set_value(u32::from(v));
             res
         }));
-        network_proto::HandShake {
+        network_proto::Handshake {
             version: hand_shake.version,
             peer_id: hand_shake.peer_id.into(),
             peers_info: RepeatedField::from_iter(
                 hand_shake.peers_info.into_iter().map(std::convert::Into::into),
             ),
-            connected_info: SingularPtrField::some(hand_shake.connected_info.into()),
             account_id,
             listen_port,
             ..Default::default()
@@ -257,7 +229,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake.into()))
             }
             PeerMessage::InfoGossip(peers_info) => {
-                let gossip = network_proto::InfoGossip {
+                let gossip = network_proto::PeerInfoGossip {
                     info_gossip: RepeatedField::from_iter(
                         peers_info.into_iter().map(std::convert::Into::into),
                     ),
