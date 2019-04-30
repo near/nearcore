@@ -94,8 +94,6 @@ gcloud beta compute addresses describe ${PREFIX}-studio --region ${REGION} > /de
 STUDIO_ADDRESS_EXISTS=$?
 set -e
 
-exit
-
 if [[ ! ${STUDIO_FIRE_WALL_EXISTS} -eq 0 ]]; then
 gcloud compute firewall-rules create testnet-studio \
     --allow tcp:80 \

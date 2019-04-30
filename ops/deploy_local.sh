@@ -29,8 +29,6 @@ sudo docker run -d --name testnet-${NODE_ID} -p $((3030+${NODE_ID})):3030 -p $((
 	${IMAGE}
 done
 
-exit
-
 sudo docker run -d --name studio -p 80:80 --add-host=testnet-0:172.17.0.2 --rm \
     -e "DEVNET_HOST=http://172.17.0.2" \
     -e "NEARLIB_COMMIT=${NEARLIB_COMMIT}" \
