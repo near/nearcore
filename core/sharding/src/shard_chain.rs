@@ -653,7 +653,7 @@ mod tests {
             for finalized_chunk_tx in finalized_chunk_txs.iter() {
                 finalized_chunk_tx.send((chunk_hash, height, false)).unwrap();
             }
-            last_hash_and_height = match last_hash_and_height {
+            /*last_hash_and_height = match last_hash_and_height {
                 None => Some((chunk_hash, height)),
                 Some((last_hash, last_height)) => {
                     for finalized_chunk_tx in finalized_chunk_txs.iter() {
@@ -665,7 +665,7 @@ mod tests {
                     }
                     None
                 }
-            };
+            };*/
             height += 1;
         }
 
@@ -786,7 +786,9 @@ mod tests {
 
                 for (who, chunk_part_request_rx) in chunk_part_request_rxs.iter().enumerate() {
                     for (hash, part_id) in chunk_part_request_rx.try_iter() {
-                        for whom in 0..num_whales - num_offline {
+                        let orchestrator = &*orchestrator.read().unwrap();
+                        let whom = orchestrator.get_authority_id_for_part(part_id as usize);
+                        if (whom as u64) < num_whales - num_offline {
                             let _ = targeted_chunk_part_request_txs[whom as usize]
                                 .send((who, hash, part_id));
                         }
@@ -812,14 +814,14 @@ mod tests {
                     }
                 }
 
-                /*for targeted_chunk_header_and_part_rx in targeted_chunk_header_and_part_rxs.iter() {
+                for targeted_chunk_header_and_part_rx in targeted_chunk_header_and_part_rxs.iter() {
                     for (whom, header_and_part) in targeted_chunk_header_and_part_rx.try_iter() {
                         if (whom as u64) < num_whales - num_offline {
                             let _ = chunk_header_and_part_txs[whom as usize].send(header_and_part);
                         }
                         work_done = true;
                     }
-                }*/
+                }
             }
 
             if !work_done {
@@ -836,6 +838,7 @@ mod tests {
             let chunk_hash = published_chunks[0].chunk_hash();
             chunk_publishing_tx.send(published_chunks.pop().unwrap()).unwrap();
 
+            std::thread::sleep(Duration::from_millis(100));
             for finalized_chunk_tx in finalized_chunk_txs.iter() {
                 finalized_chunk_tx.send((chunk_hash, height, false)).unwrap();
             }
@@ -868,7 +871,7 @@ mod tests {
 
     #[test]
     fn test_multiple_workers_with_serving() {
-        for i in 0..1000 {
+        for i in 0..10 {
             println!("==== ITERATION {:?}.1 ====", i);
             test_multiple_workers_with_serving_common(10, 0);
             println!("==== ITERATION {:?}.2 ====", i);
