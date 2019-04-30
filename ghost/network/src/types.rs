@@ -1,32 +1,30 @@
 use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::SocketAddr;
 use std::time::Duration;
 
+use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Message, Recipient};
 use chrono::{DateTime, Utc};
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
 use serde_derive::{Deserialize, Serialize};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockHeader, Weight};
 use near_protos::network as network_proto;
 use primitives::crypto::signature::{PublicKey, SecretKey};
 use primitives::hash::CryptoHash;
 use primitives::logging::pretty_str;
+use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 use primitives::utils::{proto_to_result, proto_to_type, to_string_value};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
-
-use crate::peer::Peer;
-use actix::dev::{MessageResponse, ResponseChannel};
-use primitives::traits::Base58Encoded;
-use std::hash::{Hash, Hasher};
 
 /// Peer id is the public key.
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Debug)]

@@ -247,7 +247,7 @@ impl ClientActor {
                         }
                     }
                     Ok(true)
-                }
+                },
                 _ => {
                     debug!("Process block: block {} refused by chain: {}", hash, e.kind());
                     Ok(true)

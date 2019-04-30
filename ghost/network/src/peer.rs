@@ -1,21 +1,17 @@
-use std::convert::{TryFrom, TryInto};
 use std::io;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::time::Duration;
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::{FramedWrite, WriteHandler};
-use actix::prelude::Stream;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Message, Recipient, Running, StreamHandler, System, SystemService, WrapFuture,
 };
 use log::{debug, error, info, warn};
-use protobuf::{parse_from_bytes, Message as ProtoMessage, ProtobufResult};
+use protobuf::{parse_from_bytes, ProtobufResult};
 use tokio::codec::FramedRead;
-use tokio::io::AsyncRead;
 use tokio::io::WriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -119,9 +115,9 @@ impl Peer {
             .send(network_client_msg)
             .into_actor(self)
             .then(|res, act, ctx| {
-                // Ban peer if client concerned with information received.
+                // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(Ok(true)) => {
+                    Ok(Ok(false)) => {
                         act.peer_status = PeerStatus::Banned;
                         ctx.stop();
                     }

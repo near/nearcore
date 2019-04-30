@@ -1,57 +1,14 @@
-use std::sync::Arc;
 use std::time::Duration;
 
-use actix::{Actor, AsyncContext, Context, System, WrapFuture};
-use chrono::{DateTime, Utc};
-use log::LevelFilter;
+use actix::{Actor, System};
+use chrono::Utc;
 
 use futures::future::Future;
 use near::{start_with_config, NearConfig};
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
-use near_client::{BlockProducer, ClientActor, ClientConfig, GetBlock};
-use near_network::{test_utils::convert_boot_nodes, NetworkConfig, PeerInfo, PeerManagerActor};
-use near_store::test_utils::create_test_store;
+use near_client::GetBlock;
+use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use primitives::test_utils::init_test_logger;
 use primitives::transaction::SignedTransaction;
-
-/// Waits until condition or timeout.
-struct WaitOrTimeout {
-    f: Box<FnMut(&mut Context<WaitOrTimeout>)>,
-    check_interval_ms: u64,
-    max_wait_ms: u64,
-    ms_slept: u64,
-}
-
-impl WaitOrTimeout {
-    pub fn new(
-        f: Box<FnMut(&mut Context<WaitOrTimeout>)>,
-        check_interval_ms: u64,
-        max_wait_ms: u64,
-    ) -> Self {
-        WaitOrTimeout { f, check_interval_ms, max_wait_ms, ms_slept: 0 }
-    }
-
-    fn wait_or_timeout(&mut self, ctx: &mut Context<Self>) {
-        (self.f)(ctx);
-        ctx.run_later(Duration::from_millis(self.check_interval_ms), move |act, ctx| {
-            act.ms_slept += act.check_interval_ms;
-            if act.ms_slept > act.max_wait_ms {
-                println!("BBBB Slept {}; max_wait_ms {}", act.ms_slept, act.max_wait_ms);
-                panic!("Timed out waiting for the condition");
-            }
-            act.wait_or_timeout(ctx);
-        });
-    }
-}
-
-impl Actor for WaitOrTimeout {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Context<Self>) {
-        self.wait_or_timeout(ctx);
-    }
-}
 
 #[test]
 fn two_nodes() {
@@ -78,7 +35,7 @@ fn two_nodes() {
                 futures::future::ok(())
             }));
         }),
-        1000,
+        100,
         60000,
     )
     .start();

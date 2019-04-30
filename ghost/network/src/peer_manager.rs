@@ -29,7 +29,7 @@ use crate::types::{
     Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
     OutboundTcpConnect, PeerId, PeerMessage, PeerType, SendMessage, Unregister,
 };
-pub use crate::types::{
+use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
