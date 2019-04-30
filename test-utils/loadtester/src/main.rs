@@ -8,6 +8,7 @@ pub mod sampler;
 pub mod stats;
 pub mod transactions_executor;
 pub mod transactions_generator;
+use crate::transactions_generator::TransactionType;
 use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
 use remote_node::RemoteNode;
 use std::time::Duration;
@@ -47,6 +48,6 @@ fn main() {
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600, TransactionType::Set);
     handle.join().unwrap();
 }

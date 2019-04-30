@@ -1,8 +1,17 @@
 //! Set of methods that construct transactions of various kind.
 
 use crate::remote_node::RemoteNode;
-use primitives::transaction::{DeployContractTransaction, SignedTransaction, TransactionBody};
+use primitives::transaction::{
+    DeployContractTransaction, FunctionCallTransaction, SignedTransaction, TransactionBody,
+};
 use std::sync::{Arc, RwLock};
+
+#[derive(Clone, Copy)]
+pub enum TransactionType {
+    SendMoney,
+    Set,
+    HeavyStorageBlock,
+}
 
 pub struct Generator {}
 
@@ -50,6 +59,52 @@ impl Generator {
         }
         res
     }
+
+    /// Create set key/value transaction.
+    pub fn call_set(node: &Arc<RwLock<RemoteNode>>, signer_ind: usize) -> SignedTransaction {
+        let (signer_from, nonce) = {
+            let mut node = node.write().unwrap();
+            node.nonces[signer_ind] += 1;
+            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
+        };
+        let acc_from = signer_from.account_id.clone();
+
+        let key = rand::random::<usize>() % 1_000;
+        let value = rand::random::<usize>() % 1_000;
+        let t = FunctionCallTransaction {
+            nonce,
+            originator: acc_from.clone(),
+            contract_id: acc_from,
+            method_name: b"setKeyValue".to_vec(),
+            args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_bytes().to_vec(),
+            amount: 1,
+        };
+        TransactionBody::FunctionCall(t).sign(&*signer_from)
+    }
+
+    /// Returns a transaction that calls `heavy_storage_blocks` on a contract.
+    pub fn call_heavy_storage_blocks(
+        node: &Arc<RwLock<RemoteNode>>,
+        signer_ind: usize,
+    ) -> SignedTransaction {
+        let (signer_from, nonce) = {
+            let mut node = node.write().unwrap();
+            node.nonces[signer_ind] += 1;
+            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
+        };
+        let acc_from = signer_from.account_id.clone();
+
+        let t = FunctionCallTransaction {
+            nonce: nonce,
+            originator: acc_from.clone(),
+            contract_id: acc_from,
+            method_name: b"heavy_storage_blocks".to_vec(),
+            args: "{\"n\":1000}".as_bytes().to_vec(),
+            amount: 1,
+        };
+        TransactionBody::FunctionCall(t).sign(&*signer_from)
+    }
+
     //
     //    /// Returns a transaction that calls `setKeyValue` on a random contract from a random account.
     //    pub fn call_set(&mut self) -> SignedTransaction {

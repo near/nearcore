@@ -2,7 +2,7 @@
 
 use crate::remote_node::{try_wait, wait, RemoteNode};
 use crate::stats::Stats;
-use crate::transactions_generator::Generator;
+use crate::transactions_generator::{Generator, TransactionType};
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
@@ -43,9 +43,12 @@ impl Executor {
         nodes: Vec<Arc<RwLock<RemoteNode>>>,
         timeout: Option<Duration>,
         tps: u64,
+        transaction_type: TransactionType,
     ) -> JoinHandle<()> {
-        // First, deploy the testing contract.
-        Executor::deploy_contract(&nodes);
+        // Deploy the testing contract, if needed.
+        if let TransactionType::Set | TransactionType::HeavyStorageBlock = transaction_type {
+            Executor::deploy_contract(&nodes);
+        }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
             tokio::run(futures::lazy(move || {
@@ -77,8 +80,19 @@ impl Executor {
                             rx.map_err(|_| ())
                                 .for_each(move |_| {
                                     let stats = stats.clone();
-                                    let t =
-                                        Generator::send_money(&node, signer_ind, &all_account_ids);
+                                    let t = match transaction_type {
+                                        TransactionType::SendMoney => Generator::send_money(
+                                            &node,
+                                            signer_ind,
+                                            &all_account_ids,
+                                        ),
+                                        TransactionType::Set => {
+                                            Generator::call_set(&node, signer_ind)
+                                        }
+                                        TransactionType::HeavyStorageBlock => {
+                                            Generator::call_heavy_storage_blocks(&node, signer_ind)
+                                        }
+                                    };
                                     let f = { node.write().unwrap().add_transaction_async(t) };
                                     f.map_err(|_| ())
                                         .timeout(Duration::from_secs(1))
