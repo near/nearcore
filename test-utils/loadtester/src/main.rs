@@ -25,13 +25,23 @@ fn configure_logging(log_level: log::LevelFilter) {
 fn main() {
     configure_logging(log::LevelFilter::Debug);
     let (chain_spec, _) =
-        ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+        ChainSpec::testing_spec(DefaultIdType::Named, 10, 2, AuthorityRotation::ProofOfAuthority);
     let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
-    let nodes = vec![RemoteNode::new(
-        SocketAddr::from_str("127.0.0.1:3030").unwrap(),
-        &accounts,
-        3_000_000,
-    )];
+
+    let start_nonces = 5_000_000;
+    let addrs = ["127.0.0.1:3030", "127.0.0.1:3031"];
+
+    let num_nodes = addrs.len();
+    let accounts_per_node = accounts.len() / num_nodes;
+    let mut nodes = vec![];
+    for (i, addr) in addrs.iter().enumerate() {
+        let node = RemoteNode::new(
+            SocketAddr::from_str(addr).unwrap(),
+            &accounts[(i * accounts_per_node)..((i + 1) * accounts_per_node)],
+            start_nonces,
+        );
+        nodes.push(node);
+    }
     // Start the executor.
     let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 800);
     handle.join().unwrap();
