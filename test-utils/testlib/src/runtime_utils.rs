@@ -1,13 +1,13 @@
-use primitives::types::{AccountId, MerkleHash};
-use primitives::transaction::{ReceiptTransaction};
-use primitives::chain::{SignedShardBlockHeader, ReceiptBlock, ShardBlockHeader};
+use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
+use node_runtime::{state_viewer::TrieViewer, Runtime};
+use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use primitives::crypto::group_signature::GroupSignature;
+use primitives::hash::{hash, CryptoHash};
 use primitives::merkle::merklize;
-use primitives::hash::{CryptoHash, hash};
-use node_runtime::chain_spec::{DefaultIdType, AuthorityRotation, ChainSpec};
-use storage::{Trie, TrieUpdate};
+use primitives::transaction::ReceiptTransaction;
+use primitives::types::{AccountId, MerkleHash};
 use storage::test_utils::create_trie;
-use node_runtime::{Runtime, state_viewer::TrieViewer};
+use storage::{Trie, TrieUpdate};
 
 use byteorder::{ByteOrder, LittleEndian};
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub fn get_runtime_and_trie_from_chain_spec(
     chain_spec: &ChainSpec,
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
-    let runtime = Runtime {};
+    let runtime = Runtime::new("ethash_test");
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (genesis_root, db_changes) = runtime.apply_genesis_state(
         trie_update,

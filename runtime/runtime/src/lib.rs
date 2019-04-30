@@ -33,9 +33,11 @@ use primitives::utils::{
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
+use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
+use std::path::Path;
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
 
@@ -43,8 +45,8 @@ pub mod adapter;
 pub mod chain_spec;
 mod system;
 
-mod ext;
 mod ethereum;
+mod ext;
 pub mod state_viewer;
 mod tx_stakes;
 
@@ -67,12 +69,19 @@ pub struct ApplyResult {
     pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct Runtime {}
+#[allow(unused)]
+pub struct Runtime {
+    ethash_provider: EthashProvider,
+}
 
 impl Runtime {
+    pub fn new(path: &str) -> Self {
+        let ethash_provider = EthashProvider::new(Path::new(path));
+        Runtime { ethash_provider }
+    }
+
     fn try_charge_mana(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         originator: &AccountId,
@@ -106,7 +115,7 @@ impl Runtime {
     }
 
     fn call_function(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
@@ -160,7 +169,7 @@ impl Runtime {
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -291,7 +300,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -351,7 +360,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -457,7 +466,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -613,7 +622,7 @@ impl Runtime {
     }
 
     pub fn process_transaction(
-        runtime: Self,
+        runtime: &Self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -647,7 +656,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        runtime: Self,
+        runtime: &Self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -689,7 +698,7 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        self,
+        &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],
@@ -749,7 +758,7 @@ impl Runtime {
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
-        self,
+        &self,
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],

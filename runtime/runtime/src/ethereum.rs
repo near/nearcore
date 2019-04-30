@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::mem;
 
 use bigint::{H256, H64, U256};

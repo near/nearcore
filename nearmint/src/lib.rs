@@ -24,6 +24,7 @@ use verifier::TransactionVerifier;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STORAGE_PATH: &str = "storage";
+const ETHASH_CACHE_PATH: &str = "ethash_cache";
 
 /// Connector of NEAR Core with Tendermint.
 pub struct NearMint {
@@ -55,7 +56,7 @@ impl NearMint {
         chain_spec: ChainSpec,
     ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
-        let runtime = Runtime {};
+        let runtime = Runtime::new(ETHASH_CACHE_PATH);
         let trie_viewer = TrieViewer {};
 
         // Compute genesis from current spec.
@@ -244,7 +245,7 @@ impl Application for NearMint {
             {
                 let mut incoming_receipts = HashMap::default();
                 let tx_result = Runtime::process_transaction(
-                    self.runtime,
+                    &self.runtime,
                     state_update,
                     apply_state.block_index,
                     &tx,
@@ -263,7 +264,7 @@ impl Application for NearMint {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
                             let receipt_result = Runtime::process_receipt(
-                                self.runtime,
+                                &self.runtime,
                                 state_update,
                                 0,
                                 apply_state.block_index,
