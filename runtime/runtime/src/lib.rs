@@ -50,6 +50,8 @@ mod ext;
 pub mod state_viewer;
 mod tx_stakes;
 
+pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
+
 #[derive(Debug)]
 pub struct ApplyState {
     pub root: MerkleHash,
@@ -69,7 +71,6 @@ pub struct ApplyResult {
     pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
-#[allow(unused)]
 pub struct Runtime {
     ethash_provider: EthashProvider,
 }
@@ -300,7 +301,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        &self,
+        &mut self,
         state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -316,8 +317,13 @@ impl Runtime {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })?;
         let result = {
-            let mut runtime_ext =
-                RuntimeExt::new(state_update, receiver_id, &async_call.accounting_info, nonce);
+            let mut runtime_ext = RuntimeExt::new(
+                state_update,
+                receiver_id,
+                &async_call.accounting_info,
+                nonce,
+                &mut self.ethash_provider,
+            );
             let mut wasm_res = executor::execute(
                 &code,
                 &async_call.method_name,
@@ -360,7 +366,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        &self,
+        &mut self,
         state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -391,6 +397,7 @@ impl Runtime {
                         receiver_id,
                         &callback.accounting_info,
                         nonce,
+                        &mut self.ethash_provider,
                     );
 
                     mana_accounting.accounting_info = callback.accounting_info.clone();
@@ -466,7 +473,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        &self,
+        &mut self,
         state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -656,7 +663,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        runtime: &Self,
+        runtime: &mut Self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -698,7 +705,7 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        &self,
+        &mut self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],

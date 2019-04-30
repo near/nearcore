@@ -1,4 +1,4 @@
-use primitives::types::{AccountId, PromiseId, Balance, Mana};
+use primitives::types::{AccountId, Balance, Mana, PromiseId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
@@ -46,5 +46,12 @@ pub trait External {
         mana: Mana,
     ) -> Result<PromiseId>;
 
-    // fn check_ethash(&mut self, header_hash: &[u8], nonce: u64, full_size: usize, mix_hash: &[u8]) -> bool;
+    fn check_ethash(
+        &mut self,
+        block_number: u64,
+        header_hash: &[u8],
+        nonce: u64,
+        mix_hash: &[u8],
+        difficulty: u64,
+    ) -> bool;
 }

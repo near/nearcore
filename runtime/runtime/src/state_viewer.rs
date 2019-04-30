@@ -13,6 +13,9 @@ use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
+use super::ETHASH_CACHE_PATH;
+use crate::ethereum::EthashProvider;
+use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -116,11 +119,13 @@ impl TrieViewer {
         let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
+                let mut ethash_provider = EthashProvider::new(Path::new(ETHASH_CACHE_PATH));
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
                     &AccountingInfo { originator: contract_id.clone(), contract_id: None },
                     &empty_hash,
+                    &mut ethash_provider,
                 );
                 executor::execute(
                     &code,

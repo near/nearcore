@@ -26,7 +26,6 @@ wasm = { path = "../../runtime/wasm" }
 test-utils = []
 
 [dev-dependencies]
-tempdir = "0.3"
 bencher = "0.1.5"
 ethereum-rlp = "0.2"
 ethereum-block = "0.3"

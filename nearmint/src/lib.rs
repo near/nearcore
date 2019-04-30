@@ -13,7 +13,7 @@ use protobuf::parse_from_bytes;
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
-use node_runtime::{ApplyState, Runtime};
+use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
@@ -24,7 +24,6 @@ use verifier::TransactionVerifier;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STORAGE_PATH: &str = "storage";
-const ETHASH_CACHE_PATH: &str = "ethash_cache";
 
 /// Connector of NEAR Core with Tendermint.
 pub struct NearMint {
@@ -264,7 +263,7 @@ impl Application for NearMint {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
                             let receipt_result = Runtime::process_receipt(
-                                &self.runtime,
+                                &mut self.runtime,
                                 state_update,
                                 0,
                                 apply_state.block_index,
