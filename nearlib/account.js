@@ -132,7 +132,7 @@ class Account {
     *     aliceAccountName);
     */
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
             newAccountId,
             keyWithRandomSeed.getPublicKey(),

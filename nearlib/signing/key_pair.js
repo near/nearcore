@@ -42,7 +42,7 @@ class KeyPair {
     /**
      * Generate a new keypair from a random seed
      * @example
-     * const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+     * const keyWithRandomSeed = KeyPair.fromRandomSeed();
      * keyWithRandomSeed.getPublicKey()
      * // returns [PUBLIC_KEY]
      * 

@@ -134,7 +134,7 @@ class Account {
     *     aliceAccountName);
     */
     async createAccountWithRandomKey (newAccountId, amount, originatorAccountId) {
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResult = await this.createAccount(
             newAccountId,
             keyWithRandomSeed.getPublicKey(),
@@ -262,7 +262,7 @@ module.exports = {
         } else {
             tempUserAccountId = 'devuser' + Date.now();
         }
-        const keypair = await KeyPair.fromRandomSeed();
+        const keypair = KeyPair.fromRandomSeed();
         const createAccount = this.deps.createAccount ? this.deps.createAccount :
             async (accountId, newAccountPublicKey) =>
                 this.createAccountWithContractHelper(await this.getConfig(), accountId, newAccountPublicKey);
@@ -15034,7 +15034,7 @@ class KeyPair {
     /**
      * Generate a new keypair from a random seed
      * @example
-     * const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+     * const keyWithRandomSeed = KeyPair.fromRandomSeed();
      * keyWithRandomSeed.getPublicKey()
      * // returns [PUBLIC_KEY]
      * 

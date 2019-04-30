@@ -2,26 +2,30 @@
  * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
  */
 
-const { sha256 } = require('js-sha256');
+const KeyPair = require('./signing/key_pair');
+const BrowserLocalStorageKeystore = require('./signing/browser_local_storage_key_store');
+const SimpleKeyStoreSigner = require('./signing/simple_key_store_signer');
 
-const LOGIN_WALLET_URL_SUFFIX = '/login/';
+const LOGIN_WALLET_URL_SUFFIX = '/login_v2/';
 const LOCAL_STORAGE_KEY_SUFFIX = '_wallet_access_key';
 
 /**
- * Wallet based account and signer that uses external wallet through the iframe to sign transactions.
- * @example 
- * // if importing WalletAccount directly
- * const walletAccount = new WalletAccount(contractName, walletBaseUrl)
- * // if importing in all of nearLib and calling from variable 
- * const walletAccount = new nearlib.WalletAccount(contractName, walletBaseUrl)
- * // To access wallet globally use:
- * window.walletAccount = new nearlib.WalletAccount(config.contractName, walletBaseUrl);
+ * Access Key based signer that uses Wallet to authorize app on the account and receive the access key.
+ * @example
+ * // if importing WalletAccessKey directly
+ * const walletAccount = new WalletAccessKey(contractName, walletBaseUrl)
+ * // if importing in all of nearLib and calling from variable
+ * const walletAccount = new nearlib.WalletAccessKey(contractName, walletBaseUrl)
+ * // To access this signer globally
+ * window.walletAccount = new nearlib.WalletAccessKey(config.contractName, walletBaseUrl);
+ * // To provide custom signer where the keys would be stored
+ * window.walletAccount = new nearlib.WalletAccessKey(config.contractName, walletBaseUrl, customSigner);
  */
 class WalletAccessKey {
-    constructor(appKeyPrefix, simpleSigner, walletBaseUrl = 'https://wallet.nearprotocol.com') {
+    constructor(appKeyPrefix, walletBaseUrl = 'https://wallet.nearprotocol.com', signer = null) {
         this._walletBaseUrl = walletBaseUrl;
         this._authDataKey = appKeyPrefix + LOCAL_STORAGE_KEY_SUFFIX;
-        this._simpleSigner = simpleSigner;
+        this._signer = signer || (new SimpleKeyStoreSigner(new BrowserLocalStorageKeystore()));
 
         this._authData = JSON.parse(window.localStorage.getItem(this._authDataKey) || '{}');
 
@@ -41,7 +45,7 @@ class WalletAccessKey {
 
     /**
      * Returns authorized Account ID.
-     * @example 
+     * @example
      * walletAccount.getAccountId();
      */
     getAccountId() {
@@ -62,11 +66,12 @@ class WalletAccessKey {
      *     onFailureHref);
      */
     requestSignIn(contract_id, title, success_url, failure_url) {
-        this._authData.key = await KeyPair.fromRandomSeed();
+        this._authData.key = KeyPair.fromRandomSeed();
         const currentUrl = new URL(window.location.href);
         let newUrl = new URL(this._walletBaseUrl + LOGIN_WALLET_URL_SUFFIX);
         newUrl.searchParams.set('title', title);
         newUrl.searchParams.set('contract_id', contract_id);
+        newUrl.searchParams.set('public_key', this._authData.key.getPublicKey());
         newUrl.searchParams.set('success_url', success_url || currentUrl.href);
         newUrl.searchParams.set('failure_url', failure_url || currentUrl.href);
         newUrl.searchParams.set('app_url', currentUrl.origin);
@@ -79,7 +84,7 @@ class WalletAccessKey {
      */
     signOut() {
         if (this._authData.accountId) {
-            this._simpleSigner.keyStore.setKey(this.getAccountId(), null).catch(console.error);
+            this._signer.keyStore.setKey(this.getAccountId(), null).catch(console.error);
             this._authData = {};
             window.localStorage.removeItem(this._authDataKey);
         }
@@ -90,21 +95,23 @@ class WalletAccessKey {
     }
 
     _tryInitFromUrl() {
-        let currentUrl = new URL(window.location.href);
-        let publicKey = currentUrl.searchParams.get('public_key') || '';
-        let accountId = currentUrl.searchParams.get('account_id') || '';
-        if (accountId && publicKey === this._authData.key.getPublicKey()) {
-            this._simpleSigner.keyStore.setKey(accountId, this._authData.key);
-            this._authData = {
-                accountId,
-                publicKey,
-            };
-            this._saveAuthData();
+        if (this._authData.key) {
+            let currentUrl = new URL(window.location.href);
+            let publicKey = currentUrl.searchParams.get('public_key') || '';
+            let accountId = currentUrl.searchParams.get('account_id') || '';
+            if (accountId && publicKey === this._authData.key.getPublicKey()) {
+                this._signer.keyStore.setKey(accountId, this._authData.key);
+                this._authData = {
+                    accountId,
+                    publicKey,
+                };
+                this._saveAuthData();
+            }
         }
     }
 
     /**
-     * Sign a transaction body. If the key for senderAccountId is not present,
+     * Sign a buffer. If the key for originator is not present,
      * this operation will fail.
      * @param {Uint8Array} buffer
      * @param {string} originator
@@ -113,7 +120,7 @@ class WalletAccessKey {
         if (!this.isSignedIn() || originator !== this.getAccountId()) {
             throw 'Unauthorized account_id ' + originator;
         }
-        return await this._simpleSigner.signBuffer(buffer, originator);
+        return await this._signer.signBuffer(buffer, originator);
     }
 
 }
