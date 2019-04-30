@@ -1,5 +1,5 @@
 /**
- * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
+ * Access Key based signer that uses Wallet to authorize app on the account and receive the access key.
  */
 
 const KeyPair = require('./signing/key_pair');
