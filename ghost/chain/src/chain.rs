@@ -425,8 +425,10 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Apply block to runtime.
-        let (state_store_update, state_root) =
-            self.runtime_adapter.apply_transactions(&block.transactions);
+        let (state_store_update, state_root) = self
+            .runtime_adapter
+            .apply_transactions(&block.header.prev_state_root, &block.transactions)
+            .map_err(|e| ErrorKind::Other(e))?;
         self.chain_store_update.merge(state_store_update);
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root)?;
 
@@ -473,7 +475,9 @@ impl<'a> ChainUpdate<'a> {
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.timestamp <= prev_header.timestamp {
-            return Err(ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into());
+            return Err(
+                ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into()
+            );
         }
 
         // Check that state root we computed from previous block matches recorded in header.

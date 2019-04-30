@@ -1,7 +1,14 @@
+use std::any::Any;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
+
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, Arbiter, Context, Recipient, System};
+use actix::{
+    Actor, ActorContext, Addr, Arbiter, AsyncContext, Context, Recipient, System, WrapFuture,
+};
 use chrono::{DateTime, Utc};
 use futures::{future, Future};
+
 use near_chain::{test_utils::KeyValueRuntime, Block, BlockHeader, RuntimeAdapter};
 use near_client::{ClientActor, ClientConfig, GetBlock};
 use near_network::{
@@ -12,9 +19,6 @@ use primitives::crypto::signer::InMemorySigner;
 use primitives::test_utils::init_test_logger;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockId, MerkleHash};
-use std::any::Any;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -23,7 +27,7 @@ fn setup(
     account_id: &str,
     skip_sync_wait: bool,
     recipient: Recipient<NetworkRequests>,
-) -> Addr<ClientActor> {
+) -> ClientActor {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
         store.clone(),
@@ -38,22 +42,26 @@ fn setup(
         Some(signer.into()),
     )
     .unwrap()
-    .start()
 }
 
 fn setup_mock(
-    authorities: Vec<&str>,
-    account_id: &str,
+    authorities: Vec<&'static str>,
+    account_id: &'static str,
     skip_sync_wait: bool,
-    mut network_mock: Box<FnMut(&NetworkRequests, &mut Context<NetworkMock>) -> NetworkResponses>,
+    mut network_mock: Box<
+        FnMut(&NetworkRequests, &mut Context<NetworkMock>, Addr<ClientActor>) -> NetworkResponses,
+    >,
 ) -> Addr<ClientActor> {
-    let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
-        let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
-        let resp = network_mock(msg, ctx);
-        Box::new(Some(resp))
-    }))
-    .start();
-    setup(authorities, account_id, skip_sync_wait, pm.recipient())
+    ClientActor::create(move |ctx| {
+        let client_addr = ctx.address();
+        let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
+            let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+            let resp = network_mock(msg, ctx, client_addr.clone());
+            Box::new(Some(resp))
+        }))
+        .start();
+        setup(authorities, account_id, skip_sync_wait, pm.recipient())
+    })
 }
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -66,7 +74,7 @@ fn produce_two_blocks() {
             vec!["test"],
             "test",
             true,
-            Box::new(move |msg, _ctx| {
+            Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockAnnounce { .. } = msg {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
@@ -90,7 +98,7 @@ fn produce_blocks_with_tx() {
             vec!["test"],
             "test",
             true,
-            Box::new(move |msg, _ctx| {
+            Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockAnnounce { block } = msg {
                     count.fetch_add(block.transactions.len(), Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 1 {
@@ -114,7 +122,7 @@ fn receive_network_block() {
             vec!["test"],
             "other",
             true,
-            Box::new(move |msg, _ctx| {
+            Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::BlockHeaderAnnounce { header } = msg {
                     System::current().stop();
                 }
@@ -131,6 +139,49 @@ fn receive_network_block() {
     .unwrap();
 }
 
+/// Runs client that receives a block from network and announces header to the network.
+#[test]
+fn receive_network_block_header() {
+    let block_holder: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
+    init_test_logger();
+    System::run(|| {
+        let block_holder1 = block_holder.clone();
+        let client = setup_mock(
+            vec!["test"],
+            "other",
+            true,
+            Box::new(move |msg, ctx, client_addr| match msg {
+                NetworkRequests::BlockRequest { hash, peer_info } => {
+                    let block = block_holder1.read().unwrap().clone().unwrap();
+                    assert_eq!(hash.clone(), block.hash());
+                    actix::spawn(
+                        client_addr
+                            .send(NetworkClientMessages::Block(block, peer_info.clone(), false))
+                            .then(|_| futures::future::ok(())),
+                    );
+                    NetworkResponses::NoResponse
+                }
+                NetworkRequests::BlockHeaderAnnounce { header } => {
+                    System::current().stop();
+                    NetworkResponses::NoResponse
+                }
+                _ => NetworkResponses::NoResponse,
+            }),
+        );
+        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![]);
+            client.do_send(NetworkClientMessages::BlockHeader(
+                block.header.clone(),
+                PeerInfo::random(),
+            ));
+            *block_holder.write().unwrap() = Some(block);
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}
+
 /// Runs client that syncs with peers.
 #[test]
 fn client_sync() {
@@ -140,7 +191,7 @@ fn client_sync() {
             vec!["test"],
             "other",
             false,
-            Box::new(move |msg, _ctx| match msg {
+            Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::FetchInfo => {
                     System::current().stop();
                     NetworkResponses::Info { num_active_peers: 1, peer_max_count: 1 }
@@ -148,5 +199,6 @@ fn client_sync() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-    });
+    })
+    .unwrap();
 }

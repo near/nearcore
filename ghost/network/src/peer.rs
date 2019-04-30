@@ -92,7 +92,9 @@ impl Peer {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_info = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.clone(),
-            None => { return; }
+            None => {
+                return;
+            }
         };
         // TODO: we are waiting here until we processed, should we?
         let result = match msg {
@@ -105,7 +107,7 @@ impl Peer {
             PeerMessage::Transaction(transaction) => {
                 self.client_addr.do_send(NetworkClientMessages::Transaction(transaction))
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         // TODO: deal with the result -> ban peer or whatever.
     }

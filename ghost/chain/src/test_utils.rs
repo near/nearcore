@@ -47,8 +47,9 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions(
         &self,
+        state_root: &MerkleHash,
         transactions: &Vec<SignedTransaction>,
-    ) -> (StoreUpdate, MerkleHash) {
-        (self.store.store_update(), MerkleHash::default())
+    ) -> Result<(StoreUpdate, MerkleHash), String> {
+        Ok((self.store.store_update(), MerkleHash::default()))
     }
 }

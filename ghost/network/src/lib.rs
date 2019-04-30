@@ -9,6 +9,7 @@ use actix::{
     Handler, Message, Recipient, StreamHandler, System, SystemService, WrapFuture,
 };
 use chrono::{DateTime, Utc};
+use futures::future;
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 use tokio::codec::FramedRead;
@@ -23,8 +24,13 @@ use primitives::hash::CryptoHash;
 
 use crate::codec::Codec;
 use crate::peer::Peer;
-use crate::types::{Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId, PeerType, SendMessage, Unregister, PeerMessage};
-pub use crate::types::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, NetworkClientMessages};
+use crate::types::{
+    Consolidate, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId,
+    PeerMessage, PeerType, SendMessage, Unregister,
+};
+pub use crate::types::{
+    NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
+};
 
 mod codec;
 mod peer;
@@ -43,7 +49,11 @@ pub struct PeerManagerActor {
 }
 
 impl PeerManagerActor {
-    pub fn new(store: Arc<Store>, config: NetworkConfig, client_addr: Recipient<NetworkClientMessages>) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        config: NetworkConfig,
+        client_addr: Recipient<NetworkClientMessages>,
+    ) -> Self {
         let mut peer_states = HashMap::default();
         for peer_info in config.boot_nodes.iter() {
             peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
@@ -124,7 +134,7 @@ impl PeerManagerActor {
                 FramedWrite::new(write, Codec::new(), ctx),
                 handshake_timeout,
                 recipient,
-                client_addr
+                client_addr,
             )
         });
     }
@@ -169,6 +179,16 @@ impl PeerManagerActor {
             act.bootstrap_peers(ctx);
         });
     }
+
+    /// Broadcast message to all active peers.
+    fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
+        let requests: Vec<_> = self.active_peers.values().map(|peer| peer.send(msg.clone())).collect();
+        future::join_all(requests)
+            .into_actor(self)
+            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+            .and_then(|_, _, _| actix::fut::ok(()))
+            .wait(ctx);
+    }
 }
 
 impl Actor for PeerManagerActor {
@@ -200,11 +220,23 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             },
             NetworkRequests::BlockAnnounce { block } => {
                 for (_, peer) in self.active_peers.iter() {
-                    let _ = peer.do_send(SendMessage { message: PeerMessage::BlockAnnounce(block.clone()) });
+                    let _ = peer.do_send(SendMessage {
+                        message: PeerMessage::BlockAnnounce(block.clone()),
+                    });
                 }
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::BlockAnnounce(block) },
+                );
                 NetworkResponses::NoResponse
-            },
-            NetworkRequests::BlockHeaderAnnounce { header } => NetworkResponses::NoResponse,
+            }
+            NetworkRequests::BlockHeaderAnnounce { header } => {
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::BlockHeaderAnnounce(header) },
+                );
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
             _ => panic!("Unhandled network request"),
         }

@@ -238,11 +238,12 @@ pub trait RuntimeAdapter {
     /// Block proposer for given height. Return None if outside of known boundaries.
     fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId>;
 
-    /// Apply transactions and return store update and new state root.
+    /// Apply transactions to given state root and return store update and new state root.
     fn apply_transactions(
         &self,
+        merkle_hash: &MerkleHash,
         transactions: &Vec<SignedTransaction>,
-    ) -> (StoreUpdate, MerkleHash);
+    ) -> Result<(StoreUpdate, MerkleHash), String>;
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.

@@ -46,10 +46,6 @@ impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
         let (id, _) = get_key_pair();
-        PeerInfo {
-            id: id.into(),
-            addr: None,
-            account_id: None
-        }
+        PeerInfo { id: id.into(), addr: None, account_id: None }
     }
 }

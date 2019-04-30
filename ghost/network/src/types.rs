@@ -264,9 +264,9 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::BlockAnnounce(block) => {
                 Some(network_proto::PeerMessage_oneof_message_type::block_announce(block.into()))
             }
-            PeerMessage::BlockHeaderAnnounce(header) => {
-                Some(network_proto::PeerMessage_oneof_message_type::block_header_announce(header.into()))
-            }
+            PeerMessage::BlockHeaderAnnounce(header) => Some(
+                network_proto::PeerMessage_oneof_message_type::block_header_announce(header.into()),
+            ),
             PeerMessage::Transaction(transaction) => {
                 Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction.into()))
             }
@@ -337,7 +337,7 @@ pub struct OutboundTcpConnect {
     pub peer_info: PeerInfo,
 }
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 pub struct SendMessage {
     pub message: PeerMessage,
 }
