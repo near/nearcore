@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use actix::{Actor, System};
 use chrono::Utc;
 

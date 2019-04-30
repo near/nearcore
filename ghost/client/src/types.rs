@@ -10,8 +10,8 @@ use chrono::{DateTime, Utc};
 use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
-use near_network::types::{PeerInfo, FullPeerInfo};
-use near_network::{NetworkConfig, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::types::{FullPeerInfo, PeerInfo};
+use near_network::{NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -29,6 +29,13 @@ pub enum Error {
 impl From<near_chain::Error> for Error {
     fn from(e: near_chain::Error) -> Self {
         Error::Chain(e)
+    }
+}
+
+impl From<near_chain::ErrorKind> for Error {
+    fn from(e: near_chain::ErrorKind) -> Self {
+        let error: near_chain::Error = e.into();
+        Error::Chain(error)
     }
 }
 
@@ -127,7 +134,7 @@ impl SyncStatus {
     pub fn is_syncing(&self) -> bool {
         match self {
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => false,
-            _ => true
+            _ => true,
         }
     }
 }

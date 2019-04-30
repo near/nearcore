@@ -126,6 +126,7 @@ impl Peer {
                     }
                     Err(err) => {
                         error!(
+                            target: "network",
                             "Received error sending message to client: {} for {}",
                             err, act.peer_info
                         );

@@ -97,6 +97,13 @@ impl Error {
             | ErrorKind::InvalidStateRoot => true,
         }
     }
+
+    pub fn is_error(&self) -> bool {
+        match self.kind() {
+            ErrorKind::IOErr(_) | ErrorKind::Other(_) | ErrorKind::DBNotFoundErr(_) => true,
+            _ => false
+        }
+    }
 }
 
 impl From<ErrorKind> for Error {

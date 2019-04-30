@@ -16,7 +16,7 @@ use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_network::types::PeerInfo;
-use near_network::{NetworkConfig, NetworkClientMessages, NetworkRequests, NetworkResponses};
+use near_network::{NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -24,9 +24,7 @@ use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 
-pub use crate::types::{
-    BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus,
-};
+pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
 
 mod types;
 
@@ -62,7 +60,11 @@ impl ClientActor {
             tx_pool,
             network_actor,
             block_producer,
-            network_info: NetworkInfo { num_active_peers: 0, peer_max_count: 0, max_weight_peer: None },
+            network_info: NetworkInfo {
+                num_active_peers: 0,
+                peer_max_count: 0,
+                max_weight_peer: None,
+            },
         })
     }
 }
@@ -235,6 +237,7 @@ impl ClientActor {
         match self.process_block(ctx, block, provenance) {
             Ok(_) => Ok(true),
             Err(ref e) if e.is_bad_data() => Ok(false),
+            Err(ref e) if e.is_error() => Err(e.kind().into()),
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
                     if let Ok(previous) = previous {
@@ -247,7 +250,7 @@ impl ClientActor {
                         }
                     }
                     Ok(true)
-                },
+                }
                 _ => {
                     debug!("Process block: block {} refused by chain: {}", hash, e.kind());
                     Ok(true)
@@ -263,15 +266,14 @@ impl ClientActor {
         // Process block by chain, if it's valid header ask for the block.
         let result = self.chain.process_block_header(&header);
 
-        if let Err(e) = result {
-            debug!(target: "client", "Block header {} refused by chain: {:?}", hash, e.kind());
-            if e.is_bad_data() {
-                return Ok(false);
-            } else {
-                // We got an error when trying to process the block header, but it's not due to
-                // invalid data.
-                return Err(e.into());
-            }
+        match result {
+            Err(ref e) if e.is_bad_data() => return Ok(false),
+            // Some error that worth surfacing.
+            Err(ref e) if e.is_error() => return Err(e.kind().into()),
+            // Got an error when trying to process the block header, but it's not due to
+            // invalid data or underlying error. Surface as fine.
+            Err(e) => return Ok(true),
+            _ => {}
         }
 
         // Succesfully processed a block header and can request the full block.
@@ -315,8 +317,18 @@ impl ClientActor {
                 is_syncing = false;
             }
         } else {
-            if full_peer_info.chain_info.total_weight.to_num() > head.total_weight.to_num() + self.config.sync_weight_threshold && full_peer_info.chain_info.height > head.height + self.config.sync_height_threshold {
-                info!("Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync", head.height, head.total_weight, full_peer_info.chain_info.height, full_peer_info.chain_info.total_weight);
+            if full_peer_info.chain_info.total_weight.to_num()
+                > head.total_weight.to_num() + self.config.sync_weight_threshold
+                && full_peer_info.chain_info.height
+                    > head.height + self.config.sync_height_threshold
+            {
+                info!(
+                    "Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync",
+                    head.height,
+                    head.total_weight,
+                    full_peer_info.chain_info.height,
+                    full_peer_info.chain_info.total_weight
+                );
                 is_syncing = true;
             }
         }
@@ -351,7 +363,11 @@ impl ClientActor {
             .send(NetworkRequests::FetchInfo)
             .into_actor(self)
             .then(move |res, act, ctx| match res {
-                Ok(NetworkResponses::Info { num_active_peers, peer_max_count, max_weight_peer }) => {
+                Ok(NetworkResponses::Info {
+                    num_active_peers,
+                    peer_max_count,
+                    max_weight_peer,
+                }) => {
                     act.network_info.num_active_peers = num_active_peers;
                     act.network_info.peer_max_count = peer_max_count;
                     act.network_info.max_weight_peer = max_weight_peer;
@@ -364,7 +380,7 @@ impl ClientActor {
             })
             .wait(ctx);
 
-            ctx.run_later(self.config.log_summary_period, move |act, ctx| {
+        ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             act.fetch_network_info(ctx);
         });
     }
