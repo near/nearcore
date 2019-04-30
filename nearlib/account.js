@@ -175,7 +175,10 @@ class Account {
             activity : [
                 {
                     id: '24359uy1dfsgwr',
-                    description: 'Send 10 Near to alice.near' // localization? 
+                    activity_type: 1, // to be converted to human-readible value on front end
+                    activity_details: {
+                        amount: 10
+                    }
                 }
 
             ]
