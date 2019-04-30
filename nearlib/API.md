@@ -71,23 +71,22 @@
         -   [Examples](#examples-20)
     -   [requestSignIn](#requestsignin)
         -   [Parameters](#parameters-17)
-        -   [Examples](#examples-21)
     -   [signOut](#signout)
-        -   [Examples](#examples-22)
+        -   [Examples](#examples-21)
     -   [signBuffer](#signbuffer)
         -   [Parameters](#parameters-18)
 -   [WalletAccount](#walletaccount)
     -   [Parameters](#parameters-19)
-    -   [Examples](#examples-23)
+    -   [Examples](#examples-22)
     -   [isSignedIn](#issignedin-1)
-        -   [Examples](#examples-24)
+        -   [Examples](#examples-23)
     -   [getAccountId](#getaccountid-1)
-        -   [Examples](#examples-25)
+        -   [Examples](#examples-24)
     -   [requestSignIn](#requestsignin-1)
         -   [Parameters](#parameters-20)
-        -   [Examples](#examples-26)
+        -   [Examples](#examples-25)
     -   [signOut](#signout-1)
-        -   [Examples](#examples-27)
+        -   [Examples](#examples-26)
     -   [signBuffer](#signbuffer-1)
         -   [Parameters](#parameters-21)
 
@@ -507,20 +506,10 @@ Redirects current page to the wallet authentication page.
 
 #### Parameters
 
--   `contract_id` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** contract ID of the application
+-   `contractId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** contract ID of the application
 -   `title` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** name of the application
--   `success_url` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on success
--   `failure_url` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on failure
-
-#### Examples
-
-```javascript
-walletAccount.requestSignIn(
-    myContractId,
-    title,
-    onSuccessHref,
-    onFailureHref);
-```
+-   `successUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on success
+-   `failureUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on failure
 
 ### signOut
 
