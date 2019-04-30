@@ -100,11 +100,11 @@ impl External for MyExt {
 
     fn check_ethash(
         &mut self,
-        block_number: u64,
-        header_hash: &[u8],
-        nonce: u64,
-        mix_hash: &[u8],
-        difficulty: u64,
+        _block_number: u64,
+        _header_hash: &[u8],
+        _nonce: u64,
+        _mix_hash: &[u8],
+        _difficulty: u64,
     ) -> bool {
         false
     }
@@ -476,7 +476,7 @@ mod tests {
     fn test_mock_check_ethash() {
         let input_data = [0u8; 0];
         let outcome =
-            run(b"check_ethash", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
         println!("{:?}", outcome);
 
         let output_data = match outcome.return_data {
