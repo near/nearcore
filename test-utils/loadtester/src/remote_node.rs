@@ -1,12 +1,15 @@
 use futures::Future;
+use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
+use primitives::types::{AccountId, Nonce};
 use protobuf::Message;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
@@ -14,23 +17,69 @@ pub const MAX_BLOCKS_FETCH: u64 = 20;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 
+/// Maximum number of times we retry a single RPC.
+const MAX_RETRIES_PER_RPC: usize = 10;
+const MAX_RETRIES_REACHED_ERR: &str = "Exceeded maximum number of retries per RPC";
+
+/// Maximum time we wait for the given RPC.
+const MAX_WAIT_RPC: Duration = Duration::from_secs(60);
+const MAX_WAIT_REACHED_ERR: &str = "Exceeded maximum wait on RPC";
+
 pub struct RemoteNode {
     pub addr: SocketAddr,
     pub signers: Vec<Arc<InMemorySigner>>,
-    pub nonces: Vec<u64>,
+    pub nonces: Vec<Nonce>,
     pub url: String,
     async_client: Arc<AsyncClient>,
     sync_client: SyncClient,
 }
 
+pub fn wait<F, T>(mut f: F) -> T
+where
+    F: FnMut() -> Result<T, Box<dyn std::error::Error>>,
+{
+    let started = Instant::now();
+    loop {
+        match f() {
+            Ok(r) => return r,
+            Err(err) => {
+                if Instant::now().duration_since(started) > MAX_WAIT_RPC {
+                    panic!("{}: {}", MAX_WAIT_REACHED_ERR, err);
+                } else {
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    }
+}
+
+pub fn get_result<F, T>(f: F) -> T
+where
+    F: Fn() -> Result<T, Box<dyn std::error::Error>>,
+{
+    let mut curr = 0;
+    loop {
+        match f() {
+            Ok(r) => return r,
+            Err(err) => {
+                if curr == MAX_RETRIES_PER_RPC - 1 {
+                    panic!("{}: {}", MAX_RETRIES_REACHED_ERR, err);
+                } else {
+                    curr += 1;
+                }
+            }
+        };
+    }
+}
+
 impl RemoteNode {
-    pub fn new(addr: SocketAddr, signers: &[String], init_nonce: u64) -> Arc<RwLock<Self>> {
+    pub fn new(addr: SocketAddr, signers_accs: &[AccountId]) -> Arc<RwLock<Self>> {
         let url = format!("http://{}", addr);
-        let signers: Vec<_> = signers
+        let signers: Vec<_> = signers_accs
             .iter()
             .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), s.as_str())))
             .collect();
-        let nonces = vec![init_nonce; signers.len()];
+        let nonces = vec![0; signers.len()];
         let async_client = Arc::new(
             AsyncClient::builder()
                 .use_rustls_tls()
@@ -44,7 +93,44 @@ impl RemoteNode {
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .unwrap();
-        Arc::new(RwLock::new(Self { addr, signers, nonces, url, async_client, sync_client }))
+        let mut result = Self { addr, signers, nonces, url, async_client, sync_client };
+
+        // Wait for the node to be up.
+        wait(|| result.health_ok());
+
+        // Collect nonces.
+        result.get_nonces(signers_accs);
+        Arc::new(RwLock::new(result))
+    }
+
+    /// Get nonces for the given list of signers.
+    fn get_nonces(&mut self, signers: &[AccountId]) {
+        let nonces: Vec<Nonce> =
+            signers.iter().map(|s| get_result(|| self.view_account(s)).nonce).collect();
+        self.nonces = nonces;
+    }
+
+    fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        Ok(self.sync_client.post(url.as_str()).send().map(|_| ())?)
+    }
+
+    fn view_account(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/abci_query");
+        let response: serde_json::Value = self
+            .sync_client
+            .post(url.as_str())
+            .form(&[("path", format!("\"account/{}\"", account_id))])
+            .send()?
+            .json()?;
+        let bytes = base64::decode(
+            response["result"]["response"]["value"].as_str().ok_or(VALUE_NOT_STR_ERR)?,
+        )?;
+        let s = std::str::from_utf8(&bytes)?;
+        Ok(serde_json::from_str(s)?)
     }
 
     pub fn add_transaction_async(

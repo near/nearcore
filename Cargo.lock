@@ -1051,6 +1051,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "loadtester"
 version = "0.0.1"
 dependencies = [
+ "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",

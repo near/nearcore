@@ -1,10 +1,6 @@
-use crate::remote_node::{RemoteNode, MAX_BLOCKS_FETCH};
+use crate::remote_node::{get_result, RemoteNode, MAX_BLOCKS_FETCH};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
-
-/// Maximum number of times we retry a single RPC.
-const MAX_RETRIES_PER_RPC: usize = 10;
-const MAX_RETRIES_REACHED_ERR: &str = "Exceeded maximum number of retries per RPC";
 
 /// Stats measured while executing load testing on the node.
 pub struct Stats {
@@ -45,23 +41,6 @@ impl std::fmt::Display for Stats {
         write!(f, "Transactions per block:\t{}", total_txs / blocks_passed)?;
         Ok(())
     }
-}
-
-fn get_result<F, T>(f: F) -> T
-where
-    F: Fn() -> Result<T, Box<dyn std::error::Error>>,
-{
-    for i in 0..MAX_RETRIES_PER_RPC {
-        match f() {
-            Ok(r) => return r,
-            Err(err) => {
-                if i == MAX_RETRIES_PER_RPC - 1 {
-                    panic!("{}: {}", MAX_RETRIES_REACHED_ERR, err);
-                }
-            }
-        };
-    }
-    unreachable!()
 }
 
 impl Stats {

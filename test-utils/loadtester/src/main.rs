@@ -33,7 +33,6 @@ fn main() {
     );
     let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
 
-    let start_nonces = 1_000_000;
     let addrs = ["127.0.0.1:3030", "127.0.0.1:3031"];
 
     let num_nodes = addrs.len();
@@ -43,7 +42,6 @@ fn main() {
         let node = RemoteNode::new(
             SocketAddr::from_str(addr).unwrap(),
             &accounts[(i * accounts_per_node)..((i + 1) * accounts_per_node)],
-            start_nonces,
         );
         nodes.push(node);
     }
