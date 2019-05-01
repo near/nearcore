@@ -144,13 +144,18 @@ coverage:
     - cargo test --all --no-run
     - *code_coverage
 
-#test_nearlib:
-#    stage: libs
-#    dependencies:
-#    - release_build
-#    script:
-#    - ./devnet &
-#    - ./scripts/test_nearlib.sh
+test_nearlib:
+    stage: libs
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *setup_tendermint
+    dependencies:
+    - release_build
+    script:
+    - tendermint node --rpc.laddr tcp://0.0.0.0:3030 &
+    - cargo run --package nearmint -- --devnet &
+    - ./scripts/test_nearlib.sh
 
 lint_nearlib:
     stage: libs
