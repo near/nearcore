@@ -130,7 +130,6 @@ release_build:
     - *install_protos
     script:
     - rustc --version && cargo --version
-    - cargo build --all --benches
     - cargo build --package nearmint --release
     after_script:
     - *cleanup_obsolete_cache
