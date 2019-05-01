@@ -7,27 +7,29 @@ use near_chain::{Block, BlockHeader, Chain, ErrorKind, Provenance, RuntimeAdapte
 use near_store::{test_utils::create_test_store, Store, StoreUpdate};
 use primitives::test_utils::init_test_logger;
 use primitives::types::MerkleHash;
+use primitives::crypto::signer::InMemorySigner;
 
-fn setup() -> (Chain, Arc<KeyValueRuntime>) {
+fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     init_test_logger();
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
-    (chain, runtime)
+    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+    (chain, runtime, signer)
 }
 
 #[test]
 fn empty_chain() {
-    let (chain, _) = setup();
+    let (chain, _, _) = setup();
     assert_eq!(chain.store().head().unwrap().height, 0);
 }
 
 #[test]
 fn build_chain() {
-    let (mut chain, runtime) = setup();
+    let (mut chain, runtime, signer) = setup();
     for i in 0..4 {
         let prev = chain.store().head_header().unwrap();
-        let block = Block::produce(&prev, runtime.get_root(), vec![]);
+        let block = Block::produce(&prev, runtime.get_root(), vec![], signer.clone());
         let tip = chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -36,10 +38,10 @@ fn build_chain() {
 
 #[test]
 fn build_chain_with_orhpans() {
-    let (mut chain, _) = setup();
+    let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.store().get_block(&chain.genesis().hash()).unwrap()];
     for i in 1..4 {
-        let block = Block::produce(&blocks[i - 1].header, MerkleHash::default(), vec![]);
+        let block = Block::produce(&blocks[i - 1].header, MerkleHash::default(), vec![], signer.clone());
         blocks.push(block);
     }
     assert_eq!(
