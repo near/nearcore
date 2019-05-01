@@ -164,12 +164,12 @@ class Account {
                 {
                     contractId: 'cryptomonsters',
                     name: 'Monsters',
-                    balance: 10,
+                    amount: 10,
                 },
                 {
                     contractId: 'pay_mo',
                     name: 'Paymo',
-                    balance: 20 
+                    amount: 20 
                 }
             ],
             transactions : [
