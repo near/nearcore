@@ -150,8 +150,8 @@ test_nearlib:
     - release_build
     before_script:
     - *setup_tendermint
-    script:
-    - tendermint node
+    script: 
+    - tendermint node --rpc.laddr = "tcp://0.0.0.0:3030"
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
