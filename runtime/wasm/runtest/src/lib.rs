@@ -97,6 +97,17 @@ impl External for MyExt {
             _ => Err(ExtError::WrongPromise),
         }
     }
+
+    fn check_ethash(
+        &mut self,
+        _block_number: u64,
+        _header_hash: &[u8],
+        _nonce: u64,
+        _mix_hash: &[u8],
+        _difficulty: u64,
+    ) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -461,4 +472,17 @@ mod tests {
         assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
     }
 
+    #[test]
+    fn test_mock_check_ethash() {
+        let input_data = [0u8; 0];
+        let outcome =
+            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+        println!("{:?}", outcome);
+
+        let output_data = match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => output_data,
+            _ => panic!("Expected returned value"),
+        };
+        assert_eq!(output_data, encode_i32(0));
+    }
 }
