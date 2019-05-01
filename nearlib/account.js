@@ -172,11 +172,11 @@ class Account {
                     balance: 20 
                 }
             ],
-            activity : [
+            transactions : [
                 {
                     id: '24359uy1dfsgwr',
-                    activityType: 'TRANSFER_MONEY', // to be converted to a description string on front end for easier localization
-                    activityDetails: {
+                    transactionType: 'TRANSFER_TOKENS', // to be converted to a description string on front end for easier localization
+                    transactionDetails: {
                         amount: 10
                     }
                 }
