@@ -130,6 +130,8 @@ release_build:
     - *install_protos
     script:
     - rustc --version && cargo --version
+    - cargo build --all --benches
+    - cargo build --package nearmint --release
     after_script:
     - *cleanup_obsolete_cache
 
@@ -153,8 +155,7 @@ test_nearlib:
     dependencies:
     - release_build
     script:
-    - cargo build --package nearmint
-    - cargo run --package nearmint -- --devnet &
+    - ./target/release/nearmint --devnet &
     - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
     - ./scripts/test_nearlib.sh
 
