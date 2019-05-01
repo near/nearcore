@@ -37,7 +37,7 @@ use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
-use std::path::Path;
+use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
 
@@ -45,12 +45,13 @@ pub mod adapter;
 pub mod chain_spec;
 mod system;
 
-mod ethereum;
+pub mod ethereum;
 mod ext;
 pub mod state_viewer;
 mod tx_stakes;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
+pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -72,12 +73,11 @@ pub struct ApplyResult {
 }
 
 pub struct Runtime {
-    ethash_provider: EthashProvider,
+    ethash_provider: Arc<Mutex<EthashProvider>>,
 }
 
 impl Runtime {
-    pub fn new(path: &str) -> Self {
-        let ethash_provider = EthashProvider::new(Path::new(path));
+    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
         Runtime { ethash_provider }
     }
 
@@ -322,7 +322,7 @@ impl Runtime {
                 receiver_id,
                 &async_call.accounting_info,
                 nonce,
-                &mut self.ethash_provider,
+                self.ethash_provider.clone(),
             );
             let mut wasm_res = executor::execute(
                 &code,
@@ -397,7 +397,7 @@ impl Runtime {
                         receiver_id,
                         &callback.accounting_info,
                         nonce,
-                        &mut self.ethash_provider,
+                        self.ethash_provider.clone(),
                     );
 
                     mana_accounting.accounting_info = callback.accounting_info.clone();

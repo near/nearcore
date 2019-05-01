@@ -12,8 +12,10 @@ use storage::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
+use crate::POISONED_LOCK_ERR;
 use bigint::{H256, H64, U256};
 use primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
+use std::sync::{Arc, Mutex};
 use storage::set;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
@@ -29,7 +31,7 @@ pub struct RuntimeExt<'a> {
     transaction_hash: &'a CryptoHash,
     iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
     last_iter_id: u32,
-    ethash_provider: &'a mut EthashProvider,
+    ethash_provider: Arc<Mutex<EthashProvider>>,
 }
 
 impl<'a> RuntimeExt<'a> {
@@ -38,7 +40,7 @@ impl<'a> RuntimeExt<'a> {
         account_id: &AccountId,
         accounting_info: &AccountingInfo,
         transaction_hash: &'a CryptoHash,
-        ethash_provider: &'a mut EthashProvider,
+        ethash_provider: Arc<Mutex<EthashProvider>>,
     ) -> Self {
         let mut prefix = key_for_account(account_id);
         prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
@@ -228,7 +230,7 @@ impl<'a> External for RuntimeExt<'a> {
         mix_hash: &[u8],
         difficulty: u64,
     ) -> bool {
-        self.ethash_provider.check_ethash(
+        self.ethash_provider.lock().expect(POISONED_LOCK_ERR).check_ethash(
             block_number,
             H256::from(header_hash),
             H64::from(nonce),

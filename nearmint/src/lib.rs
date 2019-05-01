@@ -3,8 +3,8 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::{Arc, Mutex};
 
 use abci::*;
 use log::{error, info};
@@ -12,6 +12,7 @@ use protobuf::parse_from_bytes;
 
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::chain_spec::ChainSpec;
+use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use primitives::crypto::signature::PublicKey;
@@ -51,12 +52,16 @@ fn get_storage_path(base_path: &Path) -> String {
 
 impl NearMint {
     pub fn new_from_storage(
+        base_path: &Path,
         storage: Arc<RwLock<ShardChainStorage>>,
         chain_spec: ChainSpec,
     ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
-        let runtime = Runtime::new(ETHASH_CACHE_PATH);
-        let trie_viewer = TrieViewer {};
+        let mut ethash_path = base_path.to_owned();
+        ethash_path.push(ETHASH_CACHE_PATH);
+        let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_path.as_path())));
+        let runtime = Runtime::new(ethash_provider.clone());
+        let trie_viewer = TrieViewer::new(ethash_provider);
 
         // Compute genesis from current spec.
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
@@ -115,13 +120,13 @@ impl NearMint {
         let (_, mut storage) = create_storage(&get_storage_path(base_path), 1);
         let storage = storage.pop().unwrap();
 
-        Self::new_from_storage(storage, chain_spec)
+        Self::new_from_storage(base_path, storage, chain_spec)
     }
 
     /// In memory instance of nearmint used for test
     pub fn new_for_test(chain_spec: ChainSpec) -> Self {
         let (_, storage) = create_beacon_shard_storages();
-        Self::new_from_storage(storage, chain_spec)
+        Self::new_from_storage(Path::new("test"), storage, chain_spec)
     }
 }
 

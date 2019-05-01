@@ -10,7 +10,9 @@ use storage::test_utils::create_trie;
 use storage::{Trie, TrieUpdate};
 
 use byteorder::{ByteOrder, LittleEndian};
-use std::sync::Arc;
+use node_runtime::ethereum::EthashProvider;
+use std::sync::{Arc, Mutex};
+use tempdir::TempDir;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -31,7 +33,9 @@ pub fn get_runtime_and_trie_from_chain_spec(
     chain_spec: &ChainSpec,
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
-    let runtime = Runtime::new("ethash_test");
+    let dir = TempDir::new("ethash_test").unwrap();
+    let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
+    let runtime = Runtime::new(ethash_provider);
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (genesis_root, db_changes) = runtime.apply_genesis_state(
         trie_update,
@@ -51,7 +55,9 @@ pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
     let (_, trie, root) = get_runtime_and_trie();
-    let trie_viewer = TrieViewer {};
+    let dir = TempDir::new("ethash_test").unwrap();
+    let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
+    let trie_viewer = TrieViewer::new(ethash_provider);
     let state_update = TrieUpdate::new(trie, root);
     (trie_viewer, state_update)
 }

@@ -12,11 +12,13 @@ use primitives::transaction::{
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use storage::{Trie, TrieUpdate};
 
+use node_runtime::ethereum::EthashProvider;
 use primitives::account::AccessKey;
 use primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use tempdir::TempDir;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -46,8 +48,10 @@ pub struct RuntimeUser {
 
 impl RuntimeUser {
     pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
+        let ethash_provider =
+            EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
         RuntimeUser {
-            trie_viewer: TrieViewer {},
+            trie_viewer: TrieViewer::new(Arc::new(Mutex::new(ethash_provider))),
             account_id: account_id.to_string(),
             nonce: Default::default(),
             client,
