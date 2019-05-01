@@ -1,19 +1,15 @@
 use std::io;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::time::Duration;
 
-use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
     Handler, Message, Recipient, Running, StreamHandler, System, SystemService, WrapFuture,
 };
 use log::{debug, error, info, warn};
-use protobuf::{parse_from_bytes, ProtobufResult};
-use tokio::codec::FramedRead;
 use tokio::io::WriteHalf;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 
 use near_protos::network as network_proto;
 use primitives::transaction::SignedTransaction;
@@ -24,7 +20,7 @@ use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatus, PeerType, SendMessage, Unregister, PROTOCOL_VERSION,
 };
-use crate::PeerManagerActor;
+use crate::{NetworkClientResponses, PeerManagerActor};
 
 pub struct Peer {
     /// This node's id and address (either listening or socket address).
@@ -75,18 +71,28 @@ impl Peer {
         self.framed.write(msg.into());
     }
 
-    fn send_handshake(&mut self) {
-        let handshake = Handshake::new(
-            self.node_info.id,
-            self.node_info.account_id.clone(),
-            self.node_info.addr_port(),
-            PeerChainInfo { height: 0, total_weight: 0.into() },
-        );
-        self.send_message(PeerMessage::Handshake(handshake));
-    }
-
-    fn send_ban(&mut self, ctx: &mut Context<Peer>) {
-        ctx.stop();
+    fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+        self.client_addr
+            .send(NetworkClientMessages::GetChainInfo)
+            .into_actor(self)
+            .then(move |res, act, ctx| match res {
+                Ok(NetworkClientResponses::ChainInfo { height, total_weight }) => {
+                    let handshake = Handshake::new(
+                        act.node_info.id,
+                        act.node_info.account_id.clone(),
+                        act.node_info.addr_port(),
+                        PeerChainInfo { height, total_weight },
+                    );
+                    act.send_message(PeerMessage::Handshake(handshake));
+                    actix::fut::ok(())
+                }
+                Err(err) => {
+                    error!(target: "network", "Failed sending GetChain to client: {}", err);
+                    actix::fut::err(())
+                }
+                _ => actix::fut::err(()),
+            })
+            .wait(ctx);
     }
 
     fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
@@ -117,12 +123,9 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(Ok(false)) => {
+                    Ok(NetworkClientResponses::Ban) => {
                         act.peer_status = PeerStatus::Banned;
                         ctx.stop();
-                    }
-                    Ok(Err(err)) => {
-                        error!("Received error {} processing message from {}", err, act.peer_info);
                     }
                     Err(err) => {
                         error!(
@@ -155,7 +158,7 @@ impl Actor for Peer {
 
         // If outbound peer, initiate handshake.
         if self.peer_type == PeerType::Outbound {
-            self.send_handshake();
+            self.send_handshake(ctx);
         }
     }
 
@@ -204,7 +207,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
-                                    act.send_handshake();
+                                    act.send_handshake(ctx);
                                 }
                                 actix::fut::ok(())
                             },

@@ -15,8 +15,10 @@ use log::{debug, error, info, warn};
 use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
-use near_network::types::PeerInfo;
-use near_network::{NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses};
+use near_network::{
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
+    NetworkResponses, PeerInfo,
+};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
@@ -85,16 +87,17 @@ impl Actor for ClientActor {
 }
 
 impl Handler<NetworkClientMessages> for ClientActor {
-    type Result = Result<bool, String>;
+    type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
                 Some(valid_transaction) => {
                     self.tx_pool.insert_transaction(valid_transaction);
-                    Ok(true)
+                    NetworkClientResponses::NoResponse
                 }
-                None => Ok(false),
+                // TODO: should we ban for invalid tx?
+                None => NetworkClientResponses::NoResponse,
             },
             NetworkClientMessages::BlockHeader(header, peer_info) => {
                 self.receive_header(header, peer_info)
@@ -102,9 +105,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Block(block, peer_info, was_requested) => {
                 self.receive_block(ctx, block, peer_info, was_requested)
             }
-            _ => Ok(false),
+            NetworkClientMessages::GetChainInfo => match self.chain.store().head() {
+                Ok(head) => NetworkClientResponses::ChainInfo {
+                    height: head.height,
+                    total_weight: head.total_weight,
+                },
+                Err(err) => {
+                    error!(target: "client", "{}", err);
+                    NetworkClientResponses::NoResponse
+                }
+            },
+            NetworkClientMessages::Blocks(blocks, peer_info) => {
+                NetworkClientResponses::NoResponse
+            }
         }
-        .map_err(|e| format!("Client error: {:?}", e))
     }
 }
 
@@ -228,16 +242,19 @@ impl ClientActor {
         block: Block,
         peer_info: PeerInfo,
         was_requested: bool,
-    ) -> Result<bool, Error> {
+    ) -> NetworkClientResponses {
         let hash = block.hash();
         debug!(target: "client", "Received block {} at {} from {:?}", hash, block.header.height, peer_info);
         let previous = self.chain.get_previous_header(&block.header);
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
-            Ok(_) => Ok(true),
-            Err(ref e) if e.is_bad_data() => Ok(false),
-            Err(ref e) if e.is_error() => Err(e.kind().into()),
+            Ok(_) => NetworkClientResponses::NoResponse,
+            Err(ref e) if e.is_bad_data() => NetworkClientResponses::Ban,
+            Err(ref e) if e.is_error() => {
+                error!(target: "client", "Error on receival of block: {}", e);
+                NetworkClientResponses::NoResponse
+            }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
                     if let Ok(previous) = previous {
@@ -249,17 +266,21 @@ impl ClientActor {
                             self.request_block_by_hash(previous.hash(), peer_info)
                         }
                     }
-                    Ok(true)
+                    NetworkClientResponses::NoResponse
                 }
                 _ => {
                     debug!("Process block: block {} refused by chain: {}", hash, e.kind());
-                    Ok(true)
+                    NetworkClientResponses::NoResponse
                 }
             },
         }
     }
 
-    fn receive_header(&mut self, header: BlockHeader, peer_info: PeerInfo) -> Result<bool, Error> {
+    fn receive_header(
+        &mut self,
+        header: BlockHeader,
+        peer_info: PeerInfo,
+    ) -> NetworkClientResponses {
         let hash = header.hash();
         debug!(target: "client", "Received block header {} at {} from {:?}", hash, header.height, peer_info);
 
@@ -267,18 +288,21 @@ impl ClientActor {
         let result = self.chain.process_block_header(&header);
 
         match result {
-            Err(ref e) if e.is_bad_data() => return Ok(false),
+            Err(ref e) if e.is_bad_data() => return NetworkClientResponses::Ban,
             // Some error that worth surfacing.
-            Err(ref e) if e.is_error() => return Err(e.kind().into()),
+            Err(ref e) if e.is_error() => {
+                error!(target: "client", "Error on receival of header: {}", e);
+                return NetworkClientResponses::NoResponse;
+            }
             // Got an error when trying to process the block header, but it's not due to
             // invalid data or underlying error. Surface as fine.
-            Err(e) => return Ok(true),
+            Err(e) => return NetworkClientResponses::NoResponse,
             _ => {}
         }
 
         // Succesfully processed a block header and can request the full block.
         self.request_block_by_hash(header.hash(), peer_info);
-        Ok(true)
+        NetworkClientResponses::NoResponse
     }
 
     fn request_block_by_hash(&mut self, hash: CryptoHash, peer_info: PeerInfo) {

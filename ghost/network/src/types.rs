@@ -439,12 +439,39 @@ impl Message for NetworkRequests {
 
 #[derive(Debug)]
 pub enum NetworkClientMessages {
+    /// Received transaction.
     Transaction(SignedTransaction),
+    /// Received block header.
     BlockHeader(BlockHeader, PeerInfo),
+    /// Received block, possibly requested.
     Block(Block, PeerInfo, bool),
+    /// Received list of blocks for syncing.
     Blocks(Vec<Block>, PeerInfo),
+    /// Get Chain information from Client.
+    GetChainInfo,
+}
+
+pub enum NetworkClientResponses {
+    /// No response.
+    NoResponse,
+    /// Ban peer for malicious behaviour.
+    Ban,
+    /// Chain information.
+    ChainInfo { height: BlockIndex, total_weight: Weight },
+}
+
+impl<A, M> MessageResponse<A, M> for NetworkClientResponses
+where
+    A: Actor,
+    M: Message<Result = NetworkClientResponses>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
 }
 
 impl Message for NetworkClientMessages {
-    type Result = Result<bool, String>;
+    type Result = NetworkClientResponses;
 }

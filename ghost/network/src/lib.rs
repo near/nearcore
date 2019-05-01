@@ -1,6 +1,7 @@
 pub use peer_manager::PeerManagerActor;
 pub use types::{
-    NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
+    NetworkResponses, PeerInfo,
 };
 
 mod codec;

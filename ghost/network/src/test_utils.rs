@@ -6,7 +6,7 @@ use actix::{Actor, AsyncContext, Context};
 use primitives::crypto::signature::get_key_pair;
 use primitives::test_utils::get_key_pair_from_seed;
 
-use crate::types::{PeerInfo, NetworkConfig};
+use crate::types::{NetworkConfig, PeerInfo};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
