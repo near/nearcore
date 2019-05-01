@@ -20,6 +20,7 @@ use primitives::crypto::signer::InMemorySigner;
 use primitives::test_utils::init_test_logger;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockId, MerkleHash};
+use primitives::hash::hash;
 
 type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -152,7 +153,7 @@ fn receive_network_block_header() {
             vec!["test"],
             "other",
             true,
-            Box::new(move |msg, ctx, client_addr| match msg {
+            Box::new(move |msg, _ctx, client_addr| match msg {
                 NetworkRequests::BlockRequest { hash, peer_info } => {
                     let block = block_holder1.read().unwrap().clone().unwrap();
                     assert_eq!(hash.clone(), block.hash());
@@ -183,6 +184,43 @@ fn receive_network_block_header() {
         }));
     })
     .unwrap();
+}
+
+/// Invalid blocks.
+#[test]
+fn invalid_blocks() {
+    init_test_logger();
+    System::run(|| {
+        let client = setup_mock(
+            vec!["test"],
+            "other",
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::BlockHeaderAnnounce { header } => {
+                        assert_eq!(header.height, 1);
+                        assert_eq!(header.prev_state_root, MerkleHash::default());
+                        System::current().stop();
+                    }
+                    _ => {}
+                };
+                NetworkResponses::NoResponse
+            }));
+        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            // Send invalid state root.
+            let block = Block::produce(&last_block.header, hash(&[0]), vec![], signer.clone());
+            client.do_send(NetworkClientMessages::Block(block.clone(), PeerInfo::random(), false));
+            // Send block that builds on invalid one.
+            let block2 = Block::produce(&block.header, hash(&[1]), vec![], signer.clone());
+            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random(), false));
+            // Send proper block.
+            let block3 = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
+            client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random(), false));
+            future::result(Ok(()))
+        }));
+    }).unwrap();
 }
 
 /// Runs client that syncs with peers.
