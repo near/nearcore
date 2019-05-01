@@ -413,7 +413,7 @@ pub fn check_ethash_naive() {
     unsafe {
         let header_hash = [0u8; 32];
         let mix_hash = [0u8; 32];
-        let res = check_ethash(1, &header_hash as *const u8, 32, 0, &mix_hash as *const u8, 32, 1);
+        let res = check_ethash(1, header_hash.as_ptr(), 32, 0, mix_hash.as_ptr(), 32, 1);
         return_i32(res as i32)
     }
 }
