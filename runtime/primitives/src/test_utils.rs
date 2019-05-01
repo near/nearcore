@@ -40,6 +40,10 @@ pub fn get_key_pair_from_seed(seed_string: &str) -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
+pub fn get_public_key_from_seed(seed_string: &str) -> PublicKey {
+    get_key_pair_from_seed(seed_string).0
+}
+
 pub fn get_bls_key_pair_from_seed(seed_string: &str) -> (BlsPublicKey, BlsSecretKey) {
     let mut rng = XorShiftRng::seed_from_u64(calculate_hash(&seed_string));
     let bls_secret_key = BlsSecretKey::generate_from_rng(&mut rng);

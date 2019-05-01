@@ -77,7 +77,7 @@ message CoupledBlock {
     SignedShardBlock shard_block = 2;
 }
 
-message BlockHeader {
+message BlockHeaderBody {
     uint64 height = 1;
     bytes prev_hash = 2;
     bytes prev_state_root = 3;
@@ -85,6 +85,11 @@ message BlockHeader {
     uint64 timestamp = 5;
     repeated bytes signatures = 6;
     uint64 total_weight = 7;
+}
+
+message BlockHeader {
+    BlockHeaderBody body = 1;
+    bytes signature = 2;
 }
 
 message Block {

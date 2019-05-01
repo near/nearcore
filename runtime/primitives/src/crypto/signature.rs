@@ -261,6 +261,12 @@ impl<'a> From<&'a Signature> for Vec<u8> {
     }
 }
 
+impl From<Signature> for Vec<u8> {
+    fn from(h: Signature) -> Self {
+        (h.0).0.to_vec()
+    }
+}
+
 impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", pretty_hash(&String::from(self)))

@@ -1,14 +1,17 @@
-use std::fmt;
 use std::convert::{TryFrom, TryInto};
+use std::fmt;
 use std::iter::FromIterator;
+use std::sync::Arc;
 
+use chrono::offset::LocalResult::Single;
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 
 use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
-use primitives::crypto::signature::Signature;
+use primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
+use primitives::crypto::signer::EDSigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex, MerkleHash};
@@ -32,16 +35,40 @@ pub struct BlockHeader {
     /// Timestamp at which the block was built.
     #[serde(with = "ts_nanoseconds")]
     pub timestamp: DateTime<Utc>,
-    /// Authority signatures.
+    /// Approval signatures.
     pub signatures: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
+
+    /// Signature of the block producer.
+    pub signature: Signature,
 
     /// Cached value of hash for this block.
     hash: CryptoHash,
 }
 
 impl BlockHeader {
+    fn header_body(
+        height: BlockIndex,
+        prev_hash: CryptoHash,
+        prev_state_root: MerkleHash,
+        tx_root: MerkleHash,
+        timestamp: DateTime<Utc>,
+        signatures: Vec<Signature>,
+        total_weight: Weight,
+    ) -> chain_proto::BlockHeaderBody {
+        chain_proto::BlockHeaderBody {
+            height,
+            prev_hash: prev_hash.into(),
+            prev_state_root: prev_state_root.into(),
+            tx_root: tx_root.into(),
+            timestamp: timestamp.timestamp_nanos() as u64,
+            signatures: RepeatedField::from_iter(signatures.iter().map(std::convert::Into::into)),
+            total_weight: total_weight.to_num(),
+            ..Default::default()
+        }
+    }
+
     pub fn new(
         height: BlockIndex,
         prev_hash: CryptoHash,
@@ -50,34 +77,52 @@ impl BlockHeader {
         timestamp: DateTime<Utc>,
         signatures: Vec<Signature>,
         total_weight: Weight,
+        signer: Arc<EDSigner>,
     ) -> Self {
+        let hb = Self::header_body(
+            height,
+            prev_hash,
+            prev_state_root,
+            tx_root,
+            timestamp,
+            signatures,
+            total_weight,
+        );
+        let bytes = hb.write_to_bytes().expect("Failed to serialize");
+        let hash = hash(&bytes);
         let h = chain_proto::BlockHeader {
-            height: height,
-            prev_hash: prev_hash.into(),
-            prev_state_root: prev_state_root.into(),
-            tx_root: tx_root.into(),
-            timestamp: timestamp.timestamp_nanos() as u64,
-            signatures: RepeatedField::from_iter(signatures.iter().map(std::convert::Into::into)),
-            total_weight: total_weight.to_num(),
+            body: SingularPtrField::some(hb),
+            signature: signer.sign(hash.as_ref()).into(),
             ..Default::default()
         };
-        h.try_into().unwrap()
+        h.try_into().expect("Failed to parse just created header")
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        Self::new(
-            0,
-            CryptoHash::default(),
-            state_root,
-            MerkleHash::default(),
-            timestamp,
-            vec![],
-            0.into(),
-        )
+        chain_proto::BlockHeader {
+            body: SingularPtrField::some(Self::header_body(
+                0,
+                CryptoHash::default(),
+                state_root,
+                MerkleHash::default(),
+                timestamp,
+                vec![],
+                0.into(),
+            )),
+            signature: DEFAULT_SIGNATURE.into(),
+            ..Default::default()
+        }
+        .try_into()
+        .expect("Failed to parse just created header")
     }
 
     pub fn hash(&self) -> CryptoHash {
         self.hash
+    }
+
+    /// Verifies that given public key produced the block.
+    pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
+        verify(self.hash.as_ref(), &self.signature, public_key)
     }
 }
 
@@ -85,22 +130,24 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
     type Error = String;
 
     fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
-        let bytes = proto.write_to_bytes().map_err(|err| err.to_string())?;
+        let body = proto.body.into_option().ok_or("Missing Header body")?;
+        let bytes = body.write_to_bytes().map_err(|err| err.to_string())?;
         let hash = hash(&bytes);
-        let height = proto.height;
-        let prev_hash = proto.prev_hash.try_into()?;
-        let prev_state_root = proto.prev_state_root.try_into()?;
-        let tx_root = proto.tx_root.try_into()?;
+        let height = body.height;
+        let prev_hash = body.prev_hash.try_into()?;
+        let prev_state_root = body.prev_state_root.try_into()?;
+        let tx_root = body.tx_root.try_into()?;
         let timestamp = DateTime::from_utc(
             NaiveDateTime::from_timestamp(
-                (proto.timestamp / NS_IN_SECOND) as i64,
-                (proto.timestamp % NS_IN_SECOND) as u32,
+                (body.timestamp / NS_IN_SECOND) as i64,
+                (body.timestamp % NS_IN_SECOND) as u32,
             ),
             Utc,
         );
         let signatures =
-            proto.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
-        let total_weight = proto.total_weight.into();
+            body.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let total_weight = body.total_weight.into();
+        let signature = proto.signature.try_into()?;
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -109,6 +156,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             timestamp,
             signatures,
             total_weight,
+            signature,
             hash,
         })
     }
@@ -117,15 +165,19 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
 impl From<BlockHeader> for chain_proto::BlockHeader {
     fn from(header: BlockHeader) -> Self {
         chain_proto::BlockHeader {
-            height: header.height,
-            prev_hash: header.prev_hash.into(),
-            prev_state_root: header.prev_state_root.into(),
-            tx_root: header.tx_root.into(),
-            timestamp: header.timestamp.timestamp_nanos() as u64,
-            signatures: RepeatedField::from_iter(
-                header.signatures.iter().map(std::convert::Into::into),
-            ),
-            total_weight: header.total_weight.to_num(),
+            body: SingularPtrField::some(chain_proto::BlockHeaderBody {
+                height: header.height,
+                prev_hash: header.prev_hash.into(),
+                prev_state_root: header.prev_state_root.into(),
+                tx_root: header.tx_root.into(),
+                timestamp: header.timestamp.timestamp_nanos() as u64,
+                signatures: RepeatedField::from_iter(
+                    header.signatures.iter().map(std::convert::Into::into),
+                ),
+                total_weight: header.total_weight.to_num(),
+                ..Default::default()
+            }),
+            signature: header.signature.into(),
             ..Default::default()
         }
     }
@@ -151,9 +203,10 @@ impl Block {
         prev: &BlockHeader,
         state_root: MerkleHash,
         transactions: Vec<SignedTransaction>,
+        signer: Arc<EDSigner>,
         // TODO: add collected signatures for previous block and total weight.
     ) -> Self {
-        // TODO: merkalize transactions.
+        // TODO: merkelize transactions.
         let tx_root = CryptoHash::default();
         Block {
             header: BlockHeader::new(
@@ -164,6 +217,7 @@ impl Block {
                 Utc::now(),
                 vec![],
                 (prev.total_weight.to_num() + 1).into(),
+                signer,
             ),
             transactions,
         }
@@ -256,6 +310,10 @@ pub struct Weight {
 impl Weight {
     pub fn to_num(&self) -> u64 {
         self.num
+    }
+
+    pub fn next(&self, num: u64) -> Self {
+        Weight { num: self.num + num + 1 }
     }
 }
 

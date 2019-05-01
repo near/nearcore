@@ -132,7 +132,8 @@ fn receive_network_block() {
         );
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![]);
+            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
             future::result(Ok(()))
         }));
@@ -171,7 +172,8 @@ fn receive_network_block_header() {
         );
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![]);
+            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
                 PeerInfo::random(),
@@ -203,7 +205,7 @@ fn client_sync() {
                             chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
                         }),
                     }
-                },
+                }
                 // NetworkRequests::
                 _ => NetworkResponses::NoResponse,
             }),

@@ -205,7 +205,7 @@ impl ClientActor {
         let state_root = self.chain.store().get_post_state_root(&head.last_block_hash)?;
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
-        let block = Block::produce(&prev, state_root, transactions);
+        let block = Block::produce(&prev, state_root, transactions, block_producer.signer.clone());
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }
 
