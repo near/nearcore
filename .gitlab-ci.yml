@@ -153,8 +153,8 @@ test_nearlib:
     dependencies:
     - release_build
     script:
-    - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
     - cargo run --package nearmint -- --devnet &
+    - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
