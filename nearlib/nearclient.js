@@ -41,11 +41,11 @@ class NearClient {
         try {
             const result = await this.jsonRpcRequest('abci_query', [`call/${contractAccountId}/${methodName}`, serializedArgs, '0', false], ignoreErrors);
             const response = result.response;
-            _printLogs(response.log);
+            _printLogs(contractAccountId, response.log);
             const json = JSON.parse(_base64ToBuffer(response.value).toString());
             return json;
         } catch(e) {
-            _printLogs(e.log);
+            _printLogs(contractAccountId, e.log);
             throw e;
         }
     }
@@ -90,7 +90,7 @@ class NearClient {
     }
 }
 
-function _printLogs(log) {
+function _printLogs(contractAccountId, log) {
     let logs = [];
     if (log !== undefined && log.length > 0) {
         logs = log.split('\n');
