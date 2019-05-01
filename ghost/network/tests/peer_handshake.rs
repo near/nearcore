@@ -35,21 +35,6 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
     PeerManagerActor::new(store, config, client_addr.recipient())
 }
 
-fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
-where
-    F: Fn() -> bool,
-{
-    let mut ms_slept = 0;
-    let mut stop = false;
-    //    while !stop {
-    //        actix::spawn(Delay::new(Instant::now() + Duration::from_secs(1)).then(|_| { stop = f(); future::result(Ok(())) }));
-    //        ms_slept += check_interval_ms;
-    //        if ms_slept > max_wait_ms {
-    //            panic!("Timed out waiting for the condition");
-    //        }
-    //    }
-}
-
 #[test]
 fn peer_handshake() {
     init_test_logger();

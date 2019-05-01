@@ -57,22 +57,23 @@ impl PeerInfo {
 ///
 /// # Example
 ///
-/// ~~~~
+/// ```
+/// use actix::{System, Actor};
 /// use near_network::test_utils::WaitOrTimeout;
+/// use std::time::{Instant, Duration};
 ///
-/// WaitOrTimeout::new(Box::new(move |ctx| {
-///     actix::spawn(client.send(GetBlock::Best).then(|res| {
-///         match &res {
-///             Ok(Some(b)) if b.header.height > 2 => System::current().stop(),
-///             Err(_) => return ftuures::future::err(())
-///             _ => {}
-///         }
-///         futures::future::ok(())
-///     }),
-///     1000,
-///     60000,
-/// ).start();
-/// ~~~~
+/// System::run(|| {
+///     let start = Instant::now();
+///     WaitOrTimeout::new(Box::new(move |ctx| {
+///             if start.elapsed() > Duration::from_millis(10) {
+///                 System::current().stop()
+///             }
+///         }),
+///         1000,
+///         60000,
+///     ).start();
+/// }).unwrap();
+/// ```
 pub struct WaitOrTimeout {
     f: Box<FnMut(&mut Context<WaitOrTimeout>)>,
     check_interval_ms: u64,

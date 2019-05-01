@@ -19,10 +19,10 @@ use crate::transaction::{SignedTransaction, TransactionBody};
 use crate::types::{AccountId, AuthorityId, AuthorityStake};
 
 pub fn init_test_logger() {
-    env_logger::Builder::new()
+    let _ = env_logger::Builder::new()
         .filter_module("tokio_reactor", LevelFilter::Info)
         .filter(None, LevelFilter::Debug)
-        .init();
+        .try_init();
 }
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
