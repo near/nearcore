@@ -22,6 +22,7 @@ use near_chain::{Block, BlockHeader};
 use near_store::Store;
 use primitives::crypto::signature::{PublicKey, SecretKey};
 use primitives::hash::CryptoHash;
+use primitives::types::AccountId;
 
 use crate::codec::Codec;
 use crate::peer::Peer;
@@ -34,13 +35,23 @@ use crate::types::{
 };
 
 pub struct PeerManagerActor {
-    store: Arc<Store>,
-    peer_id: PeerId,
+    /// Networking configuration.
     config: NetworkConfig,
-    outgoing_peers: HashSet<PeerId>,
-    active_peers: HashMap<PeerId, (Recipient<SendMessage>, FullPeerInfo)>,
-    peer_states: HashMap<PeerId, KnownPeerState>,
+    /// Peer information for this node.
+    peer_id: PeerId,
+    /// Address of the client actor.
     client_addr: Recipient<NetworkClientMessages>,
+    /// Access to store to read/write peers.
+    store: Arc<Store>,
+    /// Full list of known peers loaded from disk.
+    /// TODO: figure out if we need this, or instead should go directly via store.
+    peer_states: HashMap<PeerId, KnownPeerState>,
+    /// Set of outbound connections that were not consolidated yet.
+    outgoing_peers: HashSet<PeerId>,
+    /// Active peers (inbound and outbound) with their full peer information.
+    active_peers: HashMap<PeerId, (Recipient<SendMessage>, FullPeerInfo)>,
+    /// Peers with known account ids.
+    account_peers: HashMap<AccountId, PeerId>,
 }
 
 impl PeerManagerActor {
@@ -53,15 +64,17 @@ impl PeerManagerActor {
         for peer_info in config.boot_nodes.iter() {
             peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
         }
+        // TODO: load from store.
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_states.len(), config.boot_nodes.len());
         PeerManagerActor {
-            store,
             peer_id: config.public_key.into(),
             config,
+            client_addr,
+            store,
+            peer_states,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            peer_states,
-            client_addr,
+            account_peers: HashMap::default(),
         }
     }
 
@@ -79,6 +92,9 @@ impl PeerManagerActor {
             .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
         entry.last_seen = Utc::now();
         entry.status = KnownPeerStatus::Connected;
+        if let Some(account_id) = &peer_info.peer_info.account_id {
+            self.account_peers.insert(account_id.clone(), peer_info.peer_info.id);
+        }
         self.active_peers.insert(peer_info.peer_info.id, (addr, peer_info));
     }
 
@@ -89,7 +105,12 @@ impl PeerManagerActor {
             return;
         }
         if let Some(peer_state) = self.peer_states.get_mut(&peer_id) {
-            self.active_peers.remove(&peer_id);
+            if let Some((_, peer_info)) = self.active_peers.get(&peer_id) {
+                if let Some(account_id) = &peer_info.peer_info.account_id {
+                    self.account_peers.remove(account_id);
+                }
+                self.active_peers.remove(&peer_id);
+            }
             peer_state.last_seen = Utc::now();
             peer_state.status = KnownPeerStatus::NotConnected;
         } else {
@@ -117,6 +138,7 @@ impl PeerManagerActor {
         peer_info: Option<PeerInfo>,
     ) {
         let peer_id = self.peer_id;
+        let account_id = self.config.account_id.clone();
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
@@ -127,8 +149,7 @@ impl PeerManagerActor {
 
             Peer::add_stream(FramedRead::new(read, Codec::new()), ctx);
             Peer::new(
-                // TODO: add node's account id if given.
-                PeerInfo { id: peer_id, addr: Some(server_addr), account_id: None },
+                PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
                 remote_addr,
                 peer_info,
                 peer_type,
@@ -209,6 +230,29 @@ impl PeerManagerActor {
             .and_then(|_, _, _| actix::fut::ok(()))
             .wait(ctx);
     }
+
+    /// Send message to specific account.
+    /// TODO: currently sends in direct message, need to support indirect routing.
+    fn send_message_to_account(
+        &self,
+        ctx: &mut Context<Self>,
+        account_id: AccountId,
+        msg: SendMessage,
+    ) {
+        if let Some(peer_id) = self.account_peers.get(&account_id) {
+            if let Some((addr, _)) = self.active_peers.get(peer_id) {
+                addr.send(msg)
+                    .into_actor(self)
+                    .map_err(|e, _, _| error!("Failed sending message: {}", e))
+                    .and_then(|_, _, _| actix::fut::ok(()))
+                    .wait(ctx);
+            } else {
+                error!(target: "network", "Missing peer {} that is related to account {}", peer_id, account_id);
+            }
+        } else {
+            warn!(target: "network", "Unknown account {} in peers, not supported indirect routing", account_id);
+        }
+    }
 }
 
 impl Actor for PeerManagerActor {
@@ -232,7 +276,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
     type Result = NetworkResponses;
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
-        // TODO: figure out here do_send -> it's locking.
         match msg {
             NetworkRequests::FetchInfo => NetworkResponses::Info {
                 num_active_peers: self.num_active_peers(),
@@ -246,7 +289,22 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockHeaderAnnounce { header } => {
+            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
+                if let Some(approval) = approval {
+                    if let Some(account_id) = &self.config.account_id {
+                        self.send_message_to_account(
+                            ctx,
+                            approval.target,
+                            SendMessage {
+                                message: PeerMessage::BlockApproval(
+                                    account_id.clone(),
+                                    approval.hash,
+                                    approval.signature,
+                                ),
+                            },
+                        );
+                    }
+                }
                 self.broadcast_message(
                     ctx,
                     SendMessage { message: PeerMessage::BlockHeaderAnnounce(header) },
@@ -341,7 +399,7 @@ impl Handler<Unregister> for PeerManagerActor {
 impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: Ban, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: Ban, _ctx: &mut Self::Context) {
         self.ban_peer(msg.peer_id);
     }
 }

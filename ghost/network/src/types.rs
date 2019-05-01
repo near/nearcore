@@ -13,9 +13,9 @@ use protobuf::{RepeatedField, SingularPtrField};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::{Block, BlockHeader, Weight};
+use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_protos::network as network_proto;
-use primitives::crypto::signature::{PublicKey, SecretKey};
+use primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use primitives::hash::CryptoHash;
 use primitives::logging::pretty_str;
 use primitives::traits::Base58Encoded;
@@ -238,6 +238,7 @@ pub enum PeerMessage {
     BlockAnnounce(Block),
     BlockHeaderAnnounce(BlockHeader),
     Transaction(SignedTransaction),
+    BlockApproval(AccountId, CryptoHash, Signature),
 }
 
 impl fmt::Display for PeerMessage {
@@ -248,6 +249,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockAnnounce(_) => f.write_str("BlockAnnounce"),
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
+            PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
         }
     }
 }
@@ -276,6 +278,13 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             }
             Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction)) => {
                 Ok(PeerMessage::Transaction(transaction.try_into()?))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval)) => {
+                Ok(PeerMessage::BlockApproval(
+                    block_approval.account_id,
+                    block_approval.hash.try_into()?,
+                    block_approval.signature.try_into()?,
+                ))
             }
             None => unreachable!(),
         }
@@ -306,6 +315,15 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::Transaction(transaction) => {
                 Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction.into()))
             }
+            PeerMessage::BlockApproval(account_id, hash, signature) => {
+                let block_approval = network_proto::BlockApproval {
+                    account_id,
+                    hash: hash.into(),
+                    signature: signature.into(),
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval))
+            }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
     }
@@ -315,6 +333,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
 pub struct NetworkConfig {
     pub public_key: PublicKey,
     pub private_key: SecretKey,
+    pub account_id: Option<AccountId>,
     pub addr: Option<SocketAddr>,
     pub boot_nodes: Vec<PeerInfo>,
     pub handshake_timeout: Duration,
@@ -404,9 +423,19 @@ pub struct Ban {
 #[derive(Debug)]
 pub enum NetworkRequests {
     FetchInfo,
-    BlockAnnounce { block: Block },
-    BlockHeaderAnnounce { header: BlockHeader },
-    BlockRequest { hash: CryptoHash, peer_info: PeerInfo },
+    BlockAnnounce {
+        block: Block,
+    },
+    /// Sends block header announcement, with possibly attaching approval for this block if
+    /// participating in this epoch.
+    BlockHeaderAnnounce {
+        header: BlockHeader,
+        approval: Option<BlockApproval>,
+    },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_info: PeerInfo,
+    },
 }
 
 /// Combines peer address info and chain information.
@@ -449,6 +478,8 @@ pub enum NetworkClientMessages {
     Blocks(Vec<Block>, PeerInfo),
     /// Get Chain information from Client.
     GetChainInfo,
+    /// Block approval.
+    BlockApproval(AccountId, CryptoHash, Signature),
 }
 
 pub enum NetworkClientResponses {

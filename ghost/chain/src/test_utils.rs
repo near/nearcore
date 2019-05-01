@@ -5,7 +5,7 @@ use primitives::crypto::signature::PublicKey;
 use primitives::types::{AccountId, BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, Bytes, Provenance, RuntimeAdapter, Weight};
+use crate::types::{BlockHeader, RuntimeAdapter, Weight};
 use primitives::test_utils::get_public_key_from_seed;
 use primitives::transaction::SignedTransaction;
 
@@ -52,6 +52,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
         Ok(prev_header.total_weight.next(header.signatures.len() as u64))
+    }
+
+    fn get_epoch_block_proposers(&self, height: BlockIndex) -> Vec<AccountId> {
+        self.authorities.iter().map(|x| x.0.clone()).collect()
     }
 
     fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId> {

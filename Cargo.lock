@@ -1465,6 +1465,7 @@ dependencies = [
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
+ "near-client 0.1.0",
  "near-protos 0.1.0",
  "near-store 0.1.0",
  "primitives 0.1.0",

@@ -77,10 +77,8 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use primitives::chain::ChainState;
-    use primitives::hash::{hash_struct, CryptoHash};
-    use primitives::network::{ConnectedInfo, Handshake, PeerInfo};
-    use primitives::types::PeerId;
+    use primitives::hash::CryptoHash;
+    use crate::types::{PeerId, PeerInfo, Handshake, PeerChainInfo};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -92,17 +90,14 @@ mod test {
 
     #[test]
     fn test_peer_message_handshake() {
-        let peer_info = PeerInfo { id: PeerId::default(), addr: None, account_id: None };
-        let connected_info = ConnectedInfo {
-            chain_state: ChainState { genesis_hash: CryptoHash::default(), last_index: 0 },
-        };
+        let peer_info = PeerInfo::random();
         let fake_handshake = Handshake {
             version: 1,
-            peer_id: PeerId::default(),
+            peer_id: peer_info.id,
             account_id: Some("alice.near".to_string()),
             listen_port: None,
             peers_info: vec![peer_info],
-            connected_info,
+            chain_info: PeerChainInfo { height: 0, total_weight: 0.into() }
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
@@ -110,23 +105,9 @@ mod test {
 
     #[test]
     fn test_peer_message_info_gossip() {
-        let peer_info1 = PeerInfo {
-            id: hash_struct(&1),
-            addr: Some("127.0.0.1:3000".parse().unwrap()),
-            account_id: Some("test1.near".to_string()),
-        };
-        let peer_info2 = PeerInfo {
-            id: hash_struct(&2),
-            addr: Some("127.0.0.1:3001".parse().unwrap()),
-            account_id: Some("test2.near".to_string()),
-        };
+        let peer_info1 = PeerInfo::random();
+        let peer_info2 = PeerInfo::random();
         let msg = PeerMessage::InfoGossip(vec![peer_info1, peer_info2]);
-        test_codec(msg);
-    }
-
-    #[test]
-    fn test_peer_message_message() {
-        let msg = PeerMessage::Message(b"hello, world!".to_vec());
         test_codec(msg);
     }
 }

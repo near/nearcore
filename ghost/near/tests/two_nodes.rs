@@ -26,7 +26,7 @@ fn two_nodes() {
         Box::new(move |_ctx| {
             actix::spawn(client1.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Some(b)) if b.header.height > 2 => System::current().stop(),
+                    Ok(Some(b)) if b.header.height > 2 && b.header.total_weight.to_num() > 2 => System::current().stop(),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };

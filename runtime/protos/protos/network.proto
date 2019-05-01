@@ -30,6 +30,12 @@ message PeerInfoGossip {
     repeated PeerInfo info_gossip = 1;
 }
 
+message BlockApproval {
+    string account_id = 1;
+    bytes hash = 2;
+    bytes signature = 3;
+}
+
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
@@ -37,6 +43,7 @@ message PeerMessage {
         Block block_announce = 3;
         BlockHeader block_header_announce = 4;
         SignedTransaction transaction = 5;
+        BlockApproval block_approval = 6;
     }
 }
 

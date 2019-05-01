@@ -10,9 +10,7 @@ use actix::{
 use ansi_term::Color::{Cyan, Yellow};
 use log::{debug, error, info, warn};
 
-use near_chain::{
-    Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
-};
+use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction, BlockApproval};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
@@ -24,6 +22,7 @@ use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
+use primitives::crypto::signature::Signature;
 
 mod types;
 
@@ -113,6 +112,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             },
             NetworkClientMessages::Blocks(blocks, peer_info) => NetworkClientResponses::NoResponse,
+            NetworkClientMessages::BlockApproval(account_id, hash, signature) => {
+                if self.collect_block_approval(&account_id, &hash, &signature) {
+                    return NetworkClientResponses::NoResponse
+                } else {
+                    warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
+                    NetworkClientResponses::Ban
+                }
+            }
         }
     }
 }
@@ -154,6 +161,8 @@ impl ClientActor {
         };
 
         if provenance != Provenance::SYNC {
+            let next_block_producer_account = self.runtime_adapter.get_block_proposer(block.header.height + 1);
+
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
@@ -161,15 +170,21 @@ impl ClientActor {
                     .network_actor
                     .do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
             } else {
+                let mut approval = None;
+                if let (Some(block_producer), Some(next_block_producer_account)) = (&self.block_producer, &next_block_producer_account) {
+                    if self.runtime_adapter.get_epoch_block_proposers(block.header.height).contains(&block_producer.account_id) {
+                        approval = Some(BlockApproval::new(block.hash(), &*block_producer.signer, next_block_producer_account.clone()));
+                    }
+                }
                 let _ = self
                     .network_actor
-                    .do_send(NetworkRequests::BlockHeaderAnnounce { header: block.header.clone() });
+                    .do_send(NetworkRequests::BlockHeaderAnnounce { header: block.header.clone(), approval });
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
             if let Some(block_producer) = &self.block_producer {
                 if Some(block_producer.account_id.clone())
-                    == self.runtime_adapter.get_block_proposer(block.header.height + 1)
+                    == next_block_producer_account
                 {
                     ctx.run_later(self.config.block_production_delay, move |act, ctx| {
                         if let Err(err) = act.produce_block(ctx) {
@@ -419,5 +434,22 @@ impl ClientActor {
 
             act.log_summary(ctx);
         });
+    }
+
+    /// Collects block approvals. Returns false if block approval is invalid.
+    fn collect_block_approval(&self, account_id: &AccountId, hash: &CryptoHash, signature: &Signature) -> bool {
+        // TODO: figure out how to validate better before hitting disk? For example account cache to validate signature first.
+        let header = match self.chain.store().get_block_header(&hash) {
+            Ok(header) => header,
+            Err(_) => return false,
+        };
+        // If given account is not current block proposer.
+//        if !self.runtime_adapter.get_epoch_block_proposers(header.height).contains(&account_id) {
+//            return false;
+//        }
+//        if !self.runtime_adapter.validate_authority_signature(account_id, signature) {
+//            return false;
+//        }
+        true
     }
 }

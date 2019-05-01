@@ -3,7 +3,6 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::sync::Arc;
 
-use chrono::offset::LocalResult::Single;
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
@@ -14,7 +13,7 @@ use primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNAT
 use primitives::crypto::signer::EDSigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, MerkleHash};
+use primitives::types::{AccountId, BlockIndex, MerkleHash, Epoch};
 use primitives::utils::proto_to_type;
 
 use crate::error::Error;
@@ -290,8 +289,13 @@ pub trait RuntimeAdapter {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
+    /// Epoch block proposers.
+    fn get_epoch_block_proposers(&self, epoch: Epoch) -> Vec<AccountId>;
+
     /// Block proposer for given height. Return None if outside of known boundaries.
     fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId>;
+
+    /// Validates authority
 
     /// Apply transactions to given state root and return store update and new state root.
     fn apply_transactions(
@@ -354,9 +358,23 @@ impl Tip {
             total_weight: header.total_weight,
         }
     }
+}
 
-    /// The hash of the underlying block.
-    fn hash(&self) -> CryptoHash {
-        self.last_block_hash
+/// Block approval by other block producers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockApproval {
+    pub hash: CryptoHash,
+    pub signature: Signature,
+    pub target: AccountId,
+}
+
+impl BlockApproval {
+    pub fn new(hash: CryptoHash, signer: &EDSigner, target: AccountId) -> Self {
+        let signature = signer.sign(hash.as_ref());
+        BlockApproval {
+            hash,
+            signature,
+            target
+        }
     }
 }

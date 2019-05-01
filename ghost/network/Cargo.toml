@@ -20,3 +20,6 @@ primitives = { path = "../../runtime/primitives" }
 near-protos = { path = "../../runtime/protos" }
 near-store = { path = "../store" }
 near-chain = { path = "../chain" }
+
+[dev-dependencies]
+near-client = { path = "../client" }

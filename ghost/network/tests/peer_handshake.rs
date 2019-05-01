@@ -2,26 +2,37 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{thread, time};
 
+use actix::actors::mocker::Mocker;
+use actix::utils::IntervalFunc;
 use actix::Actor;
-use actix::{Arbiter, System, ActorStream};
+use actix::{ActorStream, Arbiter, System};
 use futures::future;
 use futures::future::Future;
+use futures::stream::Stream;
 use log::LevelFilter;
 use tokio::timer::{Delay, Interval};
-use futures::stream::Stream;
 
-use near_network::test_utils::{open_port, convert_boot_nodes};
-use near_network::types::NumActivePeers;
-use near_network::{NetworkConfig, PeerInfo, PeerManagerActor};
+use near_client::ClientActor;
+use near_network::test_utils::{convert_boot_nodes, open_port};
+use near_network::{
+    NetworkClientMessages, NetworkClientResponses, NetworkConfig, PeerInfo, PeerManagerActor,
+};
 use near_store::test_utils::create_test_store;
 use primitives::test_utils::{get_key_pair_from_seed, init_test_logger};
-use actix::utils::IntervalFunc;
+
+type ClientMock = Mocker<ClientActor>;
 
 fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> PeerManagerActor {
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(seed, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
-    PeerManagerActor::new(store, config)
+    let client_addr = ClientMock::mock(Box::new(move |msg, ctx| {
+        let msg = msg.downcast_ref::<NetworkClientMessages>().unwrap();
+        // TODO: add mock.
+        Box::new(Some(NetworkClientResponses::NoResponse))
+    }))
+    .start();
+    PeerManagerActor::new(store, config, client_addr.recipient())
 }
 
 fn wait<F>(f: F, check_interval_ms: u64, max_wait_ms: u64)
@@ -30,13 +41,13 @@ where
 {
     let mut ms_slept = 0;
     let mut stop = false;
-//    while !stop {
-//        actix::spawn(Delay::new(Instant::now() + Duration::from_secs(1)).then(|_| { stop = f(); future::result(Ok(())) }));
-//        ms_slept += check_interval_ms;
-//        if ms_slept > max_wait_ms {
-//            panic!("Timed out waiting for the condition");
-//        }
-//    }
+    //    while !stop {
+    //        actix::spawn(Delay::new(Instant::now() + Duration::from_secs(1)).then(|_| { stop = f(); future::result(Ok(())) }));
+    //        ms_slept += check_interval_ms;
+    //        if ms_slept > max_wait_ms {
+    //            panic!("Timed out waiting for the condition");
+    //        }
+    //    }
 }
 
 #[test]
@@ -47,26 +58,26 @@ fn peer_handshake() {
         let (port1, port2) = (open_port(), open_port());
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)]).start();
         let pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
-        let num_peers = pm1.send(NumActivePeers {});
-//        wait(|| {}, 50, 100)
-//        actix::run(Interval::new(Instant::now(), Duration::from_millis(100)).then(|_| {
-////            num_peers.map(|res| {
-////                println!("!!! ");
-////                if res == 1 {
-////                    System::current().stop();
-////                }
-////            }).map_err(|e| {});
-//            future::result(Ok(()))
-//        }));
-//        wait(|| {
-//            let mut stop = false;
-//            pm1.send(NumActivePeers {}).map(|res| if res == 1 { stop = true; });
-//            stop
-//        }, 50, 1000);
-//        System::current().stop();
-//        let f2 = Interval::new(Instant::now(), Duration::from_millis(100)).then(|_| {
-//            future::result(Ok(()))
-//        }).finish();
+        // let num_peers = pm1.send(NumActivePeers {});
+        //        wait(|| {}, 50, 100)
+        //        actix::run(Interval::new(Instant::now(), Duration::from_millis(100)).then(|_| {
+        ////            num_peers.map(|res| {
+        ////                println!("!!! ");
+        ////                if res == 1 {
+        ////                    System::current().stop();
+        ////                }
+        ////            }).map_err(|e| {});
+        //            future::result(Ok(()))
+        //        }));
+        //        wait(|| {
+        //            let mut stop = false;
+        //            pm1.send(NumActivePeers {}).map(|res| if res == 1 { stop = true; });
+        //            stop
+        //        }, 50, 1000);
+        //        System::current().stop();
+        //        let f2 = Interval::new(Instant::now(), Duration::from_millis(100)).then(|_| {
+        //            future::result(Ok(()))
+        //        }).finish();
         actix::spawn(Delay::new(Instant::now() + Duration::from_secs(1)).then(|_| {
             System::current().stop();
             future::result(Ok(()))

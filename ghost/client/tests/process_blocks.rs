@@ -115,17 +115,18 @@ fn produce_blocks_with_tx() {
     .unwrap();
 }
 
-/// Runs client that receives a block from network and announces header to the network.
+/// Runs client that receives a block from network and announces header to the network with approval.
 #[test]
 fn receive_network_block() {
     init_test_logger();
     System::run(|| {
         let client = setup_mock(
-            vec!["test"],
-            "other",
+            vec!["test1", "test2"],
+            "test2",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockHeaderAnnounce { header } = msg {
+                if let NetworkRequests::BlockHeaderAnnounce { header, approval } = msg {
+                    assert!(approval.is_some());
                     System::current().stop();
                 }
                 NetworkResponses::NoResponse
@@ -133,7 +134,7 @@ fn receive_network_block() {
         );
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let block = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
             future::result(Ok(()))
@@ -164,7 +165,7 @@ fn receive_network_block_header() {
                     );
                     NetworkResponses::NoResponse
                 }
-                NetworkRequests::BlockHeaderAnnounce { header } => {
+                NetworkRequests::BlockHeaderAnnounce { header, approval } => {
                     System::current().stop();
                     NetworkResponses::NoResponse
                 }
@@ -197,9 +198,10 @@ fn invalid_blocks() {
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
-                    NetworkRequests::BlockHeaderAnnounce { header } => {
+                    NetworkRequests::BlockHeaderAnnounce { header, approval } => {
                         assert_eq!(header.height, 1);
                         assert_eq!(header.prev_state_root, MerkleHash::default());
+                        assert_eq!(*approval, None);
                         System::current().stop();
                     }
                     _ => {}

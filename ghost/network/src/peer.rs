@@ -19,6 +19,7 @@ use crate::types::{
     PeerStatus, PeerType, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
+use primitives::crypto::signature::sign;
 
 pub struct Peer {
     /// This node's id and address (either listening or socket address).
@@ -93,7 +94,8 @@ impl Peer {
             .wait(ctx);
     }
 
-    fn receive_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+    /// Process non handshake/peer related messages.
+    fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_info = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.clone(),
@@ -113,7 +115,10 @@ impl Peer {
             PeerMessage::Transaction(transaction) => {
                 NetworkClientMessages::Transaction(transaction)
             }
-            _ => unreachable!(),
+            PeerMessage::BlockApproval(account_id, hash, signature) => {
+                NetworkClientMessages::BlockApproval(account_id, hash, signature)
+            }
+            _ => unreachable!()
         };
         self.client_addr
             .send(network_client_msg)
@@ -222,7 +227,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                 // TODO: implement gossip of peers.
             }
             (_, PeerStatus::Ready, msg) => {
-                self.receive_message(ctx, msg);
+                self.receive_client_message(ctx, msg);
             }
             (_, _, msg) => {
                 warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
