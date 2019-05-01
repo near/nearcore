@@ -175,8 +175,8 @@ class Account {
             transactions : [
                 {
                     id: '24359uy1dfsgwr',
-                    transactionType: 'TRANSFER_TOKENS', // to be converted to a description string on front end for easier localization
-                    transactionDetails: {
+                    type: 'TRANSFER_TOKENS', // to be converted to a description string on front end for easier localization
+                    details: {
                         amount: 10
                     }
                 }
