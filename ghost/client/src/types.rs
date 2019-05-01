@@ -1,16 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix::{
-    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Message, Recipient, System, WrapFuture,
-};
+use actix::Message;
 use chrono::{DateTime, Utc};
 
-use near_chain::{
-    Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
-};
-use near_network::types::{FullPeerInfo, PeerInfo};
+use near_chain::Block;
+use near_network::types::FullPeerInfo;
 use near_network::{NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses};
 use near_pool::TransactionPool;
 use near_store::Store;

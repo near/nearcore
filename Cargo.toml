@@ -23,6 +23,7 @@ members = [
     "ghost/pool",
     "ghost/client",
     "ghost/network",
+    "ghost/jsonrpc",
     "ghost/near",
 ]
 exclude = [

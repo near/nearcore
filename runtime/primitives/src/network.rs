@@ -1,7 +1,6 @@
-use crate::chain::ChainState;
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, PeerId};
-use crate::utils::{proto_to_result, proto_to_type, to_string_value};
+use crate::utils::to_string_value;
 use near_protos::network as network_proto;
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};

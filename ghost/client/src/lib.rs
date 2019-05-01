@@ -2,26 +2,23 @@
 //! Block production is done in separate agent.
 
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use actix::{
     Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
     Message, Recipient, System, WrapFuture,
 };
 use ansi_term::Color::{Cyan, Yellow};
-use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
 use near_chain::{
     Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerInfo,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use near_pool::TransactionPool;
 use near_store::Store;
-use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
+use primitives::crypto::signer::AccountSigner;
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
@@ -115,9 +112,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::NoResponse
                 }
             },
-            NetworkClientMessages::Blocks(blocks, peer_info) => {
-                NetworkClientResponses::NoResponse
-            }
+            NetworkClientMessages::Blocks(blocks, peer_info) => NetworkClientResponses::NoResponse,
         }
     }
 }

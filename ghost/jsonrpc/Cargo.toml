@@ -1,22 +1,25 @@
 [package]
-name = "near"
+name = "near-jsonrpc"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+ansi_term = "0.11.0"
 actix = "0.8.1"
-kvdb = "0.1"
-kvdb-memorydb = "0.1"
-log = "0.4"
-env_logger = "0.6.0"
-chrono = { version = "0.4.4", features = ["serde"] }
+bytes = "0.4.11"
 futures = "0.1"
+chrono = { version = "0.4.4", features = ["serde"] }
+log = "0.4"
+serde_derive = "1"
+serde_json = "1"
+jsonrpc-core = "10.1.0"
+jsonrpc-pubsub = "10.1.0"
+tokio = "0.1.15"
 
 primitives = { path = "../../runtime/primitives" }
 near-store = { path = "../store" }
 near-chain = { path = "../chain" }
 near-client = { path = "../client" }
-near-pool = { path = "../pool" }
 near-network = { path = "../network" }
-near-jsonrpc = { path = "../jsonrpc" }
+near-pool = { path = "../pool" }

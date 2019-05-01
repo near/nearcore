@@ -11,14 +11,12 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
-use near_protos::network as network_proto;
-use primitives::transaction::SignedTransaction;
 use primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatus, PeerType, SendMessage, Unregister, PROTOCOL_VERSION,
+    PeerStatus, PeerType, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 

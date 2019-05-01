@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
-use actix::io::{FramedWrite, WriteHandler};
+use actix::io::FramedWrite;
 use actix::prelude::Stream;
 use actix::{
     Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
