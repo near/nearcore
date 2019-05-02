@@ -1,5 +1,6 @@
 use crate::runtime_utils::to_receipt_block;
 use crate::user::{User, POISONED_LOCK_ERR};
+use lazy_static::lazy_static;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
@@ -46,12 +47,17 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, ReceiptTransaction>>,
 }
 
+lazy_static! {
+    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
+        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
+    ));
+}
+
 impl RuntimeUser {
     pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
-        let ethash_provider =
-            EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
+        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
-            trie_viewer: TrieViewer::new(Arc::new(Mutex::new(ethash_provider))),
+            trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
             nonce: Default::default(),
             client,
