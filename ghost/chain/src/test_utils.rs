@@ -49,17 +49,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<Weight, Error> {
         let (account_id, public_key) =
             &self.authorities[(header.height as usize) % self.authorities.len()];
-        println!(
-            "height: {}, account_id: {}, public key: {}",
-            header.height, account_id, public_key
-        );
         if !header.verify_block_producer(public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn get_epoch_block_proposers(&self, height: BlockIndex) -> Vec<AccountId> {
+    fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Vec<AccountId> {
         self.authorities.iter().map(|x| x.0.clone()).collect()
     }
 
@@ -67,7 +63,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
     }
 
-    fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool {
+    fn validate_authority_signature(
+        &self,
+        _account_id: &AccountId,
+        _signature: &Signature,
+    ) -> bool {
         true
     }
 

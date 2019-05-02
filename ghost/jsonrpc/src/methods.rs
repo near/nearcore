@@ -7,6 +7,7 @@ use jsonrpc_pubsub::{PubSubHandler, Session, SubscriptionId};
 use actix::Addr;
 use near_client::ClientActor;
 use primitives::transaction::SignedTransaction;
+use near_network::NetworkClientMessages;
 
 pub type Subscriptions = HashMap<SubscriptionId, (jsonrpc_pubsub::Sink, Value)>;
 type JsonRpcResult = Result<Value, jsonrpc_core::Error>;
@@ -21,10 +22,9 @@ impl RPCAPIHandler {
     /// Sends transaction to the client and returns right away.
     fn broadcast_tx_async(
         &self,
-        _tx: Result<SignedTransaction, jsonrpc_core::Error>,
+        tx: Result<SignedTransaction, jsonrpc_core::Error>,
     ) -> JsonRpcResult {
-        // TODO: implement
-        // client_addr.send();
+        self.client_addr.do_send(NetworkClientMessages::Transaction(tx?));
         Ok(Value::Null)
     }
     /// Sends transaction to the client and returns after tx was validated.
@@ -79,7 +79,7 @@ impl JsonRpcHandler {
         });
         let api = self.api.clone();
         self.handler.add_method("broadcast_tx_sync", move |params: Params| {
-            api.broadcast_tx_async(params.parse()?)
+            api.broadcast_tx_sync(params.parse()?)
         });
         // TODO: add health, statuc, blocks, etc.
         // TODO: add subscriptions, for example receving new blocks accepted to the chain.

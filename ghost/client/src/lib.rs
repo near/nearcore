@@ -471,7 +471,7 @@ impl ClientActor {
                 Ok(head) => head,
                 Err(_) => {return; }
             };
-            info!(target: "client", "{} {} {}",
+            info!(target: "info", "{} {} {}",
                   Yellow.bold().paint(format!("#{:>8}", head.height)),
                   Yellow.bold().paint(format!("{}", head.last_block_hash)),
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)));

@@ -13,7 +13,6 @@ use primitives::types::BlockIndex;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
-use crate::ValidTransaction;
 
 const MAX_ORPHAN_SIZE: usize = 1024;
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
