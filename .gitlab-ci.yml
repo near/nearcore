@@ -162,7 +162,7 @@ test_nearlib:
     script:
     - cargo run --package keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
     - cargo run --package nearmint -- --devnet &
-    - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
+    - tendermint node --rpc.laddr="tcp://0.0.0.0:3030" &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
