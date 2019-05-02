@@ -157,6 +157,7 @@ test_nearlib:
     dependencies:
     - release_build
     script:
+    - cargo build -p keystore --release && ./target/release/keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
     - ./target/release/nearmint --devnet &
     - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
     - ./scripts/test_nearlib.sh
