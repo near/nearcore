@@ -176,9 +176,19 @@ class Account {
                 {
                     id: '24359uy1dfsgwr',
                     type: 'TRANSFER_TOKENS', // to be converted to a description string on front end for easier localization
-                    details: {
-                        amount: 10
-                    }
+                    amount: 10
+                },
+                {
+                    id: 'fiuawghefiu126r',
+                    type: 'CREATE_ACCOUNT',
+                    amount: 25,
+                    newAccountId: 'bob.near'
+                },
+                {
+                    id: '987tyjkh234g2hk35',
+                    type: 'CALL_CONTRACT',
+                    contract_id: 'cryptocorgies',
+                    method_name: 'feed'
                 }
 
             ]
