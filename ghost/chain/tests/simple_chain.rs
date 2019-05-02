@@ -31,7 +31,7 @@ fn build_chain() {
     for i in 0..4 {
         let prev = chain.store().head_header().unwrap();
         let block =
-            Block::produce(&prev, runtime.get_root(), vec![], HashMap::default(), signer.clone());
+            Block::produce(&prev, prev.height, runtime.get_root(), vec![], HashMap::default(), signer.clone());
         let tip = chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -45,6 +45,7 @@ fn build_chain_with_orhpans() {
     for i in 1..4 {
         let block = Block::produce(
             &blocks[i - 1].header,
+            blocks[i - 1].header.height,
             MerkleHash::default(),
             vec![],
             HashMap::default(),

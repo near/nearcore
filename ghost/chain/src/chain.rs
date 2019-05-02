@@ -467,11 +467,6 @@ impl<'a> ChainUpdate<'a> {
         // First I/O cost, delayed as late as possible.
         let prev_header = self.get_previous_header(header)?;
 
-        // Make sure this header has a height exactly one higher than the previous header.
-        if header.height != prev_header.height + 1 {
-            return Err(ErrorKind::InvalidBlockHeight.into());
-        }
-
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
         if header.timestamp <= prev_header.timestamp {

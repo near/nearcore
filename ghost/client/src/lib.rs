@@ -2,6 +2,7 @@
 //! Block production is done in separate agent.
 
 use std::collections::HashMap;
+use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -23,7 +24,7 @@ use near_store::Store;
 use primitives::crypto::signature::Signature;
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::types::AccountId;
+use primitives::types::{AccountId, BlockIndex};
 
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
 
@@ -177,9 +178,6 @@ impl ClientActor {
         self.last_block_processed = Instant::now();
 
         if provenance != Provenance::SYNC {
-            let next_block_producer_account =
-                self.runtime_adapter.get_block_proposer(block.header.height + 1);
-
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
@@ -187,24 +185,7 @@ impl ClientActor {
                     .network_actor
                     .do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
             } else {
-                let mut approval = None;
-                if let (Some(block_producer), Ok(next_block_producer_account)) =
-                    (&self.block_producer, &next_block_producer_account)
-                {
-                    if &block_producer.account_id != next_block_producer_account {
-                        if self
-                            .runtime_adapter
-                            .get_epoch_block_proposers(block.header.height)
-                            .contains(&block_producer.account_id)
-                        {
-                            approval = Some(BlockApproval::new(
-                                block.hash(),
-                                &*block_producer.signer,
-                                next_block_producer_account.clone(),
-                            ));
-                        }
-                    }
-                }
+                let approval = self.get_block_approval(&block);
                 let _ = self.network_actor.do_send(NetworkRequests::BlockHeaderAnnounce {
                     header: block.header.clone(),
                     approval,
@@ -212,15 +193,7 @@ impl ClientActor {
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
-            if let Some(block_producer) = &self.block_producer {
-                if Ok(block_producer.account_id.clone()) == next_block_producer_account {
-                    ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
-                        if let Err(err) = act.produce_block(ctx) {
-                            error!(target: "client", "Produce block failed: {:?}", err);
-                        }
-                    });
-                }
-            }
+            self.handle_scheduling_block_production(ctx, block.header.height);
         }
 
         // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
@@ -231,28 +204,105 @@ impl ClientActor {
         }
     }
 
-    /// Produce block if we are still next block producer.
-    fn produce_block(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
+    /// Create approval for given block or return none if not a block producer.
+    fn get_block_approval(&self, block: &Block) -> Option<BlockApproval> {
+        let next_block_producer_account =
+            self.runtime_adapter.get_block_proposer(block.header.height + 1);
+        if let (Some(block_producer), Ok(next_block_producer_account)) =
+            (&self.block_producer, &next_block_producer_account)
+        {
+            if &block_producer.account_id != next_block_producer_account {
+                if self
+                    .runtime_adapter
+                    .get_epoch_block_proposers(block.header.height)
+                    .contains(&block_producer.account_id)
+                {
+                    return Some(BlockApproval::new(
+                        block.hash(),
+                        &*block_producer.signer,
+                        next_block_producer_account.clone(),
+                    ));
+                }
+            }
+        }
+        None
+    }
+
+    /// Checks if we are block producer and if we are next block producer schedules.
+    /// If we are not next block producer, schedule to check timeout.
+    fn handle_scheduling_block_production(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        last_height: BlockIndex,
+    ) {
+        let next_block_producer_account = self.runtime_adapter.get_block_proposer(last_height + 1);
+        if let Some(block_producer) = &self.block_producer {
+            if Ok(block_producer.account_id.clone()) == next_block_producer_account {
+                ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
+                    if let Err(err) = act.produce_block(ctx, last_height + 1) {
+                        error!(target: "client", "Block production failed: {:?}", err);
+                    }
+                });
+            } else {
+                // Otherwise, schedule timeout to check if the next block was produced.
+                ctx.run_later(self.config.max_block_production_delay, move |act, ctx| {
+                    act.check_block_timeout(ctx, last_height);
+                });
+            }
+        }
+    }
+
+    /// Checks if next block was produced within timeout, if not check if we should produce next block.
+    /// TODO: should we send approvals for given block to next block producer?
+    fn check_block_timeout(&mut self, ctx: &mut Context<ClientActor>, last_height: u64) {
+        let head = match self.chain.store().head() {
+            Ok(head) => head,
+            Err(_) => return,
+        };
+        // If height changed, exit.
+        if head.height != last_height {
+            return;
+        }
+        debug!("Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
+        // Update how long ago last block arrived to reset block production timer.
+        self.last_block_processed = Instant::now();
+        self.handle_scheduling_block_production(ctx, last_height + 1);
+    }
+
+    /// Produce block if we are block producer for given block.
+    fn produce_block(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        next_height: BlockIndex,
+    ) -> Result<(), Error> {
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
         let head = self.chain.store().head()?;
         // Check that we are still at the block that we are producer for.
-        if block_producer.account_id != self.runtime_adapter.get_block_proposer(head.height + 1)? {
-            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", head.height);
+        if block_producer.account_id != self.runtime_adapter.get_block_proposer(next_height)? {
+            info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
         }
         let prev = self.chain.store().get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block produciton delay.
-        let total_authorities =
-            self.runtime_adapter.get_epoch_block_proposers(head.height + 1).len();
-        let prev_same_bp = self.runtime_adapter.get_block_proposer(head.height)?
-            == block_producer.account_id.clone();
+        let total_authorities = self.runtime_adapter.get_epoch_block_proposers(next_height).len();
+        let prev_same_bp =
+            self.runtime_adapter.get_block_proposer(next_height)? == block_producer.account_id.clone();
         let total_approvals = total_authorities - if prev_same_bp { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
+            // Schedule itself for (max BP delay - how much time passed).
+            ctx.run_later(
+                self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
+                move |act, ctx| {
+                    if let Err(err) = act.produce_block(ctx, next_height) {
+                        error!(target: "client", "Block production failed: {:?}", err);
+                    }
+                },
+            );
             return Ok(());
         }
 
@@ -261,6 +311,7 @@ impl ClientActor {
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
         let block = Block::produce(
             &prev,
+            next_height,
             state_root,
             transactions,
             self.approvals.drain().collect(),
@@ -393,7 +444,7 @@ impl ClientActor {
 
         if is_syncing {
             if full_peer_info.chain_info.total_weight <= head.total_weight {
-                info!(target: "chain", "Sync: synced at {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
+                info!(target: "client", "Sync: synced at {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
                 is_syncing = false;
             }
         } else {
@@ -403,6 +454,7 @@ impl ClientActor {
                     > head.height + self.config.sync_height_threshold
             {
                 info!(
+                    target: "client",
                     "Sync: height/weight: {}/{}, peer height/weight: {}/{}, enabling sync",
                     head.height,
                     head.total_weight,
@@ -420,7 +472,11 @@ impl ClientActor {
         match self.sync_status {
             SyncStatus::NoSync => {
                 // Stops syncing and switches to producing blocks.
-                let _ = self.produce_block(ctx);
+                let head = match self.chain.store().head() {
+                    Ok(head) => head,
+                    Err(_) => return,
+                };
+                self.handle_scheduling_block_production(ctx, head.height);
                 return;
             }
             SyncStatus::AwaitingPeers => {

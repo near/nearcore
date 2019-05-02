@@ -73,7 +73,7 @@ impl ClientConfig {
         ClientConfig {
             genesis_timestamp: Utc::now(),
             min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(1000),
+            max_block_production_delay: Duration::from_millis(300),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_period: Duration::from_millis(100),

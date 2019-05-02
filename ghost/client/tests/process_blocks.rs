@@ -2,18 +2,15 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, Recipient, System};
+use actix::System;
 use futures::{future, Future};
 
-use near_chain::{test_utils::KeyValueRuntime, Block, BlockApproval};
-use near_client::test_utils::{setup, setup_mock};
-use near_client::{ClientActor, ClientConfig, GetBlock};
+use near_chain::{Block, BlockApproval};
+use near_client::test_utils::setup_mock;
+use near_client::GetBlock;
+use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, PeerChainInfo};
-use near_network::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
-};
-use near_store::test_utils::create_test_store;
+use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::hash;
 use primitives::test_utils::init_test_logger;
@@ -70,12 +67,13 @@ fn produce_blocks_with_tx() {
 }
 
 /// Runs client that receives a block from network and announces header to the network with approval.
+/// Need 3 block producers, to receive approval.
 #[test]
 fn receive_network_block() {
     init_test_logger();
     System::run(|| {
         let client = setup_mock(
-            vec!["test1", "test2"],
+            vec!["test2", "test1", "test3"],
             "test2",
             true,
             Box::new(move |msg, _ctx, _| {
@@ -91,6 +89,7 @@ fn receive_network_block() {
             let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let block = Block::produce(
                 &last_block.header,
+                last_block.header.height + 1,
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
@@ -137,6 +136,7 @@ fn receive_network_block_header() {
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             let block = Block::produce(
                 &last_block.header,
+                last_block.header.height + 1,
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
@@ -176,6 +176,7 @@ fn produce_block_with_approvals() {
             let signer3 = Arc::new(InMemorySigner::from_seed("test3", "test3"));
             let block = Block::produce(
                 &last_block.header,
+                last_block.header.height + 1,
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
@@ -222,6 +223,7 @@ fn invalid_blocks() {
             // Send invalid state root.
             let block = Block::produce(
                 &last_block.header,
+                last_block.header.height + 1,
                 hash(&[0]),
                 vec![],
                 HashMap::default(),
@@ -231,6 +233,7 @@ fn invalid_blocks() {
             // Send block that builds on invalid one.
             let block2 = Block::produce(
                 &block.header,
+                block.header.height + 1,
                 hash(&[1]),
                 vec![],
                 HashMap::default(),
@@ -240,6 +243,7 @@ fn invalid_blocks() {
             // Send proper block.
             let block3 = Block::produce(
                 &last_block.header,
+                last_block.header.height + 1,
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
@@ -249,6 +253,33 @@ fn invalid_blocks() {
             future::result(Ok(()))
         }));
         near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
+}
+
+/// Runs two authority runtime with only one authority online.
+/// Present authority produces blocks on it's height after deadline.
+#[test]
+fn skip_block_production() {
+    init_test_logger();
+    System::run(|| {
+        setup_mock(
+            vec!["test1", "test2"],
+            "test2",
+            false,
+            Box::new(move |msg, _ctx, _client_actor| {
+                match msg {
+                    NetworkRequests::BlockAnnounce { block } => {
+                        if block.header.height > 3 {
+                            System::current().stop();
+                        }
+                    }
+                    _ => {}
+                };
+                NetworkResponses::NoResponse
+            }),
+        );
+        wait_or_panic(10000);
     })
     .unwrap();
 }

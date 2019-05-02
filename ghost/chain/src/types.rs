@@ -213,6 +213,7 @@ impl Block {
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         prev: &BlockHeader,
+        height: BlockIndex,
         state_root: MerkleHash,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
@@ -230,7 +231,7 @@ impl Block {
         };
         Block {
             header: BlockHeader::new(
-                prev.height + 1,
+                height,
                 prev.hash(),
                 state_root,
                 tx_root,
