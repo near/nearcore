@@ -46,7 +46,7 @@ pub fn start_with_config(config: NearConfig) -> Addr<ClientActor> {
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
                 .start();
 
-        JsonRpcServer::new(config.rpc_server_addr, ctx.address());
+        JsonRpcServer::new(config.rpc_server_addr, ctx.address()).start();
 
         ClientActor::new(
             config.client_config,

@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
-use ansi_term::Color::{Cyan, Yellow};
+use ansi_term::Color::{Cyan, Yellow, White};
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -471,9 +471,18 @@ impl ClientActor {
                 Ok(head) => head,
                 Err(_) => {return; }
             };
-            info!(target: "info", "{} {} {}",
+            let authorities = act.runtime_adapter.get_epoch_block_proposers(head.height);
+            let num_authorities = authorities.len();
+            let is_authority = if let Some(block_producer) = &act.block_producer {
+                authorities.contains(&block_producer.account_id)
+            } else {
+                false
+            };
+            // Block#, Block Hash, is authority/# authorities, active/max peers.
+            info!(target: "info", "{} {} {} {}",
                   Yellow.bold().paint(format!("#{:>8}", head.height)),
                   Yellow.bold().paint(format!("{}", head.last_block_hash)),
+                  White.bold().paint(format!("{}/{}", if is_authority { "T" } else { "F" }, num_authorities)),
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)));
 
             act.log_summary(ctx);

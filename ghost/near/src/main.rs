@@ -7,8 +7,6 @@ use log::LevelFilter;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
 use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_network::{test_utils::convert_boot_nodes, NetworkConfig, PeerInfo, PeerManagerActor};
-use near_store::test_utils::create_test_store;
 
 use clap::{App, Arg};
 use near::{start_with_config, NearConfig};

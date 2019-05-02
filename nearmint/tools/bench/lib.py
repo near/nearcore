@@ -125,7 +125,7 @@ class User(object):
 
 
 if __name__ == "__main__":
-    rpc = RPC('http://localhost:3030/')
+    rpc = RPC('http://localhost:25223/')
     alice = User(rpc, "alice.near")
     print(alice.view_account())
     print(alice.send_money('bob.near', 10, wait=True))
