@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Message, Recipient, Running, StreamHandler, System, SystemService, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
+    Handler, Recipient, Running, StreamHandler, WrapFuture,
 };
 use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
@@ -19,7 +19,6 @@ use crate::types::{
     PeerStatus, PeerType, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
-use primitives::crypto::signature::sign;
 
 pub struct Peer {
     /// This node's id and address (either listening or socket address).
@@ -74,7 +73,7 @@ impl Peer {
         self.client_addr
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
-            .then(move |res, act, ctx| match res {
+            .then(move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo { height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id,

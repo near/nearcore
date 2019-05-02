@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near_store::{Store, StoreUpdate};
-use primitives::crypto::signature::PublicKey;
+use primitives::crypto::signature::{PublicKey, Signature};
 use primitives::types::{AccountId, BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
@@ -47,19 +47,28 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let public_key = self.authorities[(header.height as usize) % self.authorities.len()].1;
-        if !header.verify_block_producer(&public_key) {
+        let (account_id, public_key) =
+            &self.authorities[(header.height as usize) % self.authorities.len()];
+        println!(
+            "height: {}, account_id: {}, public key: {}",
+            header.height, account_id, public_key
+        );
+        if !header.verify_block_producer(public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.signatures.len() as u64))
+        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
     fn get_epoch_block_proposers(&self, height: BlockIndex) -> Vec<AccountId> {
         self.authorities.iter().map(|x| x.0.clone()).collect()
     }
 
-    fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId> {
-        Some(self.authorities[(height as usize) % self.authorities.len()].0.clone())
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String> {
+        Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
+    }
+
+    fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool {
+        true
     }
 
     fn apply_transactions(

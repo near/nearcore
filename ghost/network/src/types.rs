@@ -21,7 +21,7 @@ use primitives::logging::pretty_str;
 use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
-use primitives::utils::{proto_to_result, proto_to_type, to_string_value};
+use primitives::utils::{proto_to_type, to_string_value};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;

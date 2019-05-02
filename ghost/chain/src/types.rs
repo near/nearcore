@@ -13,10 +13,11 @@ use primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNAT
 use primitives::crypto::signer::EDSigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, MerkleHash, Epoch};
+use primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash};
 use primitives::utils::proto_to_type;
 
 use crate::error::Error;
+use std::collections::HashMap;
 
 /// Number of nano seconds in one second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -34,8 +35,10 @@ pub struct BlockHeader {
     /// Timestamp at which the block was built.
     #[serde(with = "ts_nanoseconds")]
     pub timestamp: DateTime<Utc>,
+    /// Approval mask, given current block producers.
+    pub approval_mask: Vec<bool>,
     /// Approval signatures.
-    pub signatures: Vec<Signature>,
+    pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
 
@@ -53,7 +56,8 @@ impl BlockHeader {
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
         timestamp: DateTime<Utc>,
-        signatures: Vec<Signature>,
+        approval_mask: Vec<bool>,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
@@ -62,7 +66,10 @@ impl BlockHeader {
             prev_state_root: prev_state_root.into(),
             tx_root: tx_root.into(),
             timestamp: timestamp.timestamp_nanos() as u64,
-            signatures: RepeatedField::from_iter(signatures.iter().map(std::convert::Into::into)),
+            approval_mask,
+            approval_sigs: RepeatedField::from_iter(
+                approval_sigs.iter().map(std::convert::Into::into),
+            ),
             total_weight: total_weight.to_num(),
             ..Default::default()
         }
@@ -74,7 +81,8 @@ impl BlockHeader {
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
         timestamp: DateTime<Utc>,
-        signatures: Vec<Signature>,
+        approval_mask: Vec<bool>,
+        approval_sigs: Vec<Signature>,
         total_weight: Weight,
         signer: Arc<EDSigner>,
     ) -> Self {
@@ -84,7 +92,8 @@ impl BlockHeader {
             prev_state_root,
             tx_root,
             timestamp,
-            signatures,
+            approval_mask,
+            approval_sigs,
             total_weight,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
@@ -105,6 +114,7 @@ impl BlockHeader {
                 state_root,
                 MerkleHash::default(),
                 timestamp,
+                vec![],
                 vec![],
                 0.into(),
             )),
@@ -143,8 +153,9 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             ),
             Utc,
         );
-        let signatures =
-            body.signatures.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let approval_mask = body.approval_mask;
+        let approval_sigs =
+            body.approval_sigs.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let total_weight = body.total_weight.into();
         let signature = proto.signature.try_into()?;
         Ok(BlockHeader {
@@ -153,7 +164,8 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             prev_state_root,
             tx_root,
             timestamp,
-            signatures,
+            approval_mask,
+            approval_sigs,
             total_weight,
             signature,
             hash,
@@ -170,8 +182,9 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 prev_state_root: header.prev_state_root.into(),
                 tx_root: header.tx_root.into(),
                 timestamp: header.timestamp.timestamp_nanos() as u64,
-                signatures: RepeatedField::from_iter(
-                    header.signatures.iter().map(std::convert::Into::into),
+                approval_mask: header.approval_mask,
+                approval_sigs: RepeatedField::from_iter(
+                    header.approval_sigs.iter().map(std::convert::Into::into),
                 ),
                 total_weight: header.total_weight.to_num(),
                 ..Default::default()
@@ -202,11 +215,19 @@ impl Block {
         prev: &BlockHeader,
         state_root: MerkleHash,
         transactions: Vec<SignedTransaction>,
+        mut approvals: HashMap<usize, Signature>,
         signer: Arc<EDSigner>,
-        // TODO: add collected signatures for previous block and total weight.
     ) -> Self {
         // TODO: merkelize transactions.
         let tx_root = CryptoHash::default();
+        let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
+            (
+                (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
+                (0..=*max_approver).filter_map(|i| approvals.remove(&i)).collect(),
+            )
+        } else {
+            (vec![], vec![])
+        };
         Block {
             header: BlockHeader::new(
                 prev.height + 1,
@@ -214,7 +235,8 @@ impl Block {
                 state_root,
                 tx_root,
                 Utc::now(),
-                vec![],
+                approval_mask,
+                approval_sigs,
                 (prev.total_weight.to_num() + 1).into(),
                 signer,
             ),
@@ -292,10 +314,11 @@ pub trait RuntimeAdapter {
     /// Epoch block proposers.
     fn get_epoch_block_proposers(&self, epoch: Epoch) -> Vec<AccountId>;
 
-    /// Block proposer for given height. Return None if outside of known boundaries.
-    fn get_block_proposer(&self, height: BlockIndex) -> Option<AccountId>;
+    /// Block proposer for given height. Return error if outside of known boundaries.
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String>;
 
-    /// Validates authority
+    /// Validates authority's signature.
+    fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
 
     /// Apply transactions to given state root and return store update and new state root.
     fn apply_transactions(
@@ -371,10 +394,6 @@ pub struct BlockApproval {
 impl BlockApproval {
     pub fn new(hash: CryptoHash, signer: &EDSigner, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
-        BlockApproval {
-            hash,
-            signature,
-            target
-        }
+        BlockApproval { hash, signature, target }
     }
 }

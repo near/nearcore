@@ -22,7 +22,7 @@ fn main() {
 
     // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
     let genesis_timestamp = Utc::now();
-    let mut near = NearConfig::new(genesis_timestamp.clone(), "test", 25123);
+    let near = NearConfig::new(genesis_timestamp.clone(), "test", 25123);
 
     let system = System::new("NEAR");
     start_with_config(near);

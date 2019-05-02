@@ -1,15 +1,12 @@
-use std::any::Any;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use actix::actors::mocker::Mocker;
-use actix::{
-    Actor, ActorContext, Addr, Arbiter, AsyncContext, Context, Recipient, System, WrapFuture,
-};
-use chrono::{DateTime, Utc};
+use actix::{Actor, Addr, AsyncContext, Context, Recipient, System};
 use futures::{future, Future};
 
-use near_chain::{test_utils::KeyValueRuntime, Block, BlockHeader, RuntimeAdapter};
+use near_chain::{test_utils::KeyValueRuntime, Block, BlockApproval};
 use near_client::{ClientActor, ClientConfig, GetBlock};
 use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{
@@ -17,10 +14,10 @@ use near_network::{
 };
 use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
+use primitives::hash::hash;
 use primitives::test_utils::init_test_logger;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockId, MerkleHash};
-use primitives::hash::hash;
+use primitives::types::MerkleHash;
 
 type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -125,7 +122,7 @@ fn receive_network_block() {
             "test2",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockHeaderAnnounce { header, approval } = msg {
+                if let NetworkRequests::BlockHeaderAnnounce { approval, .. } = msg {
                     assert!(approval.is_some());
                     System::current().stop();
                 }
@@ -135,7 +132,13 @@ fn receive_network_block() {
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
-            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
+            let block = Block::produce(
+                &last_block.header,
+                MerkleHash::default(),
+                vec![],
+                HashMap::default(),
+                signer,
+            );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
             future::result(Ok(()))
         }));
@@ -165,7 +168,7 @@ fn receive_network_block_header() {
                     );
                     NetworkResponses::NoResponse
                 }
-                NetworkRequests::BlockHeaderAnnounce { header, approval } => {
+                NetworkRequests::BlockHeaderAnnounce { .. } => {
                     System::current().stop();
                     NetworkResponses::NoResponse
                 }
@@ -175,7 +178,13 @@ fn receive_network_block_header() {
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
-            let block = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
+            let block = Block::produce(
+                &last_block.header,
+                MerkleHash::default(),
+                vec![],
+                HashMap::default(),
+                signer,
+            );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
                 PeerInfo::random(),
@@ -187,7 +196,48 @@ fn receive_network_block_header() {
     .unwrap();
 }
 
-/// Invalid blocks.
+/// Include approvals to the next block in newly produced block.
+#[test]
+fn produce_block_with_approvals() {
+    init_test_logger();
+    System::run(|| {
+        let client = setup_mock(
+            vec!["test3", "test1", "test2"],
+            "test2",
+            true,
+            Box::new(move |msg, _ctx, _| {
+                if let NetworkRequests::BlockAnnounce { block } = msg {
+                    assert!(block.header.approval_sigs.len() > 0);
+                    System::current().stop();
+                }
+                NetworkResponses::NoResponse
+            }),
+        );
+        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+            let last_block = res.unwrap().unwrap();
+            let signer1 = Arc::new(InMemorySigner::from_seed("test1", "test1"));
+            let signer3 = Arc::new(InMemorySigner::from_seed("test3", "test3"));
+            let block = Block::produce(
+                &last_block.header,
+                MerkleHash::default(),
+                vec![],
+                HashMap::default(),
+                signer1,
+            );
+            let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::BlockApproval(
+                "test3".to_string(),
+                block_approval.hash,
+                block_approval.signature,
+            ));
+            future::result(Ok(()))
+        }));
+    })
+    .unwrap();
+}
+
+/// Sends 2 invalid blocks followed by valid block, and checks that client announces only valid block.
 #[test]
 fn invalid_blocks() {
     init_test_logger();
@@ -207,22 +257,43 @@ fn invalid_blocks() {
                     _ => {}
                 };
                 NetworkResponses::NoResponse
-            }));
+            }),
+        );
         actix::spawn(client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             // Send invalid state root.
-            let block = Block::produce(&last_block.header, hash(&[0]), vec![], signer.clone());
+            let block = Block::produce(
+                &last_block.header,
+                hash(&[0]),
+                vec![],
+                HashMap::default(),
+                signer.clone(),
+            );
             client.do_send(NetworkClientMessages::Block(block.clone(), PeerInfo::random(), false));
             // Send block that builds on invalid one.
-            let block2 = Block::produce(&block.header, hash(&[1]), vec![], signer.clone());
+            let block2 = Block::produce(
+                &block.header,
+                hash(&[1]),
+                vec![],
+                HashMap::default(),
+                signer.clone(),
+            );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random(), false));
             // Send proper block.
-            let block3 = Block::produce(&last_block.header, MerkleHash::default(), vec![], signer);
+            let block3 = Block::produce(
+                &last_block.header,
+                MerkleHash::default(),
+                vec![],
+                HashMap::default(),
+                signer,
+            );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random(), false));
             future::result(Ok(()))
         }));
-    }).unwrap();
+        near_network::test_utils::wait_or_panic(5000);
+    })
+    .unwrap();
 }
 
 /// Runs client that syncs with peers.
@@ -230,7 +301,7 @@ fn invalid_blocks() {
 fn client_sync() {
     init_test_logger();
     System::run(|| {
-        let client = setup_mock(
+        let _client = setup_mock(
             vec!["test"],
             "other",
             false,

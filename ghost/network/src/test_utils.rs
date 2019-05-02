@@ -1,12 +1,15 @@
 use std::net::TcpListener;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use actix::{Actor, AsyncContext, Context};
+use actix::{Actor, AsyncContext, Context, System};
+use futures::future::Future;
+use tokio::timer::Delay;
 
 use primitives::crypto::signature::get_key_pair;
 use primitives::test_utils::get_key_pair_from_seed;
 
 use crate::types::{NetworkConfig, PeerInfo};
+use futures::future;
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -50,6 +53,16 @@ impl PeerInfo {
         let (id, _) = get_key_pair();
         PeerInfo { id: id.into(), addr: None, account_id: None }
     }
+}
+
+/// Timeouts by stopping system without any condition and raises panic.
+/// Useful in tests to prevent them from running forever.
+pub fn wait_or_panic(max_wait_ms: u64) {
+    actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
+        System::current().stop();
+        panic!("Timeout exceeded.");
+        future::result(Ok(()))
+    }));
 }
 
 /// Waits until condition or timeouts with panic.

@@ -5,9 +5,10 @@ use chrono::Utc;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Block, BlockHeader, Chain, ErrorKind, Provenance, RuntimeAdapter};
 use near_store::{test_utils::create_test_store, Store, StoreUpdate};
+use primitives::crypto::signer::InMemorySigner;
 use primitives::test_utils::init_test_logger;
 use primitives::types::MerkleHash;
-use primitives::crypto::signer::InMemorySigner;
+use std::collections::HashMap;
 
 fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     init_test_logger();
@@ -29,7 +30,8 @@ fn build_chain() {
     let (mut chain, runtime, signer) = setup();
     for i in 0..4 {
         let prev = chain.store().head_header().unwrap();
-        let block = Block::produce(&prev, runtime.get_root(), vec![], signer.clone());
+        let block =
+            Block::produce(&prev, runtime.get_root(), vec![], HashMap::default(), signer.clone());
         let tip = chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -41,7 +43,13 @@ fn build_chain_with_orhpans() {
     let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.store().get_block(&chain.genesis().hash()).unwrap()];
     for i in 1..4 {
-        let block = Block::produce(&blocks[i - 1].header, MerkleHash::default(), vec![], signer.clone());
+        let block = Block::produce(
+            &blocks[i - 1].header,
+            MerkleHash::default(),
+            vec![],
+            HashMap::default(),
+            signer.clone(),
+        );
         blocks.push(block);
     }
     assert_eq!(

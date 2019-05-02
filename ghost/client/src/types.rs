@@ -12,13 +12,14 @@ use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockId, BlockIndex};
+use primitives::types::AccountId;
 
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
     BlockProducer(String),
+    Other(String),
 }
 
 impl From<near_chain::Error> for Error {
@@ -40,11 +41,19 @@ impl From<near_pool::Error> for Error {
     }
 }
 
+impl From<String> for Error {
+    fn from(e: String) -> Self {
+        Error::Other(e)
+    }
+}
+
 pub struct ClientConfig {
     /// Genesis timestamp. Client will wait until this date to start.
     pub genesis_timestamp: DateTime<Utc>,
-    /// Duration before producing block.
-    pub block_production_delay: Duration,
+    /// Minimum duration before producing block.
+    pub min_block_production_delay: Duration,
+    /// Maximum duration before producing block or skipping height.
+    pub max_block_production_delay: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -65,7 +74,8 @@ impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
             genesis_timestamp: Utc::now(),
-            block_production_delay: Duration::from_millis(100),
+            min_block_production_delay: Duration::from_millis(100),
+            max_block_production_delay: Duration::from_millis(1000),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_period: Duration::from_millis(100),
@@ -81,7 +91,8 @@ impl ClientConfig {
     pub fn new(genesis_timestamp: DateTime<Utc>) -> Self {
         ClientConfig {
             genesis_timestamp,
-            block_production_delay: Duration::from_millis(100),
+            min_block_production_delay: Duration::from_millis(100),
+            max_block_production_delay: Duration::from_millis(2000),
             block_expected_weight: 1000,
             skip_sync_wait: false,
             sync_period: Duration::from_millis(100),

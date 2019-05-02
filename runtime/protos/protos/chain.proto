@@ -83,8 +83,9 @@ message BlockHeaderBody {
     bytes prev_state_root = 3;
     bytes tx_root = 4;
     uint64 timestamp = 5;
-    repeated bytes signatures = 6;
-    uint64 total_weight = 7;
+    repeated bool approval_mask = 6;
+    repeated bytes approval_sigs = 7;
+    uint64 total_weight = 8;
 }
 
 message BlockHeader {

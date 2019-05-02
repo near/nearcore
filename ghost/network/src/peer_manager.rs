@@ -5,23 +5,19 @@ use actix::actors::resolver::{ConnectAddr, Resolver};
 use actix::io::FramedWrite;
 use actix::prelude::Stream;
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Message, Recipient, StreamHandler, System, SystemService, WrapFuture,
+    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
+    StreamHandler, SystemService, WrapFuture,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::future;
 use log::{debug, error, info, warn};
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tokio::codec::FramedRead;
 use tokio::io::AsyncRead;
-use tokio::io::WriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 
-use near_chain::{Block, BlockHeader};
 use near_store::Store;
-use primitives::crypto::signature::{PublicKey, SecretKey};
-use primitives::hash::CryptoHash;
 use primitives::types::AccountId;
 
 use crate::codec::Codec;
@@ -312,7 +308,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
-            _ => panic!("Unhandled network request"),
         }
     }
 }

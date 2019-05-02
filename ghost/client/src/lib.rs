@@ -4,13 +4,15 @@
 use std::sync::{Arc, RwLock};
 
 use actix::{
-    Actor, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, Handler,
-    Message, Recipient, System, WrapFuture,
+    Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
 use ansi_term::Color::{Cyan, Yellow};
 use log::{debug, error, info, warn};
 
-use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, ValidTransaction, BlockApproval};
+use near_chain::{
+    Block, BlockApproval, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter,
+    ValidTransaction,
+};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
 };
@@ -19,10 +21,12 @@ use near_store::Store;
 use primitives::crypto::signer::AccountSigner;
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex};
+use primitives::types::AccountId;
 
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
 use primitives::crypto::signature::Signature;
+use std::collections::HashMap;
+use std::time::Instant;
 
 mod types;
 
@@ -35,6 +39,10 @@ pub struct ClientActor {
     network_actor: Recipient<NetworkRequests>,
     block_producer: Option<BlockProducer>,
     network_info: NetworkInfo,
+    /// Set of approvals for the next block.
+    approvals: HashMap<usize, Signature>,
+    /// Timestamp when last block was received / processed. Used to timeout block production.
+    last_block_processed: Instant,
 }
 
 impl ClientActor {
@@ -63,6 +71,8 @@ impl ClientActor {
                 peer_max_count: 0,
                 max_weight_peer: None,
             },
+            approvals: HashMap::default(),
+            last_block_processed: Instant::now(),
         })
     }
 }
@@ -111,10 +121,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::NoResponse
                 }
             },
-            NetworkClientMessages::Blocks(blocks, peer_info) => NetworkClientResponses::NoResponse,
+            NetworkClientMessages::Blocks(blocks, peer_info) => {
+                // TODO: sync sync sync
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::BlockApproval(account_id, hash, signature) => {
                 if self.collect_block_approval(&account_id, &hash, &signature) {
-                    return NetworkClientResponses::NoResponse
+                    return NetworkClientResponses::NoResponse;
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
                     NetworkClientResponses::Ban
@@ -160,8 +173,12 @@ impl ClientActor {
             }
         };
 
+        // Update when last block was processed.
+        self.last_block_processed = Instant::now();
+
         if provenance != Provenance::SYNC {
-            let next_block_producer_account = self.runtime_adapter.get_block_proposer(block.header.height + 1);
+            let next_block_producer_account =
+                self.runtime_adapter.get_block_proposer(block.header.height + 1);
 
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
@@ -171,22 +188,31 @@ impl ClientActor {
                     .do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
             } else {
                 let mut approval = None;
-                if let (Some(block_producer), Some(next_block_producer_account)) = (&self.block_producer, &next_block_producer_account) {
-                    if self.runtime_adapter.get_epoch_block_proposers(block.header.height).contains(&block_producer.account_id) {
-                        approval = Some(BlockApproval::new(block.hash(), &*block_producer.signer, next_block_producer_account.clone()));
+                if let (Some(block_producer), Ok(next_block_producer_account)) =
+                    (&self.block_producer, &next_block_producer_account)
+                {
+                    if self
+                        .runtime_adapter
+                        .get_epoch_block_proposers(block.header.height)
+                        .contains(&block_producer.account_id)
+                    {
+                        approval = Some(BlockApproval::new(
+                            block.hash(),
+                            &*block_producer.signer,
+                            next_block_producer_account.clone(),
+                        ));
                     }
                 }
-                let _ = self
-                    .network_actor
-                    .do_send(NetworkRequests::BlockHeaderAnnounce { header: block.header.clone(), approval });
+                let _ = self.network_actor.do_send(NetworkRequests::BlockHeaderAnnounce {
+                    header: block.header.clone(),
+                    approval,
+                });
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
             if let Some(block_producer) = &self.block_producer {
-                if Some(block_producer.account_id.clone())
-                    == next_block_producer_account
-                {
-                    ctx.run_later(self.config.block_production_delay, move |act, ctx| {
+                if Ok(block_producer.account_id.clone()) == next_block_producer_account {
+                    ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
                         if let Err(err) = act.produce_block(ctx) {
                             error!(target: "client", "Produce block failed: {:?}", err);
                         }
@@ -210,17 +236,34 @@ impl ClientActor {
         })?;
         let head = self.chain.store().head()?;
         // Check that we are still at the block that we are producer for.
-        if Some(block_producer.account_id.clone())
-            != self.runtime_adapter.get_block_proposer(head.height + 1)
-        {
+        if block_producer.account_id != self.runtime_adapter.get_block_proposer(head.height + 1)? {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", head.height);
             return Ok(());
         }
         let prev = self.chain.store().get_block_header(&head.last_block_hash)?;
+
+        // Wait until we have all approvals or timeouts per max block produciton delay.
+        let total_authorities =
+            self.runtime_adapter.get_epoch_block_proposers(head.height + 1).len();
+        let prev_same_bp = self.runtime_adapter.get_block_proposer(head.height)?
+            == block_producer.account_id.clone();
+        let total_approvals = total_authorities - if prev_same_bp { 1 } else { 2 };
+        if self.approvals.len() < total_approvals
+            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
+        {
+            return Ok(());
+        }
+
         let state_root = self.chain.store().get_post_state_root(&head.last_block_hash)?;
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
-        let block = Block::produce(&prev, state_root, transactions, block_producer.signer.clone());
+        let block = Block::produce(
+            &prev,
+            state_root,
+            transactions,
+            self.approvals.drain().collect(),
+            block_producer.signer.clone(),
+        );
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }
 
@@ -232,7 +275,8 @@ impl ClientActor {
         provenance: Provenance,
     ) -> Result<Option<near_chain::Tip>, near_chain::Error> {
         // XXX: this is bad, there is no multithreading here, what is the better way to handle this callback?
-        let mut accepted_blocks = Arc::new(RwLock::new(vec![]));
+        // TODO: replace to channels or cross beams here?
+        let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let result = {
             self.chain.process_block(block, provenance, |block, status, provenance| {
                 accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
@@ -254,7 +298,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} at {} from {:?}", hash, block.header.height, peer_info);
+        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_info);
         let previous = self.chain.get_previous_header(&block.header);
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -270,7 +314,7 @@ impl ClientActor {
                     if let Ok(previous) = previous {
                         if !self.chain.is_orphan(&previous.hash()) {
                             debug!(
-                                "Process block: received an orphan block, checking the parent: {:}",
+                                "Process block: received an orphan block, checking the parent: {}",
                                 previous.hash()
                             );
                             self.request_block_by_hash(previous.hash(), peer_info)
@@ -292,7 +336,7 @@ impl ClientActor {
         peer_info: PeerInfo,
     ) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "Received block header {} at {} from {:?}", hash, header.height, peer_info);
+        debug!(target: "client", "Received block header {} at {} from {}", hash, header.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.chain.process_block_header(&header);
@@ -437,19 +481,32 @@ impl ClientActor {
     }
 
     /// Collects block approvals. Returns false if block approval is invalid.
-    fn collect_block_approval(&self, account_id: &AccountId, hash: &CryptoHash, signature: &Signature) -> bool {
-        // TODO: figure out how to validate better before hitting disk? For example account cache to validate signature first.
+    fn collect_block_approval(
+        &mut self,
+        account_id: &AccountId,
+        hash: &CryptoHash,
+        signature: &Signature,
+    ) -> bool {
+        // TODO: figure out how to validate better before hitting the disk? For example authority and account cache to validate signature first.
         let header = match self.chain.store().get_block_header(&hash) {
             Ok(header) => header,
             Err(_) => return false,
         };
         // If given account is not current block proposer.
-//        if !self.runtime_adapter.get_epoch_block_proposers(header.height).contains(&account_id) {
-//            return false;
-//        }
-//        if !self.runtime_adapter.validate_authority_signature(account_id, signature) {
-//            return false;
-//        }
+        let position = self
+            .runtime_adapter
+            .get_epoch_block_proposers(header.height)
+            .iter()
+            .position(|x| x == account_id);
+        if position.is_none() {
+            return false;
+        }
+        // Check signature is correct for given authority.
+        if !self.runtime_adapter.validate_authority_signature(account_id, signature) {
+            return false;
+        }
+        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
+        self.approvals.insert(position.unwrap(), signature.clone());
         true
     }
 }

@@ -394,7 +394,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<Option<Tip>, Error> {
-        debug!(target: "chain", "Process block {} at {}, tx: {}", block.hash(), block.header.height, block.transactions.len());
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, tx: {}", block.hash(), block.header.height, block.header.approval_sigs.len(), block.transactions.len());
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;
