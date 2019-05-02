@@ -156,6 +156,7 @@ test_nearlib:
     - *setup_rust
     - *setup_cache
     - *setup_tendermint
+    - *install_protos
     dependencies:
     - release_build
     script:
