@@ -54,7 +54,7 @@ class RPC(object):
             raise
 
     def query(self, path, args=''):
-        result = self._call_rpc('abci_query', [path, args, '0', False])
+        result = self._call_rpc('query', [path, args, '0', False])
         return result['result']['response']
 
     def send_transaction(self, transaction, wait=False):

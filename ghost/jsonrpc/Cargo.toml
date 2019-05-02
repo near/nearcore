@@ -11,11 +11,15 @@ bytes = "0.4.11"
 futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 log = "0.4"
-serde_derive = "1"
-serde_json = "1"
-jsonrpc-core = "10.1.0"
-jsonrpc-pubsub = "10.1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+jsonrpc-core = "11.0"
+jsonrpc-pubsub = "11.0"
+jsonrpc-http-server = "11.0"
 tokio = "0.1.15"
+hyper = "0.12.18"
+uuid = { version = "~0.6", features = ["v4"] }
 
 primitives = { path = "../../runtime/primitives" }
 near-store = { path = "../store" }
@@ -23,3 +27,7 @@ near-chain = { path = "../chain" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
+
+[dev-dependencies]
+jsonrpc-client-core = "0.5.0"
+jsonrpc-client-http = "0.5.0"

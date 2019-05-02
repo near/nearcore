@@ -1,14 +1,8 @@
-use std::sync::Arc;
-
-use actix::{Actor, AsyncContext, System};
+use actix::System;
 use chrono::{DateTime, Utc};
+use clap::{App, Arg};
 use log::LevelFilter;
 
-use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
-use near_client::{BlockProducer, ClientActor, ClientConfig};
-
-use clap::{App, Arg};
 use near::{start_with_config, NearConfig};
 
 fn init_logging(verbose: bool) {

@@ -6,12 +6,8 @@ use chrono::{DateTime, Utc};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
-use near_network::{NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses};
-use near_pool::TransactionPool;
-use near_store::Store;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use primitives::hash::CryptoHash;
-use primitives::transaction::SignedTransaction;
 use primitives::types::AccountId;
 
 #[derive(Debug)]
@@ -66,6 +62,8 @@ pub struct ClientConfig {
     pub sync_height_threshold: u64,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
+    /// Period between fetching data from other parts of the system.
+    pub fetch_info_period: Duration,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
 }
@@ -82,6 +80,7 @@ impl ClientConfig {
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
             min_num_peers: 0,
+            fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
         }
     }
@@ -99,6 +98,7 @@ impl ClientConfig {
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
             min_num_peers: 1,
+            fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
         }
     }

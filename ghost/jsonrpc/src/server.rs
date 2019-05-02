@@ -55,7 +55,7 @@ impl JsonRpcServer {
         debug!(target: "jsonrpc", "JSONRPC connection added ({} open connections)", self.open_connections.len() + 1);
     }
 
-    fn remove_connectino(&mut self, addr: &Addr<JsonRpc>) {
+    fn remove_connection(&mut self, addr: &Addr<JsonRpc>) {
         self.open_connections.remove(addr);
     }
 }
@@ -90,7 +90,7 @@ impl Handler<Unregister> for JsonRpcServer {
     type Result = ();
 
     fn handle(&mut self, msg: Unregister, _ctx: &mut Self::Context) {
-        self.remove_connectino(&msg.addr);
+        self.remove_connection(&msg.addr);
     }
 }
 

@@ -361,7 +361,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 impl Handler<Consolidate> for PeerManagerActor {
     type Result = bool;
 
-    fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Consolidate, _ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             return false;
@@ -386,7 +386,7 @@ impl Handler<Consolidate> for PeerManagerActor {
 impl Handler<Unregister> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: Unregister, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: Unregister, _ctx: &mut Self::Context) {
         self.unregister_peer(msg.peer_id);
     }
 }

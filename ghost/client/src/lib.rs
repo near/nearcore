@@ -1,12 +1,14 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in separate agent.
 
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
-use ansi_term::Color::{Cyan, Yellow, White};
+use ansi_term::Color::{Cyan, White, Yellow};
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -18,16 +20,14 @@ use near_network::{
 };
 use near_pool::TransactionPool;
 use near_store::Store;
-use primitives::crypto::signer::AccountSigner;
+use primitives::crypto::signature::Signature;
 use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::AccountId;
 
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
-use primitives::crypto::signature::Signature;
-use std::collections::HashMap;
-use std::time::Instant;
 
+pub mod test_utils;
 mod types;
 
 pub struct ClientActor {
@@ -167,8 +167,8 @@ impl ClientActor {
     ) {
         let block = match self.chain.store().get_block(&block_hash) {
             Ok(block) => block,
-            Err(e) => {
-                error!(target: "client", "Failed to find block that was just accepted: {}", block_hash);
+            Err(err) => {
+                error!(target: "client", "Failed to find block {} that was just accepted: {}", block_hash, err);
                 return;
             }
         };
@@ -191,16 +191,18 @@ impl ClientActor {
                 if let (Some(block_producer), Ok(next_block_producer_account)) =
                     (&self.block_producer, &next_block_producer_account)
                 {
-                    if self
-                        .runtime_adapter
-                        .get_epoch_block_proposers(block.header.height)
-                        .contains(&block_producer.account_id)
-                    {
-                        approval = Some(BlockApproval::new(
-                            block.hash(),
-                            &*block_producer.signer,
-                            next_block_producer_account.clone(),
-                        ));
+                    if &block_producer.account_id != next_block_producer_account {
+                        if self
+                            .runtime_adapter
+                            .get_epoch_block_proposers(block.header.height)
+                            .contains(&block_producer.account_id)
+                        {
+                            approval = Some(BlockApproval::new(
+                                block.hash(),
+                                &*block_producer.signer,
+                                next_block_producer_account.clone(),
+                            ));
+                        }
                     }
                 }
                 let _ = self.network_actor.do_send(NetworkRequests::BlockHeaderAnnounce {
@@ -440,7 +442,7 @@ impl ClientActor {
         self.network_actor
             .send(NetworkRequests::FetchInfo)
             .into_actor(self)
-            .then(move |res, act, ctx| match res {
+            .then(move |res, act, _ctx| match res {
                 Ok(NetworkResponses::Info {
                     num_active_peers,
                     peer_max_count,
@@ -458,7 +460,7 @@ impl ClientActor {
             })
             .wait(ctx);
 
-        ctx.run_later(self.config.log_summary_period, move |act, ctx| {
+        ctx.run_later(self.config.fetch_info_period, move |act, ctx| {
             act.fetch_network_info(ctx);
         });
     }

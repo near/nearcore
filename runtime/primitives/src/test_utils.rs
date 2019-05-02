@@ -21,6 +21,8 @@ use crate::types::{AccountId, AuthorityId, AuthorityStake};
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
         .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
         .filter(None, LevelFilter::Debug)
         .try_init();
 }
