@@ -108,7 +108,7 @@ impl Chain {
         let store = Arc::new(ChainStore::new(store));
 
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_root) = runtime_adapter.genesis_state();
+        let (state_store_update, state_root) = runtime_adapter.genesis_state(0);
         let genesis = Block::genesis(state_root, genesis_timestamp);
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -473,7 +473,7 @@ impl<'a> ChainUpdate<'a> {
         // Apply block to runtime.
         let (state_store_update, state_root) = self
             .runtime_adapter
-            .apply_transactions(&block.header.prev_state_root, &block.transactions)
+            .apply_transactions(0, &block.header.prev_state_root, &block.transactions)
             .map_err(|e| ErrorKind::Other(e))?;
         self.chain_store_update.merge(state_store_update);
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root)?;

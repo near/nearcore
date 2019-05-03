@@ -4,7 +4,6 @@ use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
 use log::LevelFilter;
 
-use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_jsonrpc::JsonRpcServer;
@@ -12,7 +11,11 @@ use near_network::{test_utils::convert_boot_nodes, NetworkConfig, PeerInfo, Peer
 use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
 use primitives::transaction::SignedTransaction;
+use node_runtime::chain_spec::ChainSpec;
 use std::net::SocketAddr;
+
+mod runtime;
+use crate::runtime::NightshadeRuntime;
 
 pub struct NearConfig {
     pub client_config: ClientConfig,
@@ -36,9 +39,8 @@ impl NearConfig {
 pub fn start_with_config(config: NearConfig) -> Addr<ClientActor> {
     // TODO: Replace with rocksdb.
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
-        store.clone(),
-        vec!["test1".to_string(), "test2".to_string()],
+    let runtime = Arc::new(NightshadeRuntime::new(
+        store.clone(), ChainSpec::default_devnet()
     ));
 
     ClientActor::create(move |ctx| {

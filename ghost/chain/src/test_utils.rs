@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use near_store::{Store, StoreUpdate};
 use primitives::crypto::signature::{PublicKey, Signature};
-use primitives::types::{AccountId, BlockIndex, MerkleHash};
+use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};
@@ -38,7 +38,7 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, MerkleHash) {
+    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
         (self.store.store_update(), MerkleHash::default())
     }
 
@@ -73,6 +73,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions(
         &self,
+        shard_id: ShardId,
         state_root: &MerkleHash,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String> {

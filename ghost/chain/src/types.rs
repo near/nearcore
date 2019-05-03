@@ -13,7 +13,7 @@ use primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNAT
 use primitives::crypto::signer::EDSigner;
 use primitives::hash::{hash, CryptoHash};
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash};
+use primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
 use primitives::utils::proto_to_type;
 
 use crate::error::Error;
@@ -303,7 +303,7 @@ pub struct ValidTransaction {
 pub trait RuntimeAdapter {
     /// Initialize state to genesis state and returns StoreUpdate and state root.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, MerkleHash);
+    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -324,6 +324,7 @@ pub trait RuntimeAdapter {
     /// Apply transactions to given state root and return store update and new state root.
     fn apply_transactions(
         &self,
+        shard_id: ShardId,
         merkle_hash: &MerkleHash,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String>;

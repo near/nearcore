@@ -15,6 +15,7 @@ futures = "0.1"
 clap = "2.32"
 
 primitives = { path = "../../runtime/primitives" }
+node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../store" }
 near-chain = { path = "../chain" }
 near-client = { path = "../client" }

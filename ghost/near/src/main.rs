@@ -1,5 +1,5 @@
 use actix::System;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clap::{App, Arg};
 use log::LevelFilter;
 
@@ -32,7 +32,7 @@ fn main() {
     init_logging(matches.is_present("verbose"));
     // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
     let genesis_timestamp = Utc::now();
-    let near = NearConfig::new(genesis_timestamp.clone(), "test", 25123);
+    let near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
 
     let system = System::new("NEAR");
     start_with_config(near);
