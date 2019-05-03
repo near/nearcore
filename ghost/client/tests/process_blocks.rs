@@ -295,20 +295,21 @@ fn client_sync() {
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::FetchInfo => {
-                    System::current().stop();
+//                    System::current().stop();
                     NetworkResponses::Info {
                         num_active_peers: 1,
                         peer_max_count: 1,
-                        max_weight_peer: Some(FullPeerInfo {
+                        most_weight_peers: vec![FullPeerInfo {
                             peer_info: PeerInfo::random(),
                             chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
-                        }),
+                        }],
                     }
                 }
                 // NetworkRequests::
                 _ => NetworkResponses::NoResponse,
             }),
         );
+        wait_or_panic(1000);
     })
     .unwrap();
 }

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
+use rand::{thread_rng, Rng};
 
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
@@ -16,9 +17,7 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter,
     ValidTransaction,
 };
-use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
-};
+use near_network::{NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo, FullPeerInfo};
 use near_pool::TransactionPool;
 use near_store::Store;
 use primitives::crypto::signature::Signature;
@@ -27,9 +26,13 @@ use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
+use crate::sync::HeaderSync;
+use rand::seq::SliceRandom;
+use near_network::types::ReasonForBan;
 
 pub mod test_utils;
 mod types;
+mod sync;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -44,6 +47,8 @@ pub struct ClientActor {
     approvals: HashMap<usize, Signature>,
     /// Timestamp when last block was received / processed. Used to timeout block production.
     last_block_processed: Instant,
+    /// Keeps track of syncing headers.
+    header_sync: HeaderSync,
 }
 
 impl ClientActor {
@@ -57,8 +62,8 @@ impl ClientActor {
         // TODO: Wait until genesis.
         let chain = Chain::new(store, runtime_adapter.clone(), config.genesis_timestamp)?;
         let tx_pool = TransactionPool::new();
-        let sync_status =
-            if config.skip_sync_wait { SyncStatus::NoSync } else { SyncStatus::AwaitingPeers };
+        let sync_status = SyncStatus::AwaitingPeers;
+        let header_sync = HeaderSync::new();
         Ok(ClientActor {
             config,
             sync_status,
@@ -70,10 +75,11 @@ impl ClientActor {
             network_info: NetworkInfo {
                 num_active_peers: 0,
                 peer_max_count: 0,
-                max_weight_peer: None,
+                most_weight_peers: vec![],
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
+            header_sync,
         })
     }
 }
@@ -83,7 +89,7 @@ impl Actor for ClientActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start syncing job.
-        self.sync(ctx);
+        self.start_sync(ctx);
 
         // Start fetching information from network.
         self.fetch_network_info(ctx);
@@ -131,7 +137,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     return NetworkClientResponses::NoResponse;
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
-                    NetworkClientResponses::Ban
+                    NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
         }
@@ -228,7 +234,7 @@ impl ClientActor {
         None
     }
 
-    /// Checks if we are block producer and if we are next block producer schedules.
+    /// Checks if we are block producer and if we are next block producer schedules calling `produce_block`.
     /// If we are not next block producer, schedule to check timeout.
     fn handle_scheduling_block_production(
         &mut self,
@@ -288,8 +294,8 @@ impl ClientActor {
 
         // Wait until we have all approvals or timeouts per max block produciton delay.
         let total_authorities = self.runtime_adapter.get_epoch_block_proposers(next_height).len();
-        let prev_same_bp =
-            self.runtime_adapter.get_block_proposer(next_height)? == block_producer.account_id.clone();
+        let prev_same_bp = self.runtime_adapter.get_block_proposer(next_height)?
+            == block_producer.account_id.clone();
         let total_approvals = total_authorities - if prev_same_bp { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
@@ -357,7 +363,7 @@ impl ClientActor {
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
             Ok(_) => NetworkClientResponses::NoResponse,
-            Err(ref e) if e.is_bad_data() => NetworkClientResponses::Ban,
+            Err(ref e) if e.is_bad_data() => NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock },
             Err(ref e) if e.is_error() => {
                 error!(target: "client", "Error on receival of block: {}", e);
                 NetworkClientResponses::NoResponse
@@ -395,7 +401,7 @@ impl ClientActor {
         let result = self.chain.process_block_header(&header);
 
         match result {
-            Err(ref e) if e.is_bad_data() => return NetworkClientResponses::Ban,
+            Err(ref e) if e.is_bad_data() => return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader },
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
                 error!(target: "client", "Error on receival of header: {}", e);
@@ -430,12 +436,21 @@ impl ClientActor {
         Some(ValidTransaction { transaction: tx })
     }
 
+    /// Get random peer with most weight branch.
+    fn most_weight_peer(&self) -> Option<FullPeerInfo> {
+        if self.network_info.most_weight_peers.len() == 0 {
+            return None;
+        }
+        let index = thread_rng().gen_range(0, self.network_info.most_weight_peers.len());
+        Some(self.network_info.most_weight_peers[index].clone())
+    }
+
     /// Check whether need to (continue) sync.
     fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.chain.store().head()?;
         let mut is_syncing = self.sync_status.is_syncing();
 
-        let full_peer_info = if let Some(full_peer_info) = &self.network_info.max_weight_peer {
+        let full_peer_info = if let Some(full_peer_info) = self.most_weight_peer() {
             full_peer_info
         } else {
             warn!(target: "client", "Sync: no peers available, disabling sync");
@@ -467,27 +482,53 @@ impl ClientActor {
         Ok((is_syncing, full_peer_info.chain_info.height))
     }
 
-    /// Job responsible for syncing client with other peers.
+    /// Starts syncing and then switches to either syncing or regular mode.
+    fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
+        // Wait for connections reach at least minimum peers unless skipping sync.
+        if self.network_info.num_active_peers < self.config.min_num_peers && !self.config.skip_sync_wait {
+            ctx.run_later(self.config.sync_step_period, move |act, ctx| {
+                act.start_sync(ctx);
+            });
+            return;
+        }
+        // Start main sync loop.
+        self.sync(ctx);
+    }
+
+    /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
-        match self.sync_status {
-            SyncStatus::NoSync => {
-                // Stops syncing and switches to producing blocks.
-                let head = match self.chain.store().head() {
-                    Ok(head) => head,
-                    Err(_) => return,
-                };
-                self.handle_scheduling_block_production(ctx, head.height);
+        // Macro to schedule to call this function later if error occurred.
+        macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
+            Ok(v) => v,
+            Err(err) => {
+                error!(target: "client", "Unexpected error: {}", err);
+                ctx.run_later(self.config.sync_step_period, move |act, ctx| {
+                    act.sync(ctx);
+                });
                 return;
             }
-            SyncStatus::AwaitingPeers => {
-                // Check current number of peers and if enough move to next step.
-                if self.network_info.num_active_peers >= self.config.min_num_peers {
-                    self.sync_status = SyncStatus::NoSync;
-                }
+        }));
+
+        let mut wait_period = self.config.sync_step_period;
+
+        let currently_syncing = self.sync_status.is_syncing();
+        let (needs_syncing, most_work_height) = unwrap_or_run_later!(self.needs_syncing());
+
+        if !needs_syncing {
+            if currently_syncing {
+                self.sync_status = SyncStatus::NoSync;
+
+                // Initial transition out of "syncing" state.
+                // Start by handling scheduling block production if needed.
+                let head = unwrap_or_run_later!(self.chain.store().head());
+                self.handle_scheduling_block_production(ctx, head.height);
             }
-            _ => {}
+            wait_period = self.config.sync_check_period;
+        } else {
+            // unwrap_or_run_later!(self.header_sync.run(&mut self.sync_status, &self.chain));
         }
-        ctx.run_later(self.config.sync_period, move |act, ctx| {
+
+        ctx.run_later(wait_period, move |act, ctx| {
             act.sync(ctx);
         });
     }
@@ -502,11 +543,11 @@ impl ClientActor {
                 Ok(NetworkResponses::Info {
                     num_active_peers,
                     peer_max_count,
-                    max_weight_peer,
+                    most_weight_peers,
                 }) => {
                     act.network_info.num_active_peers = num_active_peers;
                     act.network_info.peer_max_count = peer_max_count;
-                    act.network_info.max_weight_peer = max_weight_peer;
+                    act.network_info.most_weight_peers = most_weight_peers;
                     actix::fut::ok(())
                 }
                 _ => {

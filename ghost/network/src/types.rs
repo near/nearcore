@@ -20,7 +20,7 @@ use primitives::hash::CryptoHash;
 use primitives::logging::pretty_str;
 use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex};
+use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use primitives::utils::{proto_to_type, to_string_value};
 
 /// Current latest version of the protocol
@@ -149,7 +149,7 @@ pub enum PeerStatus {
     /// Ready to go.
     Ready,
     /// Banned, should shutdown this peer.
-    Banned,
+    Banned(ReasonForBan),
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -415,14 +415,27 @@ pub struct Unregister {
     pub peer_id: PeerId,
 }
 
+// Ban reason.
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum ReasonForBan {
+    None = 0,
+    BadBlock = 1,
+    BadBlockHeader = 2,
+    HeightFraud = 3,
+    BadHandshake = 4,
+    BadBlockApproval = 5,
+}
+
 #[derive(Message)]
 pub struct Ban {
     pub peer_id: PeerId,
+    pub ban_reason: ReasonForBan,
 }
 
 #[derive(Debug)]
 pub enum NetworkRequests {
     FetchInfo,
+    /// SEnds block announcement, when block was just produced.
     BlockAnnounce {
         block: Block,
     },
@@ -432,9 +445,23 @@ pub enum NetworkRequests {
         header: BlockHeader,
         approval: Option<BlockApproval>,
     },
+    /// Request block with given hash from given peer.
     BlockRequest {
         hash: CryptoHash,
         peer_info: PeerInfo,
+    },
+    /// Request given block headers.
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+    },
+    /// Request given blocks.
+    BlocksRequest {
+        hashes: Vec<CryptoHash>,
+    },
+    /// Request state for given shard at given state root.
+    StateRequest {
+        shard_id: ShardId,
+        state_root: MerkleHash,
     },
 }
 
@@ -447,7 +474,7 @@ pub struct FullPeerInfo {
 
 pub enum NetworkResponses {
     NoResponse,
-    Info { num_active_peers: usize, peer_max_count: u32, max_weight_peer: Option<FullPeerInfo> },
+    Info { num_active_peers: usize, peer_max_count: u32, most_weight_peers: Vec<FullPeerInfo> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -486,7 +513,7 @@ pub enum NetworkClientResponses {
     /// No response.
     NoResponse,
     /// Ban peer for malicious behaviour.
-    Ban,
+    Ban { ban_reason: ReasonForBan },
     /// Chain information.
     ChainInfo { height: BlockIndex, total_weight: Weight },
 }

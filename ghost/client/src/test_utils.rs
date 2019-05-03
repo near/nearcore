@@ -1,24 +1,16 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use actix::actors::mocker::Mocker;
-use actix::{Actor, Addr, AsyncContext, Context, Recipient, System};
-use futures::{future, Future};
+use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 
-use near_chain::{test_utils::KeyValueRuntime, Block, BlockApproval};
-use near_network::types::{FullPeerInfo, PeerChainInfo};
+use near_chain::test_utils::KeyValueRuntime;
 use near_network::{
-    NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor,
+    NetworkRequests, NetworkResponses, PeerManagerActor,
 };
 use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::hash;
-use primitives::test_utils::init_test_logger;
-use primitives::transaction::SignedTransaction;
-use primitives::types::MerkleHash;
 
-use crate::{ClientActor, ClientConfig, GetBlock};
+use crate::{ClientActor, ClientConfig};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 

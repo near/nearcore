@@ -14,7 +14,10 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
 
-const MAX_ORPHAN_SIZE: usize = 1024;
+/// Maximum number of orphans chain can store.
+pub const MAX_ORPHAN_SIZE: usize = 1024;
+
+/// Maximum age of orhpan to store in the chain.
 const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
@@ -151,16 +154,6 @@ impl Chain {
             orphans: OrphanBlockPool::new(),
             genesis: genesis.header,
         })
-    }
-
-    /// Returns underlying ChainStore.
-    pub fn store(&self) -> Arc<ChainStore> {
-        self.store.clone()
-    }
-
-    /// Returns genesis block header.
-    pub fn genesis(&self) -> &BlockHeader {
-        &self.genesis
     }
 
     /// Process a block header received during "header first" propagation.
@@ -327,15 +320,68 @@ impl Chain {
 
         maybe_new_head
     }
+}
+
+/// Various chain getters.
+impl Chain {
+    /// Gets chain head.
+    #[inline]
+    pub fn head(&self) -> Result<Tip, Error> {
+        self.store.head()
+    }
+
+    /// Gets chain header head.
+    #[inline]
+    pub fn header_head(&self) -> Result<Tip, Error> {
+        self.store.header_head()
+    }
+
+    /// Gets a block by hash.
+    #[inline]
+    pub fn get_block(&self, hash: &CryptoHash) -> Result<Block, Error> {
+        self.store.get_block(hash)
+    }
+
+    /// Gets a block header by hash.
+    #[inline]
+    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+        self.store.get_block_header(hash)
+    }
 
     /// Get previous block header.
+    #[inline]
     pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
         self.store.get_previous_header(header)
     }
 
     /// Check if block exists.
+    #[inline]
     pub fn block_exists(&self, hash: &CryptoHash) -> Result<bool, Error> {
         self.store.block_exists(hash)
+    }
+
+    /// Returns underlying ChainStore.
+    #[inline]
+    pub fn store(&self) -> Arc<ChainStore> {
+        self.store.clone()
+    }
+
+    /// Returns genesis block header.
+    #[inline]
+    pub fn genesis(&self) -> &BlockHeader {
+        &self.genesis
+    }
+
+    /// Returns number of orphans currently in the orphan pool.
+    #[inline]
+    pub fn orphans_len(&self) -> usize {
+        self.orphans.len()
+    }
+
+    /// Returns number of evicted orphans.
+    #[inline]
+    pub fn orphans_evicted_len(&self) -> usize {
+        self.orphans.len_evicted()
     }
 }
 

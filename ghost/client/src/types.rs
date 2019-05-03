@@ -8,7 +8,7 @@ use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use primitives::hash::CryptoHash;
-use primitives::types::AccountId;
+use primitives::types::{AccountId, BlockIndex};
 
 #[derive(Debug)]
 pub enum Error {
@@ -54,8 +54,10 @@ pub struct ClientConfig {
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
-    /// Sync period.
-    pub sync_period: Duration,
+    /// How often to check that we are not out of sync and have enough peers
+    pub sync_check_period: Duration,
+    /// While syncing, how long to check for each step.
+    pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
     pub sync_weight_threshold: u64,
     /// Sync height threshold: below this difference in height don't start syncing.
@@ -76,10 +78,11 @@ impl ClientConfig {
             max_block_production_delay: Duration::from_millis(300),
             block_expected_weight: 1000,
             skip_sync_wait,
-            sync_period: Duration::from_millis(100),
+            sync_check_period: Duration::from_millis(100),
+            sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
-            min_num_peers: 0,
+            min_num_peers: 1,
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
         }
@@ -94,7 +97,8 @@ impl ClientConfig {
             max_block_production_delay: Duration::from_millis(2000),
             block_expected_weight: 1000,
             skip_sync_wait: false,
-            sync_period: Duration::from_millis(100),
+            sync_check_period: Duration::from_millis(100),
+            sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
             sync_height_threshold: 1,
             min_num_peers: 1,
@@ -119,20 +123,20 @@ impl From<Arc<InMemorySigner>> for BlockProducer {
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SyncStatus {
+    /// Initial state. Not enough peers to do anything yet. If boolean is false, skip this step.
+    AwaitingPeers,
     /// Not syncing / Done syncing.
     NoSync,
-    /// Not enough peers to do anything yet.
-    AwaitingPeers,
     /// Downloading block headers for fast sync.
-    HeaderSync,
-    /// Downloading state for fasy sync.
+    HeaderSync { current_height: BlockIndex, highest_height: BlockIndex },
+    /// Downloading state for fast sync.
     StateDownload,
     /// Validating the full state.
     StateValidation,
     /// Finalizing state sync.
     StateDone,
     /// Catch up on blocks.
-    BodySync,
+    BodySync { current_height: BlockIndex, highest_height: BlockIndex },
 }
 
 impl SyncStatus {
@@ -148,7 +152,7 @@ impl SyncStatus {
 pub struct NetworkInfo {
     pub num_active_peers: usize,
     pub peer_max_count: u32,
-    pub max_weight_peer: Option<FullPeerInfo>,
+    pub most_weight_peers: Vec<FullPeerInfo>,
 }
 
 /// Actor message requesting block by id or hash.

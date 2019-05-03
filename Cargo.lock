@@ -1542,6 +1542,7 @@ dependencies = [
  "near-pool 0.1.0",
  "near-store 0.1.0",
  "primitives 0.1.0",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

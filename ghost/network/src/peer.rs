@@ -125,8 +125,8 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
-                    Ok(NetworkClientResponses::Ban) => {
-                        act.peer_status = PeerStatus::Banned;
+                    Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                        act.peer_status = PeerStatus::Banned(ban_reason);
                         ctx.stop();
                     }
                     Err(err) => {
@@ -169,8 +169,8 @@ impl Actor for Peer {
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
                 self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
-            } else if self.peer_status == PeerStatus::Banned {
-                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id });
+            } else if let PeerStatus::Banned(ban_reason) = self.peer_status {
+                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id, ban_reason });
             }
         }
         Running::Stop

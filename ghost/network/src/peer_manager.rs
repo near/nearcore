@@ -11,7 +11,6 @@ use actix::{
 use chrono::Utc;
 use futures::future;
 use log::{debug, error, info, warn};
-use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use tokio::codec::FramedRead;
 use tokio::io::AsyncRead;
@@ -162,21 +161,20 @@ impl PeerManagerActor {
     }
 
     /// Returns single random peer with the most weight.
-    fn max_weight_peer(&self) -> Option<FullPeerInfo> {
+    fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
         let max_weight =
             match self.active_peers.values().map(|(_, x)| x.chain_info.total_weight).max() {
                 Some(w) => w,
-                None => return None,
+                None => return vec![],
             };
-        let mut max_weight_peers = self
+        let mut most_weight_peers = self
             .active_peers
             .values()
             .filter_map(
-                |(_, x)| if x.chain_info.total_weight == max_weight { Some(x) } else { None },
+                |(_, x)| if x.chain_info.total_weight == max_weight { Some(x.clone()) } else { None },
             )
             .collect::<Vec<_>>();
-        max_weight_peers.shuffle(&mut thread_rng());
-        max_weight_peers.pop().map(Clone::clone)
+        most_weight_peers
     }
 
     /// Get a random peer we are not connected to from the known list.
@@ -276,7 +274,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::FetchInfo => NetworkResponses::Info {
                 num_active_peers: self.num_active_peers(),
                 peer_max_count: self.config.peer_max_count,
-                max_weight_peer: self.max_weight_peer(),
+                most_weight_peers: self.most_weight_peers(),
             },
             NetworkRequests::BlockAnnounce { block } => {
                 self.broadcast_message(
@@ -308,6 +306,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
+            NetworkRequests::BlocksRequest { hashes } => NetworkResponses::NoResponse,
+            NetworkRequests::BlockHeadersRequest { hashes } => NetworkResponses::NoResponse,
+            NetworkRequests::StateRequest { shard_id, state_root } => NetworkResponses::NoResponse,
         }
     }
 }

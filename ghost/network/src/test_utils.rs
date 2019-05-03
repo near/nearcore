@@ -57,6 +57,7 @@ impl PeerInfo {
 
 /// Timeouts by stopping system without any condition and raises panic.
 /// Useful in tests to prevent them from running forever.
+#[allow(unreachable_code)]
 pub fn wait_or_panic(max_wait_ms: u64) {
     actix::spawn(Delay::new(Instant::now() + Duration::from_millis(max_wait_ms)).then(|_| {
         System::current().stop();
