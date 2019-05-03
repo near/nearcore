@@ -154,7 +154,7 @@ test_nearlib:
     dependencies:
     - release_build
     script:
-    - ./scripts/start_tendermint.sh
+    - ./scripts/start_tendermint.sh &
     - ./scripts/test_nearlib.sh
 
 lint_nearlib:
