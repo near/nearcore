@@ -127,7 +127,7 @@ enum RawTrieNode {
 
 struct NodesStorage {
     nodes: Vec<Option<TrieNode>>,
-    moved_from_db: HashMap<CryptoHash, u32>,
+    refcount_changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
 }
 
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
@@ -136,7 +136,7 @@ const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 ///
 impl NodesStorage {
     fn new() -> NodesStorage {
-        NodesStorage { nodes: Vec::new(), moved_from_db: HashMap::new() }
+        NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new() }
     }
 
     fn destroy(&mut self, handle: StorageHandle) -> TrieNode {
@@ -193,8 +193,8 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
 }
 
 impl RawTrieNode {
-    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
-        let mut cursor = Cursor::new(Vec::new());
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), std::io::Error> {
+        let mut cursor = Cursor::new(out);
         match &self {
             RawTrieNode::Leaf(key, value) => {
                 cursor.write_u8(LEAF_NODE)?;
@@ -233,7 +233,14 @@ impl RawTrieNode {
                 cursor.write_all(child.as_ref())?;
             }
         }
-        Ok(cursor.into_inner())
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn encode(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = Vec::new();
+        self.encode_into(&mut out)?;
+        Ok(out)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, std::io::Error> {
@@ -404,7 +411,7 @@ impl Trie {
             Ok(memory.store(TrieNode::Empty))
         } else {
             let result = memory.store(self.retrieve_node(hash)?);
-            *memory.moved_from_db.entry(*hash).or_default() += 1;
+            memory.refcount_changes.entry(*hash).or_default().1 -= 1;
             Ok(result)
         }
     }
@@ -527,7 +534,7 @@ impl Trie {
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // Equivalent leaf.
-                        memory.store_at(handle, TrieNode::Leaf(key.clone(), value.take().unwrap()));
+                        memory.store_at(handle, TrieNode::Leaf(key, value.take().unwrap()));
                         break;
                     } else if common_prefix == 0 {
                         let mut children = Default::default();
@@ -813,10 +820,11 @@ impl Trie {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
-        let mut nodes: HashMap<CryptoHash, (Vec<u8>, u32)> = HashMap::new();
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut memory = memory;
         while !stack.is_empty() {
             let (node, position) = stack.pop().unwrap();
-            let rc_node = match memory.node_ref(node) {
+            let raw_node = match memory.node_ref(node) {
                 TrieNode::Empty => {
                     last_hash = Trie::empty_root();
                     continue;
@@ -874,42 +882,37 @@ impl Trie {
                 },
                 TrieNode::Leaf(key, value) => RawTrieNode::Leaf(key.clone(), value.clone()),
             };
-            let data = rc_node.encode().expect("Failed to serialize");
-            let key = hash(&data);
+            raw_node.encode_into(&mut buffer).expect("Failed to serialize");
+            let key = hash(&buffer);
 
-            nodes.entry(key).or_insert_with(|| (data, 0)).1 += 1;
+            let (value, rc) = memory.refcount_changes.entry(key).or_insert_with(|| (None, 0));
+            *rc += 1;
+            if *rc > 0 && value.is_none() {
+                *value = Some(buffer.clone());
+            }
+            buffer.clear();
             last_hash = key;
         }
-        let (insertions, deletions) = Trie::cancel_out_changes(nodes, memory.moved_from_db);
+        let (insertions, deletions) = Trie::to_insertions_and_deletions(memory.refcount_changes);
         TrieChanges { new_root: last_hash, insertions, deletions }
     }
 
-    fn cancel_out_changes(
-        insertions: HashMap<CryptoHash, (Vec<u8>, u32)>,
-        deletions: HashMap<CryptoHash, u32>,
+    fn to_insertions_and_deletions(
+        changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
     ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, u32)>)) {
-        let mut deletions = deletions;
-        let mut node_insertions = Vec::new();
-        for (key, (value, mut rc)) in insertions.into_iter() {
-            if let Entry::Occupied(mut entry) = deletions.entry(key) {
-                let death_rc = entry.get_mut();
-                if rc >= *death_rc {
-                    rc -= *death_rc;
-                    entry.remove();
-                } else {
-                    *death_rc -= rc;
-                    rc = 0;
-                }
-            }
+        let mut deletions = Vec::new();
+        let mut insertions = Vec::new();
+        for (key, (value, rc)) in changes.into_iter() {
             if rc > 0 {
-                node_insertions.push((key, value, rc));
+                insertions.push((key, value.unwrap(), rc as u32));
+            } else if rc < 0 {
+                deletions.push((key, (-rc) as u32));
             }
         }
-        let mut node_deletions: Vec<_> = deletions.into_iter().collect();
         // Sort so that trie changes have unique representation
-        node_insertions.sort();
-        node_deletions.sort();
-        (node_insertions, node_deletions)
+        insertions.sort();
+        deletions.sort();
+        (insertions, deletions)
     }
 
     pub fn update<I>(&self, root: &CryptoHash, changes: I) -> (DBChanges, CryptoHash)
@@ -1452,7 +1455,7 @@ mod tests {
     #[test]
     fn test_trie_unique() {
         let mut rng = rand::thread_rng();
-        for _ in 0..1000 {
+        for _ in 0..100 {
             let trie = create_trie();
             let trie_changes = gen_changes(&mut rng);
             let simplified_changes = simplify_changes(&trie_changes);
