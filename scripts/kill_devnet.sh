@@ -1,2 +1,3 @@
-kill -9 `pgrep -f devnet`
+kill -9 `pgrep -f tendermint`
+kill -9 `pgrep -f nearmint`
 exit 0

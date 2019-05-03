@@ -144,13 +144,21 @@ coverage:
     - cargo test --all --no-run
     - *code_coverage
 
-#test_nearlib:
-#    stage: libs
-#    dependencies:
-#    - release_build
-#    script:
-#    - ./devnet &
-#    - ./scripts/test_nearlib.sh
+test_nearlib:
+    stage: libs
+    before_script:
+    - *setup_rust
+    - *setup_cache
+    - *setup_tendermint
+    - *install_protos
+    dependencies:
+    - release_build
+    script:
+    - cargo run --package keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
+    - cargo build --package nearmint --release
+    - ./target/release/nearmint --devnet &
+    - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
+    - ./scripts/test_nearlib.sh
 
 lint_nearlib:
     stage: libs
