@@ -11,9 +11,9 @@ git clone https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
 export NEARCORE_DIR="../"
 npm install
+npm test
 npm run build
 npm run doc
-npm test
 cd ..
 
 # Try creating and building new project using NEAR CLI tools
