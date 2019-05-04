@@ -6,7 +6,10 @@ set -ex
 ./scripts/build_wasm.sh
 
 # Run nearlib tests
+rm -rf nearlib
+git clone https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
+export NEARCORE_DIR="../"
 npm install
 npm run build
 npm run doc
