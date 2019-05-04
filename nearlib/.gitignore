@@ -1,7 +1,0 @@
-storage
-node_modules
-
-# Nearlib files & coverage
-neardev/
-coverage/
-protos\.js
