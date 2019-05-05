@@ -290,13 +290,12 @@ fn client_sync() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
-        let _client = setup_mock(
+        let client = setup_mock(
             vec!["test"],
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::FetchInfo => {
-//                    System::current().stop();
                     NetworkResponses::Info {
                         num_active_peers: 1,
                         peer_max_count: 1,
@@ -308,9 +307,10 @@ fn client_sync() {
                 },
                 NetworkRequests::BlockHeadersRequest { hashes, peer_info } => {
                     assert_eq!(*peer_info, peer_info1);
+                    // TODO: check it requests correct hashes.
+                    System::current().stop();
                     NetworkResponses::NoResponse
                 },
-                // NetworkRequests::
                 _ => NetworkResponses::NoResponse,
             }),
         );

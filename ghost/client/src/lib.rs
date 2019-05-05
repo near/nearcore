@@ -526,7 +526,7 @@ impl ClientActor {
         macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
-                error!(target: "client", "Unexpected error: {}", err);
+                error!(target: "sync", "Sync: Unexpected error: {}", err);
                 ctx.run_later(self.config.sync_step_period, move |act, ctx| {
                     act.sync(ctx);
                 });
@@ -545,7 +545,7 @@ impl ClientActor {
 
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
-                let head = unwrap_or_run_later!(self.chain.store().head());
+                let head = unwrap_or_run_later!(self.chain.head());
                 self.handle_scheduling_block_production(ctx, head.height);
             }
             wait_period = self.config.sync_check_period;

@@ -142,10 +142,7 @@ pub enum SyncStatus {
 impl SyncStatus {
     /// True if currently engaged in syncing the chain.
     pub fn is_syncing(&self) -> bool {
-        match self {
-            SyncStatus::NoSync | SyncStatus::AwaitingPeers => false,
-            _ => true,
-        }
+        self != &SyncStatus::NoSync
     }
 }
 

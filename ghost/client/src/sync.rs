@@ -84,7 +84,7 @@ impl HeaderSync {
                     header_head.last_block_hash, header_head.height,
                 );
                 // Reset sync_head to header_head on initial transition to HeaderSync.
-                chain.reset_sync_head();
+                chain.reset_sync_head()?;
                 self.history_locator.retain(|&x| x.0 == 0);
                 true
             }
