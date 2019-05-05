@@ -1,37 +1,23 @@
 use std::sync::Arc;
 
-use chrono::Utc;
-
-use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Block, BlockHeader, Chain, ErrorKind, Provenance, RuntimeAdapter};
-use near_store::{test_utils::create_test_store, Store, StoreUpdate};
-use primitives::crypto::signer::InMemorySigner;
+use near_chain::test_utils::setup;
 use primitives::test_utils::init_test_logger;
-use primitives::types::MerkleHash;
-use std::collections::HashMap;
-
-fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
-    init_test_logger();
-    let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
-    (chain, runtime, signer)
-}
 
 #[test]
 fn empty_chain() {
+    init_test_logger();
     let (chain, _, _) = setup();
     assert_eq!(chain.store().head().unwrap().height, 0);
 }
 
 #[test]
 fn build_chain() {
+    init_test_logger();
     let (mut chain, runtime, signer) = setup();
     for i in 0..4 {
-        let prev = chain.store().head_header().unwrap();
-        let block =
-            Block::produce(&prev, prev.height, runtime.get_root(), vec![], HashMap::default(), signer.clone());
+        let prev = chain.head_header().unwrap();
+        let block = Block::empty(&prev, signer.clone());
         let tip = chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
@@ -40,17 +26,11 @@ fn build_chain() {
 
 #[test]
 fn build_chain_with_orhpans() {
+    init_test_logger();
     let (mut chain, _, signer) = setup();
-    let mut blocks = vec![chain.store().get_block(&chain.genesis().hash()).unwrap()];
+    let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
-        let block = Block::produce(
-            &blocks[i - 1].header,
-            blocks[i - 1].header.height,
-            MerkleHash::default(),
-            vec![],
-            HashMap::default(),
-            signer.clone(),
-        );
+        let block = Block::empty(&blocks[i - 1].header, signer.clone());
         blocks.push(block);
     }
     assert_eq!(

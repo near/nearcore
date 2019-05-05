@@ -289,6 +289,7 @@ fn skip_block_production() {
 fn client_sync() {
     init_test_logger();
     System::run(|| {
+        let peer_info1 = PeerInfo::random();
         let _client = setup_mock(
             vec!["test"],
             "other",
@@ -300,11 +301,15 @@ fn client_sync() {
                         num_active_peers: 1,
                         peer_max_count: 1,
                         most_weight_peers: vec![FullPeerInfo {
-                            peer_info: PeerInfo::random(),
+                            peer_info: peer_info1.clone(),
                             chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
                         }],
                     }
-                }
+                },
+                NetworkRequests::BlockHeadersRequest { hashes, peer_info } => {
+                    assert_eq!(*peer_info, peer_info1);
+                    NetworkResponses::NoResponse
+                },
                 // NetworkRequests::
                 _ => NetworkResponses::NoResponse,
             }),

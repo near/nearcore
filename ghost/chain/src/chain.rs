@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_store::Store;
 use primitives::hash::CryptoHash;
-use primitives::types::BlockIndex;
+use primitives::types::{BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreUpdate};
@@ -93,7 +93,7 @@ impl OrphanBlockPool {
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
-    store: Arc<ChainStore>,
+    store: ChainStore,
     runtime_adapter: Arc<RuntimeAdapter>,
     orphans: OrphanBlockPool,
     genesis: BlockHeader,
@@ -105,7 +105,7 @@ impl Chain {
         runtime_adapter: Arc<RuntimeAdapter>,
         genesis_timestamp: DateTime<Utc>,
     ) -> Result<Chain, Error> {
-        let store = Arc::new(ChainStore::new(store));
+        let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_root) = runtime_adapter.genesis_state(0);
@@ -113,29 +113,34 @@ impl Chain {
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
-        let head_res = store.head();
+        let head_res = store_update.head();
         let head: Tip;
         match head_res {
             Ok(h) => {
                 head = h;
                 // Check we have the header corresponding to the header_head.
-                let header_head = store.header_head()?;
-                if store.get_block_header(&header_head.last_block_hash).is_err() {
-                    // Reset header_head to be consistent with current head.
-                    store_update.save_header_head(&head)?;
+                let header_head = store_update.header_head()?;
+                if store_update.get_block_header(&header_head.last_block_hash).is_err() {
+                    // Reset header head and "sync" head to be consistent with current block head.
+                    store_update.save_header_head(&head);
+                    store_update.save_sync_head(&head);
+                } else {
+                    // Reset sync head to be consistent with current header head.
+                    store_update.save_sync_head(&header_head);
                 }
                 // TODO: check that genesis root / timestamp matches.
                 // TODO: perform validation that latest state in runtime matches the stored chain.
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
-                    store_update.save_block_header(&genesis.header)?;
-                    store_update.save_block(&genesis)?;
                     store_update
-                        .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root)?;
+                        .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
+                    store_update.save_block_header(genesis.header.clone());
+                    store_update.save_block(genesis.clone());
 
                     head = Tip::from_header(&genesis.header);
-                    store_update.save_head(&head)?;
+                    store_update.save_head(&head);
+                    store_update.save_sync_head(&head);
 
                     store_update.merge(state_store_update);
 
@@ -144,7 +149,7 @@ impl Chain {
                 e => return Err(e.into()),
             },
         }
-        store_update.finalize().commit()?;
+        store_update.finalize()?.commit()?;
 
         info!(target: "chain", "Init: head: {} @ {} [{}]", head.total_weight.to_num(), head.height, head.last_block_hash);
 
@@ -156,11 +161,21 @@ impl Chain {
         })
     }
 
+    /// Reset "sync" head to current header head.
+    /// Do this when first transition to header syncing.
+    pub fn reset_sync_head(&mut self) -> Result<Tip, Error> {
+        let mut chain_store_update = self.store.store_update();
+        let header_head = chain_store_update.header_head()?;
+        chain_store_update.save_sync_head(&header_head);
+        chain_store_update.finalize()?.commit()?;
+        Ok(header_head)
+    }
+
     /// Process a block header received during "header first" propagation.
-    pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let chain_update =
-            ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update =
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -184,6 +199,12 @@ impl Chain {
             }
         }
         res
+    }
+
+    pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
+        let mut chain_update = ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        chain_update.sync_block_headers(headers)?;
+        chain_update.commit()
     }
 
     fn determine_status(&self, head: Option<Tip>, prev_head: Tip) -> BlockStatus {
@@ -214,7 +235,7 @@ impl Chain {
     {
         let prev_head = self.store.head()?;
         let mut chain_update =
-            ChainUpdate::new(self.store.clone(), self.runtime_adapter.clone(), &self.orphans);
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -263,11 +284,6 @@ impl Chain {
                 _ => Err(ErrorKind::Other(format!("{:?}", e)).into()),
             },
         }
-    }
-
-    /// Check if hash is for a known orphan.
-    pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
-        self.orphans.contains(hash)
     }
 
     /// Check for orphans, once a block is successfully added.
@@ -336,21 +352,33 @@ impl Chain {
         self.store.header_head()
     }
 
+    /// Gets "sync" head. This may be significantly different to current header chain.
+    #[inline]
+    pub fn sync_head(&self) -> Result<Tip, Error> {
+        self.store.sync_head()
+    }
+
+    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    #[inline]
+    pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+        self.store.head_header()
+    }
+
     /// Gets a block by hash.
     #[inline]
-    pub fn get_block(&self, hash: &CryptoHash) -> Result<Block, Error> {
+    pub fn get_block(&mut self, hash: &CryptoHash) -> Result<&Block, Error> {
         self.store.get_block(hash)
     }
 
     /// Gets a block header by hash.
     #[inline]
-    pub fn get_block_header(&self, hash: &CryptoHash) -> Result<BlockHeader, Error> {
+    pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
         self.store.get_block_header(hash)
     }
 
     /// Get previous block header.
     #[inline]
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
+    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.store.get_previous_header(header)
     }
 
@@ -360,10 +388,16 @@ impl Chain {
         self.store.block_exists(hash)
     }
 
+    /// Get state root hash after applying header with given hash.
+    #[inline]
+    pub fn get_post_state_root(&mut self, hash: &CryptoHash) -> Result<&MerkleHash, Error> {
+        self.store.get_post_state_root(hash)
+    }
+
     /// Returns underlying ChainStore.
     #[inline]
-    pub fn store(&self) -> Arc<ChainStore> {
-        self.store.clone()
+    pub fn store(&self) -> &ChainStore {
+        &self.store
     }
 
     /// Returns genesis block header.
@@ -383,6 +417,12 @@ impl Chain {
     pub fn orphans_evicted_len(&self) -> usize {
         self.orphans.len_evicted()
     }
+
+    /// Check if hash is for a known orphan.
+    #[inline]
+    pub fn is_orphan(&self, hash: &CryptoHash) -> bool {
+        self.orphans.contains(hash)
+    }
 }
 
 /// Chain update helper, contains information that is needed to process block
@@ -390,25 +430,24 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
-    store: Arc<ChainStore>,
     runtime_adapter: Arc<RuntimeAdapter>,
-    chain_store_update: ChainStoreUpdate,
+    chain_store_update: ChainStoreUpdate<'a>,
     orphans: &'a OrphanBlockPool,
 }
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        store: Arc<ChainStore>,
+        store: &'a mut ChainStore,
         runtime_adapter: Arc<RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
     ) -> Self {
         let chain_store_update = store.store_update();
-        ChainUpdate { store, runtime_adapter, chain_store_update, orphans }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans }
     }
 
     /// Commit changes to the chain into the database.
     pub fn commit(self) -> Result<(), Error> {
-        let store_update = self.chain_store_update.finalize();
+        let store_update = self.chain_store_update.finalize()?;
         store_update.commit().map_err(|e| e.into())
     }
 
@@ -416,7 +455,7 @@ impl<'a> ChainUpdate<'a> {
     /// We validate the header but we do not store it or update header head
     /// based on this. We will update these once we get the block back after
     /// requesting it.
-    pub fn process_block_header(&self, header: &BlockHeader) -> Result<(), Error> {
+    pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height);
 
         self.check_header_known(header)?;
@@ -425,8 +464,8 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Find previous header or return Orphan error if not found.
-    pub fn get_previous_header(&self, header: &BlockHeader) -> Result<BlockHeader, Error> {
-        self.store.get_previous_header(header).map_err(|e| match e.kind() {
+    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+        self.chain_store_update.get_previous_header(header).map_err(|e| match e.kind() {
             ErrorKind::DBNotFoundErr(_) => ErrorKind::Orphan.into(),
             other => other.into(),
         })
@@ -445,16 +484,17 @@ impl<'a> ChainUpdate<'a> {
         self.check_known(&block)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
-        let head = self.store.head()?;
+        let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
+        let prev_hash = prev.hash();
 
         // Block is an orphan if we do not know about the previous full block.
         // Skip this check if we have just processed the previous block
         // or the full txhashset state (fast sync) at the previous block height.
-        if !is_next && self.store.block_exists(&prev.hash())? {
+        if !is_next && self.chain_store_update.block_exists(&prev_hash)? {
             return Err(ErrorKind::Orphan.into());
         }
 
@@ -470,16 +510,22 @@ impl<'a> ChainUpdate<'a> {
             self.rewind_and_apply_fork(block)?;
         }
 
+        // Check that state root we computed from previous block matches recorded in this block.
+        let state_root = self.chain_store_update.get_post_state_root(&prev_hash)?;
+        if &block.header.prev_state_root != state_root {
+            return Err(ErrorKind::InvalidStateRoot.into());
+        }
+
         // Apply block to runtime.
         let (state_store_update, state_root) = self
             .runtime_adapter
             .apply_transactions(0, &block.header.prev_state_root, &block.transactions)
             .map_err(|e| ErrorKind::Other(e))?;
         self.chain_store_update.merge(state_store_update);
-        self.chain_store_update.save_post_state_root(&block.hash(), &state_root)?;
+        self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
 
         // Add validated block to the db, even if it's not the selected fork.
-        self.chain_store_update.save_block(block)?;
+        self.chain_store_update.save_block(block.clone());
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;
@@ -499,19 +545,63 @@ impl<'a> ChainUpdate<'a> {
         }
 
         self.validate_header(header, provenance)?;
-        self.chain_store_update.save_block_header(header)?;
+        self.chain_store_update.save_block_header(header.clone());
         self.update_header_head(header)?;
         Ok(())
     }
 
-    fn validate_header(&self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
+    /// Process incoming block headers for syncing.
+    fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
+        let first_header = if let Some(header) = headers.first() {
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
+            header
+        } else {
+            return Ok(None);
+        };
+
+        let all_known = if let Some(last_header) = headers.last() {
+            self.chain_store_update.get_block_header(&last_header.hash()).is_ok()
+        } else {
+            false
+        };
+
+
+        if !all_known {
+            // First add all headers to the chain.
+            for header in headers.iter() {
+                self.chain_store_update.save_block_header(header.clone());
+            }
+            // Then validate all headers (splitting into two, makes sure if they are out of order).
+            for header in headers.iter() {
+                self.validate_header(header, &Provenance::SYNC)?;
+            }
+        }
+
+        if let Some(header) = headers.last() {
+            // Update sync_head regardless of the total weight.
+            self.update_sync_head(header)?;
+            // Update header_head if total weight changed.
+            let head = self.update_header_head(header)?;
+            Ok(head)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn validate_header(&mut self, header: &BlockHeader, provenance: &Provenance) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
         if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
         }
 
+        // Quick check if head is already known.
+        if self.is_header_known(header)? {
+            return Ok(());
+        }
+
         // First I/O cost, delayed as late as possible.
         let prev_header = self.get_previous_header(header)?;
+        let prev_hash = prev_header.hash();
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
@@ -521,15 +611,10 @@ impl<'a> ChainUpdate<'a> {
             );
         }
 
-        // Check that state root we computed from previous block matches recorded in header.
-        let state_root = self.store.get_post_state_root(&prev_header.hash())?;
-        if header.prev_state_root != state_root {
-            return Err(ErrorKind::InvalidStateRoot.into());
-        }
-
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures and returns new total weight.
         if *provenance != Provenance::PRODUCED {
+            let prev_header = self.get_previous_header(header)?.clone();
             let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
             if weight != header.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());
@@ -541,10 +626,10 @@ impl<'a> ChainUpdate<'a> {
 
     /// Update the header head if this header has most work.
     fn update_header_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
-        let header_head = self.store.header_head()?;
+        let header_head = self.chain_store_update.header_head()?;
         if header.total_weight > header_head.total_weight {
             let tip = Tip::from_header(header);
-            self.chain_store_update.save_header_head(&tip)?;
+            self.chain_store_update.save_header_head(&tip);
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
 
             Ok(Some(tip))
@@ -559,16 +644,24 @@ impl<'a> ChainUpdate<'a> {
     fn update_head(&mut self, block: &Block) -> Result<Option<Tip>, Error> {
         // if we made a fork with more work than the head (which should also be true
         // when extending the head), update it
-        let head = self.store.head()?;
+        let head = self.chain_store_update.head()?;
         if block.header.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
-            self.chain_store_update.save_body_head(&tip)?;
+            self.chain_store_update.save_body_head(&tip);
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {
             Ok(None)
         }
+    }
+
+    /// Updates "sync" head with given block header.
+    fn update_sync_head(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let tip = Tip::from_header(header);
+        self.chain_store_update.save_sync_head(&tip);
+        debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
+        Ok(())
     }
 
     /// Rewind the header chain and reapply headers on a fork.
@@ -589,8 +682,8 @@ impl<'a> ChainUpdate<'a> {
     /// Quick in-memory check to fast-reject any block header we've already handled
     /// recently. Keeps duplicates from the network in check.
     /// ctx here is specific to the header_head (tip of the header chain)
-    fn check_header_known(&self, header: &BlockHeader) -> Result<(), Error> {
-        let header_head = self.store.header_head()?;
+    fn check_header_known(&mut self, header: &BlockHeader) -> Result<(), Error> {
+        let header_head = self.chain_store_update.header_head()?;
         if header.hash() == header_head.last_block_hash
             || header.hash() == header_head.prev_block_hash
         {
@@ -601,7 +694,7 @@ impl<'a> ChainUpdate<'a> {
 
     /// Quick in-memory check for fast-reject any block handled recently.
     fn check_known_head(&self, header: &BlockHeader) -> Result<(), Error> {
-        let head = self.store.head()?;
+        let head = self.chain_store_update.head()?;
         let bh = header.hash();
         if bh == head.last_block_hash || bh == head.prev_block_hash {
             return Err(ErrorKind::Unfit("already known in head".to_string()).into());
@@ -619,9 +712,9 @@ impl<'a> ChainUpdate<'a> {
 
     /// Check if this block is ini the store already.
     fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
-        match self.store.block_exists(&header.hash()) {
+        match self.chain_store_update.block_exists(&header.hash()) {
             Ok(true) => {
-                let head = self.store.head()?;
+                let head = self.chain_store_update.head()?;
                 if header.height > 50 && header.height < head.height - 50 {
                     // We flag this as an "abusive peer" but only in the case
                     // where we have the full block in our store.
@@ -639,6 +732,23 @@ impl<'a> ChainUpdate<'a> {
         }
     }
 
+    /// Check if header is known: head, orphan or in store.
+    fn is_header_known(&self, header: &BlockHeader) -> Result<bool, Error> {
+        let check = || {
+            self.check_known_head(header)?;
+            self.check_known_orphans(header)?;
+            self.check_known_store(header)
+        };
+        match check() {
+            Ok(()) => Ok(false),
+            Err(err) => match err.kind() {
+                ErrorKind::Unfit(_) => Ok(true),
+                kind => Err(kind.into())
+            }
+        }
+    }
+
+    /// Check if block is known: head, orphan or in store.
     fn check_known(&self, block: &Block) -> Result<(), Error> {
         self.check_known_head(&block.header)?;
         self.check_known_orphans(&block.header)?;

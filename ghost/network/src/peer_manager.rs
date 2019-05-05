@@ -21,10 +21,7 @@ use primitives::types::AccountId;
 
 use crate::codec::Codec;
 use crate::peer::Peer;
-use crate::types::{
-    Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
-    OutboundTcpConnect, PeerId, PeerMessage, PeerType, SendMessage, Unregister,
-};
+use crate::types::{Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId, PeerMessage, PeerType, SendMessage, Unregister, ReasonForBan};
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
@@ -44,7 +41,7 @@ pub struct PeerManagerActor {
     /// Set of outbound connections that were not consolidated yet.
     outgoing_peers: HashSet<PeerId>,
     /// Active peers (inbound and outbound) with their full peer information.
-    active_peers: HashMap<PeerId, (Recipient<SendMessage>, FullPeerInfo)>,
+    active_peers: HashMap<PeerId, (Addr<Peer>, FullPeerInfo)>,
     /// Peers with known account ids.
     account_peers: HashMap<AccountId, PeerId>,
 }
@@ -77,7 +74,7 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
-    fn register_peer(&mut self, peer_info: FullPeerInfo, addr: Recipient<SendMessage>) {
+    fn register_peer(&mut self, peer_info: FullPeerInfo, addr: Addr<Peer>) {
         if self.outgoing_peers.contains(&peer_info.peer_info.id) {
             self.outgoing_peers.remove(&peer_info.peer_info.id);
         }
@@ -113,12 +110,12 @@ impl PeerManagerActor {
         }
     }
 
-    fn ban_peer(&mut self, peer_id: PeerId) {
+    fn ban_peer(&mut self, peer_id: PeerId, ban_reason: ReasonForBan) {
         if let Some(peer_state) = self.peer_states.get_mut(&peer_id) {
             info!(target: "network", "Banning peer {:?}", peer_state.peer_info);
             self.active_peers.remove(&peer_id);
             peer_state.last_seen = Utc::now();
-            peer_state.status = KnownPeerStatus::Banned;
+            peer_state.status = KnownPeerStatus::Banned(ban_reason);
         } else {
             error!(target: "network", "Trying to ban unknown peer: {}", peer_id);
         }
@@ -167,14 +164,13 @@ impl PeerManagerActor {
                 Some(w) => w,
                 None => return vec![],
             };
-        let mut most_weight_peers = self
+        self
             .active_peers
             .values()
             .filter_map(
                 |(_, x)| if x.chain_info.total_weight == max_weight { Some(x.clone()) } else { None },
             )
-            .collect::<Vec<_>>();
-        most_weight_peers
+            .collect::<Vec<_>>()
     }
 
     /// Get a random peer we are not connected to from the known list.
@@ -306,9 +302,16 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
-            NetworkRequests::BlocksRequest { hashes } => NetworkResponses::NoResponse,
-            NetworkRequests::BlockHeadersRequest { hashes } => NetworkResponses::NoResponse,
+            NetworkRequests::BlocksRequest { hashes, peer_info } => NetworkResponses::NoResponse,
+            NetworkRequests::BlockHeadersRequest { hashes, peer_info } => NetworkResponses::NoResponse,
             NetworkRequests::StateRequest { shard_id, state_root } => NetworkResponses::NoResponse,
+            NetworkRequests::BanPeer { peer_info, ban_reason } => {
+                if let Some((addr, _full_info)) = self.active_peers.get(&peer_info.id) {
+                    // TODO: send stop signal to the addr.
+                }
+                self.ban_peer(peer_info.id, ban_reason);
+                NetworkResponses::NoResponse
+            }
         }
     }
 }
@@ -396,6 +399,6 @@ impl Handler<Ban> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: Ban, _ctx: &mut Self::Context) {
-        self.ban_peer(msg.peer_id);
+        self.ban_peer(msg.peer_id, msg.ban_reason);
     }
 }

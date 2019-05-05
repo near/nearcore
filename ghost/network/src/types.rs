@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message, Recipient};
+use actix::{Actor, Message, Addr};
 use chrono::{DateTime, Utc};
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
@@ -22,6 +22,7 @@ use primitives::traits::Base58Encoded;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use primitives::utils::{proto_to_type, to_string_value};
+use crate::peer::Peer;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -348,7 +349,7 @@ pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned,
+    Banned(ReasonForBan),
 }
 
 /// Information node stores about known peers.
@@ -400,7 +401,7 @@ pub struct SendMessage {
 /// Actor message to consolidate potential new peer.
 /// Returns if connection should be kept or dropped.
 pub struct Consolidate {
-    pub actor: Recipient<SendMessage>,
+    pub actor: Addr<Peer>,
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfo,
@@ -416,7 +417,7 @@ pub struct Unregister {
 }
 
 // Ban reason.
-#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -453,16 +454,23 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest {
         hashes: Vec<CryptoHash>,
+        peer_info: PeerInfo,
     },
     /// Request given blocks.
     BlocksRequest {
         hashes: Vec<CryptoHash>,
+        peer_info: PeerInfo,
     },
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
         state_root: MerkleHash,
     },
+    /// Ban given peer.
+    BanPeer {
+        peer_info: PeerInfo,
+        ban_reason: ReasonForBan,
+    }
 }
 
 /// Combines peer address info and chain information.
@@ -501,6 +509,8 @@ pub enum NetworkClientMessages {
     BlockHeader(BlockHeader, PeerInfo),
     /// Received block, possibly requested.
     Block(Block, PeerInfo, bool),
+    /// Received list of headers for syncing.
+    BlockHeaders(Vec<BlockHeader>, PeerInfo),
     /// Received list of blocks for syncing.
     Blocks(Vec<Block>, PeerInfo),
     /// Get Chain information from Client.

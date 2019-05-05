@@ -1520,6 +1520,7 @@ dependencies = [
 name = "near-chain"
 version = "0.1.0"
 dependencies = [
+ "cached 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1629,6 +1630,7 @@ dependencies = [
 name = "near-store"
 version = "0.1.0"
 dependencies = [
+ "cached 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvdb-memorydb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",

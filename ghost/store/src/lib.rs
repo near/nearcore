@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use serde::de::DeserializeOwned;
+use cached::{Cached, SizedCache};
 
 use primitives::serialize::{Decode, Encode};
 
@@ -97,4 +98,22 @@ impl StoreUpdate {
     pub fn commit(self) -> Result<(), io::Error> {
         self.storage.write(self.transaction)
     }
+}
+
+
+pub fn read_with_cache<'a, T: Decode + DeserializeOwned + std::fmt::Debug + 'a>(
+    storage: &Store,
+    col: Option<u32>,
+    cache: &'a mut SizedCache<Vec<u8>, T>,
+    key: &[u8],
+) -> io::Result<Option<&'a T>> {
+    let key_vec = key.to_vec();
+    if cache.cache_get(&key_vec).is_some() {
+        return Ok(Some(cache.cache_get(&key_vec).unwrap()));
+    }
+    if let Some(result) = storage.get_ser(col, key)? {
+        cache.cache_set(key.to_vec(), result);
+        return Ok(cache.cache_get(&key_vec));
+    }
+    Ok(None)
 }

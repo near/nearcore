@@ -195,7 +195,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                 };
                 self.peer_manager_addr
                     .send(Consolidate {
-                        actor: ctx.address().recipient(),
+                        actor: ctx.address(),
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
                         chain_info: handshake.chain_info,

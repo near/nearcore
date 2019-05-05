@@ -1,13 +1,32 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::Utc;
+
+use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate};
 use primitives::crypto::signature::{PublicKey, Signature};
+use primitives::crypto::signer::{EDSigner, InMemorySigner};
+use primitives::test_utils::get_public_key_from_seed;
+use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};
-use primitives::test_utils::get_public_key_from_seed;
-use primitives::transaction::SignedTransaction;
+use crate::{Block, Chain};
+
+impl Block {
+    pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
+        Block::produce(
+            prev,
+            prev.height + 1,
+            prev.prev_state_root,
+            vec![],
+            HashMap::default(),
+            signer,
+        )
+    }
+}
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -79,4 +98,12 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<(StoreUpdate, MerkleHash), String> {
         Ok((self.store.store_update(), MerkleHash::default()))
     }
+}
+
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+    let store = create_test_store();
+    let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
+    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
+    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+    (chain, runtime, signer)
 }
