@@ -15,9 +15,6 @@ log = "0.4"
 serde_derive = "1.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-jsonrpc-core = "11.0"
-jsonrpc-pubsub = "11.0"
-jsonrpc-http-server = "11.0"
 tokio = "0.1.15"
 uuid = { version = "~0.6", features = ["v4"] }
 jsonrpc-client-core = "0.5.0"
