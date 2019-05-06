@@ -132,7 +132,6 @@ struct NodesStorage {
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 
 /// Local mutable storage that owns node objects.
-///
 impl NodesStorage {
     fn new() -> NodesStorage {
         NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new() }
@@ -182,9 +181,9 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
     let mut pos = 1;
     for child in &mut children {
         if bitmap & pos != 0 {
-            let mut arr = vec![0; 32];
+            let mut arr = [0; 32];
             cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::try_from(arr).unwrap());
+            *child = Some(CryptoHash::try_from(&arr[..]).unwrap());
         }
         pos <<= 1;
     }
@@ -280,7 +279,7 @@ impl RawTrieNode {
 
 impl RcTrieNode {
     fn encode(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
-        let mut cursor = Cursor::new(Vec::new());
+        let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
         cursor.write_all(data)?;
         cursor.write_u32::<LittleEndian>(rc)?;
         Ok(cursor.into_inner())
@@ -312,8 +311,8 @@ impl TrieCachingStorage {
     }
 
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)> {
-        let mut _guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = (*_guard).cache_get(hash) {
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        if let Some(val) = (*guard).cache_get(hash) {
             val.clone()
         } else {
             let result = if let Ok(Some(bytes)) =
@@ -323,7 +322,7 @@ impl TrieCachingStorage {
             } else {
                 None
             };
-            (*_guard).cache_set(*hash, result.clone());
+            (*guard).cache_set(*hash, result.clone());
             result
         }
     }
@@ -937,7 +936,6 @@ impl Trie {
                 }
             }
         }
-        //        println!("root node is {}", memory.node_ref(root_node).deep_to_string(&memory));
         let trie_changes = Trie::flatten_nodes(memory, root_node);
 
         self.convert_to_db_changes(trie_changes)
@@ -974,7 +972,7 @@ impl Trie {
     #[inline]
     pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
         self.storage.cache.lock().expect(POISONED_LOCK_ERR).cache_clear();
-        self.storage.storage.read().expect(POISONED_LOCK_ERR).apply_state_updates(&changes)
+        self.storage.storage.read().expect(POISONED_LOCK_ERR).apply_state_updates(changes)
     }
 }
 
@@ -1144,8 +1142,10 @@ impl<'a> Iterator for TrieIterator<'a> {
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, value)) => {
                         if value.is_some() {
-                            let value = value.clone().expect("is_some() called");
-                            return Some(Ok((self.key(), DBValue::from_slice(&value))));
+                            return Some(Ok((
+                                self.key(),
+                                DBValue::from_slice(value.as_ref().expect("is_some() called")),
+                            )));
                         } else {
                             IterStep::Continue
                         }

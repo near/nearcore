@@ -107,7 +107,7 @@ impl Runtime {
                 tx_total_stake.update(block_index, &config);
                 if tx_total_stake.available_mana(&config) >= mana {
                     tx_total_stake.charge_mana(mana, &config);
-                    set(state_update, &key, &tx_total_stake);
+                    set(state_update, key, &tx_total_stake);
                     return Some(accounting_info);
                 }
             }
@@ -140,7 +140,7 @@ impl Runtime {
         };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
-            set(state_update, &key_for_account(&transaction.originator), sender);
+            set(state_update, key_for_account(&transaction.originator), sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.contract_id.clone(),
@@ -181,7 +181,7 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
-        set(state_update, &key_for_account(&originator_id), &originator);
+        set(state_update, key_for_account(&originator_id), &originator);
         state_update.commit();
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
@@ -364,7 +364,7 @@ impl Runtime {
                 Ok(receipts)
             })
         };
-        set(state_update, &key_for_account(&receiver_id), receiver);
+        set(state_update, key_for_account(&receiver_id), receiver);
         result
     }
 
@@ -465,13 +465,13 @@ impl Runtime {
                 state_update.commit();
             } else {
                 state_update.remove(&key_for_callback(&callback_res.info.id));
-                set(state_update, &key_for_account(&receiver_id), receiver);
+                set(state_update, key_for_account(&receiver_id), receiver);
             }
         } else {
             // if we don't need to remove callback, since it is updated, we need
             // to update the storage.
             let callback = callback.expect("Cannot be none");
-            set(state_update, &key_for_callback(&callback_res.info.id), &callback);
+            set(state_update, key_for_callback(&callback_res.info.id), &callback);
         }
         receipts
     }
@@ -536,7 +536,7 @@ impl Runtime {
                     ),
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
-                        set(state_update, &key_for_account(&receipt.receiver), &receiver);
+                        set(state_update, key_for_account(&receipt.receiver), &receiver);
                         Ok(vec![])
                     }
                     ReceiptBody::ManaAccounting(mana_accounting) => {
@@ -553,7 +553,7 @@ impl Runtime {
                                 mana_accounting.gas_used,
                                 &config,
                             );
-                            set(state_update, &key, &tx_total_stake);
+                            set(state_update, key, &tx_total_stake);
                         } else {
                             // TODO(#445): Figure out what to do when the TxStake doesn't exist during mana accounting
                             panic!("TX stake doesn't exist when mana accounting arrived");
@@ -779,7 +779,7 @@ impl Runtime {
             let code = ContractCode::new(wasm_binary.to_vec());
             set(
                 &mut state_update,
-                &key_for_account(&account_id),
+                key_for_account(&account_id),
                 &Account {
                     public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
                     amount: *balance,
@@ -790,12 +790,12 @@ impl Runtime {
                 },
             );
             // Default code
-            set(&mut state_update, &key_for_code(&account_id), &code);
+            set(&mut state_update, key_for_code(&account_id), &code);
             // Default transaction stake
             let key = key_for_tx_stake(&account_id, &None);
             let mut tx_total_stake = TxTotalStake::new(0);
             tx_total_stake.add_active_stake(*initial_tx_stake);
-            set(&mut state_update, &key, &tx_total_stake);
+            set(&mut state_update, key, &tx_total_stake);
             // TODO(#345): Add system TX stake
         });
         for (account_id, _, _, amount) in initial_authorities {
@@ -803,7 +803,7 @@ impl Runtime {
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
-            set(&mut state_update, &account_id_bytes, &account);
+            set(&mut state_update, account_id_bytes, &account);
         }
         state_update.finalize()
     }
@@ -826,7 +826,7 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &key_for_account(&account_id), &test_account);
+        set(&mut state_update, key_for_account(&account_id), &test_account);
         let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -838,7 +838,7 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &key_for_account(&account_id), &test_account);
+        set(&mut state_update, key_for_account(&account_id), &test_account);
         let (new_root, transaction) = state_update.finalize();
         trie.apply_changes(transaction).unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);

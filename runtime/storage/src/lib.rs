@@ -4,9 +4,9 @@ extern crate elastic_array;
 extern crate hex_literal;
 #[macro_use]
 extern crate log;
+extern crate primitives;
 #[cfg(test)]
 extern crate rand;
-extern crate primitives;
 
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -32,13 +32,11 @@ pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option
     state_update.get(key).and_then(|data| Decode::decode(&data).ok())
 }
 
-pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
-    value.encode().ok().map(|data| state_update.set(key, &DBValue::from_slice(&data))).or_else(
-        || {
-            debug!("set value failed");
-            None
-        },
-    );
+pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| {
+        debug!("set value failed");
+        None
+    });
 }
 
 /// Initializes beacon and shard chain storages from the given path.
