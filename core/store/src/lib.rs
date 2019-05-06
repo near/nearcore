@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
+use kvdb_rocksdb::{Database, DatabaseConfig};
 use serde::de::DeserializeOwned;
 
 use primitives::serialize::{Decode, Encode};
@@ -116,4 +117,10 @@ pub fn read_with_cache<'a, T: Decode + DeserializeOwned + std::fmt::Debug + 'a>(
         return Ok(cache.cache_get(&key_vec));
     }
     Ok(None)
+}
+
+pub fn create_store(path: &str) -> Arc<Store> {
+    let db_config = DatabaseConfig::with_columns(Some(NUM_COLS));
+    let db = Arc::new(Database::open(&db_config, path).expect("Failed to open the database"));
+    Arc::new(Store::new(db))
 }

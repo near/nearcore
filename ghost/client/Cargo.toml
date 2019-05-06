@@ -13,8 +13,8 @@ kvdb = "0.1"
 log = "0.4"
 rand = "0.6.5"
 
-primitives = { path = "../../runtime/primitives" }
-near-store = { path = "../store" }
+primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }

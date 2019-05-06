@@ -767,9 +767,9 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         mut state_update: TrieUpdate,
-        balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
+        balances: &[(AccountId, ReadablePublicKey, Balance)],
+        authorities: &[(AccountId, ReadablePublicKey, Balance)],
         wasm_binary: &[u8],
-        initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)],
     ) -> (MerkleHash, storage::DBChanges) {
         balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
             let code = ContractCode::new(wasm_binary.to_vec());

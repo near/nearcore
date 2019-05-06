@@ -16,9 +16,9 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6.5"
 
-primitives = { path = "../../runtime/primitives" }
-near-protos = { path = "../../runtime/protos" }
-near-store = { path = "../store" }
+primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos" }
+near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]

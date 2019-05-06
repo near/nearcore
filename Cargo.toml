@@ -9,22 +9,20 @@ edition = "2018"
 [workspace]
 members = [
     "protos/builder",
-    "runtime/primitives",
-    "runtime/storage",
+    "core/primitives",
+    "core/store",
     "runtime/runtime",
     "runtime/wasm",
     "runtime/wasm/runtest",
-    "test-utils/keystore",
-    "test-utils/testlib",
-    "test-utils/loadtester",
-    "nearmint/",
-    "ghost/store",
     "ghost/chain",
     "ghost/pool",
     "ghost/client",
     "ghost/network",
     "ghost/jsonrpc",
     "ghost/near",
+    "test-utils/keystore",
+    "test-utils/testlib",
+    "test-utils/loadtester",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
@@ -37,13 +35,14 @@ rand = "0.6"
 serde_json = "1.0.0"
 reqwest = "0.9"
 
+near-protos = { path = "./core/protos" }
+primitives = { path = "./core/primitives" }
+storage = { path = "./core/storage" }
+
 keystore = { path = "./test-utils/keystore" }
-primitives = { path = "./runtime/primitives" }
-storage = { path = "./runtime/storage" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
-near-protos = { path = "./runtime/protos" }
-nearmint = { path = "./nearmint" }
+near = { path = "./ghost/near"}
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

@@ -1,18 +1,33 @@
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use actix::{Actor, Addr, AsyncContext};
+use log::info;
 
 use near_client::{BlockProducer, ClientActor};
 use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
+use near_store::create_store;
 use near_store::test_utils::create_test_store;
 
 pub use crate::config::{GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
-use std::path::Path;
 
 mod config;
 mod runtime;
+
+const STORE_PATH: &str = "data";
+
+fn get_store_path(base_path: &Path) -> String {
+    let mut store_path = base_path.to_owned();
+    store_path.push(STORE_PATH);
+    match fs::canonicalize(store_path.clone()) {
+        Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
+        _ => info!(target: "near", "Could not resolve {:?} path", store_path),
+    };
+    store_path.to_str().unwrap().to_owned()
+}
 
 pub fn start_with_config(
     home_dir: &Path,
@@ -20,8 +35,7 @@ pub fn start_with_config(
     config: NearConfig,
     block_producer: Option<BlockProducer>,
 ) -> Addr<ClientActor> {
-    // TODO: Replace with rocksdb.
-    let store = create_test_store();
+    let store = create_store(&get_store_path(home_dir));
     let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config));
 
     ClientActor::create(move |ctx| {

@@ -18,6 +18,8 @@ use primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePubl
 use storage::trie::Trie;
 
 use crate::config::GenesisConfig;
+use std::collections::HashMap;
+use storage::TrieUpdate;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
 pub struct NightshadeRuntime {
@@ -47,18 +49,18 @@ impl NightshadeRuntime {
 
     /// Maps account into shard, given current number of shards.
     fn account_to_shard(&self, account_id: AccountId) -> ShardId {
-        // tODO: a better way to do this.
+        // TODO: a better way to do this.
         ((hash(&account_id.into_bytes()).0).0[0] % (self.num_shards() as u8)) as u32
     }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
-        let mut store_update = self.store.store_update();
-        for (account_id, readable_pk, balance) in self.genesis_config.accounts.iter() {
-            if self.account_to_shard(account_id.clone()) == shard_id {}
-        }
-        (self.store.store_update(), MerkleHash::default())
+        let accounts = self.genesis_config.accounts.iter().filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id).collect();
+        let authorities = self.genesis_config.authorities.iter().filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id).collect();
+        let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
+        let (store_update, state_root) = self.runtime.apply_genesis_state(state_update, accounts, authorities, &vec![]);
+        (store_update, state_root)
     }
 
     fn compute_block_weight(
