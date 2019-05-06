@@ -124,6 +124,9 @@ impl Peer {
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkClientMessages::BlockHeadersRequest(hashes)
             }
+            PeerMessage::BlockHeaders(headers) => {
+                NetworkClientMessages::BlockHeaders(headers, peer_id)
+            }
             _ => unreachable!()
         };
         self.client_addr

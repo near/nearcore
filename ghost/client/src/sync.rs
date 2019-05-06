@@ -296,7 +296,6 @@ impl BlockSync {
         if state_needed {
             return Ok(true);
         }
-        println!("Block sync: Hashes: {:?}", hashes);
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
         let block_count = cmp::min(

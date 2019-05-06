@@ -573,11 +573,6 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
-        // Rewind current fork to the point of forking and re-apply ancestors of this block.
-        //        if is_fork {
-        //            self.rewind_and_apply_fork(block)?;
-        //        }
-
         // Apply block to runtime.
         let (state_store_update, state_root) = self
             .runtime_adapter
@@ -602,10 +597,6 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
         is_fork: bool,
     ) -> Result<(), Error> {
-        //        if is_fork {
-        //            self.rewind_and_apply_header_fork(header)?;
-        //        }
-
         self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header.clone());
         self.update_header_head(header)?;
@@ -727,21 +718,6 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_sync_head(&tip);
         debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
         Ok(())
-    }
-
-    /// Rewind the header chain and reapply headers on a fork.
-    pub fn rewind_and_apply_header_fork(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        unimplemented!();
-        // Ok(())
-    }
-
-    /// Utility function to handle forks. From the forked block, jump backward
-    /// to find to fork root. Rewind the runtime to the root and apply all the
-    /// forked blocks prior to the one being processed to set the runtime in
-    /// the expected state.
-    fn rewind_and_apply_fork(&mut self, block: &Block) -> Result<(), Error> {
-        unimplemented!();
-        // Ok(())
     }
 
     /// Quick in-memory check to fast-reject any block header we've already handled

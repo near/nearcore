@@ -25,7 +25,7 @@ fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
 fn sync_nodes() {
     init_test_logger();
 
-    let genesis_config = GenesisConfig::test(vec!["test2"]);
+    let genesis_config = GenesisConfig::test(vec!["other"]);
     let genesis_header = genesis_header(genesis_config.clone());
 
     let mut near1 = NearConfig::new(genesis_config.genesis_time.clone(), "test1", 25123);
@@ -40,20 +40,20 @@ fn sync_nodes() {
 
     let mut blocks = vec![];
     let mut prev = &genesis_header;
-    let signer = Arc::new(InMemorySigner::from_seed("test2", "test2"));
-    for _ in 0..10 {
+    let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+    for _ in 0..=10 {
         blocks.push(Block::empty(prev, signer.clone()));
         prev = &blocks[blocks.len() - 1].header;
         let _ = client1.do_send(NetworkClientMessages::Block(blocks[blocks.len() - 1].clone(), PeerInfo::random().id, true));
     }
 
-    let _client2 = start_with_config(genesis_config, near2, Some(BlockProducer::test("test2")));
+    let client2 = start_with_config(genesis_config, near2, Some(BlockProducer::test("test2")));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(client1.send(GetBlock::Best).then(|res| {
+            actix::spawn(client2.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Some(b)) if b.header.height > 14 => {
+                    Ok(Some(b)) if b.header.height == 10 => {
                         System::current().stop()
                     }
                     Err(_) => return futures::future::err(()),
