@@ -1,12 +1,13 @@
 #!/bin/bash
 set -e
 
-IMAGE=${1:-nearprotocol/nearcore:0.1.4}
+IMAGE=${1:-nearprotocol/nearcore:0.1.5}
 PREFIX=${2:-testnet-${USER}}
 STUDIO_IMAGE=${3:-nearprotocol/studio:0.2.9}
 ZONE=${4:-us-west2-a}
 REGION=${5:-us-west2}
-NUM_NODES=${6:-4}
+NUM_NODES=${6:-10}
+NUM_ACCOUNTS=${7:-400}
 NEARLIB_COMMIT="6e08d77eb1be1de6390ca5d0f4654ee6e5b05e38"
 NEARLIB_VERSION="0.5.4"
 
@@ -15,8 +16,6 @@ echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZON
 set +e
 gcloud compute firewall-rules describe nearmint-instance > /dev/null 2>&1
 INSTANCE_FIRE_WALL_EXISTS=$?
-gcloud compute disks describe ${PREFIX}-persistent-0  --zone ${ZONE} > /dev/null 2>&1
-STORAGE_EXISTS=$?
 gcloud beta compute addresses describe ${PREFIX}-0 --region ${REGION} > /dev/null 2>&1
 ADDRESS_EXISTS=$?
 gcloud beta compute instances describe ${PREFIX}-0 --zone ${ZONE} > /dev/null 2>&1
@@ -29,14 +28,6 @@ gcloud compute firewall-rules create nearmint-instance \
     --target-tags=nearmint-instance
 fi
 
-if [[ ! ${STORAGE_EXISTS} -eq 0 ]]; then
-gcloud compute disks create --size 200GB --zone ${ZONE} \
-    ${PREFIX}-persistent-0 \
-    ${PREFIX}-persistent-1 \
-    ${PREFIX}-persistent-2 \
-    ${PREFIX}-persistent-3
-fi
-
 if [[ ! ${ADDRESS_EXISTS} -eq 0 ]]; then
 gcloud beta compute addresses create ${PREFIX}-0 --region ${REGION}
 fi
@@ -45,11 +36,12 @@ if [[ ! ${BOOTNODE_EXISTS} -eq 0 ]]; then
 gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-env NODE_ID=0 \
     --container-env TOTAL_NODES=${NUM_NODES} \
+    --container-env NUM_ACCOUNTS=${NUM_ACCOUNTS} \
     --container-env NODE_KEY="53Mr7IhcJXu3019FX+Ra+VbxSQ5y2q+pknmM463jzoFzldWZb16dSYRxrhYrLRXe/UA0wR2zFy4c3fY5yDHjlA==" \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
     --tags=nearmint-instance \
-    --disk name=${PREFIX}-persistent-0 \
+    --create-disk=name=${PREFIX}-persistent-0,auto-delete=yes \
     --container-mount-disk mount-path="/srv/near" \
     --boot-disk-size 200GB \
     --address ${PREFIX}-0 \
@@ -77,16 +69,23 @@ do
         --container-env BOOT_NODES="6f99d7b49a10fff319cd8bbbd13c3a964dcd0248@${BOOT_NODE_IP}:26656" \
         --container-env NODE_ID=${NODE_ID} \
 	    --container-env TOTAL_NODES=${NUM_NODES} \
+        --container-env NUM_ACCOUNTS=${NUM_ACCOUNTS} \
         --container-image ${IMAGE} \
         --zone ${ZONE} \
         --tags=testnet-instance \
-        --disk=name=${PREFIX}-persistent-${NODE_ID} \
+        --create-disk=name=${PREFIX}-persistent-${NODE_ID},auto-delete=yes \
         --container-mount-disk=mount-path="/srv/near" \
         --boot-disk-size 200GB \
-        --machine-type n1-highcpu-4
+        --machine-type n1-highcpu-4 &
 
     fi
+done
+wait
 
+echo "RPCs of the nodes"
+for NODE_IP in $(gcloud compute instances list --filter="name:${PREFIX}*" | grep "RUNNING" | awk '{print $5}')
+do
+  echo "\"${NODE_IP}:3030\","
 done
 
 set +e

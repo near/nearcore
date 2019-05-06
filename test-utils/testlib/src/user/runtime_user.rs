@@ -1,5 +1,6 @@
 use crate::runtime_utils::to_receipt_block;
 use crate::user::{User, POISONED_LOCK_ERR};
+use lazy_static::lazy_static;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
@@ -12,11 +13,13 @@ use primitives::transaction::{
 use primitives::types::{AccountId, MerkleHash, Nonce};
 use storage::{Trie, TrieUpdate};
 
+use node_runtime::ethereum::EthashProvider;
 use primitives::account::AccessKey;
 use primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use tempdir::TempDir;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -44,10 +47,17 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, ReceiptTransaction>>,
 }
 
+lazy_static! {
+    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
+        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
+    ));
+}
+
 impl RuntimeUser {
     pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
+        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
-            trie_viewer: TrieViewer {},
+            trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
             nonce: Default::default(),
             client,

@@ -13,13 +13,17 @@ use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
+use crate::ethereum::EthashProvider;
+use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
     pub values: HashMap<Vec<u8>, Vec<u8>>,
 }
 
-pub struct TrieViewer {}
+pub struct TrieViewer {
+    ethash_provider: Arc<Mutex<EthashProvider>>,
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
@@ -33,6 +37,10 @@ pub struct AccountViewCallResult {
 }
 
 impl TrieViewer {
+    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
+        Self { ethash_provider }
+    }
+
     pub fn view_account(
         &self,
         state_update: &TrieUpdate,
@@ -121,6 +129,7 @@ impl TrieViewer {
                     contract_id,
                     &AccountingInfo { originator: contract_id.clone(), contract_id: None },
                     &empty_hash,
+                    self.ethash_provider.clone(),
                 );
                 executor::execute(
                     &code,
@@ -188,6 +197,7 @@ mod tests {
     use kvdb::DBValue;
     use primitives::types::AccountId;
 
+    use tempdir::TempDir;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -264,7 +274,9 @@ mod tests {
         trie.apply_changes(db_changes).unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
-        let trie_viewer = TrieViewer {};
+        let ethash_provider =
+            EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
+        let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
         let result = trie_viewer.view_state(&state_update, &alice_account()).unwrap();
         assert_eq!(
             result.values,

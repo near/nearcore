@@ -129,7 +129,7 @@ mod test {
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
-                    new_account_id: "eve.near".to_string(),
+                    new_account_id: "test.near".to_string(),
                     amount: 10,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
@@ -139,7 +139,7 @@ mod test {
 
             let alice_account = view_account_request("alice.near").unwrap();
             assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - 10);
-            let eve_account = view_account_request("eve.near").unwrap();
+            let eve_account = view_account_request("test.near").unwrap();
             assert_eq!(eve_account.amount, 10);
         });
     }
@@ -154,7 +154,7 @@ mod test {
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
-                    new_account_id: "eve.near".to_string(),
+                    new_account_id: "test.near".to_string(),
                     amount: 10,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
@@ -166,13 +166,13 @@ mod test {
             let tx: near_protos::signed_transaction::SignedTransaction =
                 TransactionBody::DeployContract(DeployContractTransaction {
                     nonce: 1,
-                    contract_id: "eve.near".to_string(),
+                    contract_id: "test.near".to_string(),
                     wasm_byte_array: wasm_binary.to_vec(),
                 })
                 .sign(&signer)
                 .into();
             submit_tx(tx);
-            let eve_account = view_account_request("eve.near").unwrap();
+            let eve_account = view_account_request("test.near").unwrap();
             assert_eq!(eve_account.amount, 10);
             assert_eq!(eve_account.code_hash, hash(wasm_binary));
         });

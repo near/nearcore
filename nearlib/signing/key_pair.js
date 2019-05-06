@@ -42,15 +42,15 @@ class KeyPair {
     /**
      * Generate a new keypair from a random seed
      * @example
-     * const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+     * const keyWithRandomSeed = KeyPair.fromRandomSeed();
      * keyWithRandomSeed.getPublicKey()
      * // returns [PUBLIC_KEY]
      * 
      * keyWithRandomSeed.getSecretKey()
      * // returns [SECRET_KEY]
      */
-    static async fromRandomSeed() {
-        var newKeypair = nacl.sign.keyPair();
+    static fromRandomSeed() {
+        let newKeypair = nacl.sign.keyPair();
         const result = new KeyPair(
             KeyPair.encodeBufferInBs58(newKeypair.publicKey),
             KeyPair.encodeBufferInBs58(newKeypair.secretKey));

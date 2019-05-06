@@ -38,7 +38,7 @@ EOF
 
 if [[ -z ${CHAIN_SPEC_PATH} ]]
 then
-	generate-test-spec -n ${TOTAL_NODES} -c ${TMHOME}/chain_spec.json
+	generate-test-spec -a ${TOTAL_NODES} -c ${TMHOME}/chain_spec.json -n ${NUM_ACCOUNTS}
 	CHAIN_SPEC_PATH="${TMHOME}/chain_spec.json"
 fi
 
