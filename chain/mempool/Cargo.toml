@@ -12,7 +12,7 @@ tokio = "0.1"
 log = "0.4"
 protobuf = "2.4"
 
-primitives = { path = "../../runtime/primitives" }
+near-primitives = { path = "../../core/primitives" }
 chain = { path = "../../chain/chain" }
 storage = { path = "../../runtime/storage"}
 node-runtime = { path = "../../runtime/runtime" }

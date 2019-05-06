@@ -13,7 +13,7 @@ configs = { path = "../configs" }
 consensus = { path = "../../chain/consensus" }
 coroutines = { path = "../coroutines" }
 node-http = { path = "../../chain/http" }
-primitives = { path = "../../runtime/primitives" }
+near-primitives = { path = "../../core/primitives" }
 chain = { path = "../../chain/chain" }
 storage = { path = "../../runtime/storage" }
 tokio-utils = { path = "../tokio-utils" }

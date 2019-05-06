@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 
 use primitives::serialize::{Decode, Encode};
 
+mod trie;
 pub mod test_utils;
 
 pub const COL_BLOCK_MISC: Option<u32> = Some(0);

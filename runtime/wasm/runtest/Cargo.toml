@@ -7,4 +7,4 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 byteorder = { version = "1", default-features = false }
 
 wasm = { path = "../" }
-primitives = { path = "../../primitives" }
+near-primitives = { path = "../../../core/primitives" }

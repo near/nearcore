@@ -10,7 +10,7 @@ chrono = "0.4.4"
 failure = "0.1"
 failure_derive = "0.1"
 
-primitives = { path = "../../core/primitives" }
+near-primitives = { path = "../../core/primitives" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]

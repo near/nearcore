@@ -23,8 +23,8 @@ beacon = { path = "../../chain/beacon" }
 chain = { path = "../../chain/chain" }
 client = { path = "../../chain/client" }
 configs = { path = "../configs" }
-primitives = { path = "../../runtime/primitives" }
-near-protos = { path = "../../runtime/protos" }
+near-primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos" }
 shard = { path = "../shard" }
 storage = { path = "../../runtime/storage", features=["test-utils"] }
 nightshade = { path = "../../chain/nightshade" }

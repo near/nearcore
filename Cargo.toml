@@ -36,8 +36,8 @@ serde_json = "1.0.0"
 reqwest = "0.9"
 
 near-protos = { path = "./core/protos" }
-primitives = { path = "./core/primitives" }
-storage = { path = "./core/storage" }
+near-primitives = { path = "./core/primitives" }
+near-store = { path = "./core/store" }
 
 keystore = { path = "./test-utils/keystore" }
 testlib = { path = "./test-utils/testlib" }

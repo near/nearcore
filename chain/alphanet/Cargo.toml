@@ -15,7 +15,7 @@ serde_derive = "1.0"
 tokio = "0.1"
 
 network = { path = "../network" }
-primitives = { path = "../../runtime/primitives" }
+near-primitives = { path = "../../core/primitives" }
 nightshade = { path = "../../chain/nightshade" }
 mempool = { path = "../../chain/mempool" }
 chain = { path = "../../chain/chain" }

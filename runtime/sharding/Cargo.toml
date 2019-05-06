@@ -5,8 +5,8 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-primitives = { path = "../primitives" }
-near-protos = { path = "../protos" }
+near-primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos" }
 typed-arena = "1.4.1"
 futures = "0.1.25"
 tokio = "0.1"

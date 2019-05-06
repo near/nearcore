@@ -20,8 +20,8 @@ bs58 = "0.2"
 byteorder = "1.2"
 tempdir = "0.3"
 
-primitives = { path = "../../runtime/primitives" }
-near-protos = { path = "../../runtime/protos" }
+near-primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos" }
 node-runtime = { path = "../../runtime/runtime" }
 storage = { path = "../../runtime/storage" }
 

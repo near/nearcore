@@ -14,7 +14,7 @@ beacon = { path = "../../chain/beacon" }
 shard = { path = "../../chain/shard" }
 chain = { path = "../../chain/chain" }
 client = { path = "../../chain/client" }
-primitives = { path = "../../runtime/primitives" }
+near-primitives = { path = "../../core/primitives" }
 nightshade = { path = "../../chain/nightshade" }
 mempool = { path = "../../chain/mempool" }
 tokio-utils = { path = "../tokio-utils" }

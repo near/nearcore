@@ -21,7 +21,7 @@ jsonrpc-client-core = "0.5.0"
 jsonrpc-client-http = "0.5.0"
 protobuf = "2.4"
 
-primitives = { path = "../../core/primitives" }
+near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }

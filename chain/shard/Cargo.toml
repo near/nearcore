@@ -12,8 +12,8 @@ serde = "1.0"
 serde_derive = "1.0"
 parking_lot = "0.7.1"
 
-primitives = { path = "../../runtime/primitives" }
-storage = { path = "../../runtime/storage" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
 chain = { path = "../../chain/chain" }
 node-runtime = { path = "../../runtime/runtime" }
 configs = { path = "../configs" }

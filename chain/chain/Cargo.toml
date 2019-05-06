@@ -12,5 +12,5 @@ parking_lot = "0.7.1"
 log = "0.4"
 
 near-protos = { path = "../../runtime/protos" }
-primitives = { path = "../../runtime/primitives" }
+near-primitives = { path = "../../core/primitives" }
 storage = { path = "../../runtime/storage" }

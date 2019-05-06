@@ -6,5 +6,5 @@ edition = "2018"
 
 [dependencies]
 
-primitives = { path = "../primitives" }
-storage = { path = "../storage"}
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store"}
