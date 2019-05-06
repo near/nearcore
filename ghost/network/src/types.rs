@@ -236,10 +236,15 @@ pub type PeersInfo = Vec<PeerInfo>;
 pub enum PeerMessage {
     Handshake(Handshake),
     InfoGossip(PeersInfo),
-    BlockAnnounce(Block),
+
+    Block(Block),
     BlockHeaderAnnounce(BlockHeader),
-    Transaction(SignedTransaction),
+    BlockRequest(CryptoHash),
+    BlockHeadersRequest(Vec<CryptoHash>),
     BlockApproval(AccountId, CryptoHash, Signature),
+    BlockHeaders(Vec<BlockHeader>),
+
+    Transaction(SignedTransaction),
 }
 
 impl fmt::Display for PeerMessage {
@@ -247,10 +252,13 @@ impl fmt::Display for PeerMessage {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
             PeerMessage::InfoGossip(_) => f.write_str("InfoGossip"),
-            PeerMessage::BlockAnnounce(_) => f.write_str("BlockAnnounce"),
+            PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+            PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
+            PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
+            PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
         }
     }
 }
@@ -271,8 +279,8 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(PeerMessage::InfoGossip(peer_info))
             }
-            Some(network_proto::PeerMessage_oneof_message_type::block_announce(block)) => {
-                Ok(PeerMessage::BlockAnnounce(block.try_into()?))
+            Some(network_proto::PeerMessage_oneof_message_type::block(block)) => {
+                Ok(PeerMessage::Block(block.try_into()?))
             }
             Some(network_proto::PeerMessage_oneof_message_type::block_header_announce(header)) => {
                 Ok(PeerMessage::BlockHeaderAnnounce(header.try_into()?))
@@ -286,6 +294,17 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     block_approval.hash.try_into()?,
                     block_approval.signature.try_into()?,
                 ))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_request(block_request)) => {
+                Ok(PeerMessage::BlockRequest(block_request.try_into()?))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(block_headers_request)) => {
+                Ok(PeerMessage::BlockHeadersRequest(
+                    block_headers_request.hashes.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?
+                ))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers)) => {
+                Ok(PeerMessage::BlockHeaders(block_headers.headers.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?))
             }
             None => unreachable!(),
         }
@@ -307,8 +326,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
-            PeerMessage::BlockAnnounce(block) => {
-                Some(network_proto::PeerMessage_oneof_message_type::block_announce(block.into()))
+            PeerMessage::Block(block) => {
+                Some(network_proto::PeerMessage_oneof_message_type::block(block.into()))
             }
             PeerMessage::BlockHeaderAnnounce(header) => Some(
                 network_proto::PeerMessage_oneof_message_type::block_header_announce(header.into()),
@@ -324,6 +343,23 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval))
+            }
+            PeerMessage::BlockRequest(hash) => {
+                Some(network_proto::PeerMessage_oneof_message_type::block_request(hash.into()))
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                let request = network_proto::BlockHeaderRequest {
+                    hashes: RepeatedField::from_iter(hashes.into_iter().map(std::convert::Into::into)),
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(request))
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                let block_headers = network_proto::BlockHeaders {
+                    headers: RepeatedField::from_iter(headers.into_iter().map(std::convert::Into::into)),
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -436,8 +472,8 @@ pub struct Ban {
 #[derive(Debug)]
 pub enum NetworkRequests {
     FetchInfo,
-    /// SEnds block announcement, when block was just produced.
-    BlockAnnounce {
+    /// Sends block, either when block was just produced or when requested.
+    Block {
         block: Block,
     },
     /// Sends block header announcement, with possibly attaching approval for this block if
@@ -449,17 +485,12 @@ pub enum NetworkRequests {
     /// Request block with given hash from given peer.
     BlockRequest {
         hash: CryptoHash,
-        peer_info: PeerInfo,
+        peer_id: PeerId,
     },
     /// Request given block headers.
     BlockHeadersRequest {
         hashes: Vec<CryptoHash>,
-        peer_info: PeerInfo,
-    },
-    /// Request given blocks.
-    BlocksRequest {
-        hashes: Vec<CryptoHash>,
-        peer_info: PeerInfo,
+        peer_id: PeerId,
     },
     /// Request state for given shard at given state root.
     StateRequest {
@@ -468,7 +499,7 @@ pub enum NetworkRequests {
     },
     /// Ban given peer.
     BanPeer {
-        peer_info: PeerInfo,
+        peer_id: PeerId,
         ban_reason: ReasonForBan,
     }
 }
@@ -506,17 +537,19 @@ pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
     /// Received block header.
-    BlockHeader(BlockHeader, PeerInfo),
+    BlockHeader(BlockHeader, PeerId),
     /// Received block, possibly requested.
-    Block(Block, PeerInfo, bool),
+    Block(Block, PeerId, bool),
     /// Received list of headers for syncing.
-    BlockHeaders(Vec<BlockHeader>, PeerInfo),
-    /// Received list of blocks for syncing.
-    Blocks(Vec<Block>, PeerInfo),
+    BlockHeaders(Vec<BlockHeader>, PeerId),
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
     BlockApproval(AccountId, CryptoHash, Signature),
+    /// Request headers.
+    BlockHeadersRequest(Vec<CryptoHash>),
+    /// Request a block.
+    BlockRequest(CryptoHash),
 }
 
 pub enum NetworkClientResponses {
@@ -526,6 +559,10 @@ pub enum NetworkClientResponses {
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
     ChainInfo { height: BlockIndex, total_weight: Weight },
+    /// Block response.
+    Block(Block),
+    /// Headers response.
+    BlockHeaders(Vec<BlockHeader>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

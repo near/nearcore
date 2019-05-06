@@ -18,9 +18,9 @@ pub struct NearConfig {
 }
 
 impl NearConfig {
-    pub fn new(genesis_timestamp: DateTime<Utc>, seed: &str, port: u16) -> Self {
+    pub fn new(genesis_time: DateTime<Utc>, seed: &str, port: u16) -> Self {
         NearConfig {
-            client_config: ClientConfig::new(genesis_timestamp),
+            client_config: ClientConfig::new(genesis_time),
             network_config: NetworkConfig::from_seed(seed, port),
             rpc_server_addr: format!("127.0.0.1:{}", port + 100).parse().unwrap(),
         }

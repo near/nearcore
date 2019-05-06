@@ -45,7 +45,7 @@ impl From<String> for Error {
 
 pub struct ClientConfig {
     /// Genesis timestamp. Client will wait until this date to start.
-    pub genesis_timestamp: DateTime<Utc>,
+    pub genesis_time: DateTime<Utc>,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
@@ -73,7 +73,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
-            genesis_timestamp: Utc::now(),
+            genesis_time: Utc::now(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(300),
             block_expected_weight: 1000,
@@ -90,9 +90,9 @@ impl ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn new(genesis_timestamp: DateTime<Utc>) -> Self {
+    pub fn new(genesis_time: DateTime<Utc>) -> Self {
         ClientConfig {
-            genesis_timestamp,
+            genesis_time,
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(2000),
             block_expected_weight: 1000,

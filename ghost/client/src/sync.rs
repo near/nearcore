@@ -2,7 +2,7 @@ use std::cmp;
 
 use actix::Recipient;
 use chrono::{DateTime, Duration, Utc};
-use log::{debug, info};
+use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, Tip};
@@ -14,7 +14,7 @@ use primitives::types::BlockIndex;
 use crate::types::SyncStatus;
 
 /// Maximum number of block headers send over the network.
-const MAX_BLOCK_HEADERS: u64 = 512;
+pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 
@@ -145,7 +145,7 @@ impl HeaderSync {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
                                     self.network_recipient.do_send(NetworkRequests::BanPeer {
-                                        peer_info: peer.peer_info.clone(),
+                                        peer_id: peer.peer_info.id.clone(),
                                         ban_reason: ReasonForBan::HeightFraud,
                                     });
                                 }
@@ -176,7 +176,7 @@ impl HeaderSync {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
             self.network_recipient.do_send(NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
-                peer_info: peer.peer_info.clone(),
+                peer_id: peer.peer_info.id.clone(),
             });
             return Some(peer);
         }
@@ -251,21 +251,26 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
+    network_recipient: Recipient<NetworkRequests>,
     blocks_requested: BlockIndex,
     receive_timeout: DateTime<Utc>,
     prev_blocks_recevied: BlockIndex,
 }
 
 impl BlockSync {
-    pub fn new() -> Self {
-        BlockSync { blocks_requested: 0, receive_timeout: Utc::now(), prev_blocks_recevied: 0 }
+    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+        BlockSync {
+            network_recipient,
+            blocks_requested: 0,
+            receive_timeout: Utc::now(),
+            prev_blocks_recevied: 0,
+        }
     }
 
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
-        head: &Tip,
         highest_height: BlockIndex,
         most_weight_peers: &[FullPeerInfo],
     ) -> Result<(), near_chain::Error> {
@@ -274,26 +279,24 @@ impl BlockSync {
                 return Ok(());
             }
 
+            let head = chain.head()?;
             *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
         }
         Ok(())
     }
 
     /// Returns true if state download is required (last known block is too far).
+    /// Otherwise request recent blocks from peers round robin.
     pub fn block_sync(
         &mut self,
         chain: &mut Chain,
         most_weight_peers: &[FullPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        let mut hashes: Option<Vec<CryptoHash>> = Some(vec![]);
-        // TODO: check state download is needed.
-        let state_needed = false;
+        let (state_needed, mut hashes) = chain.check_state_needed()?;
         if state_needed {
             return Ok(true);
         }
-        let mut hashes = hashes.ok_or::<near_chain::Error>(
-            near_chain::ErrorKind::Other("Sync: hashes is None".to_string()).into(),
-        )?;
+        println!("Block sync: Hashes: {:?}", hashes);
         hashes.reverse();
         // Ask for `num_peers * MAX_PEER_BLOCK_REQUEST` blocks up to 100, throttle if there is too many orphans in the chain.
         let block_count = cmp::min(
@@ -301,7 +304,7 @@ impl BlockSync {
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
-        let hashes_to_request = hashes
+        let mut hashes_to_request = hashes
             .iter()
             .filter(|x| !chain.get_block(x).is_ok() && !chain.is_orphan(x))
             .take(block_count)
@@ -315,14 +318,22 @@ impl BlockSync {
             self.blocks_requested = 0;
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
+            println!("Request: {:?} from {:?}", hashes_to_request, most_weight_peers);
             let mut peers_iter = most_weight_peers.iter().cycle();
-            for hash in hashes_to_request.iter() {
+            for hash in hashes_to_request.drain(..) {
                 if let Some(peer) = peers_iter.next() {
-                    // TODO: send request
-                    //                    if let Err(e)
-                    //                    else {
-                    //                        self.blocks_requested += 1;
-                    //                    }
+                    if self
+                        .network_recipient
+                        .do_send(NetworkRequests::BlockRequest {
+                            hash: hash.clone(),
+                            peer_id: peer.peer_info.id.clone(),
+                        })
+                        .is_ok()
+                    {
+                        self.blocks_requested += 1;
+                    } else {
+                        error!(target: "sync", "Failed to send message to network agent");
+                    }
                 }
             }
         }
@@ -352,7 +363,7 @@ impl BlockSync {
 
         // Account for broadcast adding few blocks to orphans during.
         if self.blocks_requested < BLOCK_REQUEST_BROADCAST_OFFSET {
-            debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
+            // debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
             return Ok(true);
         }
 

@@ -15,7 +15,7 @@ use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 
 pub use crate::config::{GenesisConfig, NearConfig};
-use crate::runtime::NightshadeRuntime;
+pub use crate::runtime::NightshadeRuntime;
 
 mod config;
 mod runtime;

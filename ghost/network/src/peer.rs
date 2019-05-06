@@ -96,8 +96,8 @@ impl Peer {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
-        let peer_info = match self.peer_info.as_ref() {
-            Some(peer_info) => peer_info.clone(),
+        let peer_id = match self.peer_info.as_ref() {
+            Some(peer_info) => peer_info.id.clone(),
             None => {
                 return;
             }
@@ -105,17 +105,24 @@ impl Peer {
 
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
-            PeerMessage::BlockAnnounce(block) => {
-                NetworkClientMessages::Block(block, peer_info, false)
+            PeerMessage::Block(block) => {
+                // TODO: add tracking of requests here.
+                NetworkClientMessages::Block(block, peer_id, false)
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
-                NetworkClientMessages::BlockHeader(header, peer_info)
+                NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockApproval(account_id, hash, signature) => {
                 NetworkClientMessages::BlockApproval(account_id, hash, signature)
+            }
+            PeerMessage::BlockRequest(hash) => {
+                NetworkClientMessages::BlockRequest(hash)
+            }
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                NetworkClientMessages::BlockHeadersRequest(hashes)
             }
             _ => unreachable!()
         };
@@ -128,6 +135,12 @@ impl Peer {
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.peer_status = PeerStatus::Banned(ban_reason);
                         ctx.stop();
+                    },
+                    Ok(NetworkClientResponses::Block(block)) => {
+                        act.send_message(PeerMessage::Block(block))
+                    }
+                    Ok(NetworkClientResponses::BlockHeaders(headers)) => {
+                        act.send_message(PeerMessage::BlockHeaders(headers))
                     }
                     Err(err) => {
                         error!(

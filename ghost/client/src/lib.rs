@@ -16,9 +16,9 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter,
     ValidTransaction,
 };
-use near_network::types::ReasonForBan;
+use near_network::types::{PeerId, ReasonForBan};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
 use near_store::Store;
@@ -27,7 +27,7 @@ use primitives::hash::CryptoHash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, BlockIndex};
 
-use crate::sync::{most_weight_peer, HeaderSync};
+use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
 
 mod sync;
@@ -49,6 +49,7 @@ pub struct ClientActor {
     last_block_processed: Instant,
     /// Keeps track of syncing headers.
     header_sync: HeaderSync,
+    block_sync: BlockSync,
 }
 
 impl ClientActor {
@@ -60,10 +61,11 @@ impl ClientActor {
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
         // TODO: Wait until genesis.
-        let chain = Chain::new(store, runtime_adapter.clone(), config.genesis_timestamp)?;
+        let chain = Chain::new(store, runtime_adapter.clone(), config.genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
+        let block_sync = BlockSync::new(network_actor.clone());
         Ok(ClientActor {
             config,
             sync_status,
@@ -80,6 +82,7 @@ impl ClientActor {
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
             header_sync,
+            block_sync,
         })
     }
 }
@@ -112,13 +115,27 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 // TODO: should we ban for invalid tx?
                 None => NetworkClientResponses::NoResponse,
             },
-            NetworkClientMessages::BlockHeader(header, peer_info) => {
-                self.receive_header(header, peer_info)
+            NetworkClientMessages::BlockHeader(header, peer_id) => {
+                self.receive_header(header, peer_id)
             }
-            NetworkClientMessages::Block(block, peer_info, was_requested) => {
-                self.receive_block(ctx, block, peer_info, was_requested)
+            NetworkClientMessages::Block(block, peer_id, was_requested) => {
+                self.receive_block(ctx, block, peer_id, was_requested)
             }
-            NetworkClientMessages::GetChainInfo => match self.chain.store().head() {
+            NetworkClientMessages::BlockRequest(hash) => {
+                if let Ok(block) = self.chain.get_block(&hash) {
+                    NetworkClientResponses::Block(block.clone())
+                } else {
+                    NetworkClientResponses::NoResponse
+                }
+            }
+            NetworkClientMessages::BlockHeadersRequest(hashes) => {
+                if let Ok(headers) = self.retrieve_headers(hashes) {
+                    NetworkClientResponses::BlockHeaders(headers)
+                } else {
+                    NetworkClientResponses::NoResponse
+                }
+            }
+            NetworkClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => NetworkClientResponses::ChainInfo {
                     height: head.height,
                     total_weight: head.total_weight,
@@ -128,17 +145,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::NoResponse
                 }
             },
-            NetworkClientMessages::BlockHeaders(headers, peer_info) => {
-                if self.receive_headers(headers, peer_info) {
+            NetworkClientMessages::BlockHeaders(headers, peer_id) => {
+                if self.receive_headers(headers, peer_id) {
                     NetworkClientResponses::NoResponse
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block headers");
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
-            }
-            NetworkClientMessages::Blocks(_blocks, _peer_info) => {
-                // TODO: sync sync sync
-                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::BlockApproval(account_id, hash, signature) => {
                 if self.collect_block_approval(&account_id, &hash, &signature) {
@@ -195,9 +208,7 @@ impl ClientActor {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
-                let _ = self
-                    .network_actor
-                    .do_send(NetworkRequests::BlockAnnounce { block: block.clone() });
+                let _ = self.network_actor.do_send(NetworkRequests::Block { block: block.clone() });
             } else {
                 let approval = self.get_block_approval(&block);
                 let _ = self.network_actor.do_send(NetworkRequests::BlockHeaderAnnounce {
@@ -249,6 +260,7 @@ impl ClientActor {
         ctx: &mut Context<ClientActor>,
         last_height: BlockIndex,
     ) {
+        // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
         let next_block_producer_account = self.runtime_adapter.get_block_proposer(last_height + 1);
         if let Some(block_producer) = &self.block_producer {
             if Ok(block_producer.account_id.clone()) == next_block_producer_account {
@@ -269,7 +281,7 @@ impl ClientActor {
     /// Checks if next block was produced within timeout, if not check if we should produce next block.
     /// TODO: should we send approvals for given block to next block producer?
     fn check_block_timeout(&mut self, ctx: &mut Context<ClientActor>, last_height: u64) {
-        let head = match self.chain.store().head() {
+        let head = match self.chain.head() {
             Ok(head) => head,
             Err(_) => return,
         };
@@ -292,7 +304,7 @@ impl ClientActor {
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
-        let head = self.chain.store().head()?;
+        let head = self.chain.head()?;
         // Check that we are still at the block that we are producer for.
         if block_producer.account_id != self.runtime_adapter.get_block_proposer(next_height)? {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
@@ -303,7 +315,7 @@ impl ClientActor {
 
         // Wait until we have all approvals or timeouts per max block produciton delay.
         let total_authorities = self.runtime_adapter.get_epoch_block_proposers(next_height).len();
-        let prev_same_bp = self.runtime_adapter.get_block_proposer(next_height)?
+        let prev_same_bp = self.runtime_adapter.get_block_proposer(next_height - 1)?
             == block_producer.account_id.clone();
         let total_approvals = total_authorities - if prev_same_bp { 1 } else { 2 };
         if self.approvals.len() < total_approvals
@@ -361,11 +373,11 @@ impl ClientActor {
         &mut self,
         ctx: &mut Context<ClientActor>,
         block: Block,
-        peer_info: PeerInfo,
+        peer_id: PeerId,
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_info);
+        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_id);
         let previous = self.chain.get_previous_header(&block.header).map(Clone::clone);
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -386,7 +398,7 @@ impl ClientActor {
                                 "Process block: received an orphan block, checking the parent: {}",
                                 previous.hash()
                             );
-                            self.request_block_by_hash(previous.hash(), peer_info)
+                            self.request_block_by_hash(previous.hash(), peer_id)
                         }
                     }
                     NetworkClientResponses::NoResponse
@@ -399,11 +411,7 @@ impl ClientActor {
         }
     }
 
-    fn receive_header(
-        &mut self,
-        header: BlockHeader,
-        peer_info: PeerInfo,
-    ) -> NetworkClientResponses {
+    fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
         debug!(target: "client", "Received block header {} at {} from {}", hash, header.height, peer_info);
 
@@ -430,8 +438,8 @@ impl ClientActor {
         NetworkClientResponses::NoResponse
     }
 
-    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_info: PeerInfo) -> bool {
-        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_info);
+    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
+        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
         if headers.len() == 0 {
             return false;
         }
@@ -449,16 +457,38 @@ impl ClientActor {
         }
     }
 
-    fn request_block_by_hash(&mut self, hash: CryptoHash, peer_info: PeerInfo) {
+    fn request_block_by_hash(&mut self, hash: CryptoHash, peer_id: PeerId) {
         match self.chain.block_exists(&hash) {
             Ok(false) => {
                 // TODO: ?? should we add a wait for response here?
-                let _ =
-                    self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_info });
+                let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
             Ok(true) => debug!("send_block_request_to_peer: block {} already known", hash),
             Err(e) => error!("send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
+    }
+
+    fn retrieve_headers(
+        &mut self,
+        hashes: Vec<CryptoHash>,
+    ) -> Result<Vec<BlockHeader>, near_chain::Error> {
+        let header = match self.chain.find_common_header(&hashes) {
+            Some(header) => header,
+            None => return Ok(vec![]),
+        };
+
+        let mut headers = vec![];
+        let max_height = self.chain.header_head()?.height;
+        // TODO: this may be inefficient if there is a lot of skipped blocks.
+        for h in header.height + 1..max_height {
+            if let Ok(header) = self.chain.get_header_by_height(h) {
+                headers.push(header.clone());
+                if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
+                    break;
+                }
+            }
+        }
+        Ok(headers)
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
@@ -469,7 +499,7 @@ impl ClientActor {
 
     /// Check whether need to (continue) sync.
     fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
-        let head = self.chain.store().head()?;
+        let head = self.chain.head()?;
         let mut is_syncing = self.sync_status.is_syncing();
 
         let full_peer_info =
@@ -550,7 +580,14 @@ impl ClientActor {
             }
             wait_period = self.config.sync_check_period;
         } else {
+            // Run each step of syncing separately.
             unwrap_or_run_later!(self.header_sync.run(
+                &mut self.sync_status,
+                &mut self.chain,
+                highest_height,
+                &self.network_info.most_weight_peers
+            ));
+            unwrap_or_run_later!(self.block_sync.run(
                 &mut self.sync_status,
                 &mut self.chain,
                 highest_height,
@@ -596,7 +633,7 @@ impl ClientActor {
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
-            let head = match act.chain.store().head() {
+            let head = match act.chain.head() {
                 Ok(head) => head,
                 Err(_) => {return; }
             };

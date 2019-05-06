@@ -1,9 +1,9 @@
 use std::io;
 use std::sync::Arc;
 
+use cached::{Cached, SizedCache};
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use serde::de::DeserializeOwned;
-use cached::{Cached, SizedCache};
 
 use primitives::serialize::{Decode, Encode};
 
@@ -12,10 +12,11 @@ pub mod test_utils;
 pub const COL_BLOCK_MISC: Option<u32> = Some(0);
 pub const COL_BLOCK: Option<u32> = Some(1);
 pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
-pub const COL_STATE: Option<u32> = Some(3);
-pub const COL_STATE_REF: Option<u32> = Some(4);
-pub const COL_PEERS: Option<u32> = Some(5);
-const NUM_COLS: u32 = 5;
+pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
+pub const COL_STATE: Option<u32> = Some(4);
+pub const COL_STATE_REF: Option<u32> = Some(5);
+pub const COL_PEERS: Option<u32> = Some(6);
+const NUM_COLS: u32 = 7;
 
 pub struct Store {
     storage: Arc<KeyValueDB>,
@@ -99,7 +100,6 @@ impl StoreUpdate {
         self.storage.write(self.transaction)
     }
 }
-
 
 pub fn read_with_cache<'a, T: Decode + DeserializeOwned + std::fmt::Debug + 'a>(
     storage: &Store,

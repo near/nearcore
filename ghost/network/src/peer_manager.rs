@@ -272,10 +272,10 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 peer_max_count: self.config.peer_max_count,
                 most_weight_peers: self.most_weight_peers(),
             },
-            NetworkRequests::BlockAnnounce { block } => {
+            NetworkRequests::Block { block } => {
                 self.broadcast_message(
                     ctx,
-                    SendMessage { message: PeerMessage::BlockAnnounce(block) },
+                    SendMessage { message: PeerMessage::Block(block) },
                 );
                 NetworkResponses::NoResponse
             }
@@ -301,15 +301,24 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::BlockRequest { hash, peer_info } => NetworkResponses::NoResponse,
-            NetworkRequests::BlocksRequest { hashes, peer_info } => NetworkResponses::NoResponse,
-            NetworkRequests::BlockHeadersRequest { hashes, peer_info } => NetworkResponses::NoResponse,
+            NetworkRequests::BlockRequest { hash, peer_id } => {
+                if let Some((addr, _)) = self.active_peers.get(&peer_id) {
+                    addr.do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
+                }
+                NetworkResponses::NoResponse
+            },
+            NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                if let Some((addr, _)) = self.active_peers.get(&peer_id) {
+                    addr.do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
+                }
+                NetworkResponses::NoResponse
+            },
             NetworkRequests::StateRequest { shard_id, state_root } => NetworkResponses::NoResponse,
-            NetworkRequests::BanPeer { peer_info, ban_reason } => {
-                if let Some((addr, _full_info)) = self.active_peers.get(&peer_info.id) {
+            NetworkRequests::BanPeer { peer_id, ban_reason } => {
+                if let Some((addr, _full_info)) = self.active_peers.get(&peer_id) {
                     // TODO: send stop signal to the addr.
                 }
-                self.ban_peer(peer_info.id, ban_reason);
+                self.ban_peer(peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
         }

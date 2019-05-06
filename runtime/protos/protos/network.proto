@@ -36,14 +36,25 @@ message BlockApproval {
     bytes signature = 3;
 }
 
+message BlockHeaderRequest {
+    repeated bytes hashes = 1;
+}
+
+message BlockHeaders {
+    repeated BlockHeader headers = 1;
+}
+
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
         PeerInfoGossip info_gossip = 2;
-        Block block_announce = 3;
+        Block block = 3;
         BlockHeader block_header_announce = 4;
         SignedTransaction transaction = 5;
         BlockApproval block_approval = 6;
+        bytes block_request = 7;
+        BlockHeaderRequest block_headers_request = 8;
+        BlockHeaders block_headers = 9;
     }
 }
 

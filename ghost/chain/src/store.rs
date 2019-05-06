@@ -1,17 +1,20 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
 
 use cached::SizedCache;
+use log::debug;
 
 use near_store::{
-    read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_MISC, COL_STATE_REF,
+    read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX,
+    COL_BLOCK_MISC, COL_STATE_REF,
 };
 use primitives::hash::CryptoHash;
-use primitives::types::MerkleHash;
+use primitives::types::{BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
+use primitives::utils::index_to_bytes;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -20,6 +23,34 @@ const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 
 /// lru cache size
 const CACHE_SIZE: usize = 20;
+
+/// Accesses the chain store. Used to create atomic editable views that can be reverted.
+pub trait ChainStoreAccess {
+    /// Returns underlaying store.
+    fn store(&self) -> &Store;
+    /// The chain head.
+    fn head(&self) -> Result<Tip, Error>;
+    /// The chain tail (as far as chain goes).
+    fn tail(&self) -> Result<Tip, Error>;
+    /// Head of the header chain (not the same thing as head_header).
+    fn header_head(&self) -> Result<Tip, Error>;
+    /// The "sync" head: last header we received from syncing.
+    fn sync_head(&self) -> Result<Tip, Error>;
+    /// Header of the block at the head of the block chain (not the same thing as header_head).
+    fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+    /// Get full block.
+    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
+    /// Does this full block exist?
+    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
+    /// Get previous header.
+    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
+    /// Get state root hash after applying header with given hash.
+    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error>;
+    /// Get block header.
+    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
+    /// Returns hash of the block on the main chain for given height.
+    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
+}
 
 /// All chain-related database operations.
 pub struct ChainStore {
@@ -30,6 +61,8 @@ pub struct ChainStore {
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with state roots.
     post_state_roots: SizedCache<Vec<u8>, MerkleHash>,
+    // Cache with index to hash on the main chain.
+    // block_index: SizedCache<Vec<u8>, CryptoHash>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -47,40 +80,46 @@ impl ChainStore {
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             post_state_roots: SizedCache::with_size(CACHE_SIZE),
+            // block_index: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
-    pub fn store_update(&mut self) -> ChainStoreUpdate {
-        ChainStoreUpdate::new(self, self.store.store_update())
+    pub fn store_update(&mut self) -> ChainStoreUpdate<Self> {
+        ChainStoreUpdate::new(self)
     }
+}
 
+impl ChainStoreAccess for ChainStore {
+    fn store(&self) -> &Store {
+        &*self.store
+    }
     /// The chain head.
-    pub fn head(&self) -> Result<Tip, Error> {
+    fn head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEAD_KEY), "HEAD")
     }
 
     /// The chain tail (as far as chain goes).
-    pub fn tail(&self) -> Result<Tip, Error> {
+    fn tail(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, TAIL_KEY), "TAIL")
     }
 
     /// The "sync" head: last header we received from syncing.
-    pub fn sync_head(&self) -> Result<Tip, Error> {
+    fn sync_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY), "SYNC_HEAD")
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    fn head_header(&mut self) -> Result<&BlockHeader, Error> {
         self.get_block_header(&self.head()?.last_block_hash)
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    pub fn header_head(&self) -> Result<Tip, Error> {
+    fn header_head(&self) -> Result<Tip, Error> {
         option_to_not_found(self.store.get_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY), "HEADER_HEAD")
     }
 
     /// Get full block.
-    pub fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
+    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, COL_BLOCK, &mut self.blocks, h.as_ref()),
             &format!("BLOCK: {}", h),
@@ -88,17 +127,17 @@ impl ChainStore {
     }
 
     /// Does this full block exist?
-    pub fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
     }
 
     /// Get previous header.
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.get_block_header(&header.prev_hash)
     }
 
     /// Get state root hash after applying header with given hash.
-    pub fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
+    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, COL_STATE_REF, &mut self.post_state_roots, h.as_ref()),
             &format!("STATE ROOT: {}", h),
@@ -106,36 +145,58 @@ impl ChainStore {
     }
 
     /// Get block header.
-    pub fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
+    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, COL_BLOCK_HEADER, &mut self.headers, h.as_ref()),
             &format!("BLOCK HEADER: {}", h),
         )
     }
+
+    /// Returns hash of the block on the main chain for given height.
+    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_INDEX, &index_to_bytes(height)),
+            &format!("BLOCK INDEX: {}", height),
+        )
+        // TODO: cache needs to be deleted when things get updated.
+        //        option_to_not_found(
+        //            read_with_cache(
+        //                &*self.store,
+        //                COL_BLOCK_INDEX,
+        //                &mut self.block_index,
+        //                &index_to_bytes(height),
+        //            ),
+        //            &format!("BLOCK INDEX: {}", height),
+        //        )
+    }
 }
 
 /// Provides layer to update chain without touching underlaying database.
 /// This serves few purposes, main one is that even if executable exists/fails during update the database is in consistent state.
-pub struct ChainStoreUpdate<'a> {
-    chain_store: &'a mut ChainStore,
-    store_update: StoreUpdate,
+pub struct ChainStoreUpdate<'a, T> {
+    chain_store: &'a mut T,
+    store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
     blocks: HashMap<CryptoHash, Block>,
+    deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
     post_state_roots: HashMap<CryptoHash, MerkleHash>,
+    block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     head: Option<Tip>,
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
 }
 
-impl<'a> ChainStoreUpdate<'a> {
-    pub fn new(chain_store: &'a mut ChainStore, store_update: StoreUpdate) -> Self {
+impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
+    pub fn new(chain_store: &'a mut T) -> Self {
         ChainStoreUpdate {
             chain_store,
-            store_update,
+            store_updates: vec![],
             blocks: HashMap::default(),
+            deleted_blocks: HashSet::default(),
             headers: HashMap::default(),
+            block_index: HashMap::default(),
             post_state_roots: HashMap::default(),
             head: None,
             tail: None,
@@ -143,9 +204,14 @@ impl<'a> ChainStoreUpdate<'a> {
             sync_head: None,
         }
     }
+}
 
+impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
+    fn store(&self) -> &Store {
+        self.chain_store.store()
+    }
     /// The chain head.
-    pub fn head(&self) -> Result<Tip, Error> {
+    fn head(&self) -> Result<Tip, Error> {
         if let Some(head) = &self.head {
             Ok(head.clone())
         } else {
@@ -154,7 +220,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// The chain tail (as far as chain goes).
-    pub fn tail(&mut self) -> Result<Tip, Error> {
+    fn tail(&self) -> Result<Tip, Error> {
         if let Some(tail) = &self.tail {
             Ok(tail.clone())
         } else {
@@ -163,7 +229,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// The "sync" head: last header we received from syncing.
-    pub fn sync_head(&mut self) -> Result<Tip, Error> {
+    fn sync_head(&self) -> Result<Tip, Error> {
         if let Some(sync_head) = &self.sync_head {
             Ok(sync_head.clone())
         } else {
@@ -172,7 +238,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Head of the header chain (not the same thing as head_header).
-    pub fn header_head(&mut self) -> Result<Tip, Error> {
+    fn header_head(&self) -> Result<Tip, Error> {
         if let Some(header_head) = &self.header_head {
             Ok(header_head.clone())
         } else {
@@ -181,12 +247,12 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Header of the block at the head of the block chain (not the same thing as header_head).
-    pub fn head_header(&mut self) -> Result<&BlockHeader, Error> {
+    fn head_header(&mut self) -> Result<&BlockHeader, Error> {
         self.get_block_header(&(self.head()?.last_block_hash))
     }
 
     /// Get full block.
-    pub fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
+    fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error> {
         if let Some(block) = self.blocks.get(h) {
             Ok(block)
         } else {
@@ -195,17 +261,17 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Does this full block exist?
-    pub fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
+    fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         Ok(self.blocks.contains_key(h) || self.chain_store.block_exists(h)?)
     }
 
     /// Get previous header.
-    pub fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
+    fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
         self.get_block_header(&header.prev_hash)
     }
 
     /// Get state root hash after applying header with given hash.
-    pub fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
+    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
         if let Some(post_state_root) = self.post_state_roots.get(h) {
             Ok(post_state_root)
         } else {
@@ -214,7 +280,7 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     /// Get block header.
-    pub fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
+    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
         if let Some(header) = self.headers.get(h) {
             Ok(header)
         } else {
@@ -222,10 +288,16 @@ impl<'a> ChainStoreUpdate<'a> {
         }
     }
 
+    fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
+        self.chain_store.get_block_hash_by_height(height)
+    }
+}
+
+impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Update both header and block body head.
-    pub fn save_head(&mut self, t: &Tip) {
+    pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t);
-        self.save_header_head(t);
+        self.save_header_head(t)
     }
 
     /// Update block body head.
@@ -238,9 +310,39 @@ impl<'a> ChainStoreUpdate<'a> {
         self.tail = Some(t.clone());
     }
 
-    /// Update header head.
-    pub fn save_header_head(&mut self, t: &Tip) {
+    fn update_block_index(&mut self, height: BlockIndex, hash: CryptoHash) -> Result<(), Error> {
+        let mut prev_hash = hash;
+        let mut prev_height = height;
+        loop {
+            let header = self.get_block_header(&prev_hash)?;
+            let (header_height, header_hash, header_prev_hash) =
+                (header.height, header.hash(), header.prev_hash);
+            // Clean up block indicies between blocks.
+            for height in (header_height + 1)..prev_height {
+                self.block_index.insert(height, None);
+            }
+            match self.get_block_hash_by_height(header_height).map(|h| h.clone()) {
+                Ok(cur_hash) if cur_hash == header_hash => {
+                    // Found common ancestor.
+                    return Ok(());
+                }
+                _ => {
+                    self.block_index.insert(header_height, Some(header_hash));
+                    prev_hash = header_prev_hash;
+                    prev_height = header_height;
+                }
+            };
+        }
+    }
+
+    /// Update header head and height to hash index for this branch.
+    pub fn save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
+        if t.height > 0 {
+            self.update_block_index(t.height, t.prev_block_hash)?;
+        }
+        self.block_index.insert(t.height, Some(t.last_block_hash));
         self.header_head = Some(t.clone());
+        Ok(())
     }
 
     /// Save "sync" head.
@@ -259,55 +361,97 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
-        // TODO: figure out if we need to cache this?
-        self.store_update.delete(COL_BLOCK, hash.as_ref());
+        self.deleted_blocks.insert(*hash);
     }
 
     pub fn save_block_header(&mut self, header: BlockHeader) {
         self.headers.insert(header.hash(), header);
     }
 
+    /// Starts a sub-ChainUpdate with atomic commit/rollback of all operations done
+    /// within this scope.
+    /// If the closure returns and error, all changes are canceled.
+    #[allow(dead_code)]
+    pub fn extending<F>(&mut self, f: F) -> Result<bool, Error>
+    where
+        F: FnOnce(&mut ChainStoreUpdate<'_, ChainStoreUpdate<'a, T>>) -> Result<bool, Error>,
+    {
+        let mut child_store_update = ChainStoreUpdate::new(self);
+        let res = f(&mut child_store_update);
+        match res {
+            // Committing changes.
+            Ok(true) => {
+                let store_update = child_store_update.finalize()?;
+                self.store_updates.push(store_update);
+                Ok(true)
+            }
+            // Rolling back changes.
+            Ok(false) => Ok(false),
+            Err(err) => {
+                debug!(target: "chain", "Error returned, discarding extension");
+                Err(err)
+            }
+        }
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
-        self.store_update.merge(store_update);
+        self.store_updates.push(store_update);
     }
 
     pub fn finalize(mut self) -> Result<StoreUpdate, Error> {
+        let mut store_update = self.store().store_update();
         if let Some(t) = self.head {
-            self.store_update
-                .set_ser(COL_BLOCK_MISC, HEAD_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
+            store_update.set_ser(COL_BLOCK_MISC, HEAD_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.tail {
-            self.store_update
-                .set_ser(COL_BLOCK_MISC, TAIL_KEY, &t)
-                .map_err::<Error, _>(|e| e.into())?;
+            store_update.set_ser(COL_BLOCK_MISC, TAIL_KEY, &t).map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.header_head {
-            self.store_update
+            store_update
                 .set_ser(COL_BLOCK_MISC, HEADER_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         if let Some(t) = self.sync_head {
-            self.store_update
+            store_update
                 .set_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY, &t)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, block) in self.blocks.drain() {
-            self.store_update
+            store_update
                 .set_ser(COL_BLOCK, hash.as_ref(), &block)
                 .map_err::<Error, _>(|e| e.into())?;
         }
+        for hash in self.deleted_blocks.drain() {
+            store_update.delete(COL_BLOCK, hash.as_ref());
+        }
         for (hash, header) in self.headers.drain() {
-            self.store_update
+            store_update
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, state_root) in self.post_state_roots.drain() {
-            self.store_update
+            store_update
                 .set_ser(COL_STATE_REF, hash.as_ref(), &state_root)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        Ok(self.store_update)
+        for (height, hash) in self.block_index.drain() {
+            if let Some(hash) = hash {
+                store_update
+                    .set_ser(COL_BLOCK_INDEX, &index_to_bytes(height), &hash)
+                    .map_err::<Error, _>(|e| e.into())?;
+            } else {
+                store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(height));
+            }
+        }
+        for other in self.store_updates {
+            store_update.merge(other);
+        }
+        Ok(store_update)
+    }
+
+    pub fn commit(self) -> Result<(), Error> {
+        let store_update = self.finalize()?;
+        store_update.commit().map_err(|e| e.into())
     }
 }

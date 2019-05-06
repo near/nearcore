@@ -28,7 +28,7 @@ fn produce_two_blocks() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockAnnounce { .. } = msg {
+                if let NetworkRequests::Block { .. } = msg {
                     count.fetch_add(1, Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 2 {
                         System::current().stop();
@@ -52,7 +52,7 @@ fn produce_blocks_with_tx() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockAnnounce { block } = msg {
+                if let NetworkRequests::Block { block } = msg {
                     count.fetch_add(block.transactions.len(), Ordering::Relaxed);
                     if count.load(Ordering::Relaxed) >= 1 {
                         System::current().stop();
@@ -95,7 +95,7 @@ fn receive_network_block() {
                 HashMap::default(),
                 signer,
             );
-            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             future::result(Ok(()))
         }));
     })
@@ -114,12 +114,12 @@ fn receive_network_block_header() {
             "other",
             true,
             Box::new(move |msg, _ctx, client_addr| match msg {
-                NetworkRequests::BlockRequest { hash, peer_info } => {
+                NetworkRequests::BlockRequest { hash, peer_id } => {
                     let block = block_holder1.read().unwrap().clone().unwrap();
                     assert_eq!(hash.clone(), block.hash());
                     actix::spawn(
                         client_addr
-                            .send(NetworkClientMessages::Block(block, peer_info.clone(), false))
+                            .send(NetworkClientMessages::Block(block, peer_id.clone(), false))
                             .then(|_| futures::future::ok(())),
                     );
                     NetworkResponses::NoResponse
@@ -144,7 +144,7 @@ fn receive_network_block_header() {
             );
             client.do_send(NetworkClientMessages::BlockHeader(
                 block.header.clone(),
-                PeerInfo::random(),
+                PeerInfo::random().id,
             ));
             *block_holder.write().unwrap() = Some(block);
             future::result(Ok(()))
@@ -163,7 +163,7 @@ fn produce_block_with_approvals() {
             "test2",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::BlockAnnounce { block } = msg {
+                if let NetworkRequests::Block { block } = msg {
                     assert!(block.header.approval_sigs.len() > 0);
                     System::current().stop();
                 }
@@ -183,7 +183,7 @@ fn produce_block_with_approvals() {
                 signer1,
             );
             let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
-            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
             client.do_send(NetworkClientMessages::BlockApproval(
                 "test3".to_string(),
                 block_approval.hash,
@@ -229,7 +229,11 @@ fn invalid_blocks() {
                 HashMap::default(),
                 signer.clone(),
             );
-            client.do_send(NetworkClientMessages::Block(block.clone(), PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::Block(
+                block.clone(),
+                PeerInfo::random().id,
+                false,
+            ));
             // Send block that builds on invalid one.
             let block2 = Block::produce(
                 &block.header,
@@ -239,7 +243,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 signer.clone(),
             );
-            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
             let block3 = Block::produce(
                 &last_block.header,
@@ -249,7 +253,7 @@ fn invalid_blocks() {
                 HashMap::default(),
                 signer,
             );
-            client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random(), false));
+            client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
             future::result(Ok(()))
         }));
         near_network::test_utils::wait_or_panic(5000);
@@ -269,7 +273,7 @@ fn skip_block_production() {
             false,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
-                    NetworkRequests::BlockAnnounce { block } => {
+                    NetworkRequests::Block { block } => {
                         if block.header.height > 3 {
                             System::current().stop();
                         }
@@ -295,22 +299,20 @@ fn client_sync() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo => {
-                    NetworkResponses::Info {
-                        num_active_peers: 1,
-                        peer_max_count: 1,
-                        most_weight_peers: vec![FullPeerInfo {
-                            peer_info: peer_info1.clone(),
-                            chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
-                        }],
-                    }
+                NetworkRequests::FetchInfo => NetworkResponses::Info {
+                    num_active_peers: 1,
+                    peer_max_count: 1,
+                    most_weight_peers: vec![FullPeerInfo {
+                        peer_info: peer_info1.clone(),
+                        chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
+                    }],
                 },
-                NetworkRequests::BlockHeadersRequest { hashes: _, peer_info } => {
-                    assert_eq!(*peer_info, peer_info1);
+                NetworkRequests::BlockHeadersRequest { hashes: _, peer_id } => {
+                    assert_eq!(*peer_id, peer_info1.id);
                     // TODO: check it requests correct hashes.
                     System::current().stop();
                     NetworkResponses::NoResponse
-                },
+                }
                 _ => NetworkResponses::NoResponse,
             }),
         );
