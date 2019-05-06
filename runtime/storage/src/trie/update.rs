@@ -52,10 +52,10 @@ impl TrieUpdate {
         if self.committed.is_empty() {
             std::mem::swap(&mut self.prospective, &mut self.committed);
         } else {
-            for (key, val) in self.prospective.iter() {
-                *self.committed.entry(key.clone()).or_default() = val.clone();
+            for (key, val) in std::mem::replace(&mut self.prospective, BTreeMap::new()).into_iter()
+            {
+                *self.committed.entry(key).or_default() = val;
             }
-            self.prospective.clear();
         }
     }
     pub fn rollback(&mut self) {
@@ -65,10 +65,8 @@ impl TrieUpdate {
         if !self.prospective.is_empty() {
             self.commit();
         }
-        let (db_changes, root) = self.trie.update(
-            &self.root,
-            self.committed.iter().map(|(key, value)| (key.clone(), value.clone())),
-        );
+        let TrieUpdate { trie, root, committed, .. } = self;
+        let (db_changes, root) = trie.update(&root, committed.into_iter());
         (root, db_changes)
     }
     pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, String> {
