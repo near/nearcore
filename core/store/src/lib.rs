@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use near_primitives::serialize::{Decode, Encode};
 
-use crate::trie::update::TrieUpdate;
+pub use crate::trie::{update::TrieUpdate, update::TrieUpdateIterator, Trie};
 
 pub mod test_utils;
 mod trie;

@@ -1,14 +1,11 @@
 #[macro_use]
 extern crate bencher;
-extern crate rand;
-extern crate storage;
 
 use bencher::Bencher;
 use rand::random;
 
-use storage::test_utils::create_trie;
-use storage::Trie;
-
+use near_store::test_utils::create_trie;
+use near_store::Trie;
 
 fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()
@@ -22,8 +19,8 @@ fn trie_lookup(bench: &mut Bencher) {
         changes.push((rand_bytes(), Some(rand_bytes())));
     }
     let other_changes = changes.clone();
-    let (db_changes, root) = trie.update(&root, changes.drain(..));
-    trie.apply_changes(db_changes).expect("Failed to commit");
+    let (state_update, root) = trie.update(&root, changes.drain(..));
+    state_update.commit().expect("Failed to commit");
 
     bench.iter(|| {
         for _ in 0..1 {

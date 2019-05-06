@@ -6,8 +6,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, MerkleHash};
-use storage::test_utils::create_trie;
-use storage::{Trie, TrieUpdate};
+use near_store::test_utils::create_trie;
+use near_store::{Trie, TrieUpdate};
 
 use byteorder::{ByteOrder, LittleEndian};
 use node_runtime::ethereum::EthashProvider;
@@ -37,13 +37,14 @@ pub fn get_runtime_and_trie_from_chain_spec(
     let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
     let runtime = Runtime::new(ethash_provider);
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
-    let (genesis_root, db_changes) = runtime.apply_genesis_state(
-        trie_update,
-        &chain_spec.accounts,
-        &chain_spec.genesis_wasm,
-        &chain_spec.initial_authorities,
-    );
-    trie.apply_changes(db_changes).unwrap();
+//    let (store_update, genesis_root) = runtime.apply_genesis_state(
+//        trie_update,
+//        &chain_spec.accounts,
+//        &chain_spec.genesis_wasm,
+//        &chain_spec.initial_authorities,
+//    );
+//    store_update.commit().unwrap();
+    let genesis_root = MerkleHash::default();
     (runtime, trie, genesis_root)
 }
 

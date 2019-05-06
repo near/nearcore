@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::aggregate_signature::BlsPublicKey;
 use near_primitives::crypto::signature::PublicKey;
@@ -13,11 +15,10 @@ use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
     key_for_code, key_for_tx_stake,
 };
-use std::convert::TryFrom;
-use storage::{get, set, TrieUpdate};
+use near_store::{get, set, TrieUpdate};
+use wasm::types::ContractCode;
 
 use crate::TxTotalStake;
-use wasm::types::ContractCode;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId {

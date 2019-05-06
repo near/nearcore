@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -5,41 +6,41 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
-use near_store::{Store, StoreUpdate};
-use node_runtime::chain_spec::ChainSpec;
-use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{Runtime, ETHASH_CACHE_PATH};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId};
-use storage::trie::Trie;
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId,
+};
+use near_store::{Store, StoreUpdate};
+use near_store::{Trie, TrieUpdate};
+use node_runtime::chain_spec::ChainSpec;
+use node_runtime::ethereum::EthashProvider;
+use node_runtime::state_viewer::TrieViewer;
+use node_runtime::{Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
-use std::collections::HashMap;
-use storage::TrieUpdate;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     store: Arc<Store>,
 
-    // trie: Arc<Trie>,
+    trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     runtime: Runtime,
 }
 
 impl NightshadeRuntime {
     pub fn new(home_dir: &Path, store: Arc<Store>, genesis_config: GenesisConfig) -> Self {
-        // let trie = Arc::new(Trie::new(storage))
+        let trie = Arc::new(Trie::new(store.clone()));
         let mut ethash_dir = home_dir.to_owned();
         ethash_dir.push(ETHASH_CACHE_PATH);
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
         let runtime = Runtime::new(ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
-        NightshadeRuntime { store, genesis_config, runtime, trie_viewer }
+        NightshadeRuntime { store, genesis_config, trie, runtime, trie_viewer }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -56,10 +57,23 @@ impl NightshadeRuntime {
 
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
-        let accounts = self.genesis_config.accounts.iter().filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id).collect();
-        let authorities = self.genesis_config.authorities.iter().filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id).collect();
+        let accounts = self
+            .genesis_config
+            .accounts
+            .iter()
+            .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let authorities = self
+            .genesis_config
+            .authorities
+            .iter()
+            .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .cloned()
+            .collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
-        let (store_update, state_root) = self.runtime.apply_genesis_state(state_update, accounts, authorities, &vec![]);
+        let (store_update, state_root) =
+            self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &vec![]);
         (store_update, state_root)
     }
 

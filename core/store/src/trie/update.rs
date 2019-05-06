@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use super::{DBChanges, Trie, TrieIterator};
+use super::{Trie, TrieIterator};
+use crate::StoreUpdate;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
@@ -61,15 +62,16 @@ impl TrieUpdate {
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> (MerkleHash, DBChanges) {
+    pub fn finalize(mut self) -> (StoreUpdate, MerkleHash) {
         if !self.prospective.is_empty() {
             self.commit();
         }
-        let (db_changes, root) = self.trie.update(
+        let (store_update, root) = self.trie.update(
             &self.root,
             self.committed.iter().map(|(key, value)| (key.clone(), value.clone())),
         );
-        (root, db_changes)
+
+        (store_update, root)
     }
     pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, String> {
         TrieUpdateIterator::new(self, prefix, b"", None)
@@ -267,8 +269,8 @@ mod tests {
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         trie_update.set(b"dog2", &DBValue::from_slice(b"puppy"));
         trie_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
         assert_eq!(trie_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
         let mut values = vec![];
@@ -283,28 +285,28 @@ mod tests {
         // Delete non-existing element.
         let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         trie_update.remove(b"dog");
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add and right away delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         trie_update.remove(b"dog");
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add, apply changes and then delete element.
         let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
         assert_ne!(new_root, MerkleHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
         assert_eq!(new_root, MerkleHash::default());
     }
 
@@ -314,8 +316,8 @@ mod tests {
         let mut trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         trie_update.set(b"aaa", &DBValue::from_slice(b"puppy"));
-        let (new_root, transaction) = trie_update.finalize();
-        trie.apply_changes(transaction).ok();
+        let (store_update, new_root) = trie_update.finalize();
+        store_update.commit().ok();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2", &DBValue::from_slice(b"puppy"));

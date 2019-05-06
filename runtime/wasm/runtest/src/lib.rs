@@ -1,13 +1,7 @@
 use std::collections::BTreeMap;
 
-extern crate wasm;
-
-use wasm::ext::{Error as ExtError, External, Result as ExtResult};
-
-extern crate byteorder;
-
-extern crate primitives;
 use near_primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
+use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 #[derive(Default)]
 struct MyExt {
@@ -112,14 +106,16 @@ impl External for MyExt {
 
 #[cfg(test)]
 mod tests {
-    use byteorder::{ByteOrder, LittleEndian};
-    use near_primitives::hash::hash;
     use std::fs;
+    use std::path::PathBuf;
+
+    use byteorder::{ByteOrder, LittleEndian};
+
+    use near_primitives::hash::hash;
     use wasm::executor::{self, ExecutionOutcome};
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
 
     use super::*;
-    use std::path::PathBuf;
 
     fn run_with_filename(
         method_name: &[u8],

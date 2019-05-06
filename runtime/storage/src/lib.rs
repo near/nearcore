@@ -1,28 +1,23 @@
-extern crate byteorder;
-extern crate elastic_array;
 #[cfg(test)]
 extern crate hex_literal;
 #[macro_use]
 extern crate log;
 #[cfg(test)]
 extern crate rand;
-extern crate primitives;
-
-use std::sync::Arc;
-use std::sync::RwLock;
 
 pub use kvdb::{DBTransaction, DBValue, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-
-use serde::{de::DeserializeOwned, Serialize};
-
-pub use crate::storages::beacon::BeaconChainStorage;
-pub use crate::storages::shard::ShardChainStorage;
-use crate::storages::NUM_COLS;
-pub use crate::storages::{BlockChainStorage, GenericStorage};
-pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
-pub use crate::trie::{DBChanges, Trie};
 use near_primitives::serialize::{Decode, Encode};
+use serde::{de::DeserializeOwned, Serialize};
+use std::sync::Arc;
+use std::sync::RwLock;
+
+pub use crate::storages::{BlockChainStorage, GenericStorage};
+pub use crate::storages::beacon::BeaconChainStorage;
+use crate::storages::NUM_COLS;
+pub use crate::storages::shard::ShardChainStorage;
+pub use crate::trie::{DBChanges, Trie};
+pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
 
 pub mod storages;
 pub mod test_utils;

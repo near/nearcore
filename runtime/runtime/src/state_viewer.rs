@@ -1,20 +1,23 @@
 use std::collections::HashMap;
 use std::str;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{bs58_format, CryptoHash};
 use near_primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
-use storage::{get, TrieUpdate};
+use near_primitives::utils::{
+    is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
+};
+use near_store::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
+use crate::ethereum::EthashProvider;
+
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
-use crate::ethereum::EthashProvider;
-use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -161,7 +164,7 @@ impl TrieViewer {
                 logs.extend(res.logs);
                 match res.return_data {
                     Ok(return_data) => {
-                        let (root_after, _) = state_update.finalize();
+                        let (_, root_after) = state_update.finalize();
                         if root_after != root {
                             return Err(
                                 "function call for viewing tried to change storage".to_string()
@@ -192,15 +195,15 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use kvdb::DBValue;
-    use near_primitives::types::AccountId;
-
     use tempdir::TempDir;
+
+    use near_primitives::types::AccountId;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
+
+    use super::*;
 
     #[test]
     fn test_view_call() {
@@ -270,8 +273,8 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update
             .set(&account_suffix(&alice_account(), b"test123"), &DBValue::from_slice(b"123"));
-        let (new_root, db_changes) = state_update.finalize();
-        trie.apply_changes(db_changes).unwrap();
+        let (db_changes, new_root) = state_update.finalize();
+        db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
         let ethash_provider =

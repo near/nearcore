@@ -1,17 +1,11 @@
-extern crate bincode;
-extern crate byteorder;
-extern crate kvdb;
 #[macro_use]
 extern crate log;
-extern crate primitives;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate storage;
-extern crate wasm;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
+use std::sync::{Arc, Mutex};
 
 use near_primitives::account::Account;
 use near_primitives::chain::ReceiptBlock;
@@ -24,12 +18,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
-    MerkleHash, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
+    MerkleHash, PromiseId, ReadablePublicKey, ShardId,
 };
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
     key_for_tx_stake,
 };
+use near_store::{get, set, StoreUpdate, TrieUpdate};
+use verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
@@ -37,9 +33,6 @@ use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
-use std::sync::{Arc, Mutex};
-use storage::{get, set, TrieUpdate};
-use verifier::{TransactionVerifier, VerificationData};
 
 pub mod adapter;
 pub mod chain_spec;
@@ -61,11 +54,10 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
-#[derive(Clone, Debug)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
-    pub db_changes: storage::DBChanges,
+    pub state_update: StoreUpdate,
     pub authority_proposals: Vec<AuthorityStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
@@ -751,10 +743,10 @@ impl Runtime {
                 &mut authority_proposals,
             ));
         }
-        let (root, db_changes) = state_update.finalize();
+        let (state_update, root) = state_update.finalize();
         ApplyResult {
             root,
-            db_changes,
+            state_update,
             authority_proposals,
             shard_id,
             new_receipts,
@@ -770,8 +762,8 @@ impl Runtime {
         balances: &[(AccountId, ReadablePublicKey, Balance)],
         authorities: &[(AccountId, ReadablePublicKey, Balance)],
         wasm_binary: &[u8],
-    ) -> (MerkleHash, storage::DBChanges) {
-        balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
+    ) -> (StoreUpdate, MerkleHash) {
+        balances.iter().for_each(|(account_id, public_key, balance)| {
             let code = ContractCode::new(wasm_binary.to_vec());
             set(
                 &mut state_update,
@@ -786,19 +778,19 @@ impl Runtime {
             );
             // Default code
             set(&mut state_update, &key_for_code(&account_id), &code);
-            // Default transaction stake
-            let key = key_for_tx_stake(&account_id, &None);
-            let mut tx_total_stake = TxTotalStake::new(0);
-            tx_total_stake.add_active_stake(*initial_tx_stake);
-            set(&mut state_update, &key, &tx_total_stake);
-            // TODO(#345): Add system TX stake
         });
-        for (account_id, _, _, amount) in initial_authorities {
+        for (account_id, _, amount) in authorities {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
             set(&mut state_update, &account_id_bytes, &account);
+            // Default transaction stake
+            let key = key_for_tx_stake(&account_id, &None);
+            let mut tx_total_stake = TxTotalStake::new(0);
+            tx_total_stake.add_active_stake(*amount);
+            set(&mut state_update, &key, &tx_total_stake);
+            // TODO(#345): Add system TX stake
         }
         state_update.finalize()
     }
@@ -808,10 +800,10 @@ impl Runtime {
 mod tests {
     use near_primitives::hash::hash;
     use near_primitives::types::MerkleHash;
-    use storage::test_utils::create_trie;
+    use near_store::test_utils::create_trie;
+    use testlib::runtime_utils::bob_account;
 
     use super::*;
-    use testlib::runtime_utils::bob_account;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
@@ -834,8 +826,8 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, &key_for_account(&account_id), &test_account);
-        let (new_root, transaction) = state_update.finalize();
-        trie.apply_changes(transaction).unwrap();
+        let (transaction, new_root) = state_update.finalize();
+        transaction.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
