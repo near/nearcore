@@ -6,6 +6,13 @@ export TMHOME=/srv/near
 tendermint init
 cp /near/config.toml ${TMHOME}/config/config.toml
 
+if [[ -z ${PRIVATE_NETWORK} ]]
+then
+echo "Not running on a private network"
+else
+sed -i 's/addr_book_strict\ =\ true/addr_book_strict\ =\ false/g' ${TMHOME}/config/config.toml
+fi
+
 cat << EOF > ${TMHOME}/config/genesis.json
 {
   "genesis_time": "2019-04-19T21:02:18.967617Z",
@@ -31,7 +38,7 @@ EOF
 
 if [[ -z ${CHAIN_SPEC_PATH} ]]
 then
-	generate-test-spec -n ${TOTAL_NODES} -c ${TMHOME}/chain_spec.json
+	generate-test-spec -a ${TOTAL_NODES} -c ${TMHOME}/chain_spec.json -n ${NUM_ACCOUNTS}
 	CHAIN_SPEC_PATH="${TMHOME}/chain_spec.json"
 fi
 

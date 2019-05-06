@@ -9,7 +9,7 @@ let networkId;
 
 beforeAll(async () => {
     // To avoid nonce collisions with promise test on alice
-    await sleep(1000);
+    await sleep(3000);
 
     networkId = 'somenetwork';
     keyStore = new InMemoryKeyStore(networkId);
@@ -65,7 +65,7 @@ describe('dev connect', () => {
         expect(viewAccountResponse.account_id).toEqual(accId);
     });
 
-    test('test dev connect with no account creates a new account', async () => {
+    test('test dev connect with git no account creates a new account', async () => {
         await dev.connect(options);
         expect(Object.keys(deps.keyStore.keys).length).toEqual(2); // one key for dev account and one key for the new account.
         const newAccountId = deps.storage.getItem(storageAccountIdKey);
@@ -167,6 +167,79 @@ test('create account with a new key and then view account returns the created ac
     expect(aliceAccountAfterCreation.amount).toBe(aliceAccountBeforeCreation.amount - amount);
 });
 
+describe('with access key', function () {
+    let oldLog;
+    let logs;
+    let contractId = 'test_contract_' + Date.now();
+    let newAccountId;
+    let newAccountKeyPair;
+
+    beforeAll(async () => {
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
+        const createAccountResponse = await account.createAccount(
+            contractId,
+            keyWithRandomSeed.getPublicKey(),
+            10,
+            aliceAccountName);
+        await nearjs.waitForTransactionResult(createAccountResponse);
+        await keyStore.setKey(contractId, keyWithRandomSeed);
+        const data = [...fs.readFileSync('../tests/hello.wasm')];
+        await nearjs.waitForTransactionResult(
+            await nearjs.deployContract(contractId, data));
+
+    });
+
+    beforeEach(async () => {
+        oldLog = console.log;
+        logs = [];
+        console.log = function() {
+            logs.push(Array.from(arguments).join(' '));
+        };
+
+        newAccountId = await generateUniqueString('create.account.test');
+        newAccountKeyPair = KeyPair.fromRandomSeed();
+        const createAccountResponse = await account.createAccount(
+            newAccountId,
+            newAccountKeyPair.getPublicKey(),
+            0,
+            aliceAccountName);
+        await nearjs.waitForTransactionResult(createAccountResponse);
+        await keyStore.setKey(newAccountId, newAccountKeyPair);
+    });
+
+    afterEach(async () => {
+        console.log = oldLog;
+    });
+
+    test('make function calls using access key', async () => {
+        // Adding access key
+        const keyForAccessKey = KeyPair.fromRandomSeed();
+        const addAccessKeyResponse = await account.addAccessKey(
+            newAccountId,
+            keyForAccessKey.getPublicKey(),
+            contractId,
+            '',  // methodName
+            '',  // fundingOwner
+            0,  // fundingAmount
+        );
+        await nearjs.waitForTransactionResult(addAccessKeyResponse);
+        // Replacing public key for the account with the access key
+        await keyStore.setKey(newAccountId, keyForAccessKey);
+        // test that load contract works and we can make calls afterwards
+        const contract = await nearjs.loadContract(contractId, {
+            viewMethods: ['getValue'],
+            changeMethods: ['setValue'],
+            sender: newAccountId,
+        });
+        const setCallValue2 = await generateUniqueString('setCallPrefix');
+        const setValueResult = await contract.setValue({ value: setCallValue2 });
+        expect(setValueResult.status).toBe('Completed');
+        const getValueResult2 = await contract.getValue();
+        expect(getValueResult2).toEqual(setCallValue2);
+    });
+
+});
+
 describe('with deployed contract', () => {
     let contract;
     let oldLog;
@@ -176,7 +249,7 @@ describe('with deployed contract', () => {
 
     beforeAll(async () => {
         // See README.md for details about this contract source code location.
-        const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+        const keyWithRandomSeed = KeyPair.fromRandomSeed();
         const createAccountResponse = await account.createAccount(
             contractName,
             keyWithRandomSeed.getPublicKey(),

@@ -1,21 +1,24 @@
-use actix::{Actor, System};
-
-use futures::future::Future;
-use near::{start_with_config, NearConfig, GenesisConfig, NightshadeRuntime};
-use near_client::{GetBlock, BlockProducer};
-use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
-use primitives::test_utils::init_test_logger;
-use near_chain::{BlockHeader, Chain, Block};
 use std::sync::Arc;
-use near_store::test_utils::create_test_store;
+
+use actix::{Actor, System};
+use futures::future::Future;
+
+use near::{start_with_config, GenesisConfig, NearConfig, NightshadeRuntime};
+use near_chain::{Block, BlockHeader, Chain};
+use near_client::{BlockProducer, GetBlock};
+use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
+use primitives::test_utils::init_test_logger;
+use tempdir::TempDir;
 
 /// Utility to generate genesis header from config for testing purposes.
 fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
+    let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(store.clone(), genesis_config));
+    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
     let chain = Chain::new(store, runtime, genesis_time).unwrap();
     chain.genesis().clone()
 }
@@ -35,8 +38,13 @@ fn sync_nodes() {
 
     let system = System::new("NEAR");
 
-    let client1 =
-        start_with_config(genesis_config.clone(), near1, Some(BlockProducer::test("test1")));
+    let dir1 = TempDir::new("sync_nodes_1").unwrap();
+    let client1 = start_with_config(
+        dir1.path(),
+        genesis_config.clone(),
+        near1,
+        Some(BlockProducer::test("test1")),
+    );
 
     let mut blocks = vec![];
     let mut prev = &genesis_header;
@@ -44,18 +52,22 @@ fn sync_nodes() {
     for _ in 0..=10 {
         blocks.push(Block::empty(prev, signer.clone()));
         prev = &blocks[blocks.len() - 1].header;
-        let _ = client1.do_send(NetworkClientMessages::Block(blocks[blocks.len() - 1].clone(), PeerInfo::random().id, true));
+        let _ = client1.do_send(NetworkClientMessages::Block(
+            blocks[blocks.len() - 1].clone(),
+            PeerInfo::random().id,
+            true,
+        ));
     }
 
-    let client2 = start_with_config(genesis_config, near2, Some(BlockProducer::test("test2")));
+    let dir2 = TempDir::new("sync_nodes_2").unwrap();
+    let client2 =
+        start_with_config(dir2.path(), genesis_config, near2, Some(BlockProducer::test("test2")));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             actix::spawn(client2.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Some(b)) if b.header.height == 10 => {
-                        System::current().stop()
-                    }
+                    Ok(Some(b)) if b.header.height == 10 => System::current().stop(),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };
@@ -65,7 +77,7 @@ fn sync_nodes() {
         100,
         60000,
     )
-        .start();
+    .start();
 
     system.run().unwrap();
 }

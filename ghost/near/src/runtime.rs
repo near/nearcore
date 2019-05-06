@@ -1,21 +1,23 @@
 use std::convert::TryFrom;
-use std::sync::Arc;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_store::{Store, StoreUpdate};
 use node_runtime::chain_spec::ChainSpec;
+use node_runtime::ethereum::EthashProvider;
+use node_runtime::state_viewer::TrieViewer;
+use node_runtime::{Runtime, ETHASH_CACHE_PATH};
 use primitives::crypto::signature::{PublicKey, Signature};
 use primitives::crypto::signer::InMemorySigner;
 use primitives::hash::hash;
 use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId};
+use storage::trie::Trie;
 
 use crate::config::GenesisConfig;
-use node_runtime::state_viewer::TrieViewer;
-use node_runtime::Runtime;
-use storage::trie::Trie;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
 pub struct NightshadeRuntime {
@@ -28,13 +30,16 @@ pub struct NightshadeRuntime {
 }
 
 impl NightshadeRuntime {
-    pub fn new(store: Arc<Store>, genesis_config: GenesisConfig) -> Self {
+    pub fn new(home_dir: &Path, store: Arc<Store>, genesis_config: GenesisConfig) -> Self {
         // let trie = Arc::new(Trie::new(storage))
-        NightshadeRuntime { store, genesis_config, runtime: Runtime {}, trie_viewer: TrieViewer {} }
+        let mut ethash_dir = home_dir.to_owned();
+        ethash_dir.push(ETHASH_CACHE_PATH);
+        let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
+        let runtime = Runtime::new(ethash_provider.clone());
+        let trie_viewer = TrieViewer::new(ethash_provider);
+        NightshadeRuntime { store, genesis_config, runtime, trie_viewer }
     }
-}
 
-impl NightshadeRuntime {
     fn num_shards(&self) -> ShardId {
         // TODO: should be dynamic.
         self.genesis_config.num_shards

@@ -1,17 +1,14 @@
 use crate::ext::External;
 
-use crate::types::{RuntimeError as Error, ReturnData, RuntimeContext};
+use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
 
-use primitives::types::{AccountId, PromiseId, ReceiptId, Balance, Mana, Gas};
-use primitives::hash::hash;
-use primitives::utils::is_valid_account_id;
-use primitives::logging::pretty_utf8;
-use std::collections::HashSet;
-use wasmer_runtime::{
-    memory::Memory,
-    units::Bytes,
-};
 use byteorder::{ByteOrder, LittleEndian};
+use primitives::hash::hash;
+use primitives::logging::pretty_utf8;
+use primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId};
+use primitives::utils::is_valid_account_id;
+use std::collections::HashSet;
+use wasmer_runtime::{memory::Memory, units::Bytes};
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -81,8 +78,7 @@ impl<'a> Runtime<'a> {
         } else if len == 0 {
             Ok(Vec::new())
         } else {
-            Ok(self.memory
-                .view()[offset..(offset + len)]
+            Ok(self.memory.view()[offset..(offset + len)]
                 .iter()
                 .map(std::cell::Cell::get)
                 .collect())
@@ -95,8 +91,7 @@ impl<'a> Runtime<'a> {
         } else if buf.is_empty() {
             Ok(())
         } else {
-            self.memory
-                .view()[offset..(offset + buf.len())]
+            self.memory.view()[offset..(offset + buf.len())]
                 .iter()
                 .zip(buf.iter())
                 .for_each(|(cell, v)| cell.set(*v));
@@ -178,13 +173,17 @@ impl<'a> Runtime<'a> {
     }
 
     /// Writes to storage from wasm memory
-    fn storage_write(&mut self, key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32) -> Result<()> {
+    fn storage_write(
+        &mut self,
+        key_len: u32,
+        key_ptr: u32,
+        value_len: u32,
+        value_ptr: u32,
+    ) -> Result<()> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
         let value = self.memory_get(value_ptr as usize, value_len as usize)?;
 
-        self.ext
-            .storage_set(&key, &value)
-            .map_err(|_| Error::StorageUpdateError)?;
+        self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
         debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&value));
         Ok(())
     }
@@ -210,22 +209,23 @@ impl<'a> Runtime<'a> {
     /// Gets iterator for keys with given prefix
     fn storage_iter(&mut self, prefix_len: u32, prefix_ptr: u32) -> Result<u32> {
         let prefix = self.memory_get(prefix_ptr as usize, prefix_len as usize)?;
-        let storage_id = self
-            .ext
-            .storage_iter(&prefix)
-            .map_err(|_| Error::StorageReadError)?;
+        let storage_id = self.ext.storage_iter(&prefix).map_err(|_| Error::StorageReadError)?;
         debug!(target: "wasm", "storage_iter('{}') -> {}", pretty_utf8(&prefix), storage_id);
         Ok(storage_id)
     }
 
     /// Gets iterator for the range of keys between given start and end keys
-    fn storage_range(&mut self, start_len: u32, start_ptr: u32, end_len: u32, end_ptr: u32) -> Result<u32> {
+    fn storage_range(
+        &mut self,
+        start_len: u32,
+        start_ptr: u32,
+        end_len: u32,
+        end_ptr: u32,
+    ) -> Result<u32> {
         let start_key = self.memory_get(start_ptr as usize, start_len as usize)?;
         let end_key = self.memory_get(end_ptr as usize, end_len as usize)?;
-        let storage_id = self
-            .ext
-            .storage_range(&start_key, &end_key)
-            .map_err(|_| Error::StorageReadError)?;
+        let storage_id =
+            self.ext.storage_range(&start_key, &end_key).map_err(|_| Error::StorageReadError)?;
         debug!(target: "wasm", "storage_range('{}', '{}') -> {}",
             pretty_utf8(&start_key),
             pretty_utf8(&end_key),
@@ -235,10 +235,7 @@ impl<'a> Runtime<'a> {
 
     /// Advances iterator. Returns true if iteration isn't finished yet.
     fn storage_iter_next(&mut self, storage_id: u32) -> Result<u32> {
-        let key = self
-            .ext
-            .storage_iter_next(storage_id)
-            .map_err(|_| Error::StorageUpdateError)?;
+        let key = self.ext.storage_iter_next(storage_id).map_err(|_| Error::StorageUpdateError)?;
         debug!(target: "wasm", "storage_iter_next({}) -> '{}'", storage_id, pretty_utf8(&key.clone().unwrap_or_default()));
         Ok(key.is_some() as u32)
     }
@@ -253,11 +250,14 @@ impl<'a> Runtime<'a> {
 
     fn promise_create(
         &mut self,
-        account_id_len: u32, account_id_ptr: u32,
-        method_name_len: u32, method_name_ptr: u32,
-        arguments_len: u32, arguments_ptr: u32,
+        account_id_len: u32,
+        account_id_ptr: u32,
+        method_name_len: u32,
+        method_name_ptr: u32,
+        arguments_len: u32,
+        arguments_ptr: u32,
         mana: u32,
-        amount: u64
+        amount: u64,
     ) -> Result<u32> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
@@ -277,7 +277,8 @@ impl<'a> Runtime<'a> {
         }
         self.balance -= amount;
 
-        let promise_id = self.ext
+        let promise_id = self
+            .ext
             .promise_create(account_id, method_name, arguments, mana, amount)
             .map_err(|_| Error::PromiseError)?;
 
@@ -290,9 +291,11 @@ impl<'a> Runtime<'a> {
     fn promise_then(
         &mut self,
         promise_index: u32,
-        method_name_len: u32, method_name_ptr: u32,
-        arguments_len: u32, arguments_ptr: u32,
-        mana: u32
+        method_name_len: u32,
+        method_name_ptr: u32,
+        arguments_len: u32,
+        arguments_ptr: u32,
+        mana: u32,
     ) -> Result<u32> {
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
@@ -311,7 +314,8 @@ impl<'a> Runtime<'a> {
         };
         self.charge_mana_or_fail(num_promises)?;
 
-        let promise_id = self.ext
+        let promise_id = self
+            .ext
             .promise_then(promise_id, method_name, arguments, mana)
             .map_err(|_| Error::PromiseError)?;
 
@@ -322,10 +326,8 @@ impl<'a> Runtime<'a> {
     }
 
     fn promise_and(&mut self, promise_index1: u32, promise_index2: u32) -> Result<u32> {
-        let promise_ids = [
-            self.promise_index_to_id(promise_index1)?,
-            self.promise_index_to_id(promise_index2)?,
-        ];
+        let promise_ids =
+            [self.promise_index_to_id(promise_index1)?, self.promise_index_to_id(promise_index2)?];
 
         let mut receipt_ids = vec![];
         let mut unique_receipt_ids = HashSet::new();
@@ -346,7 +348,7 @@ impl<'a> Runtime<'a> {
                         for receipt_id in v {
                             add_receipt_id(receipt_id.clone())?
                         }
-                    },
+                    }
                 };
             }
         }
@@ -358,6 +360,21 @@ impl<'a> Runtime<'a> {
         Ok(promise_index as u32)
     }
 
+    fn check_ethash(
+        &mut self,
+        block_number: u64,
+        header_hash_ptr: u32,
+        header_hash_len: u32,
+        nonce: u64,
+        mix_hash_ptr: u32,
+        mix_hash_len: u32,
+        difficulty: u64,
+    ) -> Result<u32> {
+        let header_hash = self.memory_get(header_hash_ptr as usize, header_hash_len as usize)?;
+        let mix_hash = self.memory_get(mix_hash_ptr as usize, mix_hash_len as usize)?;
+        Ok(self.ext.check_ethash(block_number, &header_hash, nonce, &mix_hash, difficulty) as u32)
+    }
+
     /// Returns the number of results.
     /// Results are available as part of the callback from a promise.
     fn result_count(&self) -> Result<u32> {
@@ -365,7 +382,8 @@ impl<'a> Runtime<'a> {
     }
 
     fn result_is_ok(&self, result_index: u32) -> Result<u32> {
-        let result = self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
+        let result =
+            self.result_data.get(result_index as usize).ok_or(Error::InvalidResultIndex)?;
 
         Ok(result.is_some() as u32)
     }
@@ -418,7 +436,8 @@ impl<'a> Runtime<'a> {
         let msg = self.read_string(msg_ptr as usize)?;
         let filename = self.read_string(filename_ptr as usize)?;
 
-        let message = format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
+        let message =
+            format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
         debug!(target: "wasm", "{}", &message);
         self.logs.push(message);
 
@@ -427,7 +446,10 @@ impl<'a> Runtime<'a> {
 
     fn debug(&mut self, msg_len: u32, msg_ptr: u32) -> Result<()> {
         let val = self.memory_get(msg_ptr as usize, msg_len as usize)?;
-        let message = format!("LOG: {}", std::str::from_utf8(&val).unwrap_or_else(|_| "debug(): from_utf8 failed"));
+        let message = format!(
+            "LOG: {}",
+            std::str::from_utf8(&val).unwrap_or_else(|_| "debug(): from_utf8 failed")
+        );
         debug!(target: "wasm", "{}", &message);
         self.logs.push(message);
 
@@ -435,7 +457,11 @@ impl<'a> Runtime<'a> {
     }
 
     fn log(&mut self, msg_ptr: u32) -> Result<()> {
-        let message = format!("LOG: {}", self.read_string(msg_ptr as usize).unwrap_or_else(|_| "log(): read_string failed".to_string()));
+        let message = format!(
+            "LOG: {}",
+            self.read_string(msg_ptr as usize)
+                .unwrap_or_else(|_| "log(): read_string failed".to_string())
+        );
         debug!(target: "wasm", "{}", &message);
         self.logs.push(message);
 
@@ -465,10 +491,7 @@ impl<'a> Runtime<'a> {
             DATA_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
             DATA_TYPE_STORAGE => {
                 let key = self.memory_get(key as usize, key_len as usize)?;
-                let val = self
-                    .ext
-                    .storage_get(&key)
-                    .map_err(|_| Error::StorageUpdateError)?;
+                let val = self.ext.storage_get(&key).map_err(|_| Error::StorageUpdateError)?;
                 match val {
                     Some(v) => {
                         tmp_vec = v;
@@ -479,17 +502,13 @@ impl<'a> Runtime<'a> {
             }
             DATA_TYPE_INPUT => self.input_data,
             DATA_TYPE_RESULT => {
-                let result = self
-                    .result_data
-                    .get(key as usize)
-                    .ok_or(Error::InvalidResultIndex)?;
+                let result = self.result_data.get(key as usize).ok_or(Error::InvalidResultIndex)?;
 
                 match result {
                     Some(v) => &v[..],
                     None => return Err(Error::ResultIsNotOk),
                 }
-
-            },
+            }
             DATA_TYPE_STORAGE_ITER => {
                 let storage_id = key;
                 let key_buf = self
@@ -504,7 +523,7 @@ impl<'a> Runtime<'a> {
                     None => &[],
                 }
             }
-            _ => return Err(Error::UnknownDataTypeIndex)
+            _ => return Err(Error::UnknownDataTypeIndex),
         };
         if buf.len() <= max_buf_len as usize {
             self.memory_set(buf_ptr as usize, &buf)?;
@@ -562,14 +581,9 @@ impl<'a> Runtime<'a> {
 }
 
 pub mod imports {
-    use super::{Runtime, Memory, Result};
+    use super::{Memory, Result, Runtime};
 
-    use wasmer_runtime::{
-        imports,
-        func,
-        ImportObject,
-        Ctx,
-    };
+    use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
@@ -577,7 +591,7 @@ pub mod imports {
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
                     // TODO(542): Currently we need to check that the ctx.data is initialized and return to default
                     // when it's not initialized. It's because wasmer is currently calls start_func before
-                    // the ctx.data is assigned to the runtime. 
+                    // the ctx.data is assigned to the runtime.
                     if ctx.data as usize > 0 {
                         let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
                         runtime.$func( $( $arg_name, )* )
@@ -633,6 +647,13 @@ pub mod imports {
         ] -> [u32]>,
         // Joins 2 given promises together and returns a new promise.
         "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
+        "check_ethash" => check_ethash<[
+            block_number: u64,
+            header_hash_ptr: u32, header_hash_len: u32,
+            nonce: u64,
+            mix_hash_ptr: u32, mix_hash_len: u32,
+            difficulty: u64
+        ] -> [u32]>,
         // Returns the number of returned results for this callback.
         "result_count" => result_count<[] -> [u32]>,
         "result_is_ok" => result_is_ok<[result_index: u32] -> [u32]>,

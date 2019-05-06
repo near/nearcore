@@ -5,7 +5,7 @@ use near::{start_with_config, GenesisConfig, NearConfig};
 use near_client::{BlockProducer, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use primitives::test_utils::init_test_logger;
-use primitives::transaction::SignedTransaction;
+use tempdir::TempDir;
 
 /// Runs two nodes that should produce blocks one after another.
 #[test]
@@ -20,9 +20,17 @@ fn two_nodes() {
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
 
     let system = System::new("NEAR");
-    let client1 =
-        start_with_config(genesis_config.clone(), near1, Some(BlockProducer::test("test1")));
-    let _client2 = start_with_config(genesis_config, near2, Some(BlockProducer::test("test2")));
+
+    let dir1 = TempDir::new("two_nodes_1").unwrap();
+    let client1 = start_with_config(
+        dir1.path(),
+        genesis_config.clone(),
+        near1,
+        Some(BlockProducer::test("test1")),
+    );
+    let dir2 = TempDir::new("two_nodes_2").unwrap();
+    let _client2 =
+        start_with_config(dir2.path(), genesis_config, near2, Some(BlockProducer::test("test2")));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {

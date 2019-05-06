@@ -6,68 +6,146 @@
 
 -   [require](#require)
 -   [KeyPair](#keypair)
-    -   [Parameters](#parameters)
     -   [getPublicKey](#getpublickey)
     -   [getSecretKey](#getsecretkey)
         -   [Examples](#examples)
     -   [fromRandomSeed](#fromrandomseed)
         -   [Examples](#examples-1)
     -   [encodeBufferInBs58](#encodebufferinbs58)
-        -   [Parameters](#parameters-1)
+        -   [Parameters](#parameters)
         -   [Examples](#examples-2)
--   [Account](#account)
-    -   [Parameters](#parameters-2)
-    -   [Examples](#examples-3)
-    -   [createAccount](#createaccount)
-        -   [Parameters](#parameters-3)
+-   [KeyPair](#keypair-1)
+    -   [Parameters](#parameters-1)
+    -   [getPublicKey](#getpublickey-1)
+    -   [getSecretKey](#getsecretkey-1)
+        -   [Examples](#examples-3)
+    -   [fromRandomSeed](#fromrandomseed-1)
         -   [Examples](#examples-4)
-    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
-        -   [Parameters](#parameters-4)
+    -   [encodeBufferInBs58](#encodebufferinbs58-1)
+        -   [Parameters](#parameters-2)
         -   [Examples](#examples-5)
-    -   [viewAccount](#viewaccount)
-        -   [Parameters](#parameters-5)
-        -   [Examples](#examples-6)
--   [Near](#near)
-    -   [Parameters](#parameters-6)
-    -   [callViewFunction](#callviewfunction)
-        -   [Parameters](#parameters-7)
+-   [Account](#account)
+    -   [Parameters](#parameters-3)
+    -   [Examples](#examples-6)
+    -   [createAccount](#createaccount)
+        -   [Parameters](#parameters-4)
         -   [Examples](#examples-7)
-    -   [scheduleFunctionCall](#schedulefunctioncall)
-        -   [Parameters](#parameters-8)
+    -   [addAccessKey](#addaccesskey)
+        -   [Parameters](#parameters-5)
         -   [Examples](#examples-8)
-    -   [deployContract](#deploycontract)
-        -   [Parameters](#parameters-9)
+    -   [createAccountWithRandomKey](#createaccountwithrandomkey)
+        -   [Parameters](#parameters-6)
         -   [Examples](#examples-9)
-    -   [getTransactionStatus](#gettransactionstatus)
-        -   [Parameters](#parameters-10)
+    -   [viewAccount](#viewaccount)
+        -   [Parameters](#parameters-7)
         -   [Examples](#examples-10)
-    -   [waitForTransactionResult](#waitfortransactionresult)
-        -   [Parameters](#parameters-11)
+-   [Near](#near)
+    -   [Parameters](#parameters-8)
+    -   [callViewFunction](#callviewfunction)
+        -   [Parameters](#parameters-9)
         -   [Examples](#examples-11)
-    -   [loadContract](#loadcontract)
-        -   [Parameters](#parameters-12)
+    -   [scheduleFunctionCall](#schedulefunctioncall)
+        -   [Parameters](#parameters-10)
         -   [Examples](#examples-12)
-    -   [createDefaultConfig](#createdefaultconfig)
-        -   [Parameters](#parameters-13)
+    -   [deployContract](#deploycontract)
+        -   [Parameters](#parameters-11)
         -   [Examples](#examples-13)
--   [WalletAccount](#walletaccount)
-    -   [Parameters](#parameters-14)
-    -   [Examples](#examples-14)
-    -   [isSignedIn](#issignedin)
+    -   [getTransactionStatus](#gettransactionstatus)
+        -   [Parameters](#parameters-12)
+        -   [Examples](#examples-14)
+    -   [waitForTransactionResult](#waitfortransactionresult)
+        -   [Parameters](#parameters-13)
         -   [Examples](#examples-15)
-    -   [getAccountId](#getaccountid)
+    -   [loadContract](#loadcontract)
+        -   [Parameters](#parameters-14)
         -   [Examples](#examples-16)
-    -   [requestSignIn](#requestsignin)
+    -   [createDefaultConfig](#createdefaultconfig)
         -   [Parameters](#parameters-15)
         -   [Examples](#examples-17)
+-   [WalletAccessKey](#walletaccesskey)
+    -   [Parameters](#parameters-16)
+    -   [Examples](#examples-18)
+    -   [isSignedIn](#issignedin)
+        -   [Examples](#examples-19)
+    -   [getAccountId](#getaccountid)
+        -   [Examples](#examples-20)
+    -   [requestSignIn](#requestsignin)
+        -   [Parameters](#parameters-17)
     -   [signOut](#signout)
-        -   [Examples](#examples-18)
-    -   [signTransactionBody](#signtransactionbody)
-        -   [Parameters](#parameters-16)
+        -   [Examples](#examples-21)
+    -   [signBuffer](#signbuffer)
+        -   [Parameters](#parameters-18)
+-   [WalletAccount](#walletaccount)
+    -   [Parameters](#parameters-19)
+    -   [Examples](#examples-22)
+    -   [isSignedIn](#issignedin-1)
+        -   [Examples](#examples-23)
+    -   [getAccountId](#getaccountid-1)
+        -   [Examples](#examples-24)
+    -   [requestSignIn](#requestsignin-1)
+        -   [Parameters](#parameters-20)
+        -   [Examples](#examples-25)
+    -   [signOut](#signout-1)
+        -   [Examples](#examples-26)
+    -   [signBuffer](#signbuffer-1)
+        -   [Parameters](#parameters-21)
 
 ## require
 
-Wallet based account and signer that uses external wallet through the iframe to signs transactions.
+Wallet based account and signer that uses external wallet through the iframe to sign transactions.
+
+## KeyPair
+
+Access Key based signer that uses Wallet to authorize app on the account and receive the access key.
+
+### getPublicKey
+
+Get the public key.
+
+### getSecretKey
+
+Get the secret key.
+
+#### Examples
+
+```javascript
+// Passing existing key into a function to store in local storage
+ async setKey(accountId, key) {
+     window.localStorage.setItem(
+         BrowserLocalStorageKeystore.storageKeyForPublicKey(accountId), key.getPublicKey());
+     window.localStorage.setItem(
+         BrowserLocalStorageKeystore.storageKeyForSecretKey(accountId), key.getSecretKey());
+ }
+```
+
+### fromRandomSeed
+
+Generate a new keypair from a random seed
+
+#### Examples
+
+```javascript
+const keyWithRandomSeed = KeyPair.fromRandomSeed();
+keyWithRandomSeed.getPublicKey()
+// returns [PUBLIC_KEY]
+
+keyWithRandomSeed.getSecretKey()
+// returns [SECRET_KEY]
+```
+
+### encodeBufferInBs58
+
+Encode a buffer as string using bs58
+
+#### Parameters
+
+-   `buffer` **[Buffer](https://nodejs.org/api/buffer.html)** 
+
+#### Examples
+
+```javascript
+KeyPair.encodeBufferInBs58(key.publicKey)
+```
 
 ## KeyPair
 
@@ -105,7 +183,7 @@ Generate a new keypair from a random seed
 #### Examples
 
 ```javascript
-const keyWithRandomSeed = await KeyPair.fromRandomSeed();
+const keyWithRandomSeed = KeyPair.fromRandomSeed();
 keyWithRandomSeed.getPublicKey()
 // returns [PUBLIC_KEY]
 
@@ -161,6 +239,36 @@ const createAccountResponse = await account.createAccount(
    keyWithRandomSeed.getPublicKey(),
    1000,
    aliceAccountName);
+```
+
+### addAccessKey
+
+Adds a new access key to the owners account for an some app to use.
+
+#### Parameters
+
+-   `ownersAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** id of the owner's account.
+-   `newPublicKey` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** public key for the access key.
+-   `contractId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** if the given contractId is not empty, then this access key will only be able to call
+         the given contractId.
+-   `methodName` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** If the given method name is not empty, then this access key will only be able to call
+         the given method name.
+-   `fundingOwner` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** account id to own the funding of this access key. If empty then account owner is used by default.
+         fundingOwner should be used if this access key would be sponsored by the app. In this case the app would
+         prefer to own funding of this access key, to get it back when the key is removed.
+-   `fundingAmount` **[number](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Number)** amount of funding to withdraw from the owner's account and put to this access key.
+         Make sure you that you don't fund the access key when the fundingOwner is different from the account's owner.
+
+#### Examples
+
+```javascript
+const addAccessKeyResponse = await account.addAccessKey(
+   accountId,
+   keyWithRandomSeed.getPublicKey(),
+   contractId,
+   "",
+   "",
+   10);
 ```
 
 ### createAccountWithRandomKey
@@ -349,6 +457,80 @@ Generate a default configuration for nearlib
 Near.createDefaultConfig();
 ```
 
+## WalletAccessKey
+
+Access Key based signer that uses Wallet to authorize app on the account and receive the access key.
+
+### Parameters
+
+-   `appKeyPrefix`  
+-   `walletBaseUrl`   (optional, default `'https://wallet.nearprotocol.com'`)
+-   `signer`   (optional, default `null`)
+
+### Examples
+
+```javascript
+// if importing WalletAccessKey directly
+const walletAccount = new WalletAccessKey(contractName, walletBaseUrl)
+// if importing in all of nearLib and calling from variable
+const walletAccount = new nearlib.WalletAccessKey(contractName, walletBaseUrl)
+// To access this signer globally
+window.walletAccount = new nearlib.WalletAccessKey(config.contractName, walletBaseUrl);
+// To provide custom signer where the keys would be stored
+window.walletAccount = new nearlib.WalletAccessKey(config.contractName, walletBaseUrl, customSigner);
+```
+
+### isSignedIn
+
+Returns true, if this WalletAccount is authorized with the wallet.
+
+#### Examples
+
+```javascript
+walletAccount.isSignedIn();
+```
+
+### getAccountId
+
+Returns authorized Account ID.
+
+#### Examples
+
+```javascript
+walletAccount.getAccountId();
+```
+
+### requestSignIn
+
+Redirects current page to the wallet authentication page.
+
+#### Parameters
+
+-   `contractId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** contract ID of the application
+-   `title` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** name of the application
+-   `successUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on success
+-   `failureUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** url to redirect on failure
+
+### signOut
+
+Sign out from the current account
+
+#### Examples
+
+```javascript
+walletAccount.signOut();
+```
+
+### signBuffer
+
+Sign a buffer. If the key for originator is not present,
+this operation will fail.
+
+#### Parameters
+
+-   `buffer` **[Uint8Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)** 
+-   `originator` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
+
 ## WalletAccount
 
 Wallet based account and signer that uses external wallet through the iframe to sign transactions.
@@ -420,12 +602,12 @@ Sign out from the current account
 walletAccount.signOut();
 ```
 
-### signTransactionBody
+### signBuffer
 
-Sign a transaction body. If the key for senderAccountId is not present,
+Sign a buffer. If the key for originator is not present,
 this operation will fail.
 
 #### Parameters
 
--   `body` **[object](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object)** 
--   `senderAccountId` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
+-   `buffer` **[Uint8Array](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array)** 
+-   `originator` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 

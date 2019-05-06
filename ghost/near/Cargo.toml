@@ -27,3 +27,6 @@ near-client = { path = "../client" }
 near-pool = { path = "../pool" }
 near-network = { path = "../network" }
 near-jsonrpc = { path = "../jsonrpc" }
+
+[dev-dependencies]
+tempdir = "0.3"

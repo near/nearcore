@@ -1,8 +1,10 @@
+use std::path::Path;
+
 use actix::System;
+use chrono::Utc;
 use clap::{App, Arg, SubCommand};
 use log::LevelFilter;
 
-use chrono::Utc;
 use near::{start_with_config, GenesisConfig, NearConfig};
 use near_client::BlockProducer;
 
@@ -51,7 +53,7 @@ fn main() {
 
     init_logging(matches.is_present("verbose"));
 
-    let home = matches.value_of("home").unwrap();
+    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 
     // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
     if let Some(_matches) = matches.subcommand_matches("init") {
@@ -66,7 +68,7 @@ fn main() {
         let mut near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
         near.client_config.skip_sync_wait = true;
         let block_producer = BlockProducer::test("alice.near");
-        start_with_config(genesis_config, near, Some(block_producer));
+        start_with_config(home_dir, genesis_config, near, Some(block_producer));
         system.run().unwrap();
     }
 }

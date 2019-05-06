@@ -33,9 +33,11 @@ use primitives::utils::{
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
+use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
+use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
 
@@ -43,9 +45,13 @@ pub mod adapter;
 pub mod chain_spec;
 mod system;
 
+pub mod ethereum;
 mod ext;
 pub mod state_viewer;
 mod tx_stakes;
+
+pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
+pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -66,12 +72,17 @@ pub struct ApplyResult {
     pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct Runtime {}
+pub struct Runtime {
+    ethash_provider: Arc<Mutex<EthashProvider>>,
+}
 
 impl Runtime {
+    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
+        Runtime { ethash_provider }
+    }
+
     fn try_charge_mana(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         originator: &AccountId,
@@ -105,7 +116,7 @@ impl Runtime {
     }
 
     fn call_function(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
@@ -159,7 +170,7 @@ impl Runtime {
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
-        self,
+        &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -290,7 +301,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        self,
+        &mut self,
         state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -306,8 +317,13 @@ impl Runtime {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })?;
         let result = {
-            let mut runtime_ext =
-                RuntimeExt::new(state_update, receiver_id, &async_call.accounting_info, nonce);
+            let mut runtime_ext = RuntimeExt::new(
+                state_update,
+                receiver_id,
+                &async_call.accounting_info,
+                nonce,
+                self.ethash_provider.clone(),
+            );
             let mut wasm_res = executor::execute(
                 &code,
                 &async_call.method_name,
@@ -350,7 +366,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        self,
+        &mut self,
         state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -381,6 +397,7 @@ impl Runtime {
                         receiver_id,
                         &callback.accounting_info,
                         nonce,
+                        self.ethash_provider.clone(),
                     );
 
                     mana_accounting.accounting_info = callback.accounting_info.clone();
@@ -456,7 +473,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        self,
+        &mut self,
         state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -612,7 +629,7 @@ impl Runtime {
     }
 
     pub fn process_transaction(
-        runtime: Self,
+        runtime: &Self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -646,7 +663,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        runtime: Self,
+        runtime: &mut Self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -688,7 +705,7 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        self,
+        &mut self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],
@@ -748,7 +765,7 @@ impl Runtime {
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
-        self,
+        &self,
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
         wasm_binary: &[u8],

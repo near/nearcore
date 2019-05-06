@@ -1,5 +1,5 @@
 /**
- * Wallet based account and signer that uses external wallet through the iframe to signs transactions.
+ * Wallet based account and signer that uses external wallet through the iframe to sign transactions.
  */
 
 const { sha256 } = require('js-sha256');
@@ -172,20 +172,22 @@ class WalletAccount {
     }
 
     /**
-     * Sign a transaction body. If the key for senderAccountId is not present,
+     * Sign a buffer. If the key for originator is not present,
      * this operation will fail.
-     * @param {object} body
-     * @param {string} senderAccountId
+     * @param {Uint8Array} buffer
+     * @param {string} originator
      */
-    async signTransactionBody(body, senderAccountId) {
-        if (!this.isSignedIn() || senderAccountId !== this.getAccountId()) {
-            throw 'Unauthorized account_id ' + senderAccountId;
+    async signBuffer(buffer, originator) {
+        if (!this.isSignedIn() || originator !== this.getAccountId()) {
+            throw 'Unauthorized account_id ' + originator;
         }
-        const txBody = FunctionCallTransaction.decode(body);
-        let methodName = Buffer.from(txBody.methodName).toString();
-        let args = JSON.parse(Buffer.from(txBody.args).toString());
-        let signature = await this._remoteSign(sha256.array(body), methodName, args);
-        return signature;
+        const body = FunctionCallTransaction.decode(buffer);
+        let methodName = Buffer.from(body.methodName).toString();
+        let args = JSON.parse(Buffer.from(body.args).toString());
+        let signature = await this._remoteSign(sha256.array(buffer), methodName, args);
+        return {
+            signature,
+        };
     }
 
 }

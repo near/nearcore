@@ -6,25 +6,23 @@ use near_client::{BlockProducer, ClientActor};
 use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::test_utils::create_test_store;
-use node_runtime::chain_spec::ChainSpec;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 
 pub use crate::config::{GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
+use std::path::Path;
 
 mod config;
 mod runtime;
 
 pub fn start_with_config(
+    home_dir: &Path,
     genesis_config: GenesisConfig,
     config: NearConfig,
     block_producer: Option<BlockProducer>,
 ) -> Addr<ClientActor> {
     // TODO: Replace with rocksdb.
     let store = create_test_store();
-    let runtime = Arc::new(NightshadeRuntime::new(store.clone(), genesis_config));
+    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config));
 
     ClientActor::create(move |ctx| {
         let network_actor =
