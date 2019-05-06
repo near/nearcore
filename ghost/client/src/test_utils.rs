@@ -8,7 +8,7 @@ use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
 use near_store::test_utils::create_test_store;
 use primitives::crypto::signer::InMemorySigner;
 
-use crate::{ClientActor, ClientConfig};
+use crate::{ClientActor, ClientConfig, BlockProducer};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -52,4 +52,10 @@ pub fn setup_mock(
         .start();
         setup(authorities, account_id, skip_sync_wait, pm.recipient())
     })
+}
+
+impl BlockProducer {
+    pub fn test(seed: &str) -> Self {
+        Arc::new(InMemorySigner::from_seed(seed, seed)).into()
+    }
 }

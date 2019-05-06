@@ -13,6 +13,9 @@ env_logger = "0.6.0"
 chrono = { version = "0.4.4", features = ["serde"] }
 futures = "0.1"
 clap = "2.32"
+rand = "0.6.5"
+serde = "1.0"
+serde_derive = "1.0"
 
 primitives = { path = "../../runtime/primitives" }
 node-runtime = { path = "../../runtime/runtime" }

@@ -1,6 +1,5 @@
 use actix::System;
-use chrono::Utc;
-use clap::{App, Arg};
+use clap::{App, Arg, SubCommand};
 use log::LevelFilter;
 
 use near::{start_with_config, NearConfig};
@@ -21,20 +20,27 @@ fn init_logging(verbose: bool) {
 }
 
 fn main() {
-    let matches = App::new("Nearmint")
-        .args(&[Arg::with_name("verbose")
+    let matches = App::new("NEAR Protocol Node v0.1")
+        .arg(Arg::with_name("verbose")
             .long("verbose")
-            .short("verbose")
             .help("Verbose logging")
-            .takes_value(false)])
+            .takes_value(false))
+        .arg(Arg::with_name("home").long("home").help("Directory for config and data (default \"~/.near\")").takes_value(true))
+        .subcommand(SubCommand::with_name("init").about("Initializes NEAR configuration"))
+        .subcommand(SubCommand::with_name("run").about("Runs NEAR node"))
         .get_matches();
 
     init_logging(matches.is_present("verbose"));
-    // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
-    let genesis_timestamp = Utc::now();
-    let near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
 
-    let system = System::new("NEAR");
-    start_with_config(near);
-    system.run().unwrap();
+    // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
+    if let Some(_matches) = matches.subcommand_matches("init") {
+        // Check if `home` exists. If exists check what networks we already have there.
+//    let genesis_timestamp = Utc::now();
+//    let near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
+    } else if let Some(_matches) = matches.subcommand_matches("run") {
+        // Load configs from home.
+        let system = System::new("NEAR");
+//    start_with_config(near);
+        system.run().unwrap();
+    }
 }
