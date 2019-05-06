@@ -10,7 +10,7 @@ use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
-use primitives::types::{AccountId, MerkleHash, Nonce};
+use primitives::types::{AccountId, MerkleHash};
 use storage::{Trie, TrieUpdate};
 
 use node_runtime::ethereum::EthashProvider;
@@ -38,7 +38,6 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub nonce: RefCell<Nonce>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -59,7 +58,6 @@ impl RuntimeUser {
         RuntimeUser {
             trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
-            nonce: Default::default(),
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
@@ -158,7 +156,6 @@ impl User for RuntimeUser {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        *self.nonce.borrow_mut() += 1;
         self.apply_all(apply_state, vec![], vec![transaction]);
         Ok(())
     }
