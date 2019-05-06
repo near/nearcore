@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use clap::{Arg, ArgMatches};
 
-use primitives::hash::{hash, CryptoHash};
-use primitives::network::PeerAddr;
-use primitives::types::PeerId;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::network::PeerAddr;
+use near_primitives::types::PeerId;
 
 const DEFAULT_RECONNECT_DELAY_MS: &str = "50";
 const DEFAULT_GOSSIP_INTERVAL_MS: &str = "50";

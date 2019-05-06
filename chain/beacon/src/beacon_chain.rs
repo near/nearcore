@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use configs::authority::get_authority_config;
 use node_runtime::chain_spec::ChainSpec;
-use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use near_primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use storage::BeaconChainStorage;
 
 use crate::authority::{get_authority, Authority};
@@ -33,11 +33,11 @@ mod tests {
     use chain::test_utils::get_blockchain_storage;
     use chain::BlockChain;
     use node_runtime::chain_spec::{AuthorityRotation, DefaultIdType};
-    use primitives::block_traits::SignedBlock;
-    use primitives::block_traits::SignedHeader;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::hash::CryptoHash;
-    use primitives::types::BlockId;
+    use near_primitives::block_traits::SignedBlock;
+    use near_primitives::block_traits::SignedHeader;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::BlockId;
     use storage::test_utils::create_beacon_shard_storages;
 
     use super::*;

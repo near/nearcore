@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
-use primitives::account::{AccessKey, Account};
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::{bs58_format, CryptoHash};
-use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::{bs58_format, CryptoHash};
+use near_primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
+use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
 use storage::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -195,7 +195,7 @@ mod tests {
     use super::*;
 
     use kvdb::DBValue;
-    use primitives::types::AccountId;
+    use near_primitives::types::AccountId;
 
     use tempdir::TempDir;
     use testlib::runtime_utils::{

@@ -1,6 +1,6 @@
 use crate::state_viewer::AccountViewCallResult;
-use primitives::rpc::ABCIQueryResponse;
-use primitives::types::AccountId;
+use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::types::AccountId;
 
 /// Adapter for querying runtime.
 pub trait RuntimeAdapter {

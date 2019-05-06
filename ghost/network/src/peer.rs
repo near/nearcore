@@ -11,7 +11,7 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
-use primitives::utils::DisplayOption;
+use near_primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
 use crate::types::{

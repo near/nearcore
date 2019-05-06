@@ -1,9 +1,9 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 
-use primitives::hash::{hash, CryptoHash};
-use primitives::sharding::EncodedShardChunk;
-use primitives::types::AuthorityId;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::types::AuthorityId;
 
 use super::orchestrator::BaseOrchestrator;
 use crate::shard_chain_chunks_mgr::{ShardChainChunkFetchError, ShardChainChunksManager};
@@ -246,9 +246,9 @@ mod tests {
     use crate::shard_chain_chunks_mgr::{
         shard_chain_chunks_exchange_worker, shard_chain_chunks_mgr_worker, ShardChainChunksManager,
     };
-    use primitives::hash::{hash, CryptoHash};
-    use primitives::sharding::EncodedShardChunk;
-    use primitives::types::AuthorityId;
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::sharding::EncodedShardChunk;
+    use near_primitives::types::AuthorityId;
     use std::collections::HashMap;
     use std::sync::mpsc::Receiver;
     use std::sync::mpsc::{channel, Sender};

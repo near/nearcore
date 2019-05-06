@@ -5,17 +5,17 @@ use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
 use near_protos::nightshade as nightshade_proto;
-use primitives::crypto::aggregate_signature::{
+use near_primitives::crypto::aggregate_signature::{
     uncompressed_bs58_signature_serializer, AggregatePublicKey, BlsAggregateSignature,
     BlsPublicKey, BlsSignature,
 };
-use primitives::hash::CryptoHash;
-use primitives::serialize::Encode;
-use primitives::crypto::signature::{Signature, bs58_serializer};
-use primitives::crypto::signer::{BLSSigner, EDSigner};
-use primitives::traits::Base58Encoded;
-use primitives::types::{AuthorityId, BlockIndex};
-use primitives::utils::proto_to_type;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::Encode;
+use near_primitives::crypto::signature::{Signature, bs58_serializer};
+use near_primitives::crypto::signer::{BLSSigner, EDSigner};
+use near_primitives::traits::Base58Encoded;
+use near_primitives::types::{AuthorityId, BlockIndex};
+use near_primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
 const PROTO_ERROR: &str = "Bad Proto";
@@ -591,7 +591,7 @@ impl Nightshade {
 
 #[cfg(test)]
 mod tests {
-    use primitives::crypto::aggregate_signature::AggregateSignature;
+    use near_primitives::crypto::aggregate_signature::AggregateSignature;
 
     use crate::testing_utils::*;
 

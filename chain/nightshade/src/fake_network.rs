@@ -7,10 +7,10 @@ use futures::{future, Future, Sink, Stream};
 use log::error;
 use tokio::timer::Delay;
 
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::hash::CryptoHash;
-use primitives::crypto::signature::PublicKey;
-use primitives::crypto::signer::{BLSSigner, InMemorySigner, EDSigner};
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::crypto::signer::{BLSSigner, InMemorySigner, EDSigner};
 
 use crate::nightshade::ConsensusBlockProposal;
 

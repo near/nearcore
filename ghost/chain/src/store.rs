@@ -9,12 +9,12 @@ use near_store::{
     read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX,
     COL_BLOCK_MISC, COL_STATE_REF,
 };
-use primitives::hash::CryptoHash;
-use primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
-use primitives::utils::index_to_bytes;
+use near_primitives::utils::index_to_bytes;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";

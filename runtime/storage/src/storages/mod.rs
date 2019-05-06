@@ -2,10 +2,10 @@
 //! generic BlockChain and by specific BeaconChain/ShardChain.
 use crate::KeyValueDB;
 use cached::{Cached, SizedCache};
-use primitives::block_traits::SignedBlock;
-use primitives::block_traits::SignedHeader;
-use primitives::hash::CryptoHash;
-use primitives::serialize::{Decode, Encode};
+use near_primitives::block_traits::SignedBlock;
+use near_primitives::block_traits::SignedHeader;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::{Decode, Encode};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;

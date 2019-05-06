@@ -1,8 +1,8 @@
 use std::fmt;
 
-use primitives::hash::{CryptoHash, hash};
-use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
-use primitives::logging;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::logging;
+use near_primitives::types::{AccountId, Balance, BlockIndex, Mana, PromiseId};
 use wasmer_runtime::error as WasmerError;
 
 #[derive(Debug, Clone)]
@@ -119,12 +119,18 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::MemoryAccessViolation => write!(f, "Memory access violation"),
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),
-            RuntimeError::BalanceExceeded => write!(f, "Transfer exceeded the available balance of the account"),
+            RuntimeError::BalanceExceeded => {
+                write!(f, "Transfer exceeded the available balance of the account")
+            }
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
             RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
             RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
-            RuntimeError::InvalidResultIndex => write!(f, "Invalid result index given by the WASM to read results"),
-            RuntimeError::ResultIsNotOk => write!(f, "WASM is trying to read data from a result that is an error"),
+            RuntimeError::InvalidResultIndex => {
+                write!(f, "Invalid result index given by the WASM to read results")
+            }
+            RuntimeError::ResultIsNotOk => {
+                write!(f, "WASM is trying to read data from a result that is an error")
+            }
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AssertFailed => write!(f, "WASM-side assert failed"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
@@ -132,17 +138,23 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
             RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
             RuntimeError::Log => write!(f, "Error occured while logging an event"),
-            RuntimeError::InvalidSyscall => write!(f, "Invalid syscall signature encountered at runtime"),
+            RuntimeError::InvalidSyscall => {
+                write!(f, "Invalid syscall signature encountered at runtime")
+            }
             RuntimeError::Other => write!(f, "Other unspecified error"),
             RuntimeError::Unreachable => write!(f, "Unreachable instruction encountered"),
             RuntimeError::InvalidVirtualCall => write!(f, "Invalid virtual call"),
             RuntimeError::DivisionByZero => write!(f, "Division by zero"),
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
-            RuntimeError::UnknownDataTypeIndex => write!(f, "Unknown data type index for reading or writing"),
+            RuntimeError::UnknownDataTypeIndex => {
+                write!(f, "Unknown data type index for reading or writing")
+            }
             RuntimeError::InvalidAccountId => write!(f, "Invalid AccountID"),
             RuntimeError::PrivateMethod => write!(f, "Creating a promise with a private method"),
-            RuntimeError::EmptyMethodName => write!(f, "Creating a callback with an empty method name"),
+            RuntimeError::EmptyMethodName => {
+                write!(f, "Creating a callback with an empty method name")
+            }
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }
@@ -181,7 +193,7 @@ impl From<RuntimeError> for Error {
     }
 }
 
-/// Returned data from the method. 
+/// Returned data from the method.
 #[derive(Clone)]
 pub enum ReturnData {
     /// Method returned some value or data.
@@ -207,20 +219,13 @@ impl fmt::Debug for ReturnData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ReturnData::Value(v) => {
-                f.debug_tuple("Value")
-                    .field(&format_args!("{}", logging::pretty_utf8(&v)))
-                    .finish()
+                f.debug_tuple("Value").field(&format_args!("{}", logging::pretty_utf8(&v))).finish()
             }
-            ReturnData::Promise(promise_id) => {
-                f.debug_tuple("Promise")
-                    .field(&promise_id)
-                    .finish()
-            }
-            ReturnData::None => write!(f, "None")
+            ReturnData::Promise(promise_id) => f.debug_tuple("Promise").field(&promise_id).finish(),
+            ReturnData::None => write!(f, "None"),
         }
     }
 }
-
 
 // TODO: Extract it to the root of the crate
 #[derive(Clone, Debug, Serialize)]

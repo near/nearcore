@@ -6,8 +6,8 @@ use super::{
 use crate::storages::ChainId;
 use crate::KeyValueDB;
 use cached::SizedCache;
-use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::types::{AuthorityMask, AuthorityStake, Epoch, Slot};
+use near_primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use near_primitives::types::{AuthorityMask, AuthorityStake, Epoch, Slot};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

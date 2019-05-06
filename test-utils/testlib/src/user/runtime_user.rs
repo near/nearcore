@@ -3,19 +3,19 @@ use crate::user::{User, POISONED_LOCK_ERR};
 use lazy_static::lazy_static;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime};
-use primitives::chain::ReceiptBlock;
-use primitives::hash::CryptoHash;
-use primitives::receipt::ReceiptInfo;
-use primitives::transaction::{
+use near_primitives::chain::ReceiptBlock;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptInfo;
+use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
-use primitives::types::{AccountId, MerkleHash, Nonce};
+use near_primitives::types::{AccountId, MerkleHash, Nonce};
 use storage::{Trie, TrieUpdate};
 
 use node_runtime::ethereum::EthashProvider;
-use primitives::account::AccessKey;
-use primitives::crypto::signature::PublicKey;
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};

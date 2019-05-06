@@ -6,7 +6,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use near_chain::test_utils::KeyValueRuntime;
 use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
 use near_store::test_utils::create_test_store;
-use primitives::crypto::signer::InMemorySigner;
+use near_primitives::crypto::signer::InMemorySigner;
 
 use crate::{BlockProducer, ClientActor, ClientConfig};
 

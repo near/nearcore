@@ -2,12 +2,12 @@ use std::convert::TryFrom;
 use std::sync::Arc;
 
 use near_protos::nightshade as nightshade_proto;
-use primitives::chain::ChainPayload;
-use primitives::crypto::signature::Signature;
-use primitives::crypto::signer::EDSigner;
-use primitives::hash::hash_struct;
-use primitives::types::{AuthorityId, BlockIndex};
-use primitives::utils::proto_to_type;
+use near_primitives::chain::ChainPayload;
+use near_primitives::crypto::signature::Signature;
+use near_primitives::crypto::signer::EDSigner;
+use near_primitives::hash::hash_struct;
+use near_primitives::types::{AuthorityId, BlockIndex};
+use near_primitives::utils::proto_to_type;
 use protobuf::SingularPtrField;
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]

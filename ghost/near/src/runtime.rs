@@ -10,11 +10,11 @@ use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{Runtime, ETHASH_CACHE_PATH};
-use primitives::crypto::signature::{PublicKey, Signature};
-use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::hash;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId};
+use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::hash;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId};
 use storage::trie::Trie;
 
 use crate::config::GenesisConfig;

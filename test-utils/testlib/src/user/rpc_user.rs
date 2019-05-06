@@ -7,11 +7,11 @@ use node_http::types::{
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::AccountId;
+use near_primitives::types::AccountId;
 use reqwest::r#async::Client;
 use shard::ReceiptInfo;
 use std::convert::TryInto;

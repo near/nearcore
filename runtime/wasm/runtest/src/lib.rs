@@ -7,7 +7,7 @@ use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 extern crate byteorder;
 
 extern crate primitives;
-use primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
+use near_primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
 
 #[derive(Default)]
 struct MyExt {
@@ -113,7 +113,7 @@ impl External for MyExt {
 #[cfg(test)]
 mod tests {
     use byteorder::{ByteOrder, LittleEndian};
-    use primitives::hash::hash;
+    use near_primitives::hash::hash;
     use std::fs;
     use wasm::executor::{self, ExecutionOutcome};
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};

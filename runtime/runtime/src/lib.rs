@@ -13,20 +13,20 @@ extern crate wasm;
 use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
 
-use primitives::account::Account;
-use primitives::chain::ReceiptBlock;
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::account::Account;
+use near_primitives::chain::ReceiptBlock;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
-use primitives::types::{
+use near_primitives::types::{
     AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
     MerkleHash, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
 };
-use primitives::utils::{
+use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
     key_for_tx_stake,
 };
@@ -806,8 +806,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use primitives::hash::hash;
-    use primitives::types::MerkleHash;
+    use near_primitives::hash::hash;
+    use near_primitives::types::MerkleHash;
     use storage::test_utils::create_trie;
 
     use super::*;

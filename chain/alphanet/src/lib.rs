@@ -13,7 +13,7 @@ use coroutines::client_task::ClientTask;
 use network::proxy::ProxyHandler;
 use network::spawn_network;
 use nightshade::nightshade_task::spawn_nightshade_task;
-use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
+use near_primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
 use tokio_utils::ShutdownableThread;
 
 const KEY_STORE_PATH: &str = "storage/keystore";
@@ -143,10 +143,10 @@ fn spawn_rpc_server_task<T: Send + Sync + 'static>(client: Arc<Client<T>>, rpc_c
 
 //#[cfg(test)]
 //mod tests {
-//    use primitives::block_traits::SignedBlock;
-//    use primitives::chain::ChainPayload;
-//    use primitives::test_utils::TestSignedBlock;
-//    use primitives::transaction::TransactionBody;
+//    use near_primitives::block_traits::SignedBlock;
+//    use near_primitives::chain::ChainPayload;
+//    use near_primitives::test_utils::TestSignedBlock;
+//    use near_primitives::transaction::TransactionBody;
 //    use testlib::node::TEST_BLOCK_MAX_SIZE;
 //    use testlib::node::{configure_chain_spec, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT};
 //    use testlib::test_helpers::wait;

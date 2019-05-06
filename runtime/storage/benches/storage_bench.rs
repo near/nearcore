@@ -13,8 +13,8 @@ use std::sync::RwLock;
 use storage::create_storage;
 use storage::BeaconChainStorage;
 use storage::ShardChainStorage;
-use primitives::beacon::SignedBeaconBlock;
-use primitives::hash::CryptoHash;
+use near_primitives::beacon::SignedBeaconBlock;
+use near_primitives::hash::CryptoHash;
 use storage::storages::GenericStorage;
 
 const TMP_DIR: &str = "./tmp_bench/";

@@ -7,8 +7,8 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_store::Store;
-use primitives::hash::CryptoHash;
-use primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{BlockIndex, MerkleHash};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};

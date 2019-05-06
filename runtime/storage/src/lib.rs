@@ -22,7 +22,7 @@ use crate::storages::NUM_COLS;
 pub use crate::storages::{BlockChainStorage, GenericStorage};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator};
 pub use crate::trie::{DBChanges, Trie};
-use primitives::serialize::{Decode, Encode};
+use near_primitives::serialize::{Decode, Encode};
 
 pub mod storages;
 pub mod test_utils;

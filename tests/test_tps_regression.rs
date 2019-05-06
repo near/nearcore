@@ -11,7 +11,7 @@
 //    use network::proxy::benchmark::BenchmarkHandler;
 //    use network::proxy::ProxyHandler;
 //    use node_http::types::GetBlocksByIndexRequest;
-//    use primitives::transaction::TransactionBody;
+//    use near_primitives::transaction::TransactionBody;
 //    use std::io::stdout;
 //    use std::io::Write;
 //    use std::sync::{Arc, RwLock};

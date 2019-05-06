@@ -7,15 +7,15 @@ use std::sync::{Arc, RwLock};
 use log::info;
 
 use node_runtime::state_viewer::TrieViewer;
-use primitives::chain::{
+use near_primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, ReceiptBlock, SignedShardBlock,
     Snapshot,
 };
-use primitives::crypto::signer::EDSigner;
-use primitives::hash::CryptoHash;
-use primitives::merkle::verify_path;
-use primitives::transaction::{verify_transaction_signature, SignedTransaction};
-use primitives::types::{AccountId, AuthorityId, BlockIndex};
+use near_primitives::crypto::signer::EDSigner;
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::verify_path;
+use near_primitives::transaction::{verify_transaction_signature, SignedTransaction};
+use near_primitives::types::{AccountId, AuthorityId, BlockIndex};
 use storage::{GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 
 pub mod payload_gossip;
@@ -450,10 +450,10 @@ impl Pool {
 mod tests {
     use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
     use node_runtime::Runtime;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::hash::CryptoHash;
-    use primitives::transaction::{SendMoneyTransaction, TransactionBody};
-    use primitives::types::MerkleHash;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::transaction::{SendMoneyTransaction, TransactionBody};
+    use near_primitives::types::MerkleHash;
     use rand::prelude::SliceRandom;
     use rand::thread_rng;
     use storage::test_utils::create_beacon_shard_storages;

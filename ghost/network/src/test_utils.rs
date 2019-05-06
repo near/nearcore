@@ -5,8 +5,8 @@ use actix::{Actor, AsyncContext, Context, System};
 use futures::future::Future;
 use tokio::timer::Delay;
 
-use primitives::crypto::signature::get_key_pair;
-use primitives::test_utils::get_key_pair_from_seed;
+use near_primitives::crypto::signature::get_key_pair;
+use near_primitives::test_utils::get_key_pair_from_seed;
 
 use crate::types::{NetworkConfig, PeerInfo};
 use futures::future;

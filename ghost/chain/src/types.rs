@@ -9,12 +9,12 @@ use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 
 use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
-use primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
-use primitives::crypto::signer::EDSigner;
-use primitives::hash::{hash, CryptoHash};
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
-use primitives::utils::proto_to_type;
+use near_primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
+use near_primitives::crypto::signer::EDSigner;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
+use near_primitives::utils::proto_to_type;
 
 use crate::error::Error;
 use std::collections::HashMap;

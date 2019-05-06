@@ -1,4 +1,4 @@
-use primitives::types::AuthorityId;
+use near_primitives::types::AuthorityId;
 
 pub trait BaseOrchestrator: Send + Sync {
     fn is_shard_chunk_producer(

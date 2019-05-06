@@ -1,15 +1,15 @@
-use primitives::account::{AccessKey, Account};
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::{hash, CryptoHash};
-use primitives::traits::Base58Encoded;
-use primitives::transaction::{
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::traits::Base58Encoded;
+use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
-use primitives::utils::{
+use near_primitives::types::{AccountId, AccountingInfo, AuthorityStake};
+use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
     key_for_code, key_for_tx_stake,
 };

@@ -5,11 +5,11 @@ use chrono::Utc;
 
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate};
-use primitives::crypto::signature::{PublicKey, Signature};
-use primitives::crypto::signer::{EDSigner, InMemorySigner};
-use primitives::test_utils::get_public_key_from_seed;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::test_utils::get_public_key_from_seed;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};

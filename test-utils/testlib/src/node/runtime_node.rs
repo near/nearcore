@@ -3,9 +3,9 @@ use crate::runtime_utils::get_runtime_and_trie;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
-use primitives::crypto::signer::InMemorySigner;
-use primitives::transaction::{FunctionCallTransaction, TransactionBody};
-use primitives::types::{AccountId, Balance};
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
+use near_primitives::types::{AccountId, Balance};
 
 use std::sync::{Arc, RwLock};
 

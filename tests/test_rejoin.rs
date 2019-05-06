@@ -8,8 +8,8 @@
 //
 //    use network::proxy::benchmark::BenchmarkHandler;
 //    use network::proxy::ProxyHandler;
-//    use primitives::transaction::TransactionBody;
-//    use primitives::types::AccountId;
+//    use near_primitives::transaction::TransactionBody;
+//    use near_primitives::types::AccountId;
 //    use std::sync::{Arc, RwLock};
 //    use testlib::node::{
 //        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,

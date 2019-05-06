@@ -8,7 +8,7 @@
 //
 //    use network::proxy::benchmark::BenchmarkHandler;
 //    use network::proxy::ProxyHandler;
-//    use primitives::transaction::TransactionBody;
+//    use near_primitives::transaction::TransactionBody;
 //    use testlib::node::{
 //        create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
 //    };

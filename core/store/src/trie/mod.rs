@@ -1,16 +1,17 @@
-use self::nibble_slice::NibbleSlice;
-use crate::storages::shard::ShardChainStorage;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use cached::{Cached, SizedCache};
-pub use kvdb::DBValue;
-use primitives::hash::{hash, CryptoHash};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Cursor, Read, Write};
-use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
+
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use cached::{Cached, SizedCache};
+pub use kvdb::DBValue;
+
+use near_primitives::hash::{hash, CryptoHash};
+
+use self::nibble_slice::NibbleSlice;
+use crate::{Store, StoreUpdate, COL_STATE};
 
 mod nibble_slice;
 pub mod update;
@@ -302,14 +303,14 @@ impl RcTrieNode {
 }
 
 pub struct TrieCachingStorage {
-    storage: Arc<RwLock<ShardChainStorage>>,
+    store: Arc<Store>,
     cache: Arc<Mutex<SizedCache<CryptoHash, Option<Vec<u8>>>>>,
 }
 
 impl TrieCachingStorage {
-    fn new(storage: Arc<RwLock<ShardChainStorage>>) -> TrieCachingStorage {
+    fn new(store: Arc<Store>) -> TrieCachingStorage {
         // TODO defend from huge values in cache
-        TrieCachingStorage { storage, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
+        TrieCachingStorage { store, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
     }
 
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)> {
@@ -317,9 +318,7 @@ impl TrieCachingStorage {
         if let Some(val) = (*_guard).cache_get(hash) {
             val.clone()
         } else {
-            let result = if let Ok(Some(bytes)) =
-                self.storage.read().expect(POISONED_LOCK_ERR).get_state(hash)
-            {
+            let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
                 Some(bytes)
             } else {
                 None
@@ -394,8 +393,8 @@ enum FlattenNodesCrumb {
 }
 
 impl Trie {
-    pub fn new(storage: Arc<RwLock<ShardChainStorage>>) -> Self {
-        Trie { storage: TrieCachingStorage::new(storage) }
+    pub fn new(store: Arc<Store>) -> Self {
+        Trie { storage: TrieCachingStorage::new(store) }
     }
 
     pub fn empty_root() -> CryptoHash {
@@ -975,7 +974,14 @@ impl Trie {
     #[inline]
     pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
         self.storage.cache.lock().expect(POISONED_LOCK_ERR).cache_clear();
-        self.storage.storage.read().expect(POISONED_LOCK_ERR).apply_state_updates(&changes)
+        let mut update = self.storage.store.store_update();
+        for (key, value) in changes {
+            match value {
+                Some(arr) => update.set(COL_STATE, &key, &arr),
+                None => update.delete(COL_STATE, &key),
+            }
+        }
+        update.commit()
     }
 }
 
@@ -1203,10 +1209,12 @@ impl<'a> Iterator for TrieIterator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::create_trie;
     use rand::seq::SliceRandom;
     use rand::{rngs::ThreadRng, Rng};
+
+    use crate::test_utils::create_trie;
+
+    use super::*;
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 

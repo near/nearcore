@@ -1,7 +1,7 @@
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signature::PublicKey;
-use primitives::traits::Base58Encoded;
-use primitives::types::AuthorityStake;
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::traits::Base58Encoded;
+use near_primitives::types::AuthorityStake;
 use std::convert::TryFrom;
 
 use node_runtime::chain_spec::{AuthorityRotation, ChainSpec};

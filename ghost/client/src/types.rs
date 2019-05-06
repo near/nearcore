@@ -6,9 +6,9 @@ use chrono::{DateTime, Utc};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
-use primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
-use primitives::hash::CryptoHash;
-use primitives::types::{AccountId, BlockIndex};
+use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AccountId, BlockIndex};
 
 #[derive(Debug)]
 pub enum Error {

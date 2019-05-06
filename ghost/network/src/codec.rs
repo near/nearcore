@@ -77,7 +77,7 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use primitives::hash::CryptoHash;
+    use near_primitives::hash::CryptoHash;
     use crate::types::{PeerId, PeerInfo, Handshake, PeerChainInfo};
 
     fn test_codec(msg: PeerMessage) {

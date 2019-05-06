@@ -1,5 +1,5 @@
 use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::rpc::JsonRpcResponse;
+use near_primitives::rpc::JsonRpcResponse;
 use protobuf::Message;
 use std::process::{Child, Command};
 use std::thread;
@@ -95,9 +95,9 @@ fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcR
 mod test {
     use super::*;
     use node_runtime::chain_spec::TESTING_INIT_BALANCE;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::hash::hash;
-    use primitives::transaction::{
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::hash::hash;
+    use near_primitives::transaction::{
         CreateAccountTransaction, DeployContractTransaction, TransactionBody,
     };
     use testlib::test_helpers::heavy_test;

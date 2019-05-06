@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use clap::{Arg, ArgMatches};
 use node_runtime::chain_spec::{ChainSpec, ALICE_ID};
-use primitives::types::AccountId;
+use near_primitives::types::AccountId;
 
 const DEFAULT_BASE_PATH: &str = ".";
 const DEFAULT_LOG_LEVEL: &str = "Info";

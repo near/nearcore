@@ -14,17 +14,17 @@ use mempool::Pool;
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
-use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
-use primitives::crypto::signer::EDSigner;
-use primitives::hash::CryptoHash;
-use primitives::merkle::{merklize, MerklePath};
-use primitives::receipt::ReceiptInfo;
-use primitives::transaction::{
+use near_primitives::block_traits::{SignedBlock, SignedHeader};
+use near_primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
+use near_primitives::crypto::signer::EDSigner;
+use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::{merklize, MerklePath};
+use near_primitives::receipt::ReceiptInfo;
+use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionAddress, TransactionLogs, TransactionResult, TransactionStatus,
 };
-use primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, AuthorityStake, BlockId, BlockIndex, MerkleHash, ShardId};
 use storage::{ShardChainStorage, Trie, TrieUpdate};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -338,8 +338,8 @@ impl ShardClient {
 #[cfg(test)]
 mod tests {
     use node_runtime::chain_spec::{AuthorityRotation, DefaultIdType};
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::transaction::{
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::transaction::{
         FinalTransactionStatus, SignedTransaction, TransactionAddress, TransactionBody,
         TransactionStatus,
     };

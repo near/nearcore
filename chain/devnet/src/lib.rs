@@ -13,8 +13,8 @@ use client::Client;
 use configs::{get_devnet_configs, ClientConfig, DevNetConfig, RPCConfig};
 use consensus::passthrough::spawn_consensus;
 use coroutines::client_task::ClientTask;
-use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
-use primitives::types::BlockId;
+use near_primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
+use near_primitives::types::BlockId;
 use tokio_utils::ShutdownableThread;
 
 /// Re-applies blocks from the start into new client.
@@ -134,8 +134,8 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::transaction::TransactionBody;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::transaction::TransactionBody;
     use testlib::test_helpers::wait;
 
     use super::*;

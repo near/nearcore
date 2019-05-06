@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::stream::Stream;
 use futures::sync::mpsc::Receiver;
 
-use primitives::network::PeerMessage;
+use near_primitives::network::PeerMessage;
 use crate::protocol::{forward_msg, PackedMessage};
 use crate::protocol::SimplePackedMessage;
 use crate::message::encode_message;

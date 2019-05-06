@@ -15,10 +15,10 @@ use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
-use primitives::crypto::signature::PublicKey;
-use primitives::traits::ToBytes;
-use primitives::transaction::{SignedTransaction, TransactionStatus};
-use primitives::types::{AccountId, AuthorityStake, MerkleHash};
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::traits::ToBytes;
+use near_primitives::transaction::{SignedTransaction, TransactionStatus};
+use near_primitives::types::{AccountId, AuthorityStake, MerkleHash};
 use storage::test_utils::create_beacon_shard_storages;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 use verifier::TransactionVerifier;
@@ -329,10 +329,10 @@ mod tests {
 
     use node_runtime::adapter::RuntimeAdapter;
     use node_runtime::chain_spec::ChainSpec;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::hash::CryptoHash;
-    use primitives::transaction::TransactionBody;
-    use primitives::types::StructSignature;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::transaction::TransactionBody;
+    use near_primitives::types::StructSignature;
 
     use super::*;
 

@@ -63,8 +63,8 @@ macro_rules! tuplet {
 
 #[cfg(test)]
 mod tests {
-    use primitives::traits::{Payload, WitnessSelector};
-    use primitives::types::UID;
+    use near_primitives::traits::{Payload, WitnessSelector};
+    use near_primitives::types::UID;
     use std::collections::HashSet;
     use typed_arena::Arena;
     use dag::message::Message;

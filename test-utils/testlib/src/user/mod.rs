@@ -1,15 +1,15 @@
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::{AccountId, Balance, MerkleHash};
+use near_primitives::types::{AccountId, Balance, MerkleHash};
 
 pub mod runtime_user;
 use futures::Future;
-use primitives::account::AccessKey;
-use primitives::crypto::signature::PublicKey;
-use primitives::receipt::ReceiptInfo;
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::receipt::ReceiptInfo;
 pub use runtime_user::RuntimeUser;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";

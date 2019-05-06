@@ -1,10 +1,10 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use parity_wasm::elements::{self, External, MemoryType, Type, MemorySection};
-use parity_wasm::builder;
-use pwasm_utils::{self, rules};
 use crate::types::{Config, ContractCode, PrepareError as Error};
+use parity_wasm::builder;
+use parity_wasm::elements::{self, External, MemorySection, MemoryType, Type};
+use pwasm_utils::{self, rules};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -18,28 +18,21 @@ impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a Config) -> Result<ContractModule<'a>, Error> {
         let module =
             elements::deserialize_buffer(original_code).map_err(|_| Error::Deserialization)?;
-        Ok(ContractModule {
-            module: Some(module),
-            config,
-        })
+        Ok(ContractModule { module: Some(module), config })
     }
 
     fn standardize_mem(&mut self) {
-        let mut module = self
-            .module
-            .take()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let mut module =
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed");
 
         let mut tmp = MemorySection::default();
 
-        module.memory_section_mut()
-            .unwrap_or_else(|| &mut tmp)
-            .entries_mut()
-            .pop();
+        module.memory_section_mut().unwrap_or_else(|| &mut tmp).entries_mut().pop();
 
         let entry = elements::MemoryType::new(
             self.config.initial_memory_pages,
-            Some(self.config.max_memory_pages));
+            Some(self.config.max_memory_pages),
+        );
 
         let mut builder = builder::from_module(module);
         builder.push_import(elements::ImportEntry::new(
@@ -57,14 +50,9 @@ impl<'a> ContractModule<'a> {
     /// Memory section contains declarations of internal linear memories, so if we find one
     /// we reject such a module.
     fn ensure_no_internal_memory(&self) -> Result<(), Error> {
-        let module = self
-            .module
-            .as_ref()
-            .expect("On entry to the function `module` can't be None; qed");
-        if module
-            .memory_section()
-            .map_or(false, |ms| !ms.entries().is_empty())
-        {
+        let module =
+            self.module.as_ref().expect("On entry to the function `module` can't be None; qed");
+        if module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
             return Err(Error::InternalMemoryDeclared);
         }
         Ok(())
@@ -75,10 +63,8 @@ impl<'a> ContractModule<'a> {
         let gas_rules = rules::Set::new(self.config.regular_op_cost, Default::default())
             .with_grow_cost(self.config.grow_mem_cost);
 
-        let module = self
-            .module
-            .take()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed");
 
         let contract_module = pwasm_utils::inject_gas_counter(module, &gas_rules)
             .map_err(|_| Error::GasInstrumentation)?;
@@ -88,10 +74,8 @@ impl<'a> ContractModule<'a> {
     }
 
     fn inject_stack_height_metering(&mut self) -> Result<(), Error> {
-        let module = self
-            .module
-            .take()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed");
 
         let contract_module =
             pwasm_utils::stack_height::inject_limiter(module, self.config.max_stack_height)
@@ -109,16 +93,12 @@ impl<'a> ContractModule<'a> {
     ///   their signatures.
     /// - if there is a memory import, returns it's descriptor
     fn scan_imports(&self) -> Result<Option<&MemoryType>, Error> {
-        let module = self
-            .module
-            .as_ref()
-            .expect("On entry to the function `module` can't be `None`; qed");
+        let module =
+            self.module.as_ref().expect("On entry to the function `module` can't be `None`; qed");
 
         let types = module.type_section().map(elements::TypeSection::types).unwrap_or(&[]);
-        let import_entries = module
-            .import_section()
-            .map(elements::ImportSection::entries)
-            .unwrap_or(&[]);
+        let import_entries =
+            module.import_section().map(elements::ImportSection::entries).unwrap_or(&[]);
 
         let mut imported_mem_type = None;
 
@@ -138,31 +118,29 @@ impl<'a> ContractModule<'a> {
                 _ => continue,
             };
 
-            let Type::Function(ref _func_ty) = types
-                .get(*type_idx as usize)
-                .ok_or_else(|| Error::Instantiate)?;
+            let Type::Function(ref _func_ty) =
+                types.get(*type_idx as usize).ok_or_else(|| Error::Instantiate)?;
 
             // TODO: Function type check with Env
-			/*
+            /*
 
-			let ext_func = env
-				.funcs
-				.get(import.field().as_bytes())
-				.ok_or_else(|| Error::Instantiate)?;
-			if !ext_func.func_type_matches(func_ty) {
-				return Err(Error::Instantiate);
-			}
-			*/
+            let ext_func = env
+                .funcs
+                .get(import.field().as_bytes())
+                .ok_or_else(|| Error::Instantiate)?;
+            if !ext_func.func_type_matches(func_ty) {
+                return Err(Error::Instantiate);
+            }
+            */
         }
         Ok(imported_mem_type)
     }
 
     fn into_wasm_code(mut self) -> Result<Vec<u8>, Error> {
         elements::serialize(
-            self.module
-                .take()
-                .expect("On entry to the function `module` can't be `None`; qed"),
-        ).map_err(|_| Error::Serialization)
+            self.module.take().expect("On entry to the function `module` can't be `None`; qed"),
+        )
+        .map_err(|_| Error::Serialization)
     }
 }
 
@@ -176,10 +154,7 @@ impl<'a> ContractModule<'a> {
 /// - all imported functions from the external environment matches defined by `env` module,
 ///
 /// The preprocessing includes injecting code for gas metering and metering the height of stack.
-pub fn prepare_contract(
-    original_code: &ContractCode,
-    config: &Config,
-) -> Result<Vec<u8>, Error> {
+pub fn prepare_contract(original_code: &ContractCode, config: &Config) -> Result<Vec<u8>, Error> {
     let mut contract_module = ContractModule::init(original_code.get_code(), config)?;
     contract_module.standardize_mem();
     contract_module.ensure_no_internal_memory()?;
@@ -189,7 +164,9 @@ pub fn prepare_contract(
     if let Some(memory_type) = contract_module.scan_imports()? {
         // Inspect the module to extract the initial and maximum page count.
         let limits = memory_type.limits();
-        if limits.initial() != config.initial_memory_pages || limits.maximum() != Some(config.max_memory_pages) {
+        if limits.initial() != config.initial_memory_pages
+            || limits.maximum() != Some(config.max_memory_pages)
+        {
             return Err(Error::Memory);
         }
     } else {
@@ -253,13 +230,14 @@ mod tests {
         assert_matches!(r, Ok(_));
 
         // TODO: Address tests once we check proper function signatures.
-		/*
-		// wrong signature
-		let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
-		assert_matches!(r, Err(Error::Instantiate));
+        /*
+        // wrong signature
+        let r = parse_and_prepare_wat(r#"(module (import "env" "gas" (func (param i64))))"#);
+        assert_matches!(r, Err(Error::Instantiate));
 
-		// unknown function name
-		let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
-		assert_matches!(r, Err(Error::Instantiate));
-		*/    }
+        // unknown function name
+        let r = parse_and_prepare_wat(r#"(module (import "env" "unknown_func" (func)))"#);
+        assert_matches!(r, Err(Error::Instantiate));
+        */
+    }
 }

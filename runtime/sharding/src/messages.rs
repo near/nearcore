@@ -1,5 +1,5 @@
-use primitives::hash::CryptoHash;
-use primitives::sharding::ShardChunkHeader;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ShardChunkHeader;
 use reed_solomon_erasure::Shard;
 
 pub struct RequestChunkHeaderMsg {}

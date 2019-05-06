@@ -8,17 +8,17 @@ use mempool::payload_gossip::PayloadGossip;
 use near_protos::chain as chain_proto;
 use near_protos::network as network_proto;
 use nightshade::nightshade_task::Gossip;
-use primitives::beacon::SignedBeaconBlock;
-use primitives::chain::{
+use near_primitives::beacon::SignedBeaconBlock;
+use near_primitives::chain::{
     MissingPayloadRequest, MissingPayloadResponse, ReceiptBlock, SignedShardBlock, Snapshot,
 };
-use primitives::consensus::JointBlockBLS;
-use primitives::hash::CryptoHash;
-use primitives::network::ConnectedInfo;
-use primitives::traits::Base58Encoded;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AuthorityId, BlockIndex};
-use primitives::utils::proto_to_type;
+use near_primitives::consensus::JointBlockBLS;
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::ConnectedInfo;
+use near_primitives::traits::Base58Encoded;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AuthorityId, BlockIndex};
+use near_primitives::utils::proto_to_type;
 
 pub type RequestId = u64;
 pub type CoupledBlock = (SignedBeaconBlock, SignedShardBlock);

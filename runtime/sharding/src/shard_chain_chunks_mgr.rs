@@ -1,8 +1,8 @@
 use crate::messages::{ChunkHeaderAndPartMsg, ChunkHeaderMsg, ChunkPartMsg};
 use crate::orchestrator::BaseOrchestrator;
-use primitives::hash::CryptoHash;
-use primitives::sharding::EncodedShardChunk;
-use primitives::types::AuthorityId;
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::types::AuthorityId;
 use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};

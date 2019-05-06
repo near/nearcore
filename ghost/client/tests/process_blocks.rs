@@ -11,11 +11,11 @@ use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::hash;
-use primitives::test_utils::init_test_logger;
-use primitives::transaction::SignedTransaction;
-use primitives::types::MerkleHash;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::hash;
+use near_primitives::test_utils::init_test_logger;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::MerkleHash;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]

@@ -10,9 +10,9 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use configs::AuthorityConfig;
 
-use primitives::beacon::SignedBeaconBlockHeader;
-use primitives::hash::CryptoHash;
-use primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
+use near_primitives::beacon::SignedBeaconBlockHeader;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::{AuthorityStake, BlockId, Epoch, Slot};
 use storage::BeaconChainStorage;
 
 use node_runtime::chain_spec::AuthorityRotation;
@@ -385,10 +385,10 @@ impl Authority for ThresholdedPOSAuthority {
 mod test {
     use chain::test_utils::get_blockchain_storage;
     use configs::authority::get_authority_config;
-    use primitives::beacon::SignedBeaconBlock;
-    use primitives::block_traits::{SignedBlock, SignedHeader};
-    use primitives::hash::CryptoHash;
-    use primitives::types::AccountId;
+    use near_primitives::beacon::SignedBeaconBlock;
+    use near_primitives::block_traits::{SignedBlock, SignedHeader};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::AccountId;
     use storage::test_utils::create_beacon_shard_storages;
 
     use crate::beacon_chain::BeaconClient;

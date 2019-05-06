@@ -8,8 +8,8 @@ use tokio::{self, timer::Interval};
 use client::Client;
 use nightshade::nightshade::{BlockProposal, ConsensusBlockProposal};
 use nightshade::nightshade_task::Control;
-use primitives::block_traits::SignedHeader;
-use primitives::hash::CryptoHash;
+use near_primitives::block_traits::SignedHeader;
+use near_primitives::hash::CryptoHash;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

@@ -19,8 +19,8 @@ use rand::thread_rng;
 use tokio::net::TcpListener;
 use tokio::timer::Interval;
 
-use primitives::network::{PeerAddr, PeerInfo, PeerMessage};
-use primitives::types::{AccountId, PeerId};
+use near_primitives::network::{PeerAddr, PeerInfo, PeerMessage};
+use near_primitives::types::{AccountId, PeerId};
 
 use crate::peer::{
     get_delay, get_peer_info, AllPeerStates, ChainStateRetriever, Peer, PeerState, CONNECT_TIMEOUT,
@@ -294,8 +294,8 @@ mod tests {
     use futures::sync::mpsc::channel;
     use tokio::util::StreamExt;
 
-    use primitives::hash::hash_struct;
-    use primitives::network::{PeerAddr, PeerInfo};
+    use near_primitives::hash::hash_struct;
+    use near_primitives::network::{PeerAddr, PeerInfo};
 
     use crate::peer::PeerState;
     use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};

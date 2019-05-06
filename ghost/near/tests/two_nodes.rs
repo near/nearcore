@@ -4,7 +4,7 @@ use futures::future::Future;
 use near::{start_with_config, GenesisConfig, NearConfig};
 use near_client::{BlockProducer, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
-use primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_test_logger;
 use tempdir::TempDir;
 
 /// Runs two nodes that should produce blocks one after another.

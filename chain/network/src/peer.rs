@@ -17,9 +17,9 @@ use tokio::net::TcpStream;
 use tokio::prelude::stream::SplitStream;
 use tokio::timer::Delay;
 
-use primitives::chain::ChainState;
-use primitives::network::{ConnectedInfo, Handshake, PeerInfo, PeerMessage, PeersInfo};
-use primitives::types::PeerId;
+use near_primitives::chain::ChainState;
+use near_primitives::network::{ConnectedInfo, Handshake, PeerInfo, PeerMessage, PeersInfo};
+use near_primitives::types::PeerId;
 
 use super::codec::Codec;
 use super::message::{encode_message, Message, PROTOCOL_VERSION};

@@ -6,10 +6,10 @@ use super::{
     COL_TX_NONCE,
 };
 use cached::SizedCache;
-use primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{TransactionAddress, TransactionResult};
-use primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::chain::{ReceiptBlock, SignedShardBlock, SignedShardBlockHeader};
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{TransactionAddress, TransactionResult};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;

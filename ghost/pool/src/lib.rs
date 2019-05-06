@@ -2,8 +2,8 @@ use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 
 use near_chain::{Block, ValidTransaction};
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, Nonce};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Nonce};
 
 pub use crate::types::Error;
 
@@ -71,8 +71,8 @@ mod tests {
     use rand::thread_rng;
 
     use near_chain::ValidTransaction;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::transaction::TransactionBody;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::transaction::TransactionBody;
 
     use crate::TransactionPool;
 

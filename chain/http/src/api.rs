@@ -5,12 +5,12 @@ use protobuf::parse_from_bytes;
 use serde_json::json;
 
 use client::Client;
-use primitives::hash::CryptoHash;
-use primitives::logging::pretty_utf8;
-use primitives::rpc::ABCIQueryResponse;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockId};
-use primitives::utils::bs58_vec2str;
+use near_primitives::hash::CryptoHash;
+use near_primitives::logging::pretty_utf8;
+use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockId};
+use near_primitives::utils::bs58_vec2str;
 use verifier::TransactionVerifier;
 
 use crate::types::*;

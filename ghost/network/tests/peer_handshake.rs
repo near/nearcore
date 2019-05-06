@@ -20,7 +20,7 @@ use near_network::{
     NetworkResponses, PeerInfo, PeerManagerActor,
 };
 use near_store::test_utils::create_test_store;
-use primitives::test_utils::{get_key_pair_from_seed, init_test_logger};
+use near_primitives::test_utils::{get_key_pair_from_seed, init_test_logger};
 
 type ClientMock = Mocker<ClientActor>;
 

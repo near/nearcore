@@ -15,13 +15,13 @@ use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_protos::network as network_proto;
-use primitives::crypto::signature::{PublicKey, SecretKey, Signature};
-use primitives::hash::CryptoHash;
-use primitives::logging::pretty_str;
-use primitives::traits::Base58Encoded;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
-use primitives::utils::{proto_to_type, to_string_value};
+use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
+use near_primitives::hash::CryptoHash;
+use near_primitives::logging::pretty_str;
+use near_primitives::traits::Base58Encoded;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::utils::{proto_to_type, to_string_value};
 use crate::peer::Peer;
 
 /// Current latest version of the protocol

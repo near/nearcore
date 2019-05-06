@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use serde_json;
 
-use primitives::crypto::signer::{BLSSigner, EDSigner, InMemorySigner};
-use primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
+use near_primitives::crypto::signer::{BLSSigner, EDSigner, InMemorySigner};
+use near_primitives::types::{AccountId, Balance, ReadableBlsPublicKey, ReadablePublicKey};
 use std::cmp::max;
 use std::io::Write;
 use std::sync::Arc;
@@ -189,8 +189,8 @@ impl From<&str> for ChainSpec {
 #[cfg(test)]
 mod tests {
     use super::ChainSpec;
-    use primitives::types::ReadableBlsPublicKey;
-    use primitives::types::ReadablePublicKey;
+    use near_primitives::types::ReadableBlsPublicKey;
+    use near_primitives::types::ReadablePublicKey;
     use serde_json::json;
 
     #[test]

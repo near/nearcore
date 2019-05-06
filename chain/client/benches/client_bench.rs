@@ -8,15 +8,15 @@ use serde_json::Value;
 use client::Client;
 use configs::ClientConfig;
 use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
-use primitives::block_traits::SignedBlock;
-use primitives::chain::ChainPayload;
-use primitives::crypto::signer::{EDSigner, InMemorySigner};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::block_traits::SignedBlock;
+use near_primitives::chain::ChainPayload;
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
-use primitives::types::Nonce;
+use near_primitives::types::Nonce;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";

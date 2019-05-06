@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
 use near_protos::serde::b64_format as protos_b64_format;
-use primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
-use primitives::chain::{ReceiptBlock, ShardBlock, ShardBlockHeader, SignedShardBlock};
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::group_signature::GroupSignature;
-use primitives::crypto::signature::{bs58_serializer, PublicKey};
-use primitives::hash::{bs58_format, CryptoHash};
-use primitives::transaction::{
+use near_primitives::beacon::{BeaconBlockHeader, SignedBeaconBlockHeader};
+use near_primitives::chain::{ReceiptBlock, ShardBlock, ShardBlockHeader, SignedShardBlock};
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::crypto::group_signature::GroupSignature;
+use near_primitives::crypto::signature::{bs58_serializer, PublicKey};
+use near_primitives::hash::{bs58_format, CryptoHash};
+use near_primitives::transaction::{
     FinalTransactionResult, LogEntry, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::{
+use near_primitives::types::{
     AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, Nonce, ShardId,
 };
 

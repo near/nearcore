@@ -1,8 +1,8 @@
 use std::sync::{Arc, RwLock};
 
-use primitives::hash::CryptoHash;
-use primitives::types::BlockId;
-use primitives::block_traits::{SignedBlock, SignedHeader};
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockId;
+use near_primitives::block_traits::{SignedBlock, SignedHeader};
 use storage::GenericStorage;
 use std::marker::PhantomData;
 

@@ -19,15 +19,15 @@ use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
-use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
-use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{
+use near_primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
+use near_primitives::block_traits::{SignedBlock, SignedHeader};
+use near_primitives::chain::{
     ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
 };
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
-use primitives::hash::{hash_struct, CryptoHash};
-use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
+use near_primitives::hash::{hash_struct, CryptoHash};
+use near_primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
 use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
@@ -502,11 +502,11 @@ impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
 #[cfg(test)]
 mod tests {
     use node_runtime::chain_spec::{ChainSpec, AuthorityRotation, DefaultIdType};
-    use primitives::block_traits::SignedBlock;
-    use primitives::chain::SignedShardBlockHeader;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::serialize::Encode;
-    use primitives::test_utils::TestSignedBlock;
+    use near_primitives::block_traits::SignedBlock;
+    use near_primitives::chain::SignedShardBlockHeader;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::serialize::Encode;
+    use near_primitives::test_utils::TestSignedBlock;
 
     use crate::test_utils::get_client_from_cfg;
     use testlib::node::TEST_BLOCK_MAX_SIZE;

@@ -3,10 +3,10 @@ use crate::ext::External;
 use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
 
 use byteorder::{ByteOrder, LittleEndian};
-use primitives::hash::hash;
-use primitives::logging::pretty_utf8;
-use primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId};
-use primitives::utils::is_valid_account_id;
+use near_primitives::hash::hash;
+use near_primitives::logging::pretty_utf8;
+use near_primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId};
+use near_primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
 use wasmer_runtime::{memory::Memory, units::Bytes};
 

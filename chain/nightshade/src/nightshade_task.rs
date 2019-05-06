@@ -16,12 +16,12 @@ use log::*;
 use tokio::timer::Delay;
 
 use near_protos::nightshade as nightshade_proto;
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::hash::{hash_struct, CryptoHash};
-use primitives::crypto::signature::{verify, PublicKey, Signature};
-use primitives::crypto::signer::{EDSigner, BLSSigner};
-use primitives::types::{AuthorityId, BlockIndex};
-use primitives::utils::{proto_to_result, proto_to_type};
+use near_primitives::crypto::aggregate_signature::BlsPublicKey;
+use near_primitives::hash::{hash_struct, CryptoHash};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
+use near_primitives::crypto::signer::{EDSigner, BLSSigner};
+use near_primitives::types::{AuthorityId, BlockIndex};
+use near_primitives::utils::{proto_to_result, proto_to_type};
 use protobuf::{RepeatedField, SingularPtrField};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};

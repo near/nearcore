@@ -3,18 +3,13 @@ use crate::ext::External;
 use std::ffi::c_void;
 use std::fmt;
 
-use crate::runtime::{self, Runtime};
-use crate::types::{RuntimeContext, Config, ReturnData, Error, ContractCode};
-use primitives::types::{Balance, Mana, Gas};
-use primitives::logging;
 use crate::cache;
+use crate::runtime::{self, Runtime};
+use crate::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
+use near_primitives::logging;
+use near_primitives::types::{Balance, Gas, Mana};
 
-use wasmer_runtime::{
-    self,
-    memory::Memory,
-    wasm::MemoryDescriptor,
-    units::Pages,
-};
+use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
 
 pub struct ExecutionOutcome {
     pub gas_used: Gas,
@@ -58,17 +53,12 @@ pub fn execute(
     let memory = Memory::new(MemoryDescriptor {
         minimum: Pages(config.initial_memory_pages),
         maximum: Some(Pages(config.max_memory_pages)),
-        shared: false
-    }).map_err(Into::<wasmer_runtime::error::Error>::into)?;
+        shared: false,
+    })
+    .map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
-    let mut runtime = Runtime::new(
-        ext,
-        input_data,
-        result_data,
-        context,
-        config.gas_limit,
-        memory.clone(),
-    );
+    let mut runtime =
+        Runtime::new(ext, input_data, result_data, context, config.gas_limit, memory.clone());
 
     let import_object = runtime::imports::build(memory);
 
@@ -105,6 +95,6 @@ pub fn execute(
             balance: context.initial_balance,
             random_seed: runtime.random_seed,
             logs: runtime.logs,
-        })
+        }),
     }
 }

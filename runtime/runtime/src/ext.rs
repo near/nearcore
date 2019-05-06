@@ -3,9 +3,9 @@ use std::iter::Peekable;
 
 use kvdb::DBValue;
 
-use primitives::hash::CryptoHash;
-use primitives::transaction::{AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction};
-use primitives::types::{
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction};
+use near_primitives::types::{
     AccountId, AccountingInfo, Balance, CallbackId, Mana, Nonce, PromiseId, ReceiptId,
 };
 use storage::{TrieUpdate, TrieUpdateIterator};
@@ -14,7 +14,7 @@ use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 use crate::ethereum::EthashProvider;
 use crate::POISONED_LOCK_ERR;
 use bigint::{H256, H64, U256};
-use primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
+use near_primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
 use std::sync::{Arc, Mutex};
 use storage::set;
 

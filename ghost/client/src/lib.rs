@@ -22,10 +22,10 @@ use near_network::{
 };
 use near_pool::TransactionPool;
 use near_store::Store;
-use primitives::crypto::signature::Signature;
-use primitives::hash::CryptoHash;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, BlockIndex};
+use near_primitives::crypto::signature::Signature;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, BlockIndex};
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};

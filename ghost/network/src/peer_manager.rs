@@ -17,7 +17,7 @@ use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, TcpStream};
 
 use near_store::Store;
-use primitives::types::AccountId;
+use near_primitives::types::AccountId;
 
 use crate::codec::Codec;
 use crate::peer::Peer;

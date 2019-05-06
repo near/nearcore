@@ -8,8 +8,8 @@ use rand::{thread_rng, Rng};
 use near_chain::{Chain, Tip};
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
-use primitives::hash::CryptoHash;
-use primitives::types::BlockIndex;
+use near_primitives::hash::CryptoHash;
+use near_primitives::types::BlockIndex;
 
 use crate::types::SyncStatus;
 

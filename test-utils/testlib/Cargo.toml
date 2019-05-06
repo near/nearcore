@@ -22,8 +22,8 @@ tempdir = "0.3"
 
 near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
+near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
-storage = { path = "../../runtime/storage" }
 
 [dependencies.reqwest]
 version = "0.9"

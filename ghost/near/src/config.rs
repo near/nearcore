@@ -8,8 +8,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use near_client::{BlockProducer, ClientConfig};
 use near_network::NetworkConfig;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::types::{AccountId, Balance, ReadablePublicKey};
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
 
 pub struct NearConfig {
     pub client_config: ClientConfig,

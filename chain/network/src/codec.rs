@@ -2,7 +2,7 @@ use tokio::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BufMut};
 use std::io::{Error, ErrorKind};
 use std::convert::TryInto;
-use primitives::network::PeerMessage;
+use near_primitives::network::PeerMessage;
 use near_protos::network::PeerMessage as ProtoMessage;
 use protobuf::{ProtobufError, parse_from_bytes, Message};
 
@@ -88,10 +88,10 @@ impl Decoder for Codec {
 #[cfg(test)]
 mod test {
     use super::*;
-    use primitives::network::{Handshake, PeerInfo, ConnectedInfo};
-    use primitives::chain::ChainState;
-    use primitives::types::PeerId;
-    use primitives::hash::{CryptoHash, hash_struct};
+    use near_primitives::network::{Handshake, PeerInfo, ConnectedInfo};
+    use near_primitives::chain::ChainState;
+    use near_primitives::types::PeerId;
+    use near_primitives::hash::{CryptoHash, hash_struct};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();

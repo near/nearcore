@@ -1,6 +1,6 @@
 use std::cmp::{max, min};
 
-use primitives::types::{Balance, BlockIndex, Gas, Mana};
+use near_primitives::types::{Balance, BlockIndex, Gas, Mana};
 
 // Transaction Stakes structs
 #[derive(Debug, Serialize, Deserialize, Clone)]

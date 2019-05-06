@@ -18,15 +18,15 @@ use configs::network::ProxyHandlerType;
 use configs::{ClientConfig, NetworkConfig};
 use mempool::payload_gossip::PayloadGossip;
 use nightshade::nightshade_task::Gossip;
-use primitives::block_traits::SignedBlock;
-use primitives::chain::{
+use near_primitives::block_traits::SignedBlock;
+use near_primitives::chain::{
     ChainState, MissingPayloadResponse, PayloadRequest, PayloadResponse, Snapshot,
 };
-use primitives::consensus::JointBlockBLS;
-use primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
-use primitives::hash::CryptoHash;
-use primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
-use primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
+use near_primitives::consensus::JointBlockBLS;
+use near_primitives::crypto::signer::{AccountSigner, BLSSigner, EDSigner};
+use near_primitives::hash::CryptoHash;
+use near_primitives::network::{ConnectedInfo, PeerInfo, PeerMessage};
+use near_primitives::types::{AccountId, AuthorityId, BlockIndex, PeerId};
 
 use crate::message::{decode_message, encode_message, CoupledBlock, Message, RequestId};
 use crate::peer::ChainStateRetriever;

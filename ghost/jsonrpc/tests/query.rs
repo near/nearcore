@@ -10,9 +10,9 @@ use near_jsonrpc::start_http;
 use near_network::test_utils::{open_port, WaitOrTimeout};
 use near_network::NetworkResponses;
 use near_protos::signed_transaction as transaction_proto;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::test_utils::init_test_logger;
-use primitives::transaction::TransactionBody;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::test_utils::init_test_logger;
+use near_primitives::transaction::TransactionBody;
 
 // TODO: move to another file
 #[test]

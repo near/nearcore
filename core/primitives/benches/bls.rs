@@ -3,9 +3,7 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-extern crate primitives;
-
-use primitives::crypto::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsSecretKey};
+use near_primitives::crypto::aggregate_signature::{BlsAggregatePublicKey, BlsAggregateSignature, BlsSecretKey};
 
 fn bls_sign(bench: &mut Bencher) {
     let key = BlsSecretKey::generate();

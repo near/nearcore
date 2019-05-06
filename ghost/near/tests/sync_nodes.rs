@@ -9,8 +9,8 @@ use near_client::{BlockProducer, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_store::test_utils::create_test_store;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::test_utils::init_test_logger;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::test_utils::init_test_logger;
 use tempdir::TempDir;
 
 /// Utility to generate genesis header from config for testing purposes.

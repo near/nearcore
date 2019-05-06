@@ -4,18 +4,18 @@ use crate::test_helpers::wait;
 use crate::user::User;
 use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::account::AccessKey;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::{hash, CryptoHash};
-use primitives::serialize::Decode;
-use primitives::transaction::{
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::serialize::Decode;
+use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
     TransactionStatus,
 };
-use primitives::types::AccountingInfo;
-use primitives::utils::key_for_callback;
+use near_primitives::types::AccountingInfo;
+use near_primitives::utils::key_for_callback;
 use storage::set;
 
 /// validate transaction result in the case that it is successfully and generate one receipt which

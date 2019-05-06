@@ -1,11 +1,11 @@
 use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
 use node_runtime::{state_viewer::TrieViewer, Runtime};
-use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use primitives::crypto::group_signature::GroupSignature;
-use primitives::hash::{hash, CryptoHash};
-use primitives::merkle::merklize;
-use primitives::transaction::ReceiptTransaction;
-use primitives::types::{AccountId, MerkleHash};
+use near_primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
+use near_primitives::crypto::group_signature::GroupSignature;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::merklize;
+use near_primitives::transaction::ReceiptTransaction;
+use near_primitives::types::{AccountId, MerkleHash};
 use storage::test_utils::create_trie;
 use storage::{Trie, TrieUpdate};
 
