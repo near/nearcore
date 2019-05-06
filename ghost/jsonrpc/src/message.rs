@@ -10,13 +10,13 @@
 //! The main entrypoint here is the [Message](enum.Message.html). The others are just building
 //! blocks and you should generally work with `Message` instead.
 
-use std::fmt::{Formatter, Result as FmtResult};
-
 extern crate serde;
 
-use serde_derive::{Serialize, Deserialize};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
+use std::fmt::{Formatter, Result as FmtResult};
+
 use serde::de::{Deserialize, Deserializer, Error, Unexpected, Visitor};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde_derive::{Deserialize, Serialize};
 use serde_json::{to_value, Result as JsonResult, Value};
 use uuid::Uuid;
 
@@ -65,19 +65,11 @@ impl Request {
     ///
     /// The ID is taken from the request.
     pub fn reply(&self, reply: Value) -> Message {
-        Message::Response(Response {
-            jsonrpc: Version,
-            result: Ok(reply),
-            id: self.id.clone(),
-        })
+        Message::Response(Response { jsonrpc: Version, result: Ok(reply), id: self.id.clone() })
     }
     /// Answer the request with an error.
     pub fn error(&self, error: RpcError) -> Message {
-        Message::Response(Response {
-            jsonrpc: Version,
-            result: Err(error),
-            id: self.id.clone(),
-        })
+        Message::Response(Response { jsonrpc: Version, result: Err(error), id: self.id.clone() })
     }
 }
 
@@ -96,11 +88,7 @@ impl RpcError {
     ///
     /// Mostly for completeness, doesn't do anything but filling in the corresponding fields.
     pub fn new(code: i64, message: String, data: Option<Value>) -> Self {
-        RpcError {
-            code,
-            message,
-            data,
-        }
+        RpcError { code, message, data }
     }
     /// Create an Invalid Param error.
     pub fn invalid_params(msg: Option<String>) -> Self {
@@ -124,11 +112,7 @@ impl RpcError {
     }
     /// Create a method not found error.
     pub fn method_not_found(method: String) -> Self {
-        RpcError::new(
-            -32_601,
-            "Method not found".to_owned(),
-            Some(Value::String(method)),
-        )
+        RpcError::new(-32_601, "Method not found".to_owned(), Some(Value::String(method)))
     }
 }
 
@@ -190,13 +174,9 @@ impl<'de> Deserialize<'de> for Response {
             _ => {
                 let err = D::Error::custom("Either 'error' or 'result' is expected, but not both");
                 return Err(err);
-            },
+            }
         };
-        Ok(Response {
-            jsonrpc: Version,
-            result,
-            id: wr.id,
-        })
+        Ok(Response { jsonrpc: Version, result, id: wr.id })
     }
 }
 
@@ -262,19 +242,22 @@ impl Message {
     }
     /// Create a top-level error (without an ID).
     pub fn error(error: RpcError) -> Self {
-        Message::Response(Response {
-            jsonrpc: Version,
-            result: Err(error),
-            id: Value::Null,
-        })
+        Message::Response(Response { jsonrpc: Version, result: Err(error), id: Value::Null })
     }
     /// A constructor for a notification.
     pub fn notification(method: String, params: Option<Value>) -> Self {
-        Message::Notification(Notification {
-            jsonrpc: Version,
-            method,
-            params,
-        })
+        Message::Notification(Notification { jsonrpc: Version, method, params })
+    }
+    /// A constructor for a response.
+    pub fn response(id: Value, result: Result<Value, RpcError>) -> Self {
+        Message::Response(Response { jsonrpc: Version, result, id })
+    }
+    /// Returns id or Null if there is no id.
+    pub fn id(&self) -> Value {
+        match self {
+            Message::Request(req) => req.id.clone(),
+            _ => Value::Null,
+        }
     }
 }
 
@@ -351,11 +334,12 @@ impl Into<Vec<u8>> for Message {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use serde_json::Value;
-    use serde_json::ser::to_vec;
     use serde_json::de::from_slice;
     use serde_json::json;
+    use serde_json::ser::to_vec;
+    use serde_json::Value;
+
+    use super::*;
 
     /// Test serialization and deserialization of the Message
     ///
@@ -405,11 +389,7 @@ mod tests {
         // A successful response
         one(
             r#"{"jsonrpc": "2.0", "result": 42, "id": 3}"#,
-            &Message::Response(Response {
-                jsonrpc: Version,
-                result: Ok(json!(42)),
-                id: json!(3),
-            }),
+            &Message::Response(Response { jsonrpc: Version, result: Ok(json!(42)), id: json!(3) }),
         );
         // A successful response
         one(
@@ -456,7 +436,8 @@ mod tests {
                 {"jsonrpc": "2.0", "method": "call", "id": 42},
                 true
             ]"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(
             Message::Batch(vec![
                 Message::Notification(Notification {
@@ -536,21 +517,14 @@ mod tests {
         let id1 = req1.id.clone();
         // When we answer a message, we get the same ID
         if let Message::Response(ref resp) = req1.reply(json!([1, 2, 3])) {
-            assert_eq!(
-                *resp,
-                Response {
-                    jsonrpc: Version,
-                    result: Ok(json!([1, 2, 3])),
-                    id: id1,
-                }
-            );
+            assert_eq!(*resp, Response { jsonrpc: Version, result: Ok(json!([1, 2, 3])), id: id1 });
         } else {
             panic!("Not a response");
         }
         let id2 = req2.id.clone();
         // The same with an error
         if let Message::Response(ref resp) =
-        req2.error(RpcError::new(42, "Wrong!".to_owned(), None))
+            req2.error(RpcError::new(42, "Wrong!".to_owned(), None))
         {
             assert_eq!(
                 *resp,
@@ -565,7 +539,7 @@ mod tests {
         }
         // When we have unmatched, we generate a top-level error with Null id.
         if let Message::Response(ref resp) =
-        Message::error(RpcError::new(43, "Also wrong!".to_owned(), None))
+            Message::error(RpcError::new(43, "Also wrong!".to_owned(), None))
         {
             assert_eq!(
                 *resp,

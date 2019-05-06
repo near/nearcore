@@ -1,73 +1,93 @@
-use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::convert::TryInto;
 
-use futures::future;
-use hyper::http::response::Builder;
-use hyper::service::service_fn;
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use hyper::rt::{Future, Stream};
-use log::{info, error};
+use actix::Addr;
+use actix_web::{web, App, HttpResponse, HttpServer};
+use futures::future::Future;
+use log::{error, info};
+use protobuf::parse_from_bytes;
+use serde::de::DeserializeOwned;
+use serde_json::{json, Value};
 
-use methods::RPCAPIHandler;
-pub use server::JsonRpcServer;
+use message::Message;
+use near_client::ClientActor;
+use near_network::NetworkClientMessages;
+use near_protos::signed_transaction as transaction_proto;
 
-mod codec;
-mod connection;
-pub mod methods;
-mod server;
+use crate::message::{Request, RpcError};
+
+pub mod client;
 mod message;
 
-type BoxFut = Box<Future<Item = Response<Body>, Error = hyper::Error> + Send>;
-
-fn build_response() -> Builder {
-    let mut builder = Response::builder();
-    builder.header("Access-Control-Allow-Origin", "*").header(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With",
-    );
-    builder
-}
-
-fn serve(rpc_api: Arc<RPCAPIHandler>, req: Request<Body>) -> BoxFut {
-    match (req.method(), req.uri().path()) {
-        (&Method::OPTIONS, _) => {
-            // Pre-flight response for cross site access.
-            Box::new(
-                req.into_body()
-                    .concat2()
-                    .map(move |_| build_response().body(Body::empty()).unwrap()),
-            )
-        }
-        (&Method::POST, "/") => Box::new(req.into_body().concat2().map(move |chunk| {
-            match serde_json::from_slice(&chunk) {
-                Ok(request) => build_response()
-                    .body(Body::from(serde_json::to_string(&rpc_api.call(&request)).unwrap()))
-                    .unwrap(),
-                Err(e) => build_response()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from(e.to_string()))
-                    .unwrap(),
-            }
-        })),
-
-        _ => Box::new(future::ok(
-            build_response().status(StatusCode::NOT_FOUND).body(Body::empty()).unwrap(),
-        )),
+fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
+    if let Some(value) = value {
+        serde_json::from_value(value)
+            .map_err(|err| RpcError::invalid_params(Some(format!("Failed parsing args: {}", err))))
+    } else {
+        Err(RpcError::invalid_params(Some("Require at least one parameter".to_string())))
     }
 }
 
-/// Start HTTP server listening for JSON RPC requests.
-pub fn start_http(rpc_api: Arc<RPCAPIHandler>, addr: SocketAddr) {
-    let service = move || {
-        let rpc_api = rpc_api.clone();
-        service_fn(move |req| {
-            serve(rpc_api.clone(), req)
-        })
-    };
-    let server = Server::bind(&addr)
-        .serve(service)
-        .map_err(|err| error!(target: "jsonrpc", "Server error: {}", err));
-    hyper::rt::spawn(server);
-    info!(target: "jsonrpc", "Started JSON RPC server: {}", addr);
+struct JsonRpcHandler {
+    client_addr: Addr<ClientActor>,
+}
+
+impl JsonRpcHandler {
+    pub fn process(&self, message: Message) -> Message {
+        let id = message.id();
+        match message {
+            Message::Request(request) => Message::response(id, self.process_request(request)),
+            _ => Message::error(RpcError::invalid_request()),
+        }
+    }
+
+    fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+        match request.method.as_ref() {
+            "broadcast_tx_sync" => self.send_tx_sync(request.params),
+            "query" => self.query(request.params),
+            _ => Err(RpcError::method_not_found(request.method)),
+        }
+    }
+
+    fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let params = parse_params::<Vec<Vec<u8>>>(params)?;
+        if params.len() != 1 || params[0].len() == 0 {
+            return Err(RpcError::invalid_params(Some("Missing tx bytes".to_string())));
+        }
+        println!("Params: {:?}", params);
+        let tx: transaction_proto::SignedTransaction =
+            parse_from_bytes(&params[0]).map_err(|e| {
+                RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
+            })?;
+        let tx = tx.try_into().map_err(|e| {
+            RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
+        })?;
+        actix::spawn(
+            self.client_addr
+                .send(NetworkClientMessages::Transaction(tx))
+                .map(|_| {})
+                .map_err(|_| {}),
+        );
+        Ok(Value::Null)
+    }
+
+    fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        Ok(Value::Null)
+    }
+}
+
+fn index(handler: web::Data<JsonRpcHandler>, message: web::Json<Message>) -> HttpResponse {
+    HttpResponse::Ok().json(handler.process(message.0))
+}
+
+pub fn start_http(server_addr: &str, client_addr: Addr<ClientActor>) {
+    HttpServer::new(move || {
+        App::new()
+            .data(JsonRpcHandler { client_addr: client_addr.clone() })
+            .service(web::resource("/").route(web::post().to(index)))
+    })
+    .bind(server_addr)
+    .unwrap()
+    .workers(4)
+    .shutdown_timeout(5)
+    .start();
 }

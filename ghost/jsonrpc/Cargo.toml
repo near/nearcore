@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 ansi_term = "0.11.0"
 actix = "0.8.1"
+actix-web = "1.0.0-beta.3"
 bytes = "0.4.11"
 futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
@@ -18,16 +19,15 @@ jsonrpc-core = "11.0"
 jsonrpc-pubsub = "11.0"
 jsonrpc-http-server = "11.0"
 tokio = "0.1.15"
-hyper = "0.12.18"
 uuid = { version = "~0.6", features = ["v4"] }
+jsonrpc-client-core = "0.5.0"
+jsonrpc-client-http = "0.5.0"
+protobuf = "2.4"
 
 primitives = { path = "../../runtime/primitives" }
+near-protos = { path = "../../runtime/protos" }
 near-store = { path = "../store" }
 near-chain = { path = "../chain" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
-
-[dev-dependencies]
-jsonrpc-client-core = "0.5.0"
-jsonrpc-client-http = "0.5.0"
