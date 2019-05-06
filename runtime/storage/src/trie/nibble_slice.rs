@@ -162,6 +162,29 @@ impl<'a> NibbleSlice<'a> {
         r
     }
 
+    pub fn merge_encoded(&self, other: &Self, is_leaf: bool) -> ElasticArray36<u8> {
+        let l = self.len() + other.len();
+        let mut r = ElasticArray36::new();
+        let mut i = l % 2;
+        r.push(if i == 1 { 0x10 + self.at(0) } else { 0 } + if is_leaf { 0x20 } else { 0 });
+        while i < l {
+            let bit1 = if i < self.len() { self.at(i) } else { other.at(i - self.len()) };
+            let bit2 = if i + 1 < l {
+                if i + 1 < self.len() {
+                    self.at(i + 1)
+                } else {
+                    other.at(i + 1 - self.len())
+                }
+            } else {
+                0
+            };
+
+            r.push(bit1 * 16 + bit2);
+            i += 2;
+        }
+        r
+    }
+
     /// Encode only the leftmost `n` bytes of the nibble slice in prefixed hex notation,
     /// noting whether it `is_leaf`.
     pub fn encoded_leftmost(&self, n: usize, is_leaf: bool) -> ElasticArray36<u8> {
