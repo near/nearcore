@@ -14,6 +14,7 @@ use near_network::NetworkClientMessages;
 use near_protos::signed_transaction as transaction_proto;
 
 use crate::message::{Request, RpcError};
+use std::net::SocketAddr;
 
 pub mod client;
 mod message;
@@ -79,7 +80,7 @@ fn index(handler: web::Data<JsonRpcHandler>, message: web::Json<Message>) -> Htt
     HttpResponse::Ok().json(handler.process(message.0))
 }
 
-pub fn start_http(server_addr: &str, client_addr: Addr<ClientActor>) {
+pub fn start_http(server_addr: SocketAddr, client_addr: Addr<ClientActor>) {
     HttpServer::new(move || {
         App::new()
             .data(JsonRpcHandler { client_addr: client_addr.clone() })

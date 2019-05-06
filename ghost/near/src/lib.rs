@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
-use actix::{Actor, Addr, AsyncContext, System};
-use chrono::{DateTime, Utc};
-use log::LevelFilter;
+use actix::{Actor, Addr, AsyncContext};
 
-use near_chain::{Block, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter};
-use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_jsonrpc::JsonRpcServer;
-use near_network::{test_utils::convert_boot_nodes, NetworkConfig, PeerInfo, PeerManagerActor};
+use near_client::{BlockProducer, ClientActor};
+use near_jsonrpc::start_http;
+use near_network::PeerManagerActor;
 use near_store::test_utils::create_test_store;
 use node_runtime::chain_spec::ChainSpec;
 use primitives::crypto::signer::InMemorySigner;
@@ -34,7 +31,7 @@ pub fn start_with_config(
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
                 .start();
 
-        JsonRpcServer::new(config.rpc_server_addr, ctx.address()).start();
+        start_http(config.rpc_server_addr, ctx.address());
 
         ClientActor::new(
             config.client_config,

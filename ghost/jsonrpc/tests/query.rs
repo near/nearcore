@@ -28,7 +28,7 @@ fn test_send_tx() {
         );
 
         let addr = format!("127.0.0.1:{}", open_port());
-        start_http(&addr, client_addr.clone());
+        start_http(addr.parse().unwrap(), client_addr.clone());
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
@@ -69,7 +69,7 @@ fn test_query() {
         );
 
         let addr = format!("127.0.0.1:{}", open_port());
-        start_http(&addr, client_addr);
+        start_http(addr.parse().unwrap(), client_addr);
 
         let mut client = new_client(&format!("http://{}", addr));
         let result =
