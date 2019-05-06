@@ -13,16 +13,24 @@ use primitives::transaction::SignedTransaction;
 use primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId};
 
 use crate::config::GenesisConfig;
+use node_runtime::state_viewer::TrieViewer;
+use node_runtime::Runtime;
+use storage::trie::Trie;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
     store: Arc<Store>,
+
+    // trie: Arc<Trie>,
+    trie_viewer: TrieViewer,
+    runtime: Runtime,
 }
 
 impl NightshadeRuntime {
     pub fn new(store: Arc<Store>, genesis_config: GenesisConfig) -> Self {
-        NightshadeRuntime { store, genesis_config }
+        // let trie = Arc::new(Trie::new(storage))
+        NightshadeRuntime { store, genesis_config, runtime: Runtime {}, trie_viewer: TrieViewer {} }
     }
 }
 

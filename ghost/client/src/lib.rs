@@ -506,7 +506,9 @@ impl ClientActor {
             if let Some(full_peer_info) = most_weight_peer(&self.network_info.most_weight_peers) {
                 full_peer_info
             } else {
-                warn!(target: "client", "Sync: no peers available, disabling sync");
+                if !self.config.skip_sync_wait {
+                    warn!(target: "client", "Sync: no peers available, disabling sync");
+                }
                 return Ok((false, 0));
             };
 

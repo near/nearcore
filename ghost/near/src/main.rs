@@ -63,7 +63,8 @@ fn main() {
         let system = System::new("NEAR");
         let genesis_timestamp = Utc::now();
         let genesis_config = GenesisConfig::test(vec!["alice.near"]);
-        let near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
+        let mut near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
+        near.client_config.skip_sync_wait = true;
         let block_producer = BlockProducer::test("alice.near");
         start_with_config(genesis_config, near, Some(block_producer));
         system.run().unwrap();

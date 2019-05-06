@@ -19,6 +19,7 @@ serde_derive = "1.0"
 dirs = "1.0.5"
 
 primitives = { path = "../../runtime/primitives" }
+storage = { path = "../../runtime/storage" }
 node-runtime = { path = "../../runtime/runtime" }
 near-store = { path = "../store" }
 near-chain = { path = "../chain" }
