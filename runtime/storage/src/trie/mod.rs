@@ -126,7 +126,7 @@ enum RawTrieNode {
 
 struct NodesStorage {
     nodes: Vec<Option<TrieNode>>,
-    refcount_changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    refcount_changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
 }
 
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
@@ -347,9 +347,6 @@ impl TrieCachingStorage {
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, String> {
-        if *hash == Trie::empty_root() {
-            return Ok(TrieNode::Empty);
-        }
         if let Some(bytes) = self.retrieve_raw_bytes(hash) {
             match RcTrieNode::decode(&bytes) {
                 Ok((value, _)) => Ok(TrieNode::new(value)),
@@ -383,12 +380,15 @@ pub struct Trie {
 /// resolve a fork -> apply opposite of insertions
 /// discard old parent which has no forks from it -> apply deletions
 ///
+/// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
 /// DBChanges are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
+    #[allow(dead_code)]
+    old_root: CryptoHash,
     new_root: CryptoHash,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
-    deletions: Vec<(CryptoHash, u32)>,           // key, rc
+    deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 pub type DBChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
@@ -416,9 +416,30 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
-            let result = memory.store(self.storage.retrieve_node(hash)?);
-            memory.refcount_changes.entry(*hash).or_default().1 -= 1;
-            Ok(result)
+            if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
+                match RcTrieNode::decode(&bytes) {
+                    Ok((value, _)) => {
+                        let result = memory.store(TrieNode::new(value));
+                        memory
+                            .refcount_changes
+                            .entry(*hash)
+                            .or_insert_with(|| {
+                                (
+                                    RcTrieNode::decode_raw(&bytes)
+                                        .expect("calling after decode()")
+                                        .0
+                                        .to_vec(),
+                                    0,
+                                )
+                            })
+                            .1 -= 1;
+                        Ok(result)
+                    }
+                    Err(_) => Err(format!("Failed to decode node {}", hash)),
+                }
+            } else {
+                Err(format!("Node {} not found in storage", hash))
+            }
         }
     }
 
@@ -822,7 +843,11 @@ impl Trie {
         Ok(())
     }
 
-    fn flatten_nodes(memory: NodesStorage, node: StorageHandle) -> TrieChanges {
+    fn flatten_nodes(
+        old_root: &CryptoHash,
+        memory: NodesStorage,
+        node: StorageHandle,
+    ) -> TrieChanges {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
@@ -891,29 +916,27 @@ impl Trie {
             raw_node.encode_into(&mut buffer).expect("Failed to serialize");
             let key = hash(&buffer);
 
-            let (value, rc) = memory.refcount_changes.entry(key).or_insert_with(|| (None, 0));
+            let (_value, rc) =
+                memory.refcount_changes.entry(key).or_insert_with(|| (buffer.clone(), 0));
             *rc += 1;
-            if *rc > 0 && value.is_none() {
-                *value = Some(buffer.clone());
-            }
             buffer.clear();
             last_hash = key;
         }
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
-        TrieChanges { new_root: last_hash, insertions, deletions }
+        TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions }
     }
 
     fn convert_to_insertions_and_deletions(
-        changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, u32)>)) {
+        changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
+    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
             if rc > 0 {
-                insertions.push((key, value.unwrap(), rc as u32));
+                insertions.push((key, value, rc as u32));
             } else if rc < 0 {
-                deletions.push((key, (-rc) as u32));
+                deletions.push((key, value, (-rc) as u32));
             }
         }
         // Sort so that trie changes have unique representation
@@ -945,23 +968,21 @@ impl Trie {
                 }
             }
         }
-        let trie_changes = Trie::flatten_nodes(memory, root_node);
+        let trie_changes = Trie::flatten_nodes(root, memory, root_node);
 
         self.convert_to_db_changes(trie_changes)
     }
 
     pub fn convert_to_db_changes(&self, changes: TrieChanges) -> (DBChanges, CryptoHash) {
         let mut db_changes = HashMap::default();
-        let TrieChanges { new_root, insertions, deletions } = changes;
+        let TrieChanges { old_root: _, new_root, insertions, deletions } = changes;
         for (key, value, rc) in insertions.into_iter() {
             let storage_rc = self.storage.retrieve_rc(&key).unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
             db_changes.insert(key.as_ref().to_vec(), Some(bytes));
         }
-        for (key, rc) in deletions.into_iter() {
-            let bytes =
-                self.storage.retrieve_raw_bytes(&key).expect("Node to delete does not exist");
-            let (value, storage_rc) = RcTrieNode::decode_raw(&bytes).expect("Decoding failed");
+        for (key, value, rc) in deletions.into_iter() {
+            let storage_rc = self.storage.retrieve_rc(&key).unwrap_or_default();
             assert!(rc <= storage_rc);
             if rc < storage_rc {
                 let bytes =
