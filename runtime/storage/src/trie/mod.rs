@@ -285,10 +285,10 @@ impl RcTrieNode {
         Ok(cursor.into_inner())
     }
 
-    fn decode_raw(bytes: &[u8]) -> Result<(Vec<u8>, u32), std::io::Error> {
+    fn decode_raw(bytes: &[u8]) -> Result<(&[u8], u32), std::io::Error> {
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;
-        Ok((bytes[..bytes.len() - 4].to_vec(), rc))
+        Ok((&bytes[..bytes.len() - 4], rc))
     }
 
     fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
@@ -327,14 +327,22 @@ impl TrieCachingStorage {
         }
     }
 
-    fn retrieve_raw_node(&self, hash: &CryptoHash) -> Option<(Vec<u8>, u32)> {
-        if let Some(bytes) = self.retrieve_raw_bytes(hash) {
-            match RcTrieNode::decode_raw(&bytes) {
-                Ok((bytes, rc)) => Some((bytes, rc)),
-                Err(_) => None,
-            }
+    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        if let Some(val) = (*guard).cache_get(hash) {
+            val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1)
         } else {
-            None
+            let val = if let Ok(Some(bytes)) =
+                self.storage.read().expect(POISONED_LOCK_ERR).get_state(hash)
+            {
+                Some(bytes)
+            } else {
+                None
+            };
+            let rc =
+                val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1);
+            (*guard).cache_set(*hash, val);
+            rc
         }
     }
 
@@ -408,7 +416,7 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
-            let result = memory.store(self.retrieve_node(hash)?);
+            let result = memory.store(self.storage.retrieve_node(hash)?);
             memory.refcount_changes.entry(*hash).or_default().1 -= 1;
             Ok(result)
         }
@@ -945,14 +953,14 @@ impl Trie {
         let mut db_changes = HashMap::default();
         let TrieChanges { new_root, insertions, deletions } = changes;
         for (key, value, rc) in insertions.into_iter() {
-            let storage_rc =
-                self.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
+            let storage_rc = self.storage.retrieve_rc(&key).unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
             db_changes.insert(key.as_ref().to_vec(), Some(bytes));
         }
         for (key, rc) in deletions.into_iter() {
-            let (value, storage_rc) =
-                self.storage.retrieve_raw_node(&key).expect("Node to delete does not exist");
+            let bytes =
+                self.storage.retrieve_raw_bytes(&key).expect("Node to delete does not exist");
+            let (value, storage_rc) = RcTrieNode::decode_raw(&bytes).expect("Decoding failed");
             assert!(rc <= storage_rc);
             if rc < storage_rc {
                 let bytes =
@@ -971,7 +979,11 @@ impl Trie {
 
     #[inline]
     pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
-        self.storage.cache.lock().expect(POISONED_LOCK_ERR).cache_clear();
+        let mut guard = self.storage.cache.lock().expect(POISONED_LOCK_ERR);
+        for (key, value) in changes.iter() {
+            let hash = CryptoHash::try_from(&key[..]).expect("Key is always a hash");
+            (*guard).cache_set(hash, value.clone());
+        }
         self.storage.storage.read().expect(POISONED_LOCK_ERR).apply_state_updates(changes)
     }
 }
