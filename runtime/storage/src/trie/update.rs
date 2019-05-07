@@ -30,8 +30,8 @@ impl TrieUpdate {
     pub fn set(&mut self, key: &[u8], value: &DBValue) {
         self.prospective.insert(key.to_vec(), Some(value.to_vec()));
     }
-    pub fn remove(&mut self, key: &[u8]) {
-        self.prospective.insert(key.to_vec(), None);
+    pub fn remove(&mut self, key: &[u8]) -> Option<Vec<u8>> {
+        self.prospective.insert(key.to_vec(), None)
     }
 
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
