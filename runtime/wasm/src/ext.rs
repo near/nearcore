@@ -13,7 +13,7 @@ pub enum Error {
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 pub trait External {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()>;
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>>;
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
 

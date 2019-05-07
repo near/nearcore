@@ -20,10 +20,9 @@ fn generate_promise_id(index: u32) -> ReceiptId {
 }
 
 impl External for MyExt {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
-        self.storage.insert(Vec::from(key), Vec::from(value));
-        Ok(())
+        Ok(self.storage.insert(Vec::from(key), Vec::from(value)))
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {

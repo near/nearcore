@@ -84,10 +84,9 @@ impl<'a> RuntimeExt<'a> {
 }
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<()> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        self.trie_update.set(&storage_key, &DBValue::from_slice(value));
-        Ok(())
+        Ok(self.trie_update.set(&storage_key, &DBValue::from_slice(value)))
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
