@@ -1,6 +1,5 @@
 use crate::remote_node::{get_result, RemoteNode, MAX_BLOCKS_FETCH};
 use std::cmp::min;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 

@@ -1,6 +1,6 @@
 use kvdb::DBValue;
 use primitives::types::MerkleHash;
-use std::collections::BTreeMap;
+use std::collections::btree_map::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 

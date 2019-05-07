@@ -6,11 +6,11 @@ use primitives::transaction::{
 use primitives::types::{AccountId, Balance, MerkleHash};
 
 pub mod runtime_user;
+pub use self::runtime_user::RuntimeUser;
 use futures::Future;
 use primitives::account::AccessKey;
 use primitives::crypto::signature::PublicKey;
 use primitives::receipt::ReceiptInfo;
-pub use runtime_user::RuntimeUser;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
