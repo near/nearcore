@@ -3,18 +3,19 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::hash::CryptoHash;
+use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_store::test_utils::create_test_store;
+use near_store::{Store, StoreUpdate};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};
 use crate::{Block, Chain};
-use near_primitives::hash::CryptoHash;
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -100,6 +101,16 @@ impl RuntimeAdapter for KeyValueRuntime {
         _transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String> {
         Ok((self.store.store_update(), *state_root))
+    }
+
+    fn query(
+        &self,
+        state_root: MerkleHash,
+        height: BlockIndex,
+        path: &str,
+        data: &[u8],
+    ) -> Result<ABCIQueryResponse, String> {
+        Err("Not implemented".to_string())
     }
 }
 

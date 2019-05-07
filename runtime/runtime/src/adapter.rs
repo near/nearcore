@@ -1,12 +1,20 @@
-use crate::state_viewer::AccountViewCallResult;
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+
+use crate::state_viewer::AccountViewCallResult;
 
 /// Adapter for querying runtime.
 pub trait RuntimeAdapter {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
+    fn view_account(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<AccountViewCallResult, String>;
+
     fn call_function(
         &self,
+        state_root: MerkleHash,
+        height: BlockIndex,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -18,23 +26,25 @@ pub trait RuntimeAdapter {
 /// Given implementation only supports latest height, thus ignoring it.
 pub fn query_client(
     adapter: &RuntimeAdapter,
+    state_root: MerkleHash,
+    height: BlockIndex,
     path: &str,
     data: &[u8],
-    _height: u64,
-    _prove: bool,
 ) -> Result<ABCIQueryResponse, String> {
     let path_parts: Vec<&str> = path.split('/').collect();
     if path_parts.is_empty() {
         return Err("Path must contain at least single token".to_string());
     }
     match path_parts[0] {
-        "account" => match adapter.view_account(&AccountId::from(path_parts[1])) {
+        "account" => match adapter.view_account(state_root, &AccountId::from(path_parts[1])) {
             Ok(r) => Ok(ABCIQueryResponse::account(path, r)),
             Err(e) => Err(e),
         },
         "call" => {
             let mut logs = vec![];
             match adapter.call_function(
+                state_root,
+                height,
                 &AccountId::from(path_parts[1]),
                 path_parts[2],
                 &data,

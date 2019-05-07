@@ -385,8 +385,6 @@ pub struct TrieChanges {
     deletions: Vec<(CryptoHash, u32)>,           // key, rc
 }
 
-pub type DBChanges = HashMap<Vec<u8>, Option<Vec<u8>>>;
-
 enum FlattenNodesCrumb {
     Entering,
     AtChild(Box<[Option<CryptoHash>; 16]>, usize),
@@ -938,7 +936,6 @@ impl Trie {
                 }
             }
         }
-        //        println!("root node is {}", memory.node_ref(root_node).deep_to_string(&memory));
         let trie_changes = Trie::flatten_nodes(memory, root_node);
 
         self.convert_to_store_update(trie_changes)
@@ -972,17 +969,9 @@ impl Trie {
         TrieIterator::new(self, root)
     }
 
-    #[inline]
-    pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
+    /// Clears cache. Must be done after changes made to underlying storage.
+    pub fn clear_cache(&self) {
         self.storage.cache.lock().expect(POISONED_LOCK_ERR).cache_clear();
-        let mut update = self.storage.store.store_update();
-        for (key, value) in changes {
-            match value {
-                Some(arr) => update.set(COL_STATE, &key, &arr),
-                None => update.delete(COL_STATE, &key),
-            }
-        }
-        update.commit()
     }
 }
 

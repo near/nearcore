@@ -1,9 +1,3 @@
-use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
-use crate::test_helpers::wait;
-use crate::user::User;
-use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use node_runtime::state_viewer::AccountViewCallResult;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
@@ -17,6 +11,13 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountingInfo;
 use near_primitives::utils::key_for_callback;
 use near_store::set;
+use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use node_runtime::state_viewer::AccountViewCallResult;
+
+use crate::node::{Node, RuntimeNode};
+use crate::runtime_utils::{bob_account, encode_int, eve_account};
+use crate::test_helpers::wait;
+use crate::user::User;
 
 /// validate transaction result in the case that it is successfully and generate one receipt which
 /// itself generates another receipt. sfdsa
@@ -560,7 +561,7 @@ pub fn test_send_money(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -573,7 +574,7 @@ pub fn test_send_money(node: impl Node) {
             public_keys,
             amount: TESTING_INIT_BALANCE + money_used,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 }
@@ -609,7 +610,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -622,7 +623,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 }
@@ -665,7 +666,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
     let result2 = node_user.view_account(&eve_account());
@@ -707,7 +708,7 @@ pub fn test_create_account(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 
@@ -751,7 +752,7 @@ pub fn test_create_account_again(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 
@@ -804,7 +805,7 @@ pub fn test_create_account_again(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 }
@@ -850,7 +851,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
                 public_keys: vec![node.signer().public_key],
                 amount: TESTING_INIT_BALANCE,
                 stake: TESTING_INIT_STAKE,
-                code_hash: default_code_hash(),
+                code_hash: CryptoHash::default(),
             }
         );
     }
@@ -895,7 +896,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
             public_keys: vec![node.signer().public_key],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 
@@ -909,7 +910,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
-            code_hash: default_code_hash(),
+            code_hash: CryptoHash::default(),
         }
     );
 }

@@ -5,6 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+bs58 = "0.2.0"
 byteorder = "1.2"
 elastic-array = { version = "0.10" }
 kvdb = "0.1"

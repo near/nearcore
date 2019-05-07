@@ -1,4 +1,3 @@
-use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 use near_primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use near_primitives::crypto::group_signature::GroupSignature;
@@ -13,6 +12,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use node_runtime::ethereum::EthashProvider;
 use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
+use near::GenesisConfig;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -24,34 +24,26 @@ pub fn eve_account() -> AccountId {
     "eve.near".to_string()
 }
 
-pub fn default_code_hash() -> CryptoHash {
-    let genesis_wasm = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
-    hash(genesis_wasm)
-}
-
 pub fn get_runtime_and_trie_from_chain_spec(
-    chain_spec: &ChainSpec,
+    genesis_config: &GenesisConfig
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
     let dir = TempDir::new("ethash_test").unwrap();
     let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
     let runtime = Runtime::new(ethash_provider);
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
-//    let (store_update, genesis_root) = runtime.apply_genesis_state(
-//        trie_update,
-//        &chain_spec.accounts,
-//        &chain_spec.genesis_wasm,
-//        &chain_spec.initial_authorities,
-//    );
-//    store_update.commit().unwrap();
-    let genesis_root = MerkleHash::default();
+    let (store_update, genesis_root) = runtime.apply_genesis_state(
+        trie_update,
+        &genesis_config.accounts,
+        &genesis_config.authorities,
+    );
+    store_update.commit().unwrap();
     (runtime, trie, genesis_root)
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let (chain_spec, _) =
-        ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority);
-    get_runtime_and_trie_from_chain_spec(&chain_spec)
+    let genesis_config = GenesisConfig::test(vec!["alice.near", "bob.near", "carol.near"]);
+    get_runtime_and_trie_from_chain_spec(&genesis_config)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {

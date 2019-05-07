@@ -5,15 +5,15 @@ use std::sync::{Arc, Mutex};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{
-    AccountId, BlockIndex, MerkleHash, ShardId,
-};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
+use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{Runtime, ETHASH_CACHE_PATH, ApplyState};
+use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
+use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 
@@ -67,7 +67,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
-            self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &vec![]);
+            self.runtime.apply_genesis_state(state_update, &accounts, &authorities);
         println!("State root: {}", state_root);
         (store_update, state_root)
     }
@@ -118,13 +118,49 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_index,
             parent_block_hash: *prev_block_hash,
         };
+        // XXX: terrible place for clearing the cache.
+        self.trie.clear_cache();
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result = self.runtime.apply(
             state_update,
             &apply_state,
             &vec![], // TODO: prev receipts
-            &transactions
+            &transactions,
         );
         Ok((apply_result.state_update, apply_result.root))
+    }
+
+    fn query(
+        &self,
+        state_root: MerkleHash,
+        height: BlockIndex,
+        path: &str,
+        data: &[u8],
+    ) -> Result<ABCIQueryResponse, String> {
+        query_client(self, state_root, height, path, data)
+    }
+}
+
+impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
+    fn view_account(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<AccountViewCallResult, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.view_account(&state_update, account_id)
+    }
+
+    fn call_function(
+        &self,
+        state_root: MerkleHash,
+        height: BlockIndex,
+        contract_id: &AccountId,
+        method_name: &str,
+        args: &[u8],
+        logs: &mut Vec<String>,
+    ) -> Result<Vec<u8>, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
     }
 }

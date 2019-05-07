@@ -55,12 +55,10 @@ impl GenesisConfig {
     pub fn test(seeds: Vec<&str>) -> Self {
         let mut authorities = vec![];
         let mut accounts = vec![];
-        let balance = TESTING_INIT_BALANCE;
-        let stake = TESTING_INIT_STAKE;
         for account in seeds {
             let signer = InMemorySigner::from_seed(account, account);
-            authorities.push((account.to_string(), signer.public_key.to_readable(), stake));
-            accounts.push((account.to_string(), signer.public_key.to_readable(), balance));
+            authorities.push((account.to_string(), signer.public_key.to_readable(), TESTING_INIT_STAKE));
+            accounts.push((account.to_string(), signer.public_key.to_readable(), TESTING_INIT_BALANCE));
         }
         GenesisConfig {
             genesis_time: Utc::now(),
@@ -68,6 +66,26 @@ impl GenesisConfig {
             num_shards: 1,
             authorities,
             accounts,
+        }
+    }
+
+    pub fn testing_spec(num_accounts: usize, num_authorities: usize) -> Self {
+        let mut accounts = vec![];
+        let mut authorities = vec![];
+        for i in 0..num_accounts {
+            let account_id = format!("near.{}", i);
+            let signer = InMemorySigner::from_seed(&account_id, &account_id);
+            if i < num_authorities {
+                authorities.push((account_id.clone(), signer.public_key.to_readable(), TESTING_INIT_STAKE));
+            }
+            accounts.push((account_id, signer.public_key.to_readable(), TESTING_INIT_BALANCE));
+        }
+        GenesisConfig {
+            genesis_time: Utc::now(),
+            chain_id: random_chain_id(),
+            num_shards: 1,
+            authorities,
+            accounts
         }
     }
 

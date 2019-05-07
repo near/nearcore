@@ -136,19 +136,20 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
 }
 
 impl RuntimeAdapter for NearMint {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+    fn view_account(&self, state_root: MerkleHash, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn call_function(
         &self,
+        state_root: MerkleHash,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, String> {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.call_function(
             state_update,
             self.height,

@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, fmt};
 use std::sync::Arc;
 
 use cached::{Cached, SizedCache};
@@ -113,6 +113,19 @@ impl StoreUpdate {
 
     pub fn commit(self) -> Result<(), io::Error> {
         self.storage.write(self.transaction)
+    }
+}
+
+impl fmt::Debug for StoreUpdate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Store Update {{\n")?;
+        for op in self.transaction.ops.iter() {
+            match op {
+                DBOp::Insert { col, key, value: _ } => write!(f, "  + {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?,
+                DBOp::Delete { col, key} => write!(f, "  - {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
+            }
+        }
+        write!(f, "}}\n")
     }
 }
 

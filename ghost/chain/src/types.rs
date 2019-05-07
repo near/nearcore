@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::iter::FromIterator;
@@ -7,17 +8,17 @@ use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 
-use near_protos::chain as chain_proto;
-use near_store::StoreUpdate;
 use near_primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
 use near_primitives::utils::proto_to_type;
+use near_protos::chain as chain_proto;
+use near_store::StoreUpdate;
 
 use crate::error::Error;
-use std::collections::HashMap;
+use near_primitives::rpc::ABCIQueryResponse;
 
 /// Number of nano seconds in one second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -330,6 +331,9 @@ pub trait RuntimeAdapter {
         prev_block_hash: &CryptoHash,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String>;
+
+    /// Query runtime with given `path` and `data`.
+    fn query(&self, state_root: MerkleHash, height: BlockIndex, path: &str, data: &[u8]) -> Result<ABCIQueryResponse, String>;
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.

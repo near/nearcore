@@ -13,7 +13,7 @@ use near_store::create_store;
 pub use crate::config::{init_config, GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
 
-mod config;
+pub mod config;
 mod runtime;
 
 const STORE_PATH: &str = "data";

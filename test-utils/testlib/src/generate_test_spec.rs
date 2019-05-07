@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+
 ///! Generate a ChainSpec that can be used for running alphanet.
 ///! The account names created during generation are: near.0, near.1, etc.
 use clap::{App, Arg};
-use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
-use std::path::PathBuf;
+
+use near::config::GenesisConfig;
 
 fn main() {
     let chain_spec_path_arg = &Arg::with_name("chain_spec_file")
@@ -42,11 +44,6 @@ fn main() {
         .value_of("number_of_init_authorities")
         .map(|x| x.parse::<usize>().unwrap())
         .unwrap();
-    let (chain_spec, _) = ChainSpec::testing_spec(
-        DefaultIdType::Enumerated,
-        num_accounts,
-        num_init_auth,
-        AuthorityRotation::ProofOfAuthority,
-    );
-    chain_spec.write_to_file(&chain_spec_file);
+    let genesis_config = GenesisConfig::testing_spec(num_accounts, num_init_auth);
+    genesis_config.write_to_file(&chain_spec_file);
 }

@@ -478,7 +478,7 @@ mod tests {
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
-        trie.apply_changes(db_changes).expect("Failed to commit genesis state");
+        db_changes.commit().expect("Failed to commit genesis state");
         let genesis = SignedShardBlock::genesis(genesis_root);
         let _ = Arc::new(chain::BlockChain::new(genesis, shard_storage.clone()));
         (shard_storage, trie, signers)

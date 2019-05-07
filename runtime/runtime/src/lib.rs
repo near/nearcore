@@ -760,10 +760,8 @@ impl Runtime {
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance)],
         authorities: &[(AccountId, ReadablePublicKey, Balance)],
-        wasm_binary: &[u8],
     ) -> (StoreUpdate, MerkleHash) {
         balances.iter().for_each(|(account_id, public_key, balance)| {
-            let code = ContractCode::new(wasm_binary.to_vec());
             set(
                 &mut state_update,
                 &key_for_account(&account_id),
@@ -772,11 +770,9 @@ impl Runtime {
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
-                    code_hash: code.get_hash(),
+                    code_hash: CryptoHash::default(),
                 },
             );
-            // Default code
-            set(&mut state_update, &key_for_code(&account_id), &code);
         });
         for (account_id, _, amount) in authorities {
             let account_id_bytes = key_for_account(account_id);
@@ -804,7 +800,7 @@ mod tests {
 
     use super::*;
 
-    // TODO(#348): Add tests for TX staking, mana charging and regeneration
+// TODO(#348): Add tests for TX staking, mana charging and regeneration
 
     #[test]
     fn test_get_and_set_accounts() {

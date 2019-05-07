@@ -1,21 +1,22 @@
 use std::panic;
 use std::sync::Arc;
+use std::sync::RwLock;
 
-use node_runtime::chain_spec::ChainSpec;
+use near::config::GenesisConfig;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
+pub use runtime_node::RuntimeNode;
 
 use crate::user::{AsyncUser, User};
-use std::sync::RwLock;
+
 pub mod runtime_node;
-pub use runtime_node::RuntimeNode;
 
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
-pub fn configure_chain_spec() -> ChainSpec {
-    ChainSpec::default_poa()
+pub fn configure_chain_spec() -> GenesisConfig {
+    GenesisConfig::test(vec!["alice.near", "bob.near"])
 }
 
 /// Config that can be used to start a node or connect to an existing node.

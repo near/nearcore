@@ -142,9 +142,10 @@ impl Chain {
                     store_update.save_head(&head)?;
                     store_update.save_sync_head(&head);
 
+                    println!("State: {:?}", state_store_update);
                     store_update.merge(state_store_update);
 
-                    info!(target: "chain", "Init: saved genesis: {:?}", genesis.hash());
+                    info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_root);
                 }
                 e => return Err(e.into()),
             },

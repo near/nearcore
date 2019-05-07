@@ -1,23 +1,23 @@
-// //! Simply starts and runs TestNet for a while.
-//#[cfg(feature = "old_tests")]
-//#[cfg(test)]
-//mod test {
-//    use std::sync::Arc;
-//    use std::thread;
-//    use std::time::Duration;
-//
+ //! Simply starts and runs TestNet for a while.
+#[cfg(feature = "old_tests")]
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
 //    use network::proxy::benchmark::BenchmarkHandler;
 //    use network::proxy::ProxyHandler;
-//    use near_primitives::transaction::TransactionBody;
+    use near_primitives::transaction::TransactionBody;
 //    use testlib::node::{
 //        create_nodes, sample_two_nodes, Node, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
 //    };
-//    use testlib::test_helpers::{heavy_test, wait};
-//
-//    fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
-//        // Add proxy handlers to the pipeline.
+    use testlib::test_helpers::{heavy_test, wait};
+
+    fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
+        // Add proxy handlers to the pipeline.
 //        let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
-//
+
 //        let (init_balance, account_names, mut nodes) = create_nodes(
 //            num_nodes,
 //            test_prefix,
@@ -65,15 +65,15 @@
 //            );
 //            thread::sleep(Duration::from_millis(500));
 //        }
-//    }
-//
-//    #[test]
-//    fn test_4_10_multiple_nodes() {
-//        heavy_test(|| run_multiple_nodes(4, 10, "4_10", 3200));
-//    }
-//
-//    #[test]
-//    fn test_7_10_multiple_nodes() {
-//        heavy_test(|| run_multiple_nodes(7, 10, "7_10", 3300));
-//    }
-//}
+    }
+
+    #[test]
+    fn test_4_10_multiple_nodes() {
+        heavy_test(|| run_multiple_nodes(4, 10, "4_10", 3200));
+    }
+
+    #[test]
+    fn test_7_10_multiple_nodes() {
+        heavy_test(|| run_multiple_nodes(7, 10, "7_10", 3300));
+    }
+}

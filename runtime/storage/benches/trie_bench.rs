@@ -23,7 +23,7 @@ fn trie_lookup(bench: &mut Bencher) {
     }
     let other_changes = changes.clone();
     let (db_changes, root) = trie.update(&root, changes.drain(..));
-    trie.apply_changes(db_changes).expect("Failed to commit");
+    db_changes.commit().expect("Failed to commit");
 
     bench.iter(|| {
         for _ in 0..1 {
