@@ -1,12 +1,15 @@
-use kvdb::DBValue;
-use log::debug;
-use near_primitives::types::MerkleHash;
 use std::collections::BTreeMap;
 use std::iter::Peekable;
 use std::sync::Arc;
 
-use super::{Trie, TrieIterator};
+use kvdb::DBValue;
+use log::debug;
+
+use near_primitives::types::MerkleHash;
+
 use crate::StoreUpdate;
+
+use super::{Trie, TrieIterator};
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
@@ -271,6 +274,7 @@ mod tests {
         trie_update.set(b"xxx", &DBValue::from_slice(b"puppy"));
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
         let trie_update2 = TrieUpdate::new(trie.clone(), new_root);
         assert_eq!(trie_update2.get(b"dog").unwrap(), DBValue::from_slice(b"puppy"));
         let mut values = vec![];
@@ -287,6 +291,7 @@ mod tests {
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add and right away delete element.
@@ -295,6 +300,7 @@ mod tests {
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add, apply changes and then delete element.
@@ -302,11 +308,13 @@ mod tests {
         trie_update.set(b"dog", &DBValue::from_slice(b"puppy"));
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
         assert_ne!(new_root, MerkleHash::default());
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
     }
 
@@ -318,6 +326,7 @@ mod tests {
         trie_update.set(b"aaa", &DBValue::from_slice(b"puppy"));
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
+        trie.clear_cache();
 
         let mut trie_update = TrieUpdate::new(trie.clone(), new_root);
         trie_update.set(b"dog2", &DBValue::from_slice(b"puppy"));

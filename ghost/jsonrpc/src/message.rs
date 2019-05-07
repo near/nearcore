@@ -52,6 +52,7 @@ impl<'de> Deserialize<'de> for Version {
 
 /// An RPC request.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Request {
     jsonrpc: Version,
     pub method: String,
@@ -265,7 +266,7 @@ impl Message {
 ///
 /// Protocol-level errors.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-// #[serde(untagged)]
+#[serde(untagged)]
 pub enum Broken {
     /// It was valid JSON, but doesn't match the form of a JSONRPC 2.0 message.
     Unmatched(Value),
@@ -289,7 +290,7 @@ impl Broken {
 
 /// A trick to easily deserialize and detect valid JSON, but invalid Message.
 #[derive(Deserialize)]
-// #[serde(untagged)]
+#[serde(untagged)]
 pub(crate) enum WireMessage {
     Message(Message),
     Broken(Broken),

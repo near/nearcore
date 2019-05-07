@@ -16,12 +16,12 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, MerkleHash, Nonce};
 use near_store::{Trie, TrieUpdate};
+use node_runtime::{ApplyState, Runtime};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
-use node_runtime::{ApplyState, Runtime};
 
 use crate::runtime_utils::to_receipt_block;
-use crate::user::{User, POISONED_LOCK_ERR};
+use crate::user::{POISONED_LOCK_ERR, User};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -86,13 +86,16 @@ impl RuntimeUser {
             for (i, receipt) in receipts.iter().flat_map(|b| b.receipts.iter()).enumerate() {
                 counter += 1;
                 let transaction_result = apply_result.tx_result[i].clone();
+                println!("R: {:?}", transaction_result);
                 self.transaction_results.borrow_mut().insert(receipt.nonce, transaction_result);
             }
             for (i, tx) in txs.iter().enumerate() {
                 let transaction_result = apply_result.tx_result[i + counter].clone();
+                println!("Tx: {:?}", transaction_result);
                 self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
             }
             apply_result.state_update.commit().unwrap();
+            client.trie.clear_cache();
             if apply_result.new_receipts.is_empty() {
                 client.state_root = apply_result.root;
                 return;

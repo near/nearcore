@@ -270,7 +270,7 @@ fn skip_block_production() {
         setup_mock(
             vec!["test1", "test2"],
             "test2",
-            false,
+            true,
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {

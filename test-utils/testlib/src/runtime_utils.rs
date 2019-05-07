@@ -38,6 +38,7 @@ pub fn get_runtime_and_trie_from_chain_spec(
         &genesis_config.authorities,
     );
     store_update.commit().unwrap();
+    trie.clear_cache();
     (runtime, trie, genesis_root)
 }
 

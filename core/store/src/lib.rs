@@ -1,5 +1,5 @@
-use std::{io, fmt};
 use std::sync::Arc;
+use std::{fmt, io};
 
 use cached::{Cached, SizedCache};
 use kvdb::{DBOp, DBTransaction, DBValue, KeyValueDB};
@@ -121,8 +121,12 @@ impl fmt::Debug for StoreUpdate {
         write!(f, "Store Update {{\n")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, value: _ } => write!(f, "  + {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?,
-                DBOp::Delete { col, key} => write!(f, "  - {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
+                DBOp::Insert { col, key, value: _ } => {
+                    write!(f, "  + {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
+                }
+                DBOp::Delete { col, key } => {
+                    write!(f, "  - {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
+                }
             }
         }
         write!(f, "}}\n")

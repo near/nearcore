@@ -1212,6 +1212,7 @@ mod tests {
         let mut other_changes = changes.clone();
         let (db_changes, root) = trie.update(root, other_changes.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
         }
@@ -1224,6 +1225,7 @@ mod tests {
         let mut other_delete_changes = delete_changes.clone();
         let (db_changes, root) = trie.update(root, other_delete_changes.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
         }
@@ -1369,6 +1371,7 @@ mod tests {
         ];
         let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
 
         let mut changes = vec![
             (vec![99, 44, 100, 58, 58, 45, 49], None),
@@ -1376,6 +1379,7 @@ mod tests {
         ];
         let (db_changes, root) = trie.update(&root, changes.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1391,6 +1395,7 @@ mod tests {
         ];
         let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1398,6 +1403,7 @@ mod tests {
         let mut changes = vec![(vec![1, 2, 3], None)];
         let (db_changes, root) = trie.update(&root, changes.drain(..));
         db_changes.commit().unwrap();
+        trie.clear_cache();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
