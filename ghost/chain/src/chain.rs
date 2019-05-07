@@ -253,12 +253,6 @@ impl Chain {
         }
     }
 
-    /// Retruns block header from the current chain for given height if present.
-    pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
-        let hash = self.store.get_block_hash_by_height(height)?.clone();
-        self.store.get_block_header(&hash)
-    }
-
     /// Finds first of the given hashes that is known on the main chain.
     pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
         for hash in hashes {
@@ -436,10 +430,24 @@ impl Chain {
         self.store.get_block(hash)
     }
 
+    /// Gets a block from the current chain by height.
+    #[inline]
+    pub fn get_block_by_height(&mut self, height: BlockIndex) -> Result<&Block, Error> {
+        let hash = self.store.get_block_hash_by_height(height)?.clone();
+        self.store.get_block(&hash)
+    }
+
     /// Gets a block header by hash.
     #[inline]
     pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
         self.store.get_block_header(hash)
+    }
+
+    /// Returns block header from the current chain for given height if present.
+    #[inline]
+    pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+        let hash = self.store.get_block_hash_by_height(height)?.clone();
+        self.store.get_block_header(&hash)
     }
 
     /// Get previous block header.

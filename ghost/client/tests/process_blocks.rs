@@ -7,7 +7,7 @@ use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
-use near_client::GetBlock;
+use near_client::{GetBlock, Query};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
@@ -317,6 +317,26 @@ fn client_sync() {
             }),
         );
         wait_or_panic(1000);
+    })
+    .unwrap();
+}
+
+/// Query client
+#[test]
+fn query_client() {
+    init_test_logger();
+    System::run(|| {
+        let client = setup_mock(
+            vec!["test"],
+            "other",
+            true,
+            Box::new(move |_, _, _| NetworkResponses::NoResponse),
+        );
+        actix::spawn(client.send(Query { path: "account/test".to_string(), data: vec![] }).then(|res| {
+//            assert_eq!(res.unwrap().unwrap().key, "test");
+            System::current().stop();
+            future::result(Ok(()))
+        }));
     })
     .unwrap();
 }

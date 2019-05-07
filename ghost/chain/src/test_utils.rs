@@ -12,6 +12,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate};
+use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};
@@ -105,12 +106,20 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        state_root: MerkleHash,
-        height: BlockIndex,
+        _state_root: MerkleHash,
+        _height: BlockIndex,
         path: &str,
-        data: &[u8],
+        _data: &[u8],
     ) -> Result<ABCIQueryResponse, String> {
-        Err("Not implemented".to_string())
+        let path = path.split("/").collect::<Vec<_>>();
+        Ok(ABCIQueryResponse::account(path[1], AccountViewCallResult {
+            account_id: path[1].to_string(),
+            nonce: 0,
+            amount: 1000,
+            stake: 0,
+            public_keys: vec![],
+            code_hash: CryptoHash::default(),
+        }))
     }
 }
 

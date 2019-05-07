@@ -90,7 +90,7 @@ impl Peer {
                 }
                 _ => actix::fut::err(()),
             })
-            .wait(ctx);
+            .spawn(ctx);
     }
 
     /// Process non handshake/peer related messages.
@@ -157,7 +157,7 @@ impl Peer {
                 };
                 actix::fut::ok(())
             })
-            .wait(ctx);
+            .spawn(ctx);
     }
 }
 

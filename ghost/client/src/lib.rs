@@ -28,8 +28,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex};
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
-pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
+pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, Query, NetworkInfo, SyncStatus};
 use chrono::{DateTime, Utc};
+use near_primitives::rpc::ABCIQueryResponse;
 
 mod sync;
 pub mod test_utils;
@@ -167,21 +168,33 @@ impl Handler<NetworkClientMessages> for ClientActor {
     }
 }
 
+/// Handles retrieving block from the chain.
 impl Handler<GetBlock> for ClientActor {
     type Result = Option<Block>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg {
             GetBlock::Best => {
-                let head = self.chain.head().ok();
-                if let Some(head) = head {
-                    self.chain.get_block(&head.last_block_hash).map(Clone::clone).ok()
-                } else {
-                    None
+                match self.chain.head() {
+                    Ok(head) => self.chain.get_block(&head.last_block_hash).map(Clone::clone).ok(),
+                    _ => None,
                 }
             }
+            GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone).ok(),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone).ok(),
         }
+    }
+}
+
+/// Handles runtime query.
+impl Handler<Query> for ClientActor {
+    type Result = Result<ABCIQueryResponse, String>;
+
+    fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
+        println!("Query client");
+        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let state_root = self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
+        self.runtime_adapter.query(*state_root, head.height, &msg.path, &msg.data)
     }
 }
 

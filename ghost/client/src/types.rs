@@ -8,6 +8,7 @@ use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{AccountId, BlockIndex};
+use near_primitives::rpc::ABCIQueryResponse;
 
 #[derive(Debug)]
 pub enum Error {
@@ -150,9 +151,20 @@ pub struct NetworkInfo {
 /// Actor message requesting block by id or hash.
 pub enum GetBlock {
     Best,
+    Height(BlockIndex),
     Hash(CryptoHash),
 }
 
 impl Message for GetBlock {
     type Result = Option<Block>;
+}
+
+/// Queries client for given path / data.
+pub struct Query {
+    pub path: String,
+    pub data: Vec<u8>
+}
+
+impl Message for Query {
+    type Result = Result<ABCIQueryResponse, String>;
 }

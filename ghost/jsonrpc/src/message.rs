@@ -15,9 +15,9 @@
 use std::fmt::{Formatter, Result as FmtResult};
 
 use serde::de::{Deserialize, Deserializer, Error, Unexpected, Visitor};
-use serde::ser::{Serialize, Serializer, SerializeStruct};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::{Result as JsonResult, to_value, Value};
+use serde_json::{to_value, Result as JsonResult, Value};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -343,10 +343,10 @@ mod tests {
     use super::*;
 
     /// Test serialization and deserialization of the Message
-        ///
-        /// We first deserialize it from a string. That way we check deserialization works.
-        /// But since serialization doesn't have to produce the exact same result (order, spaces, …),
-        /// we then serialize and deserialize the thing again and check it matches.
+    ///
+    /// We first deserialize it from a string. That way we check deserialization works.
+    /// But since serialization doesn't have to produce the exact same result (order, spaces, …),
+    /// we then serialize and deserialize the thing again and check it matches.
     #[test]
     fn message_serde() {
         // A helper for running one message test

@@ -1,23 +1,30 @@
 use std::convert::TryInto;
+use std::net::SocketAddr;
 
 use actix::Addr;
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use futures::future;
 use futures::future::Future;
-use log::{error, info};
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use message::Message;
-use near_client::ClientActor;
+use near_client::{ClientActor, Query};
 use near_network::NetworkClientMessages;
 use near_protos::signed_transaction as transaction_proto;
 
 use crate::message::{Request, RpcError};
-use std::net::SocketAddr;
 
 pub mod client;
 mod message;
+
+macro_rules! ok_or_rpc_error(($obj: expr) => (match $obj {
+    Ok(value) => value,
+    Err(err) => {
+        return Box::new(future::err(err))
+    }
+}));
 
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
@@ -33,58 +40,81 @@ struct JsonRpcHandler {
 }
 
 impl JsonRpcHandler {
-    pub fn process(&self, message: Message) -> Message {
+    pub fn process(&self, message: Message) -> Box<Future<Item = Message, Error = HttpError>> {
         let id = message.id();
         match message {
-            Message::Request(request) => Message::response(id, self.process_request(request)),
-            _ => Message::error(RpcError::invalid_request()),
+            Message::Request(request) => Box::new(
+                self.process_request(request).then(|result| Ok(Message::response(id, result))),
+            ),
+            _ => Box::new(future::ok::<_, HttpError>(Message::error(RpcError::invalid_request()))),
         }
     }
 
-    fn process_request(&self, request: Request) -> Result<Value, RpcError> {
+    fn process_request(&self, request: Request) -> Box<Future<Item = Value, Error = RpcError>> {
         match request.method.as_ref() {
             "broadcast_tx_sync" => self.send_tx_sync(request.params),
             "query" => self.query(request.params),
-            _ => Err(RpcError::method_not_found(request.method)),
+            _ => Box::new(future::err(RpcError::method_not_found(request.method))),
         }
     }
 
-    fn send_tx_sync(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let params = parse_params::<Vec<Vec<u8>>>(params)?;
-        if params.len() != 1 || params[0].len() == 0 {
-            return Err(RpcError::invalid_params(Some("Missing tx bytes".to_string())));
-        }
-        println!("Params: {:?}", params);
-        let tx: transaction_proto::SignedTransaction =
-            parse_from_bytes(&params[0]).map_err(|e| {
+    fn send_tx_sync(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let (bytes,) = ok_or_rpc_error!(parse_params::<(Vec<u8>,)>(params));
+        let tx: transaction_proto::SignedTransaction = ok_or_rpc_error!(parse_from_bytes(&bytes)
+            .map_err(|e| {
                 RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
-            })?;
-        let tx = tx.try_into().map_err(|e| {
+            }));
+        let tx = ok_or_rpc_error!(tx.try_into().map_err(|e| {
             RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
-        })?;
+        }));
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))
                 .map(|_| {})
                 .map_err(|_| {}),
         );
-        Ok(Value::Null)
+        Box::new(future::ok(Value::Null))
     }
 
-    fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        Ok(Value::Null)
+    fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        println!("Params: {:?}", params);
+        let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
+        println!("Args: {} {:?}", path, data);
+        // TODO: simplify this.
+        Box::new(
+            self.client_addr
+                .send(Query { path, data })
+                .then(|response| {
+                    println!("Response: {:?}", response);
+                    match response {
+                        Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
+                        _ => Err(RpcError::server_error(Some("Failed to query client"))),
+                    }
+                })
+                .then(|result| match result {
+                    Ok(result) => match serde_json::to_value(result) {
+                        Ok(value) => Ok(value),
+                        Err(err) => Err(RpcError::server_error(Some(err.to_string()))),
+                    },
+                    Err(err) => Err(RpcError::server_error(Some(err))),
+                }),
+        )
     }
 }
 
-fn index(handler: web::Data<JsonRpcHandler>, message: web::Json<Message>) -> HttpResponse {
-    HttpResponse::Ok().json(handler.process(message.0))
+fn rpc_handler(
+    message: web::Json<Message>,
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    handler.process(message.0).and_then(|message| Ok(HttpResponse::Ok().json(message)))
 }
 
 pub fn start_http(server_addr: SocketAddr, client_addr: Addr<ClientActor>) {
     HttpServer::new(move || {
         App::new()
             .data(JsonRpcHandler { client_addr: client_addr.clone() })
-            .service(web::resource("/").route(web::post().to(index)))
+            .wrap(middleware::Logger::default())
+            .service(web::resource("/").route(web::post().to_async(rpc_handler)))
     })
     .bind(server_addr)
     .unwrap()

@@ -218,7 +218,7 @@ impl PeerManagerActor {
             .into_actor(self)
             .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
             .and_then(|_, _, _| actix::fut::ok(()))
-            .wait(ctx);
+            .spawn(ctx);
     }
 
     /// Send message to specific account.
@@ -235,7 +235,7 @@ impl PeerManagerActor {
                     .into_actor(self)
                     .map_err(|e, _, _| error!("Failed sending message: {}", e))
                     .and_then(|_, _, _| actix::fut::ok(()))
-                    .wait(ctx);
+                    .spawn(ctx);
             } else {
                 error!(target: "network", "Missing peer {} that is related to account {}", peer_id, account_id);
             }
