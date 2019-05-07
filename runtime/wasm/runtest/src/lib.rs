@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 extern crate wasm;
 
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
@@ -8,6 +6,7 @@ extern crate byteorder;
 
 extern crate primitives;
 use primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
+use std::collections::btree_map::BTreeMap;
 
 #[derive(Default)]
 struct MyExt {

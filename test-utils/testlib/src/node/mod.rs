@@ -9,7 +9,7 @@ use primitives::types::{AccountId, Balance};
 use crate::user::{AsyncUser, User};
 use std::sync::RwLock;
 pub mod runtime_node;
-pub use runtime_node::RuntimeNode;
+pub use self::runtime_node::RuntimeNode;
 
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
