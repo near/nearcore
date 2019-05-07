@@ -7,7 +7,7 @@ use crate::cache;
 use crate::runtime::{self, Runtime};
 use crate::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
 use primitives::logging;
-use primitives::types::{Balance, Gas, Mana, StorageUsage};
+use primitives::types::{Balance, Gas, Mana, StorageUsage, StorageUsageChange};
 
 use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
 
@@ -83,7 +83,8 @@ pub fn execute(
             gas_used: runtime.gas_counter,
             mana_used: runtime.mana_counter,
             mana_left: context.mana - runtime.mana_counter,
-            storage_usage: context.storage_usage + runtime.storage_counter,
+            storage_usage: (context.storage_usage as StorageUsageChange + runtime.storage_counter)
+                as StorageUsage,
             return_data: Ok(runtime.return_data),
             balance: runtime.balance,
             random_seed: runtime.random_seed,

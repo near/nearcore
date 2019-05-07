@@ -22,7 +22,11 @@ fn generate_promise_id(index: u32) -> ReceiptId {
 impl External for MyExt {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         println!("PUT '{:?}' -> '{:?}'", key, value);
-        Ok(self.storage.insert(Vec::from(key), Vec::from(value)))
+        let evicted = self.storage.insert(Vec::from(key), Vec::from(value));
+        if let Some(evicted) = evicted.as_ref() {
+            println!("EVICTED '{:?}' -> '{:?}'", key, evicted);
+        }
+        Ok(evicted)
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
@@ -40,7 +44,13 @@ impl External for MyExt {
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
-        Ok(self.storage.remove(key))
+        let removed = self.storage.remove(key);
+        if let Some(removed) = removed.as_ref() {
+            println!("REMOVE '{:?}' -> '{:?}'", key, removed);
+        } else {
+            println!("REMOVE '{:?}' -> EMPTY", key);
+        }
+        Ok(removed)
     }
 
     fn storage_iter(&mut self, _prefix: &[u8]) -> ExtResult<u32> {
@@ -302,6 +312,33 @@ mod tests {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
             _ => assert!(false, "Expected returned value"),
         };
+    }
+
+    #[test]
+    fn test_get_storage_usage() {
+        let input_data = [0u8; 0];
+        let outcome =
+            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 0, 0, 10)).expect("ok");
+
+        assert_eq!(outcome.storage_usage, 10);
+
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(10)),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_storage_usage_changed() {
+        let input_data = [0u8; 0];
+        let outcome =
+            run(b"run_test_with_storage_change", &input_data, &[], &runtime_context(0, 0, 0, 10))
+                .expect("ok");
+
+        // We inserted three entries 15 (as defined in the contract) + 4 (i32) bytes each.
+        // Then we removed one entry, and replaced another with 15 + 8 (u64) bytes.
+        // 52 = 10 (was before) + 15 + 4 + 15 + 8.
+        assert_eq!(outcome.storage_usage, 52);
     }
 
     #[test]
