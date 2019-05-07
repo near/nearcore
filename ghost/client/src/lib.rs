@@ -29,6 +29,7 @@ use near_primitives::types::{AccountId, BlockIndex};
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
 pub use crate::types::{BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, SyncStatus};
+use chrono::{DateTime, Utc};
 
 mod sync;
 pub mod test_utils;
@@ -56,12 +57,13 @@ impl ClientActor {
     pub fn new(
         config: ClientConfig,
         store: Arc<Store>,
+        genesis_time: DateTime<Utc>,
         runtime_adapter: Arc<RuntimeAdapter>,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
         // TODO: Wait until genesis.
-        let chain = Chain::new(store, runtime_adapter.clone(), config.genesis_time)?;
+        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());

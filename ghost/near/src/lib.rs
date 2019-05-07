@@ -9,9 +9,8 @@ use near_client::{BlockProducer, ClientActor};
 use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
-use near_store::test_utils::create_test_store;
 
-pub use crate::config::{GenesisConfig, NearConfig};
+pub use crate::config::{init_config, GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
 
 mod config;
@@ -36,7 +35,7 @@ pub fn start_with_config(
     block_producer: Option<BlockProducer>,
 ) -> Addr<ClientActor> {
     let store = create_store(&get_store_path(home_dir));
-    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config));
+    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config.clone()));
 
     ClientActor::create(move |ctx| {
         let network_actor =
@@ -48,6 +47,7 @@ pub fn start_with_config(
         ClientActor::new(
             config.client_config,
             store.clone(),
+            genesis_config.genesis_time,
             runtime,
             network_actor.recipient(),
             block_producer,

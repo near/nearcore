@@ -1,31 +1,25 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Utc};
-
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
 use near_primitives::crypto::signature::{PublicKey, Signature};
-use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, MerkleHash, ReadablePublicKey, ShardId,
+    AccountId, BlockIndex, MerkleHash, ShardId,
 };
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
-use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{Runtime, ETHASH_CACHE_PATH};
+use node_runtime::{Runtime, ETHASH_CACHE_PATH, ApplyState};
 
 use crate::config::GenesisConfig;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
-    store: Arc<Store>,
 
     trie: Arc<Trie>,
     trie_viewer: TrieViewer,
@@ -40,7 +34,7 @@ impl NightshadeRuntime {
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
         let runtime = Runtime::new(ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
-        NightshadeRuntime { store, genesis_config, trie, runtime, trie_viewer }
+        NightshadeRuntime { genesis_config, trie, runtime, trie_viewer }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -74,6 +68,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
             self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &vec![]);
+        println!("State root: {}", state_root);
         (store_update, state_root)
     }
 
@@ -82,7 +77,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let (account_id, public_key, _) = &self.genesis_config.authorities
+        let (_account_id, public_key, _) = &self.genesis_config.authorities
             [(header.height as usize) % self.genesis_config.authorities.len()];
         if !header.verify_block_producer(&PublicKey::try_from(public_key.0.as_str()).unwrap()) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -113,8 +108,23 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         state_root: &MerkleHash,
+        block_index: BlockIndex,
+        prev_block_hash: &CryptoHash,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String> {
-        Ok((self.store.store_update(), MerkleHash::default()))
+        let apply_state = ApplyState {
+            root: state_root.clone(),
+            shard_id,
+            block_index,
+            parent_block_hash: *prev_block_hash,
+        };
+        let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
+        let apply_result = self.runtime.apply(
+            state_update,
+            &apply_state,
+            &vec![], // TODO: prev receipts
+            &transactions
+        );
+        Ok((apply_result.state_update, apply_result.root))
     }
 }

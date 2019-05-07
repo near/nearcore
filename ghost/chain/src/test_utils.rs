@@ -14,6 +14,7 @@ use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, RuntimeAdapter, Weight};
 use crate::{Block, Chain};
+use near_primitives::hash::CryptoHash;
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -92,11 +93,13 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
+        _shard_id: ShardId,
         state_root: &MerkleHash,
-        transactions: &Vec<SignedTransaction>,
+        _block_index: BlockIndex,
+        _prev_block_hash: &CryptoHash,
+        _transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String> {
-        Ok((self.store.store_update(), MerkleHash::default()))
+        Ok((self.store.store_update(), *state_root))
     }
 }
 

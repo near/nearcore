@@ -6,9 +6,9 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
-use near_store::Store;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, MerkleHash};
+use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -576,7 +576,13 @@ impl<'a> ChainUpdate<'a> {
         // Apply block to runtime.
         let (state_store_update, state_root) = self
             .runtime_adapter
-            .apply_transactions(0, &block.header.prev_state_root, &block.transactions)
+            .apply_transactions(
+                0,
+                &block.header.prev_state_root,
+                block.header.height,
+                &block.header.prev_hash,
+                &block.transactions,
+            )
             .map_err(|e| ErrorKind::Other(e))?;
         self.chain_store_update.merge(state_store_update);
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root);

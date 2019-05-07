@@ -326,6 +326,8 @@ pub trait RuntimeAdapter {
         &self,
         shard_id: ShardId,
         merkle_hash: &MerkleHash,
+        block_index: BlockIndex,
+        prev_block_hash: &CryptoHash,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash), String>;
 }

@@ -1,11 +1,10 @@
 use std::path::Path;
 
 use actix::System;
-use chrono::Utc;
 use clap::{App, Arg, SubCommand};
 use log::LevelFilter;
 
-use near::{start_with_config, GenesisConfig, NearConfig};
+use near::{start_with_config, GenesisConfig, NearConfig, init_config};
 use near_client::BlockProducer;
 
 fn init_logging(verbose: bool) {
@@ -57,15 +56,13 @@ fn main() {
 
     // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
     if let Some(_matches) = matches.subcommand_matches("init") {
-        // Check if `home` exists. If exists check what networks we already have there.
-        //    let genesis_timestamp = Utc::now();
-        //    let near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
+        // TODO: Check if `home` exists. If exists check what networks we already have there.
+        init_config(home_dir, None, None);
     } else if let Some(_matches) = matches.subcommand_matches("run") {
         // Load configs from home.
         let system = System::new("NEAR");
-        let genesis_timestamp = Utc::now();
         let genesis_config = GenesisConfig::test(vec!["alice.near"]);
-        let mut near = NearConfig::new(genesis_timestamp.clone(), "alice.near", 25123);
+        let mut near = NearConfig::test("alice.near", 25123);
         near.client_config.skip_sync_wait = true;
         let block_producer = BlockProducer::test("alice.near");
         start_with_config(home_dir, genesis_config, near, Some(block_producer));

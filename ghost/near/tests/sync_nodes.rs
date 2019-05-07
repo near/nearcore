@@ -31,9 +31,9 @@ fn sync_nodes() {
     let genesis_config = GenesisConfig::test(vec!["other"]);
     let genesis_header = genesis_header(genesis_config.clone());
 
-    let mut near1 = NearConfig::new(genesis_config.genesis_time.clone(), "test1", 25123);
+    let mut near1 = NearConfig::test("test1", 25123);
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let mut near2 = NearConfig::new(genesis_config.genesis_time.clone(), "test2", 25124);
+    let mut near2 = NearConfig::test("test2", 25124);
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
 
     let system = System::new("NEAR");

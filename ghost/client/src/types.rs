@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix::Message;
-use chrono::{DateTime, Utc};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
@@ -44,8 +43,6 @@ impl From<String> for Error {
 }
 
 pub struct ClientConfig {
-    /// Genesis timestamp. Client will wait until this date to start.
-    pub genesis_time: DateTime<Utc>,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
@@ -54,7 +51,7 @@ pub struct ClientConfig {
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
     pub skip_sync_wait: bool,
-    /// How often to check that we are not out of sync and have enough peers
+    /// How often to check that we are not out of sync.
     pub sync_check_period: Duration,
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
@@ -73,7 +70,6 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
-            genesis_time: Utc::now(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(300),
             block_expected_weight: 1000,
@@ -90,14 +86,13 @@ impl ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn new(genesis_time: DateTime<Utc>) -> Self {
+    pub fn new() -> Self {
         ClientConfig {
-            genesis_time,
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(2000),
             block_expected_weight: 1000,
             skip_sync_wait: false,
-            sync_check_period: Duration::from_millis(100),
+            sync_check_period: Duration::from_secs(10),
             sync_step_period: Duration::from_millis(10),
             sync_weight_threshold: 0,
             sync_height_threshold: 1,

@@ -19,8 +19,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::traits::ToBytes;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, MerkleHash};
-use storage::test_utils::create_beacon_shard_storages;
-use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
+use near_store::{create_store, Trie, TrieUpdate, Store};
 use verifier::TransactionVerifier;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -32,7 +31,7 @@ pub struct NearMint {
     runtime: Runtime,
     trie: Arc<Trie>,
     trie_viewer: TrieViewer,
-    storage: Arc<RwLock<ShardChainStorage>>,
+    store: Arc<Store>,
     root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
@@ -53,10 +52,10 @@ fn get_storage_path(base_path: &Path) -> String {
 impl NearMint {
     pub fn new_from_storage(
         base_path: &Path,
-        storage: Arc<RwLock<ShardChainStorage>>,
+        store: Arc<Store>,
         chain_spec: ChainSpec,
     ) -> Self {
-        let trie = Arc::new(Trie::new(storage.clone()));
+        let trie = Arc::new(Trie::new(store.clone()));
         let mut ethash_path = base_path.to_owned();
         ethash_path.push(ETHASH_CACHE_PATH);
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_path.as_path())));
@@ -65,14 +64,14 @@ impl NearMint {
 
         // Compute genesis from current spec.
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
-        let (genesis_root, db_changes) = runtime.apply_genesis_state(
+        let (db_changes, genesis_root) = runtime.apply_genesis_state(
             state_update,
             &chain_spec.accounts,
             &chain_spec.genesis_wasm,
             &chain_spec.initial_authorities,
         );
 
-        storage
+        db_changes
             .write()
             .expect(POISONED_LOCK_ERR)
             .blockchain_storage_mut()
@@ -98,7 +97,7 @@ impl NearMint {
             )
         } else {
             // Apply genesis.
-            trie.apply_changes(db_changes).expect("Failed to commit genesis state");
+            db_changes.commit().expect("Failed to commit genesis state");
             (genesis_root, 0)
         };
 

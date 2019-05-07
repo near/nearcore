@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context, Recipient};
+use chrono::Utc;
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_store::test_utils::create_test_store;
 use near_primitives::crypto::signer::InMemorySigner;
+use near_store::test_utils::create_test_store;
 
 use crate::{BlockProducer, ClientActor, ClientConfig};
 
@@ -27,6 +28,7 @@ pub fn setup(
     ClientActor::new(
         ClientConfig::test(skip_sync_wait),
         store,
+        Utc::now(),
         runtime,
         recipient,
         Some(signer.into()),

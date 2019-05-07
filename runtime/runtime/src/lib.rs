@@ -35,7 +35,6 @@ use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
 
 pub mod adapter;
-pub mod chain_spec;
 mod system;
 
 pub mod ethereum;
@@ -293,7 +292,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -358,7 +357,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -465,7 +464,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -655,7 +654,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        runtime: &mut Self,
+        runtime: &Self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -697,7 +696,7 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        &mut self,
+        &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
         prev_receipts: &[ReceiptBlock],
