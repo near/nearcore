@@ -25,7 +25,7 @@ impl TrieUpdate {
         } else if let Some(value) = self.committed.get(key) {
             Some(DBValue::from_slice(value.as_ref()?))
         } else {
-            self.trie.get(&self.root, key).map(|x| DBValue::from_vec(x))
+            self.trie.get(&self.root, key).map(DBValue::from_vec)
         }
     }
     pub fn set(&mut self, key: Vec<u8>, value: DBValue) -> Option<Vec<u8>> {

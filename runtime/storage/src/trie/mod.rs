@@ -83,7 +83,7 @@ impl TrieNode {
                             child.print(f, memory, spaces)?;
                         }
                     }
-                    writeln!(f, "")?;
+                    writeln!(f)?;
                 }
                 spaces.remove(spaces.len() - 1);
                 write!(f, "{}}}", spaces)?;
@@ -101,7 +101,7 @@ impl TrieNode {
                         child.print(f, memory, spaces)?;
                     }
                 }
-                writeln!(f, "")?;
+                writeln!(f)?;
                 spaces.remove(spaces.len() - 1);
             }
         }
@@ -899,11 +899,12 @@ impl Trie {
             buffer.clear();
             last_hash = key;
         }
-        let (insertions, deletions) = Trie::to_insertions_and_deletions(memory.refcount_changes);
+        let (insertions, deletions) =
+            Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
         TrieChanges { new_root: last_hash, insertions, deletions }
     }
 
-    fn to_insertions_and_deletions(
+    fn convert_to_insertions_and_deletions(
         changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
     ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, u32)>)) {
         let mut deletions = Vec::new();
