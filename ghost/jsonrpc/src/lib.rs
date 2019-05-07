@@ -77,15 +77,12 @@ impl JsonRpcHandler {
     }
 
     fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        println!("Params: {:?}", params);
         let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
-        println!("Args: {} {:?}", path, data);
         // TODO: simplify this.
         Box::new(
             self.client_addr
                 .send(Query { path, data })
                 .then(|response| {
-                    println!("Response: {:?}", response);
                     match response {
                         Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
                         _ => Err(RpcError::server_error(Some("Failed to query client"))),

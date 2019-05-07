@@ -68,7 +68,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
             self.runtime.apply_genesis_state(state_update, &accounts, &authorities);
-        println!("State root: {}", state_root);
         (store_update, state_root)
     }
 
