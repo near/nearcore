@@ -30,7 +30,7 @@ pub struct Runtime<'a> {
     pub balance: Balance,
     pub gas_counter: Gas,
     gas_limit: Gas,
-    pub storage_counter: i64,
+    pub storage_counter: u64,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
     pub random_seed: Vec<u8>,
@@ -185,7 +185,13 @@ impl<'a> Runtime<'a> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
         let value = self.memory_get(value_ptr as usize, value_len as usize)?;
 
-        self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
+        let evicted = self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
+        if let Some(evicted) = evicted {
+            self.storage_counter += value_len as u64;
+            self.storage_counter -= evicted.len() as u64;
+        } else {
+            self.storage_counter += key_len as u64 + value_len as u64;
+        }
         debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&value));
         Ok(())
     }
@@ -193,7 +199,10 @@ impl<'a> Runtime<'a> {
     /// Remove key from storage
     fn storage_remove(&mut self, key_len: u32, key_ptr: u32) -> Result<()> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
-        self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
+        let removed = self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
+        if let Some(removed) = removed {
+            self.storage_counter -= key_len as u64 + removed.len() as u64;
+        }
         debug!(target: "wasm", "storage_remove('{}')", pretty_utf8(&key));
         Ok(())
     }
