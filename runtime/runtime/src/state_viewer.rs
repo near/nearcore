@@ -144,6 +144,7 @@ impl TrieViewer {
                         contract_id,
                         contract_id,
                         0,
+                        0,
                         block_index,
                         root.as_ref().into(),
                     ),

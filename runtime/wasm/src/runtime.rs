@@ -5,7 +5,7 @@ use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
 use byteorder::{ByteOrder, LittleEndian};
 use primitives::hash::hash;
 use primitives::logging::pretty_utf8;
-use primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId};
+use primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId, StorageUsage};
 use primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
 use wasmer_runtime::{memory::Memory, units::Bytes};
@@ -30,7 +30,7 @@ pub struct Runtime<'a> {
     pub balance: Balance,
     pub gas_counter: Gas,
     gas_limit: Gas,
-    pub storage_counter: u64,
+    pub storage_counter: StorageUsage,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
     pub random_seed: Vec<u8>,
@@ -187,10 +187,9 @@ impl<'a> Runtime<'a> {
 
         let evicted = self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
         if let Some(evicted) = evicted {
-            self.storage_counter += value_len as u64;
-            self.storage_counter -= evicted.len() as u64;
+            self.storage_counter += value_len as StorageUsage - evicted.len() as StorageUsage;
         } else {
-            self.storage_counter += key_len as u64 + value_len as u64;
+            self.storage_counter += key_len as StorageUsage + value_len as StorageUsage;
         }
         debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&value));
         Ok(())
@@ -201,7 +200,7 @@ impl<'a> Runtime<'a> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
         let removed = self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
         if let Some(removed) = removed {
-            self.storage_counter -= key_len as u64 + removed.len() as u64;
+            self.storage_counter -= key_len as StorageUsage + removed.len() as StorageUsage;
         }
         debug!(target: "wasm", "storage_remove('{}')", pretty_utf8(&key));
         Ok(())

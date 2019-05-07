@@ -337,6 +337,7 @@ impl Runtime {
                     sender_id,
                     receiver_id,
                     async_call.mana,
+                    receiver.storage_usage,
                     block_index,
                     nonce.as_ref().to_vec(),
                 ),
@@ -346,6 +347,7 @@ impl Runtime {
             mana_accounting.mana_refund = wasm_res.mana_left;
             transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
+            let storage_usage = wasm_res.storage_usage;
             let return_data = wasm_res
                 .return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
@@ -358,6 +360,7 @@ impl Runtime {
             )
             .and_then(|receipts| {
                 receiver.amount = balance;
+                receiver.storage_usage = storage_usage;
                 Ok(receipts)
             })
         };
@@ -416,6 +419,7 @@ impl Runtime {
                             sender_id,
                             receiver_id,
                             callback.mana,
+                            receiver.storage_usage,
                             block_index,
                             nonce.as_ref().to_vec(),
                         ),
@@ -782,6 +786,7 @@ impl Runtime {
                     nonce: 0,
                     staked: 0,
                     code_hash: code.get_hash(),
+                    storage_usage: 0,
                 },
             );
             // Default code

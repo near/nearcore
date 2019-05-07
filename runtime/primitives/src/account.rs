@@ -3,7 +3,7 @@ use std::fmt;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::types::{AccountId, Balance, Nonce};
+use crate::types::{AccountId, Balance, Nonce, StorageUsage};
 
 use near_protos::access_key as access_key_proto;
 
@@ -20,11 +20,13 @@ pub struct Account {
     pub amount: Balance,
     pub staked: Balance,
     pub code_hash: CryptoHash,
+    /// Storage used by the given account.
+    pub storage_usage: StorageUsage,
 }
 
 impl Account {
     pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code_hash: CryptoHash) -> Self {
-        Account { public_keys, nonce: 0, amount, staked: 0, code_hash }
+        Account { public_keys, nonce: 0, amount, staked: 0, code_hash, storage_usage: 0 }
     }
 }
 

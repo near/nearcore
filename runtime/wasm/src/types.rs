@@ -1,7 +1,7 @@
 use std::fmt;
 
 use primitives::hash::{CryptoHash, hash};
-use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex};
+use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex, StorageUsage};
 use primitives::logging;
 use wasmer_runtime::error as WasmerError;
 
@@ -279,6 +279,8 @@ pub struct RuntimeContext {
     pub account_id: AccountId,
     /// Available mana for the execution by this contract.
     pub mana: Mana,
+    /// Storage that the account is already using.
+    pub storage_usage: StorageUsage,
     /// Currently produced block index
     pub block_index: BlockIndex,
     /// Initial seed for randomness
@@ -292,6 +294,7 @@ impl RuntimeContext {
         sender_id: &AccountId,
         account_id: &AccountId,
         mana: Mana,
+        storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
     ) -> RuntimeContext {
@@ -301,6 +304,7 @@ impl RuntimeContext {
             originator_id: sender_id.clone(),
             account_id: account_id.clone(),
             mana,
+            storage_usage,
             block_index,
             random_seed,
         }

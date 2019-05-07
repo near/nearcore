@@ -34,6 +34,8 @@ pub type Balance = u64;
 pub type Mana = u32;
 /// Gas type is used to count the compute and storage within smart contract execution.
 pub type Gas = u64;
+/// StorageUsage is used to count the amount of storage used by a contract.
+pub type StorageUsage = u64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 
