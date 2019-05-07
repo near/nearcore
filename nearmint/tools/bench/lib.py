@@ -14,6 +14,7 @@ except ImportError:
 
 import protos.signed_transaction_pb2 as signed_transaction
 from key_store import InMemoryKeyStore
+import b58
 
 
 def _post(url, data=''):
@@ -42,6 +43,7 @@ class RPC(object):
             'id': 'dontcare'
         }
         try:
+            print(data)
             connection = _post(self._server_url, data)
             raw = connection.read()
             return json.loads(raw.decode('utf-8'))
@@ -53,9 +55,10 @@ class RPC(object):
             error = "Connection to {} refused. "
             raise
 
-    def query(self, path, args=''):
-        result = self._call_rpc('query', [path, args, '0', False])
-        return result['result']['response']
+    def query(self, path, args=[]):
+        result = self._call_rpc('query', [path, args])
+        print(result)
+        return result['result']
 
     def send_transaction(self, transaction, wait=False):
         data = transaction.SerializeToString()
@@ -70,7 +73,7 @@ class RPC(object):
         return self._call_rpc('status', [])
 
     def get_account(self, account_id):
-        response = rpc.query('account/%s' % account_id)
+        response = self.query('account/%s' % account_id)
         return json.loads(base64.b64decode(response['value']))
 
     def call_function(self, contract_id, method_name, args):
@@ -123,9 +126,37 @@ class User(object):
         
         return self._rpc.send_transaction(transaction, wait=wait)
 
+    def create_account(self, account_id, amount, account_public_key=None, wait=False):
+        self._nonce += 1
+
+        if account_public_key is None:
+            key_store = InMemoryKeyStore()
+            account_public_key = key_store.create_key_pair(seed=account_id)
+
+        create_account = signed_transaction.CreateAccountTransaction()
+        create_account.nonce = self._nonce
+        create_account.originator = self._account_id
+        create_account.new_account_id = account_id
+        create_account.amount = amount
+        create_account.public_key = b58.b58decode(account_public_key)
+
+        signature = self._sign_transaction_body(create_account)
+
+        transaction = signed_transaction.SignedTransaction()
+        transaction.create_account.CopyFrom(create_account)
+        transaction.signature = signature
+
+        print(transaction)
+        return self._rpc.send_transaction(transaction, wait=wait)
+
 
 if __name__ == "__main__":
     rpc = RPC('http://localhost:25223/')
     alice = User(rpc, "alice.near")
     print(alice.view_account())
-    print(alice.send_money('bob.near', 10, wait=True))
+    alice.create_account('bob.near', 1000, None)
+#    print(alice.send_money('bob.near', 10, wait=False))
+    import time
+    time.sleep(1)
+    print(User(rpc, "bob.near").view_account())
+

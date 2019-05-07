@@ -1896,6 +1896,7 @@ dependencies = [
  "actix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 1.0.0-beta.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "base64 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",

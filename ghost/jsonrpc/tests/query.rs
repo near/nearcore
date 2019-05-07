@@ -1,4 +1,5 @@
 use actix::{Actor, System};
+use base64;
 use futures::future;
 use futures::future::Future;
 use protobuf::Message;
@@ -15,7 +16,7 @@ use near_primitives::transaction::TransactionBody;
 use near_protos::signed_transaction as transaction_proto;
 
 // TODO: move to another file
-/// Test sending transaction via json rpc.
+/// Test sending transaction via json rpc without waiting.
 #[test]
 fn test_send_tx() {
     init_test_logger();
@@ -36,7 +37,10 @@ fn test_send_tx() {
         let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
         let tx: transaction_proto::SignedTransaction = tx.into();
         actix::spawn(
-            client.broadcast_tx_sync(tx.write_to_bytes().unwrap()).map_err(|_| ()).map(|_| ()),
+            client
+                .broadcast_tx_async(base64::encode(&tx.write_to_bytes().unwrap()))
+                .map_err(|_| ())
+                .map(|_| ()),
         );
         WaitOrTimeout::new(
             Box::new(move |_| {

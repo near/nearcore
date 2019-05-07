@@ -90,7 +90,7 @@ macro_rules! jsonrpc_client {
 }
 
 jsonrpc_client!(pub struct JsonRpcClient {
-    pub fn broadcast_tx_sync(&mut self, tx: Vec<u8>) -> RpcRequest<()>;
+    pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<()>;
     pub fn query(&mut self, path: String, data: Vec<u8>) -> RpcRequest<ABCIQueryResponse>;
 });
 

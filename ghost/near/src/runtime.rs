@@ -126,6 +126,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             &vec![], // TODO: prev receipts
             &transactions,
         );
+        if apply_result.tx_result.len() > 0 {
+            println!("{:?}", apply_result.tx_result);
+        }
         Ok((apply_result.state_update, apply_result.root))
     }
 

@@ -9,6 +9,7 @@ use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use base64;
 use message::Message;
 use near_client::{ClientActor, Query};
 use near_network::NetworkClientMessages;
@@ -52,14 +53,17 @@ impl JsonRpcHandler {
 
     fn process_request(&self, request: Request) -> Box<Future<Item = Value, Error = RpcError>> {
         match request.method.as_ref() {
-            "broadcast_tx_sync" => self.send_tx_sync(request.params),
+            "broadcast_tx_async" => self.send_tx_async(request.params),
             "query" => self.query(request.params),
             _ => Box::new(future::err(RpcError::method_not_found(request.method))),
         }
     }
 
-    fn send_tx_sync(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let (bytes,) = ok_or_rpc_error!(parse_params::<(Vec<u8>,)>(params));
+    fn send_tx_async(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let (bs64,) = ok_or_rpc_error!(parse_params::<(String,)>(params));
+        let bytes = ok_or_rpc_error!(
+            base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string()))
+        );
         let tx: transaction_proto::SignedTransaction = ok_or_rpc_error!(parse_from_bytes(&bytes)
             .map_err(|e| {
                 RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
@@ -82,11 +86,9 @@ impl JsonRpcHandler {
         Box::new(
             self.client_addr
                 .send(Query { path, data })
-                .then(|response| {
-                    match response {
-                        Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
-                        _ => Err(RpcError::server_error(Some("Failed to query client"))),
-                    }
+                .then(|response| match response {
+                    Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
+                    _ => Err(RpcError::server_error(Some("Failed to query client"))),
                 })
                 .then(|result| match result {
                     Ok(result) => match serde_json::to_value(result) {

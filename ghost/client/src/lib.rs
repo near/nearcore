@@ -9,7 +9,7 @@ use std::time::Instant;
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
-use ansi_term::Color::{Cyan, White, Yellow};
+use ansi_term::Color::{Cyan, White, Yellow, Green};
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -52,6 +52,12 @@ pub struct ClientActor {
     /// Keeps track of syncing headers.
     header_sync: HeaderSync,
     block_sync: BlockSync,
+    /// Timestamp when client was started.
+    started: Instant,
+    /// Total number of blocks processed.
+    num_blocks_processed: u64,
+    /// Total number of transactions processed.
+    num_tx_processed: u64,
 }
 
 impl ClientActor {
@@ -86,6 +92,9 @@ impl ClientActor {
             last_block_processed: Instant::now(),
             header_sync,
             block_sync,
+            started: Instant::now(),
+            num_blocks_processed: 0,
+            num_tx_processed: 0,
         })
     }
 }
@@ -219,6 +228,9 @@ impl ClientActor {
         self.last_block_processed = Instant::now();
 
         if provenance != Provenance::SYNC {
+            self.num_blocks_processed += 1;
+            self.num_tx_processed += block.transactions.len() as u64;
+
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
@@ -587,6 +599,7 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
+                self.started = Instant::now();
                 self.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.
@@ -661,11 +674,15 @@ impl ClientActor {
                 false
             };
             // Block#, Block Hash, is authority/# authorities, active/max peers.
-            info!(target: "info", "{} {} {} {}",
+            let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
+            let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
+            info!(target: "info", "{} {} {} {} {}",
                   Yellow.bold().paint(format!("#{:>8}", head.height)),
                   Yellow.bold().paint(format!("{}", head.last_block_hash)),
-                  White.bold().paint(format!("{}/{}", if is_authority { "T" } else { "F" }, num_authorities)),
-                  Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)));
+                  White.bold().paint(format!("{}/{}", if is_authority { "V" } else { "-" }, num_authorities)),
+                  Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
+                  Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
+            );
 
             act.log_summary(ctx);
         });

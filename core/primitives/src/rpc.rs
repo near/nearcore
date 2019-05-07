@@ -1,26 +1,22 @@
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcRequest {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Vec<serde_json::Value>,
-    pub id: String,
-}
+pub mod b64_format {
+    use base64;
+    use serde::{Deserialize, Deserializer, Serializer};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcResponse {
-    pub jsonrpc: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<JsonRpcResponseError>,
-    pub id: String,
-}
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let encoded = base64::encode(&bytes);
+        serializer.serialize_str(&encoded)
+    }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonRpcResponseError {
-    code: i64,
-    message: String,
-    data: serde_json::Value,
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        base64::decode(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,7 +25,9 @@ pub struct ABCIQueryResponse {
     pub log: String,
     pub info: String,
     pub index: i64,
+    #[serde(with = "b64_format")]
     pub key: Vec<u8>,
+    #[serde(with = "b64_format")]
     pub value: Vec<u8>,
     pub proof: Vec<ProofOp>,
     pub height: i64,
