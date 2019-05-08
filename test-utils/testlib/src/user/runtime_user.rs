@@ -6,7 +6,6 @@ use lazy_static::lazy_static;
 use tempdir::TempDir;
 
 use near_primitives::account::AccessKey;
-use near_primitives::chain::ReceiptBlock;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
@@ -20,7 +19,6 @@ use node_runtime::{ApplyState, Runtime};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 
-use crate::runtime_utils::to_receipt_block;
 use crate::user::{POISONED_LOCK_ERR, User};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
@@ -71,7 +69,7 @@ impl RuntimeUser {
     pub fn apply_all(
         &self,
         apply_state: ApplyState,
-        prev_receipts: Vec<ReceiptBlock>,
+        prev_receipts: Vec<Vec<ReceiptTransaction>>,
         transactions: Vec<SignedTransaction>,
     ) {
         let mut cur_apply_state = apply_state;
@@ -83,7 +81,7 @@ impl RuntimeUser {
             let mut apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs);
             let mut counter = 0;
-            for (i, receipt) in receipts.iter().flat_map(|b| b.receipts.iter()).enumerate() {
+            for (i, receipt) in receipts.iter().flatten().enumerate() {
                 counter += 1;
                 let transaction_result = apply_result.tx_result[i].clone();
                 println!("R: {:?}", transaction_result);
@@ -111,7 +109,7 @@ impl RuntimeUser {
             for receipt in new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.nonce, receipt.clone());
             }
-            receipts = vec![to_receipt_block(new_receipts)];
+            receipts = vec![new_receipts];
             txs = vec![];
         }
     }
@@ -175,7 +173,7 @@ impl User for RuntimeUser {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        self.apply_all(apply_state, vec![to_receipt_block(vec![receipt])], vec![]);
+        self.apply_all(apply_state, vec![vec![receipt]], vec![]);
         Ok(())
     }
 

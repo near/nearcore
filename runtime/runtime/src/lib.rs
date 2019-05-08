@@ -8,7 +8,6 @@ use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
 use near_primitives::account::Account;
-use near_primitives::chain::ReceiptBlock;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
@@ -699,7 +698,7 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
-        prev_receipts: &[ReceiptBlock],
+        prev_receipts: &[Vec<ReceiptTransaction>],
         transactions: &[SignedTransaction],
     ) -> ApplyResult {
         let mut new_receipts = HashMap::new();
@@ -708,7 +707,7 @@ impl Runtime {
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
         let mut largest_tx_nonce = HashMap::new();
-        for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
+        for receipt in prev_receipts.iter().flatten() {
             tx_result.push(Self::process_receipt(
                 self,
                 &mut state_update,

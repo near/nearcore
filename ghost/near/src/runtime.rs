@@ -2,11 +2,11 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, Weight};
+use near_chain::{BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, Weight};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, TransactionResult, ReceiptTransaction};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
@@ -109,8 +109,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
+        receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash), String> {
+    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String> {
         let apply_state = ApplyState {
             root: state_root.clone(),
             shard_id,
@@ -120,16 +121,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // XXX: terrible place for clearing the cache.
         self.trie.clear_cache();
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
-        let apply_result = self.runtime.apply(
-            state_update,
-            &apply_state,
-            &vec![], // TODO: prev receipts
-            &transactions,
-        );
-        if apply_result.tx_result.len() > 0 {
-            println!("{:?}", apply_result.tx_result);
-        }
-        Ok((apply_result.state_update, apply_result.root))
+        let apply_result = self.runtime.apply(state_update, &apply_state, &receipts, &transactions);
+        Ok((apply_result.state_update, apply_result.root, apply_result.tx_result, apply_result.new_receipts))
     }
 
     fn query(

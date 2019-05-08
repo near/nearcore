@@ -11,14 +11,14 @@ use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
 use near_primitives::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_store::StoreUpdate;
 
 use crate::error::Error;
-use near_primitives::rpc::ABCIQueryResponse;
 
 /// Number of nano seconds in one second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -298,6 +298,9 @@ pub struct ValidTransaction {
     pub transaction: SignedTransaction,
 }
 
+/// Map of shard to list of receipts to send to it.
+pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles authorities and block weight computation.
@@ -323,17 +326,25 @@ pub trait RuntimeAdapter {
     fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
 
     /// Apply transactions to given state root and return store update and new state root.
+    /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
         shard_id: ShardId,
         merkle_hash: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
+        receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash), String>;
+    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String>;
 
     /// Query runtime with given `path` and `data`.
-    fn query(&self, state_root: MerkleHash, height: BlockIndex, path: &str, data: &[u8]) -> Result<ABCIQueryResponse, String>;
+    fn query(
+        &self,
+        state_root: MerkleHash,
+        height: BlockIndex,
+        path: &str,
+        data: &[u8],
+    ) -> Result<ABCIQueryResponse, String>;
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.

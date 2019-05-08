@@ -137,6 +137,7 @@ impl Chain {
                         .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
+                    store_update.save_receipt(&genesis.header.hash(), vec![]);
 
                     head = Tip::from_header(&genesis.header);
                     store_update.save_head(&head)?;
@@ -581,19 +582,31 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
+        // Retrieve receipts from the previous block.
+        let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
+
         // Apply block to runtime.
-        let (state_store_update, state_root) = self
+        let (state_store_update, state_root, tx_results, receipts) = self
             .runtime_adapter
             .apply_transactions(
                 0,
                 &block.header.prev_state_root,
                 block.header.height,
                 &block.header.prev_hash,
+                &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
             )
             .map_err(|e| ErrorKind::Other(e))?;
         self.chain_store_update.merge(state_store_update);
+        // Save state root after applying transactions.
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
+        // Save resulting receipts.
+        // TODO: currently only taking into account one shard.
+        self.chain_store_update.save_receipt(&block.hash(), receipts.get(&0).unwrap_or(&vec![]).to_vec());
+        // Save transaction results.
+        for (tx, tx_result) in block.transactions.iter().zip(tx_results) {
+            self.chain_store_update.save_transaction_result(&tx.get_hash(), tx_result);
+        }
 
         // Add validated block to the db, even if it's not the selected fork.
         self.chain_store_update.save_block(block.clone());

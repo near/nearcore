@@ -4,7 +4,8 @@ extern crate serde_derive;
 pub use chain::{Chain, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
 pub use types::{
-    Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip, ValidTransaction, Weight, BlockApproval
+    Block, BlockApproval, BlockHeader, BlockStatus, Provenance, ReceiptResult, RuntimeAdapter, Tip,
+    ValidTransaction, Weight,
 };
 
 mod chain;

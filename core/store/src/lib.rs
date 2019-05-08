@@ -21,8 +21,10 @@ pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
 pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
 pub const COL_STATE: Option<u32> = Some(4);
 pub const COL_STATE_REF: Option<u32> = Some(5);
-pub const COL_PEERS: Option<u32> = Some(6);
-const NUM_COLS: u32 = 7;
+pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
+pub const COL_RECEIPTS: Option<u32> = Some(7);
+pub const COL_PEERS: Option<u32> = Some(8);
+const NUM_COLS: u32 = 9;
 
 pub struct Store {
     storage: Arc<KeyValueDB>,

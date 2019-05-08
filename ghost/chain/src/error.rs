@@ -101,7 +101,7 @@ impl Error {
     pub fn is_error(&self) -> bool {
         match self.kind() {
             ErrorKind::IOErr(_) | ErrorKind::Other(_) | ErrorKind::DBNotFoundErr(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }

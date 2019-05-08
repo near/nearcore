@@ -43,7 +43,6 @@ class RPC(object):
             'id': 'dontcare'
         }
         try:
-            print(data)
             connection = _post(self._server_url, data)
             raw = connection.read()
             return json.loads(raw.decode('utf-8'))
@@ -57,7 +56,6 @@ class RPC(object):
 
     def query(self, path, args=[]):
         result = self._call_rpc('query', [path, args])
-        print(result)
         return result['result']
 
     def send_transaction(self, transaction, wait=False):
@@ -146,7 +144,6 @@ class User(object):
         transaction.create_account.CopyFrom(create_account)
         transaction.signature = signature
 
-        print(transaction)
         return self._rpc.send_transaction(transaction, wait=wait)
 
 

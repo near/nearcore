@@ -5,16 +5,14 @@ use std::sync::Arc;
 use cached::SizedCache;
 use log::debug;
 
-use near_store::{
-    read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX,
-    COL_BLOCK_MISC, COL_STATE_REF,
-};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, MerkleHash};
+use near_store::{read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_STATE_REF, COL_TRANSACTION_RESULT, COL_RECEIPTS};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
 use near_primitives::utils::index_to_bytes;
+use near_primitives::transaction::{TransactionResult, ReceiptTransaction};
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -50,6 +48,10 @@ pub trait ChainStoreAccess {
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
+    /// Returns resulting receipt for given block.
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error>;
+    /// Returns transaction result for given tx hash.
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error>;
 }
 
 /// All chain-related database operations.
@@ -63,6 +65,10 @@ pub struct ChainStore {
     post_state_roots: SizedCache<Vec<u8>, MerkleHash>,
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
+    /// Cache with receipts.
+    receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
+    /// Cache transaction statuses.
+    transaction_results: SizedCache<Vec<u8>, TransactionResult>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -81,6 +87,8 @@ impl ChainStore {
             headers: SizedCache::with_size(CACHE_SIZE),
             post_state_roots: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
+            receipts: SizedCache::with_size(CACHE_SIZE),
+            transaction_results: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -169,6 +177,14 @@ impl ChainStoreAccess for ChainStore {
         //            &format!("BLOCK INDEX: {}", height),
         //        )
     }
+
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+        option_to_not_found(read_with_cache(&*self.store, COL_RECEIPTS, &mut self.receipts, hash.as_ref()), &format!("RECEIPT: {}", hash))
+    }
+
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+        option_to_not_found(read_with_cache(&*self.store, COL_TRANSACTION_RESULT, &mut self.transaction_results, hash.as_ref()), &format!("TRANSACTION: {}", hash))
+    }
 }
 
 /// Provides layer to update chain without touching underlaying database.
@@ -182,6 +198,8 @@ pub struct ChainStoreUpdate<'a, T> {
     headers: HashMap<CryptoHash, BlockHeader>,
     post_state_roots: HashMap<CryptoHash, MerkleHash>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
+    receipts: HashMap<CryptoHash, Vec<ReceiptTransaction>>,
+    transaction_results: HashMap<CryptoHash, TransactionResult>,
     head: Option<Tip>,
     tail: Option<Tip>,
     header_head: Option<Tip>,
@@ -198,6 +216,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             headers: HashMap::default(),
             block_index: HashMap::default(),
             post_state_roots: HashMap::default(),
+            receipts: HashMap::default(),
+            transaction_results: HashMap::default(),
             head: None,
             tail: None,
             header_head: None,
@@ -271,25 +291,39 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
-        if let Some(post_state_root) = self.post_state_roots.get(h) {
+    fn get_post_state_root(&mut self, hash: &CryptoHash) -> Result<&MerkleHash, Error> {
+        if let Some(post_state_root) = self.post_state_roots.get(hash) {
             Ok(post_state_root)
         } else {
-            self.chain_store.get_post_state_root(h)
+            self.chain_store.get_post_state_root(hash)
         }
     }
 
     /// Get block header.
-    fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
-        if let Some(header) = self.headers.get(h) {
+    fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
+        if let Some(header) = self.headers.get(hash) {
             Ok(header)
         } else {
-            self.chain_store.get_block_header(h)
+            self.chain_store.get_block_header(hash)
         }
     }
 
+    /// Get block header from the current chain by height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error> {
         self.chain_store.get_block_hash_by_height(height)
+    }
+
+    /// Get receipts produced for block with givien hash.
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+        if let Some(receipts) = self.receipts.get(hash) {
+            Ok(receipts)
+        } else {
+            self.chain_store.get_receipts(hash)
+        }
+    }
+
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+        self.chain_store.get_transaction_result(hash)
     }
 }
 
@@ -368,6 +402,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.headers.insert(header.hash(), header);
     }
 
+    pub fn save_receipt(&mut self, hash: &CryptoHash, receipt: Vec<ReceiptTransaction>) {
+        self.receipts.insert(*hash, receipt);
+    }
+
+    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionResult) {
+        self.transaction_results.insert(*hash, result);
+    }
+
     /// Starts a sub-ChainUpdate with atomic commit/rollback of all operations done
     /// within this scope.
     /// If the closure returns and error, all changes are canceled.
@@ -443,6 +485,12 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             } else {
                 store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(height));
             }
+        }
+        for (hash, receipt) in self.receipts.drain() {
+            store_update.set_ser(COL_RECEIPTS, hash.as_ref(), &receipt)?;
+        }
+        for (hash, tx_result) in self.transaction_results.drain() {
+            store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
         }
         for other in self.store_updates {
             store_update.merge(other);

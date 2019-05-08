@@ -8,14 +8,14 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate};
 use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{BlockHeader, RuntimeAdapter, Weight};
+use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Block, Chain};
 
 impl Block {
@@ -99,9 +99,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
+        _receipts: &Vec<Vec<ReceiptTransaction>>,
         _transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash), String> {
-        Ok((self.store.store_update(), *state_root))
+    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String> {
+        Ok((self.store.store_update(), *state_root, vec![], HashMap::default()))
     }
 
     fn query(
@@ -112,14 +113,17 @@ impl RuntimeAdapter for KeyValueRuntime {
         _data: &[u8],
     ) -> Result<ABCIQueryResponse, String> {
         let path = path.split("/").collect::<Vec<_>>();
-        Ok(ABCIQueryResponse::account(path[1], AccountViewCallResult {
-            account_id: path[1].to_string(),
-            nonce: 0,
-            amount: 1000,
-            stake: 0,
-            public_keys: vec![],
-            code_hash: CryptoHash::default(),
-        }))
+        Ok(ABCIQueryResponse::account(
+            path[1],
+            AccountViewCallResult {
+                account_id: path[1].to_string(),
+                nonce: 0,
+                amount: 1000,
+                stake: 0,
+                public_keys: vec![],
+                code_hash: CryptoHash::default(),
+            },
+        ))
     }
 }
 

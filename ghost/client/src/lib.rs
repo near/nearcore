@@ -683,6 +683,9 @@ impl ClientActor {
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
             );
+            act.started = Instant::now();
+            act.num_blocks_processed = 0;
+            act.num_tx_processed = 0;
 
             act.log_summary(ctx);
         });
