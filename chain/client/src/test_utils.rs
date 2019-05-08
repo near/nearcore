@@ -1,32 +1,63 @@
-use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::RwLock;
 
-use beacon::beacon_chain::BeaconClient;
-use node_runtime::chain_spec::ChainSpec;
-use near_primitives::beacon::SignedBeaconBlock;
+use actix::actors::mocker::Mocker;
+use actix::{Actor, Addr, AsyncContext, Context, Recipient};
+use chrono::Utc;
+
+use near_chain::test_utils::KeyValueRuntime;
+use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
 use near_primitives::crypto::signer::InMemorySigner;
-use shard::ShardClient;
-use storage::test_utils::create_beacon_shard_storages;
+use near_store::test_utils::create_test_store;
 
-use crate::Client;
+use crate::{BlockProducer, ClientActor, ClientConfig};
 
-/// Creates a test client, that uses in memory storage.
-pub fn get_client_from_cfg(
-    chain_spec: &ChainSpec,
-    signer: Arc<InMemorySigner>,
-    max_block_size: u32,
-) -> Client<InMemorySigner> {
-    let (beacon_storage, shard_storage) = create_beacon_shard_storages();
-    let shard_client =
-        ShardClient::new(Some(signer.clone()), chain_spec, shard_storage, max_block_size);
-    let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
-    let beacon_client = BeaconClient::new(genesis, chain_spec, beacon_storage);
-    Client {
-        signer: Some(signer),
-        shard_client,
-        beacon_client,
-        pending_beacon_blocks: RwLock::new(HashSet::new()),
-        pending_shard_blocks: RwLock::new(HashSet::new()),
+pub type NetworkMock = Mocker<PeerManagerActor>;
+
+pub fn setup(
+    authorities: Vec<&str>,
+    account_id: &str,
+    skip_sync_wait: bool,
+    recipient: Recipient<NetworkRequests>,
+) -> ClientActor {
+    let store = create_test_store();
+    let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
+        store.clone(),
+        authorities.into_iter().map(Into::into).collect(),
+    ));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    ClientActor::new(
+        ClientConfig::test(skip_sync_wait),
+        store,
+        Utc::now(),
+        runtime,
+        recipient,
+        Some(signer.into()),
+    )
+    .unwrap()
+}
+
+pub fn setup_mock(
+    authorities: Vec<&'static str>,
+    account_id: &'static str,
+    skip_sync_wait: bool,
+    mut network_mock: Box<
+        FnMut(&NetworkRequests, &mut Context<NetworkMock>, Addr<ClientActor>) -> NetworkResponses,
+    >,
+) -> Addr<ClientActor> {
+    ClientActor::create(move |ctx| {
+        let client_addr = ctx.address();
+        let pm = NetworkMock::mock(Box::new(move |msg, ctx| {
+            let msg = msg.downcast_ref::<NetworkRequests>().unwrap();
+            let resp = network_mock(msg, ctx, client_addr.clone());
+            Box::new(Some(resp))
+        }))
+        .start();
+        setup(authorities, account_id, skip_sync_wait, pm.recipient())
+    })
+}
+
+impl BlockProducer {
+    pub fn test(seed: &str) -> Self {
+        Arc::new(InMemorySigner::from_seed(seed, seed)).into()
     }
 }

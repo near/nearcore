@@ -14,12 +14,12 @@ members = [
     "runtime/runtime",
     "runtime/wasm",
     "runtime/wasm/runtest",
-    "ghost/chain",
-    "ghost/pool",
-    "ghost/client",
-    "ghost/network",
-    "ghost/jsonrpc",
-    "ghost/near",
+    "chain/chain",
+    "chain/pool",
+    "chain/client",
+    "chain/network",
+    "chain/jsonrpc",
+    "chain/near",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
@@ -42,7 +42,7 @@ near-store = { path = "./core/store" }
 keystore = { path = "./test-utils/keystore" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
-near = { path = "./ghost/near"}
+near = { path = "./chain/near"}
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

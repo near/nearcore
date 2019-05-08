@@ -1,5 +1,0 @@
-boto3==1.9.37
-click==7.0
--e git://github.com/azban/delegator.py.git@91f74a007992cc2cf4bd73ee76962616d7e199ce#egg=delegator-py
-jinja2>=2.10.1
-requests==2.21.0
