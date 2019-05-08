@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
-use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
+use chrono::prelude::{DateTime, Utc};
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
@@ -214,7 +214,6 @@ impl Chain {
     pub fn check_state_needed(&mut self) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
-        let sync_head = self.sync_head()?;
         let mut hashes = vec![];
 
         if block_head.total_weight >= header_head.total_weight {
@@ -222,7 +221,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut oldest_height = 0;
+        let mut _oldest_height = 0;
         let mut oldest_hash = CryptoHash::default();
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
@@ -232,13 +231,14 @@ impl Chain {
                 }
             }
 
-            oldest_height = header.height;
+            _oldest_height = header.height;
             oldest_hash = header.hash();
             hashes.push(oldest_hash);
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
         // TODO: calcaulate if the oldest height is too far from header_head.height
+        // let sync_head = self.sync_head()?;
         // and return Ok(true) to download state instead.
         Ok((false, hashes))
     }
@@ -571,10 +571,10 @@ impl<'a> ChainUpdate<'a> {
 
         // This is a fork in the context of both header and block processing
         // if this block does not immediately follow the chain head.
-        let is_fork = !is_next;
+        // let is_fork = !is_next;
 
         // Check the header is valid before we proceed with the full block.
-        self.process_header_for_block(&block.header, provenance, is_fork)?;
+        self.process_header_for_block(&block.header, provenance)?;
 
         // Check that state root we computed from previous block matches recorded in this block.
         let state_root = self.chain_store_update.get_post_state_root(&prev_hash)?;
@@ -622,7 +622,6 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         header: &BlockHeader,
         provenance: &Provenance,
-        is_fork: bool,
     ) -> Result<(), Error> {
         self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header.clone());
@@ -632,7 +631,7 @@ impl<'a> ChainUpdate<'a> {
 
     /// Process incoming block headers for syncing.
     fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
-        let first_header = if let Some(header) = headers.first() {
+        let _first_header = if let Some(header) = headers.first() {
             debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
             header
         } else {
@@ -684,7 +683,6 @@ impl<'a> ChainUpdate<'a> {
 
         // First I/O cost, delayed as late as possible.
         let prev_header = self.get_previous_header(header)?;
-        let prev_hash = prev_header.hash();
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.

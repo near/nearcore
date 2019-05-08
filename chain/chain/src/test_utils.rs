@@ -10,13 +10,13 @@ use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
-use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate};
+use near_store::test_utils::create_test_store;
 use node_runtime::state_viewer::AccountViewCallResult;
 
+use crate::{Block, Chain};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Block, Chain};
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -60,7 +60,7 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
+    fn genesis_state(&self, _shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
         (self.store.store_update(), MerkleHash::default())
     }
 
@@ -69,7 +69,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let (account_id, public_key) =
+        let (_account_id, public_key) =
             &self.authorities[(header.height as usize) % self.authorities.len()];
         if !header.verify_block_producer(public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());

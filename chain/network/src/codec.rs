@@ -1,10 +1,13 @@
-use crate::types::PeerMessage;
-use bytes::{BufMut, BytesMut};
-use near_protos::network::PeerMessage as ProtoMessage;
-use protobuf::{parse_from_bytes, Message, ProtobufError};
 use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
+
+use bytes::{BufMut, BytesMut};
+use protobuf::{parse_from_bytes, Message, ProtobufError};
 use tokio::codec::{Decoder, Encoder};
+
+use near_protos::network::PeerMessage as ProtoMessage;
+
+use crate::types::PeerMessage;
 
 // we could write our custom error type. For now we just
 // use io::Error
@@ -76,9 +79,9 @@ impl Decoder for Codec {
 
 #[cfg(test)]
 mod test {
+    use crate::types::{Handshake, PeerChainInfo, PeerInfo};
+
     use super::*;
-    use near_primitives::hash::CryptoHash;
-    use crate::types::{PeerId, PeerInfo, Handshake, PeerChainInfo};
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -97,7 +100,7 @@ mod test {
             account_id: Some("alice.near".to_string()),
             listen_port: None,
             peers_info: vec![peer_info],
-            chain_info: PeerChainInfo { height: 0, total_weight: 0.into() }
+            chain_info: PeerChainInfo { height: 0, total_weight: 0.into() },
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);

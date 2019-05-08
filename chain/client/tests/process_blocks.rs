@@ -333,7 +333,7 @@ fn query_client() {
             Box::new(move |_, _, _| NetworkResponses::NoResponse),
         );
         actix::spawn(client.send(Query { path: "account/test".to_string(), data: vec![] }).then(|res| {
-//            assert_eq!(res.unwrap().unwrap().key, "test");
+            assert_eq!(res.unwrap().unwrap().log, "exists");
             System::current().stop();
             future::result(Ok(()))
         }));

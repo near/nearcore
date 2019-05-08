@@ -1,18 +1,19 @@
-use node_runtime::{state_viewer::TrieViewer, Runtime};
+use std::sync::{Arc, Mutex};
+
+use byteorder::{ByteOrder, LittleEndian};
+use tempdir::TempDir;
+
+use near::GenesisConfig;
 use near_primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use near_primitives::crypto::group_signature::GroupSignature;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, MerkleHash};
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
-
-use byteorder::{ByteOrder, LittleEndian};
 use node_runtime::ethereum::EthashProvider;
-use std::sync::{Arc, Mutex};
-use tempdir::TempDir;
-use near::GenesisConfig;
+use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -25,7 +26,7 @@ pub fn eve_account() -> AccountId {
 }
 
 pub fn get_runtime_and_trie_from_chain_spec(
-    genesis_config: &GenesisConfig
+    genesis_config: &GenesisConfig,
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
     let dir = TempDir::new("ethash_test").unwrap();

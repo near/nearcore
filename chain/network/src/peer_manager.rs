@@ -313,9 +313,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             },
-            NetworkRequests::StateRequest { shard_id, state_root } => NetworkResponses::NoResponse,
+            NetworkRequests::StateRequest { shard_id: _, state_root: _ } => {
+                // TODO: implement state sync.
+                NetworkResponses::NoResponse
+            },
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                if let Some((addr, _full_info)) = self.active_peers.get(&peer_id) {
+                if let Some((_addr, _full_info)) = self.active_peers.get(&peer_id) {
                     // TODO: send stop signal to the addr.
                 }
                 self.ban_peer(peer_id, ban_reason);

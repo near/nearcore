@@ -2,8 +2,8 @@ use actix::{Actor, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{load_test_configs, start_with_config, GenesisConfig, NearConfig};
-use near_client::{BlockProducer, GetBlock};
+use near::{load_test_configs, start_with_config, GenesisConfig};
+use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use near_primitives::test_utils::init_test_logger;
 
@@ -16,7 +16,7 @@ fn two_nodes() {
 
     let (mut near1, bp1) = load_test_configs("test1", 25123);
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let (mut near2, bp2) = load_test_configs("test1", 25124);
+    let (mut near2, bp2) = load_test_configs("test2", 25124);
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
 
     let system = System::new("NEAR");

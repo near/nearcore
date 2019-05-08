@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
-use actix::{Actor, Message, Addr};
+use actix::{Actor, Addr, Message};
 use chrono::{DateTime, Utc};
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
@@ -14,7 +14,6 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_protos::network as network_proto;
 use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
@@ -22,8 +21,9 @@ use near_primitives::traits::Base58Encoded;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
+use near_protos::network as network_proto;
+
 use crate::peer::Peer;
-use near_primitives::crypto::signer::InMemorySigner;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -299,13 +299,23 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::block_request(block_request)) => {
                 Ok(PeerMessage::BlockRequest(block_request.try_into()?))
             }
-            Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(block_headers_request)) => {
-                Ok(PeerMessage::BlockHeadersRequest(
-                    block_headers_request.hashes.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?
-                ))
-            }
+            Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(
+                block_headers_request,
+            )) => Ok(PeerMessage::BlockHeadersRequest(
+                block_headers_request
+                    .hashes
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
             Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers)) => {
-                Ok(PeerMessage::BlockHeaders(block_headers.headers.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?))
+                Ok(PeerMessage::BlockHeaders(
+                    block_headers
+                        .headers
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ))
             }
             None => unreachable!(),
         }
@@ -350,14 +360,18 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             }
             PeerMessage::BlockHeadersRequest(hashes) => {
                 let request = network_proto::BlockHeaderRequest {
-                    hashes: RepeatedField::from_iter(hashes.into_iter().map(std::convert::Into::into)),
+                    hashes: RepeatedField::from_iter(
+                        hashes.into_iter().map(std::convert::Into::into),
+                    ),
                     ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(request))
             }
             PeerMessage::BlockHeaders(headers) => {
                 let block_headers = network_proto::BlockHeaders {
-                    headers: RepeatedField::from_iter(headers.into_iter().map(std::convert::Into::into)),
+                    headers: RepeatedField::from_iter(
+                        headers.into_iter().map(std::convert::Into::into),
+                    ),
                     ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
@@ -502,7 +516,7 @@ pub enum NetworkRequests {
     BanPeer {
         peer_id: PeerId,
         ban_reason: ReasonForBan,
-    }
+    },
 }
 
 /// Combines peer address info and chain information.

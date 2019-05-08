@@ -1,26 +1,20 @@
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{thread, time};
 
 use actix::actors::mocker::Mocker;
 use actix::Actor;
 use actix::{ActorStream, System};
 use futures::future;
 use futures::future::Future;
-use futures::stream::Stream;
-use log::LevelFilter;
-use tokio::timer::Delay;
 
 use near_client::ClientActor;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
-    NetworkResponses, PeerInfo, PeerManagerActor,
+    NetworkResponses, PeerManagerActor,
 };
-use near_store::test_utils::create_test_store;
 use near_primitives::test_utils::{get_key_pair_from_seed, init_test_logger};
+use near_store::test_utils::create_test_store;
 
 type ClientMock = Mocker<ClientActor>;
 
@@ -52,8 +46,8 @@ fn peer_handshake() {
         let count1 = Arc::new(AtomicUsize::new(0));
         let (port1, port2) = (open_port(), open_port());
         let pm1 = make_peer_manager("test1", port1, vec![("test2", port2)]).start();
-        let pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
-        let act_count1 = count1.clone();
+        let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
+        let _act_count1 = count1.clone();
         WaitOrTimeout::new(
             Box::new(move |_| {
                 actix::spawn(pm1.send(NetworkRequests::FetchInfo).then(move |res| {

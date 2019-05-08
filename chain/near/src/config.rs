@@ -289,7 +289,7 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
 
             let account_id = account_id.unwrap_or("test.near").to_string();
 
-            let mut signer = InMemorySigner::new(account_id.clone());
+            let signer = InMemorySigner::new(account_id.clone());
             signer.write_to_file(&dir.join(config.validator_key_file));
 
             let network_signer = InMemorySigner::new("".to_string());

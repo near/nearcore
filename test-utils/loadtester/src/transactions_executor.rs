@@ -20,6 +20,7 @@ pub struct Executor {
 
 impl Executor {
     /// Deploys test contract to each account of each node and waits for it to be committed.
+    #[allow(dead_code)]
     fn deploy_contract(nodes: &Vec<Arc<RwLock<RemoteNode>>>) {
         for n in nodes {
             // Create deploy contract transactions.
