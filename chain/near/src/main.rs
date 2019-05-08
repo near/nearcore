@@ -48,13 +48,13 @@ fn main() {
                 .takes_value(true),
         )
         .subcommand(SubCommand::with_name("init").about("Initializes NEAR configuration")
-            .arg(Arg::with_name("chain-id").long("chain-id").help("Chain ID, by default creates new random"))
-            .arg(Arg::with_name("account-id").long("account-id").help("Account ID for initial validator"))
+            .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
+            .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for initial validator"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
-            .arg(Arg::with_name("v").long("v").help("Number of validators to initialize the testnet with (default 4)"))
-            .arg(Arg::with_name("n").long("n").help("Number of non-validators to initialize the testnet with (default 0)"))
-            .arg(Arg::with_name("prefix").long("prefix").help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
+            .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
+            .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
+            .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node"))
         .get_matches();
@@ -64,27 +64,32 @@ fn main() {
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 
     // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
-    if let Some(matches) = matches.subcommand_matches("init") {
-        // TODO: Check if `home` exists. If exists check what networks we already have there.
-        let chain_id = matches.value_of("chain-id");
-        let account_id = matches.value_of("account-id");
-        init_configs(home_dir, chain_id, account_id);
-    } else if let Some(_matches) = matches.subcommand_matches("testnet") {
-        let num_validators = matches
-            .value_of("v")
-            .map(|x| x.parse().expect("Failed to parse number of validators"))
-            .unwrap_or(4);
-        let num_non_validators = matches
-            .value_of("n")
-            .map(|x| x.parse().expect("Failed to parse number of non-validators"))
-            .unwrap_or(0);
-        let prefix = matches.value_of("prefix").unwrap_or("node");
-        init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
-    } else if let Some(_matches) = matches.subcommand_matches("run") {
-        // Load configs from home.
-        let system = System::new("NEAR");
-        let (near_config, genesis_config, block_producer) = load_configs(home_dir);
-        start_with_config(home_dir, genesis_config, near_config, Some(block_producer));
-        system.run().unwrap();
+    match matches.subcommand() {
+        ("init", Some(args)) => {
+            // TODO: Check if `home` exists. If exists check what networks we already have there.
+            let chain_id = args.value_of("chain-id");
+            let account_id = args.value_of("account-id");
+            init_configs(home_dir, chain_id, account_id);
+        }
+        ("testnet", Some(args)) => {
+            let num_validators = args
+                .value_of("v")
+                .map(|x| x.parse().expect("Failed to parse number of validators"))
+                .unwrap_or(4);
+            let num_non_validators = args
+                .value_of("n")
+                .map(|x| x.parse().expect("Failed to parse number of non-validators"))
+                .unwrap_or(0);
+            let prefix = args.value_of("prefix").unwrap_or("node");
+            init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
+        }
+        ("run", None) => {
+            // Load configs from home.
+            let system = System::new("NEAR");
+            let (near_config, genesis_config, block_producer) = load_configs(home_dir);
+            start_with_config(home_dir, genesis_config, near_config, Some(block_producer));
+            system.run().unwrap();
+        }
+        (_, _) => unreachable!(),
     }
 }
