@@ -7,7 +7,7 @@ use protobuf::Message;
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::start_http;
+use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::{open_port, WaitOrTimeout};
 use near_network::NetworkResponses;
 use near_primitives::crypto::signer::InMemorySigner;
@@ -30,7 +30,7 @@ fn test_send_tx() {
         );
 
         let addr = format!("127.0.0.1:{}", open_port());
-        start_http(addr.parse().unwrap(), client_addr.clone());
+        start_http(RpcConfig::new(&addr), client_addr.clone());
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
@@ -76,7 +76,7 @@ fn test_query() {
         );
 
         let addr = format!("127.0.0.1:{}", open_port());
-        start_http(addr.parse().unwrap(), client_addr);
+        start_http(RpcConfig::new(&addr), client_addr);
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.query("account/test".to_string(), vec![]).then(|res| {

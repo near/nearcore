@@ -73,8 +73,8 @@ fn generate_key(matches: &ArgMatches) {
         &key_store_path.as_path(),
         signer.public_key,
         signer.secret_key,
-        signer.bls_public_key,
-        signer.bls_secret_key,
+//        signer.bls_public_key,
+//        signer.bls_secret_key,
     );
 }
 

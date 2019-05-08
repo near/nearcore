@@ -2,7 +2,7 @@ use actix::{Actor, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{start_with_config, GenesisConfig, NearConfig};
+use near::{load_test_configs, start_with_config, GenesisConfig, NearConfig};
 use near_client::{BlockProducer, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use near_primitives::test_utils::init_test_logger;
@@ -14,23 +14,17 @@ fn two_nodes() {
 
     let genesis_config = GenesisConfig::test(vec!["test1", "test2"]);
 
-    let mut near1 = NearConfig::test("test1", 25123);
+    let (mut near1, bp1) = load_test_configs("test1", 25123);
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let mut near2 = NearConfig::test("test2", 25124);
+    let (mut near2, bp2) = load_test_configs("test1", 25124);
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
 
     let system = System::new("NEAR");
 
     let dir1 = TempDir::new("two_nodes_1").unwrap();
-    let client1 = start_with_config(
-        dir1.path(),
-        genesis_config.clone(),
-        near1,
-        Some(BlockProducer::test("test1")),
-    );
+    let client1 = start_with_config(dir1.path(), genesis_config.clone(), near1, Some(bp1));
     let dir2 = TempDir::new("two_nodes_2").unwrap();
-    let _client2 =
-        start_with_config(dir2.path(), genesis_config, near2, Some(BlockProducer::test("test2")));
+    let _client2 = start_with_config(dir2.path(), genesis_config, near2, Some(bp2));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {

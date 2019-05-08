@@ -23,6 +23,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use crate::peer::Peer;
+use near_primitives::crypto::signer::InMemorySigner;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -369,7 +370,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
 /// Configuration for the peer-to-peer manager.
 pub struct NetworkConfig {
     pub public_key: PublicKey,
-    pub private_key: SecretKey,
+    pub secret_key: SecretKey,
     pub account_id: Option<AccountId>,
     pub addr: Option<SocketAddr>,
     pub boot_nodes: Vec<PeerInfo>,

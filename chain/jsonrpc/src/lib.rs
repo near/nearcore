@@ -1,15 +1,15 @@
 use std::convert::TryInto;
-use std::net::SocketAddr;
 
 use actix::Addr;
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
+use base64;
 use futures::future;
 use futures::future::Future;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
+use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
-use base64;
 use message::Message;
 use near_client::{ClientActor, Query};
 use near_network::NetworkClientMessages;
@@ -19,6 +19,27 @@ use crate::message::{Request, RpcError};
 
 pub mod client;
 mod message;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RpcConfig {
+    pub addr: String,
+    pub cors_allowed_origins: Vec<String>,
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        RpcConfig {
+            addr: "0.0.0.0:3030".to_string(),
+            cors_allowed_origins: vec!["*".to_string()]
+        }
+    }
+}
+
+impl RpcConfig {
+    pub fn new(addr: &str) -> Self {
+        RpcConfig { addr: addr.to_string(), cors_allowed_origins: vec!["*".to_string()] }
+    }
+}
 
 macro_rules! ok_or_rpc_error(($obj: expr) => (match $obj {
     Ok(value) => value,
@@ -108,14 +129,14 @@ fn rpc_handler(
     handler.process(message.0).and_then(|message| Ok(HttpResponse::Ok().json(message)))
 }
 
-pub fn start_http(server_addr: SocketAddr, client_addr: Addr<ClientActor>) {
+pub fn start_http(config: RpcConfig, client_addr: Addr<ClientActor>) {
     HttpServer::new(move || {
         App::new()
             .data(JsonRpcHandler { client_addr: client_addr.clone() })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
     })
-    .bind(server_addr)
+    .bind(config.addr)
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)

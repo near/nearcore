@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process;
 
@@ -88,24 +90,28 @@ pub struct BlockProducerKeyFile {
     pub public_key: PublicKey,
     #[serde(with = "bs58_serializer")]
     pub secret_key: SecretKey,
-    #[serde(with = "bs58_serializer")]
-    pub bls_public_key: BlsPublicKey,
-    #[serde(with = "bs58_serializer")]
-    pub bls_secret_key: BlsSecretKey,
+    //    #[serde(with = "bs58_serializer")]
+    //    pub bls_public_key: BlsPublicKey,
+    //    #[serde(with = "bs58_serializer")]
+    //    pub bls_secret_key: BlsSecretKey,
 }
 
 pub fn write_block_producer_key_file(
     key_store_path: &Path,
     public_key: PublicKey,
     secret_key: SecretKey,
-    bls_public_key: BlsPublicKey,
-    bls_secret_key: BlsSecretKey,
+    //    bls_public_key: BlsPublicKey,
+    //    bls_secret_key: BlsSecretKey,
 ) -> String {
     if !key_store_path.exists() {
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let key_file = BlockProducerKeyFile { public_key, secret_key, bls_public_key, bls_secret_key };
+    let key_file = BlockProducerKeyFile {
+        public_key,
+        secret_key,
+        // bls_public_key, bls_secret_key
+    };
     let key_file_path = key_store_path.join(Path::new(&key_file.public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
     fs::write(key_file_path, serialized).unwrap();
@@ -168,8 +174,8 @@ pub fn get_or_create_key_file(
             key_store_path,
             public_key,
             secret_key,
-            bls_public_key,
-            bls_secret_key,
+            //            bls_public_key,
+            //            bls_secret_key,
         );
         get_block_producer_key_file(key_store_path, Some(new_public_key))
     } else {
@@ -177,28 +183,35 @@ pub fn get_or_create_key_file(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
+    #[serde(with = "bs58_serializer")]
     pub public_key: PublicKey,
+    #[serde(with = "bs58_serializer")]
     pub secret_key: SecretKey,
-    pub bls_public_key: BlsPublicKey,
-    pub bls_secret_key: BlsSecretKey,
 }
 
 impl InMemorySigner {
-    pub fn from_key_file(
-        account_id: AccountId,
-        key_store_path: &Path,
-        public_key: Option<String>,
-    ) -> Self {
-        let key_file = get_or_create_key_file(key_store_path, public_key);
-        InMemorySigner {
-            account_id,
-            public_key: key_file.public_key,
-            secret_key: key_file.secret_key,
-            bls_public_key: key_file.bls_public_key,
-            bls_secret_key: key_file.bls_secret_key,
+    pub fn new(account_id: String) -> Self {
+        let (public_key, secret_key) = get_key_pair();
+        Self { account_id, public_key, secret_key }
+    }
+
+    /// Read key file into signer.
+    pub fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        InMemorySigner::from(content.as_str())
+    }
+
+    /// Save signer into key file.
+    pub fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
         }
     }
 
@@ -209,9 +222,13 @@ impl InMemorySigner {
         let account_id: String =
             rng.sample_iter(&Alphanumeric).filter(char::is_ascii_alphabetic).take(10).collect();
         let (public_key, secret_key) = get_key_pair();
-        let bls_secret_key = BlsSecretKey::generate();
-        let bls_public_key = bls_secret_key.get_public_key();
-        Self { account_id, public_key, secret_key, bls_public_key, bls_secret_key }
+        Self { account_id, public_key, secret_key }
+    }
+}
+
+impl From<&str> for InMemorySigner {
+    fn from(key_file: &str) -> Self {
+        serde_json::from_str(key_file).expect("Failed to deserialize the key file.")
     }
 }
 
@@ -233,13 +250,13 @@ impl EDSigner for InMemorySigner {
     }
 }
 
-impl BLSSigner for InMemorySigner {
-    #[inline]
-    fn bls_public_key(&self) -> BlsPublicKey {
-        self.bls_public_key.clone()
-    }
-
-    fn bls_sign(&self, data: &[u8]) -> PartialSignature {
-        self.bls_secret_key.sign(data)
-    }
-}
+//impl BLSSigner for InMemorySigner {
+//    #[inline]
+//    fn bls_public_key(&self) -> BlsPublicKey {
+//        self.bls_public_key.clone()
+//    }
+//
+//    fn bls_sign(&self, data: &[u8]) -> PartialSignature {
+//        self.bls_secret_key.sign(data)
+//    }
+//}

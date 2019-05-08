@@ -10,7 +10,7 @@ use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
 
-pub use crate::config::{init_config, GenesisConfig, NearConfig};
+pub use crate::config::{GenesisConfig, NearConfig, init_configs, load_configs, load_test_configs};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
@@ -42,7 +42,7 @@ pub fn start_with_config(
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
                 .start();
 
-        start_http(config.rpc_server_addr, ctx.address());
+        start_http(config.rpc_config, ctx.address());
 
         ClientActor::new(
             config.client_config,

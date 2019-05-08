@@ -23,10 +23,10 @@ pub fn open_port() -> u16 {
 impl NetworkConfig {
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let (public_key, private_key) = get_key_pair_from_seed(seed);
+        let (public_key, secret_key) = get_key_pair_from_seed(seed);
         NetworkConfig {
             public_key,
-            private_key,
+            secret_key,
             account_id: Some(seed.to_string()),
             addr: Some(format!("0.0.0.0:{}", port).parse().unwrap()),
             boot_nodes: vec![],
