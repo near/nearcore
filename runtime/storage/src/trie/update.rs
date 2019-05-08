@@ -5,6 +5,7 @@ use std::iter::Peekable;
 use std::sync::Arc;
 
 use super::{DBChanges, Trie, TrieIterator};
+use std::convert::identity;
 
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
@@ -27,11 +28,11 @@ impl TrieUpdate {
             self.trie.get(&self.root, key).map(|x| DBValue::from_slice(&x))
         }
     }
-    pub fn set(&mut self, key: &[u8], value: &DBValue) {
-        self.prospective.insert(key.to_vec(), Some(value.to_vec()));
+    pub fn set(&mut self, key: &[u8], value: &DBValue) -> Option<Vec<u8>> {
+        self.prospective.insert(key.to_vec(), Some(value.to_vec())).and_then(identity)
     }
-    pub fn remove(&mut self, key: &[u8]) {
-        self.prospective.insert(key.to_vec(), None);
+    pub fn remove(&mut self, key: &[u8]) -> Option<Vec<u8>> {
+        self.prospective.insert(key.to_vec(), None).and_then(identity)
     }
 
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {

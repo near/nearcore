@@ -5,7 +5,9 @@ use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
 use byteorder::{ByteOrder, LittleEndian};
 use primitives::hash::hash;
 use primitives::logging::pretty_utf8;
-use primitives::types::{AccountId, Balance, Gas, Mana, PromiseId, ReceiptId};
+use primitives::types::{
+    AccountId, Balance, Gas, Mana, PromiseId, ReceiptId, StorageUsage, StorageUsageChange,
+};
 use primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
 use wasmer_runtime::{memory::Memory, units::Bytes};
@@ -30,6 +32,7 @@ pub struct Runtime<'a> {
     pub balance: Balance,
     pub gas_counter: Gas,
     gas_limit: Gas,
+    pub storage_counter: StorageUsageChange,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
     pub random_seed: Vec<u8>,
@@ -56,6 +59,7 @@ impl<'a> Runtime<'a> {
             balance: context.initial_balance + context.received_amount,
             gas_counter: 0,
             gas_limit,
+            storage_counter: 0,
             promise_ids: Vec::new(),
             return_data: ReturnData::None,
             random_seed: hash(&context.random_seed).into(),
@@ -183,7 +187,13 @@ impl<'a> Runtime<'a> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
         let value = self.memory_get(value_ptr as usize, value_len as usize)?;
 
-        self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
+        let evicted = self.ext.storage_set(&key, &value).map_err(|_| Error::StorageUpdateError)?;
+        if let Some(evicted) = evicted {
+            self.storage_counter +=
+                value_len as StorageUsageChange - evicted.len() as StorageUsageChange;
+        } else {
+            self.storage_counter += key_len as StorageUsageChange + value_len as StorageUsageChange;
+        }
         debug!(target: "wasm", "storage_write('{}', '{}')", pretty_utf8(&key), pretty_utf8(&value));
         Ok(())
     }
@@ -191,7 +201,11 @@ impl<'a> Runtime<'a> {
     /// Remove key from storage
     fn storage_remove(&mut self, key_len: u32, key_ptr: u32) -> Result<()> {
         let key = self.memory_get(key_ptr as usize, key_len as usize)?;
-        self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
+        let removed = self.ext.storage_remove(&key).map_err(|_| Error::StorageRemoveError)?;
+        if let Some(removed) = removed {
+            self.storage_counter -=
+                key_len as StorageUsageChange + removed.len() as StorageUsageChange;
+        }
         debug!(target: "wasm", "storage_remove('{}')", pretty_utf8(&key));
         Ok(())
     }
@@ -418,6 +432,11 @@ impl<'a> Runtime<'a> {
         let mana_left = self.context.mana - self.mana_counter;
 
         Ok(mana_left as u32)
+    }
+
+    fn storage_usage(&self) -> Result<StorageUsage> {
+        let storage_usage = self.context.storage_usage as StorageUsageChange + self.storage_counter;
+        Ok(storage_usage as StorageUsage)
     }
 
     fn received_amount(&self) -> Result<u64> {
@@ -670,6 +689,8 @@ pub mod imports {
         "mana_left" => mana_left<[] -> [u32]>,
         // Returns the amount of GAS left.
         "gas_left" => gas_left<[] -> [u64]>,
+        // Returns the storage usage.
+        "storage_usage" => storage_usage<[] -> [u64]>,
         // Returns the amount of tokens received with this call.
         "received_amount" => received_amount<[] -> [u64]>,
         // Returns currently produced block index.

@@ -59,6 +59,18 @@ export function benchmark_storage(n: i32): string {
   return sum.toString()
 }
 
+export function limited_storage(max_storage: u64): string {
+  let i = 0;
+  while (context.storageUsage <= max_storage) {
+    i += 1;
+    storage.setItem(i.toString(), i.toString());
+  }
+  if (context.storageUsage > max_storage) {
+    storage.removeItem(i.toString());
+  }
+  return i.toString()
+}
+
 export function benchmark_sum_n(n: i32): string {
   let i = 0;
   let sum: u64 = 0;
