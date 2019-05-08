@@ -365,6 +365,34 @@ mod tests {
     }
 
     #[test]
+    fn test_storage_usage() {
+        let input_data = b"{\"max_storage\":\"1024\"}";
+
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/hello.wasm");
+        let outcome = run_with_filename(
+            b"limited_storage",
+            input_data,
+            &[],
+            &runtime_context(0, 0, 0, 0),
+            path.to_str().unwrap(),
+        )
+        .expect("ok");
+
+        println!("Gas used for simple call {}", outcome.gas_used);
+        println!("{:?}", outcome.storage_usage);
+        println!("{:?}", outcome.logs);
+
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => {
+                // 1024 bytes is 207 elements.
+                assert_eq!(&output_data, b"\"207\"")
+            }
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
     fn test_get_gas() {
         let input_data = [0u8; 0];
 
