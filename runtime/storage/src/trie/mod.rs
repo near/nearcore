@@ -7,7 +7,7 @@ use primitives::hash::{hash, CryptoHash};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
@@ -369,11 +369,13 @@ pub struct Trie {
 /// state0 /
 ///        \__changes2___state2
 ///
-/// To store state1, state2 and state3, apply insertions from changes1 and changes2
+/// To store state0, state1 and state2, apply insertions from changes1 and changes2
 ///
 /// Then, to discard state2, apply insertions from changes2 as deletions
 ///
-/// Then, to discard state0, apply deletions from changes1
+/// Then, to discard state0, apply deletions from changes1.
+/// deleting state0 while both state1 and state2 exist is not possible.
+/// Applying deletions from changes1 while state2 exists makes accessing state2 invalid.
 ///
 ///
 /// create a fork -> apply insertions
@@ -1003,7 +1005,8 @@ impl Trie {
     pub fn apply_changes(&self, changes: DBChanges) -> std::io::Result<()> {
         let mut guard = self.storage.cache.lock().expect(POISONED_LOCK_ERR);
         for (key, value) in changes.iter() {
-            let hash = CryptoHash::try_from(&key[..]).expect("Key is always a hash");
+            let hash = CryptoHash::try_from(&key[..])
+                .map_err(|_| std::io::Error::new(ErrorKind::Other, "Key is always a hash"))?;
             (*guard).cache_set(hash, value.clone());
         }
         self.storage.storage.read().expect(POISONED_LOCK_ERR).apply_state_updates(changes)
@@ -1175,11 +1178,8 @@ impl<'a> Iterator for TrieIterator<'a> {
                         IterStep::PopTrail
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, value)) => {
-                        if value.is_some() {
-                            return Some(Ok((
-                                self.key(),
-                                DBValue::from_slice(value.as_ref().expect("is_some() called")),
-                            )));
+                        if let Some(value) = value {
+                            return Some(Ok((self.key(), DBValue::from_slice(value))));
                         } else {
                             IterStep::Continue
                         }
