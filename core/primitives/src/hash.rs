@@ -133,10 +133,8 @@ pub mod bs58_format {
 /// The example below calculates the hash of the indicated data.
 ///
 /// ```
-/// # extern crate primitives;
-///
 /// let data = [1, 2, 3];
-/// let hash = primitives::hash::hash(&data);
+/// let hash = near_primitives::hash::hash(&data);
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
     CryptoHash(sodiumoxide::crypto::hash::sha256::hash(data))

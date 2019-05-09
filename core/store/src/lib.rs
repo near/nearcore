@@ -71,12 +71,19 @@ impl Store {
 pub struct StoreUpdate {
     storage: Arc<KeyValueDB>,
     transaction: DBTransaction,
+    /// Optionally has reference to the trie to clear cache on the commit.
+    trie: Option<Arc<Trie>>,
 }
 
 impl StoreUpdate {
     pub fn new(storage: Arc<KeyValueDB>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction }
+        StoreUpdate { storage, transaction, trie: None }
+    }
+
+    pub fn new_with_trie(storage: Arc<KeyValueDB>, trie: Arc<Trie>) -> Self {
+        let transaction = storage.transaction();
+        StoreUpdate { storage, transaction, trie: Some(trie) }
     }
 
     pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
@@ -100,6 +107,11 @@ impl StoreUpdate {
 
     /// Merge another store update into this one.
     pub fn merge(&mut self, other: StoreUpdate) {
+        if self.trie.is_none() {
+            if let Some(trie) = other.trie {
+                self.trie = Some(trie);
+            }
+        }
         self.merge_transaction(other.transaction);
     }
 
@@ -114,6 +126,9 @@ impl StoreUpdate {
     }
 
     pub fn commit(self) -> Result<(), io::Error> {
+        if let Some(trie) = self.trie {
+            trie.clear_cache();
+        }
         self.storage.write(self.transaction)
     }
 }

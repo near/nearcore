@@ -65,9 +65,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
+        let contracts = self.genesis_config.contracts.iter().filter(|(account_id, _)| self.account_to_shard(account_id.clone()) == shard_id).cloned().collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
-            self.runtime.apply_genesis_state(state_update, &accounts, &authorities);
+            self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &contracts);
         (store_update, state_root)
     }
 
@@ -118,8 +119,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_index,
             parent_block_hash: *prev_block_hash,
         };
-        // XXX: terrible place for clearing the cache.
-        self.trie.clear_cache();
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result = self.runtime.apply(state_update, &apply_state, &receipts, &transactions);
         Ok((apply_result.state_update, apply_result.root, apply_result.tx_result, apply_result.new_receipts))

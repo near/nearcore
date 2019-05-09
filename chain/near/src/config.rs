@@ -188,12 +188,18 @@ pub struct GenesisConfig {
     pub authorities: Vec<(AccountId, ReadablePublicKey, Balance)>,
     /// List of accounts / balances at genesis.
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance)>,
+    /// List of contract code per accounts. Contract code encoded in base64.
+    pub contracts: Vec<(AccountId, String)>,
 }
 
 impl GenesisConfig {
     pub fn test(seeds: Vec<&str>) -> Self {
         let mut authorities = vec![];
         let mut accounts = vec![];
+        let mut contracts = vec![];
+        let default_test_contract = base64::encode(
+            include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
+        );
         for account in seeds {
             let signer = InMemorySigner::from_seed(account, account);
             authorities.push((
@@ -206,6 +212,7 @@ impl GenesisConfig {
                 signer.public_key.to_readable(),
                 TESTING_INIT_BALANCE,
             ));
+            contracts.push((account.to_string(), default_test_contract.clone()))
         }
         GenesisConfig {
             genesis_time: Utc::now(),
@@ -213,6 +220,7 @@ impl GenesisConfig {
             num_shards: 1,
             authorities,
             accounts,
+            contracts,
         }
     }
 
@@ -237,6 +245,7 @@ impl GenesisConfig {
             num_shards: 1,
             authorities,
             accounts,
+            contracts: vec![],
         }
     }
 
@@ -305,6 +314,7 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
                     TESTING_INIT_STAKE,
                 )],
                 accounts: vec![(account_id, signer.public_key.to_readable(), TESTING_INIT_BALANCE)],
+                contracts: vec![],
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -337,6 +347,7 @@ pub fn init_testnet_configs(
         num_shards: 1,
         authorities,
         accounts,
+        contracts: vec![],
     };
     for i in 0..(num_validators + num_non_validators) {
         let node_dir = dir.join(format!("{}{}", prefix, i));
@@ -398,6 +409,7 @@ mod tests {
             "num_shards": 1,
             "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
             "authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+            "contracts": [],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(

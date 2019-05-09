@@ -6,7 +6,7 @@ use tempdir::TempDir;
 use near::GenesisConfig;
 use near_primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
 use near_primitives::crypto::group_signature::GroupSignature;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, MerkleHash};
@@ -25,7 +25,12 @@ pub fn eve_account() -> AccountId {
     "eve.near".to_string()
 }
 
-pub fn get_runtime_and_trie_from_chain_spec(
+pub fn default_code_hash() -> CryptoHash {
+    let genesis_wasm = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
+    hash(genesis_wasm)
+}
+
+pub fn get_runtime_and_trie_from_genesis(
     genesis_config: &GenesisConfig,
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
@@ -37,15 +42,15 @@ pub fn get_runtime_and_trie_from_chain_spec(
         trie_update,
         &genesis_config.accounts,
         &genesis_config.authorities,
+        &genesis_config.contracts,
     );
     store_update.commit().unwrap();
-    trie.clear_cache();
     (runtime, trie, genesis_root)
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let genesis_config = GenesisConfig::test(vec!["alice.near", "bob.near", "carol.near"]);
-    get_runtime_and_trie_from_chain_spec(&genesis_config)
+    let genesis_config = GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+    get_runtime_and_trie_from_genesis(&genesis_config)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {

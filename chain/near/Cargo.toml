@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 actix = "0.8.1"
+base64 = "0.10.0"
 kvdb = "0.1"
 kvdb-memorydb = "0.1"
 log = "0.4"

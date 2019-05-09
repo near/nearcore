@@ -7,6 +7,7 @@ use log::debug;
 
 use near_primitives::types::MerkleHash;
 
+use crate::trie::convert_to_store_update;
 use crate::StoreUpdate;
 
 use super::{Trie, TrieIterator};
@@ -69,12 +70,11 @@ impl TrieUpdate {
         if !self.prospective.is_empty() {
             self.commit();
         }
-        let (store_update, root) = self.trie.update(
+        let trie_changes = self.trie.update(
             &self.root,
             self.committed.iter().map(|(key, value)| (key.clone(), value.clone())),
         );
-
-        (store_update, root)
+        convert_to_store_update(self.trie, trie_changes)
     }
     pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, String> {
         TrieUpdateIterator::new(self, prefix, b"", None)

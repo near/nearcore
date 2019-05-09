@@ -84,16 +84,13 @@ impl RuntimeUser {
             for (i, receipt) in receipts.iter().flatten().enumerate() {
                 counter += 1;
                 let transaction_result = apply_result.tx_result[i].clone();
-                println!("R: {:?}", transaction_result);
                 self.transaction_results.borrow_mut().insert(receipt.nonce, transaction_result);
             }
             for (i, tx) in txs.iter().enumerate() {
                 let transaction_result = apply_result.tx_result[i + counter].clone();
-                println!("Tx: {:?}", transaction_result);
                 self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
             }
             apply_result.state_update.commit().unwrap();
-            client.trie.clear_cache();
             if apply_result.new_receipts.is_empty() {
                 client.state_root = apply_result.root;
                 return;

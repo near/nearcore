@@ -759,8 +759,16 @@ impl Runtime {
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance)],
         authorities: &[(AccountId, ReadablePublicKey, Balance)],
+        contracts: &[(AccountId, String)],
     ) -> (StoreUpdate, MerkleHash) {
-        balances.iter().for_each(|(account_id, public_key, balance)| {
+        let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
+        for (account_id, wasm) in contracts {
+            let code = ContractCode::new(base64::decode(wasm).expect("Failed to decode wasm from base64"));
+            code_hash.insert(account_id.clone(), code.get_hash());
+            // TODO: why do we need code hash if we store code per account?
+            set(&mut state_update, &key_for_code(&account_id), &code);
+        }
+        for (account_id, public_key, balance) in balances {
             set(
                 &mut state_update,
                 &key_for_account(&account_id),
@@ -769,10 +777,10 @@ impl Runtime {
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
-                    code_hash: CryptoHash::default(),
+                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
                 },
             );
-        });
+        }
         for (account_id, _, amount) in authorities {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
@@ -799,7 +807,7 @@ mod tests {
 
     use super::*;
 
-// TODO(#348): Add tests for TX staking, mana charging and regeneration
+    // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
     #[test]
     fn test_get_and_set_accounts() {

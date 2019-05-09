@@ -391,6 +391,31 @@ enum FlattenNodesCrumb {
     Exiting,
 }
 
+
+pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreUpdate, CryptoHash) {
+    let mut store_update = StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
+    let TrieChanges { new_root, insertions, deletions } = changes;
+    for (key, value, rc) in insertions.into_iter() {
+        let storage_rc =
+            trie.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
+        let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
+        store_update.set(COL_STATE, key.as_ref(), &bytes);
+    }
+    for (key, rc) in deletions.into_iter() {
+        let (value, storage_rc) =
+            trie.storage.retrieve_raw_node(&key).expect("Node to delete does not exist");
+        assert!(rc <= storage_rc);
+        if rc < storage_rc {
+            let bytes =
+                RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
+            store_update.set(COL_STATE, key.as_ref(), &bytes);
+        } else {
+            store_update.delete(COL_STATE, key.as_ref());
+        }
+    }
+    (store_update, new_root)
+}
+
 impl Trie {
     pub fn new(store: Arc<Store>) -> Self {
         Trie { storage: TrieCachingStorage::new(store) }
@@ -913,7 +938,7 @@ impl Trie {
         (insertions, deletions)
     }
 
-    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> (StoreUpdate, CryptoHash)
+    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> TrieChanges
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
@@ -936,33 +961,7 @@ impl Trie {
                 }
             }
         }
-        let trie_changes = Trie::flatten_nodes(memory, root_node);
-
-        self.convert_to_store_update(trie_changes)
-    }
-
-    pub fn convert_to_store_update(&self, changes: TrieChanges) -> (StoreUpdate, CryptoHash) {
-        let mut store_update = self.storage.store.store_update();
-        let TrieChanges { new_root, insertions, deletions } = changes;
-        for (key, value, rc) in insertions.into_iter() {
-            let storage_rc =
-                self.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
-            let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
-            store_update.set(COL_STATE, key.as_ref(), &bytes);
-        }
-        for (key, rc) in deletions.into_iter() {
-            let (value, storage_rc) =
-                self.storage.retrieve_raw_node(&key).expect("Node to delete does not exist");
-            assert!(rc <= storage_rc);
-            if rc < storage_rc {
-                let bytes =
-                    RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
-                store_update.set(COL_STATE, key.as_ref(), &bytes);
-            } else {
-                store_update.delete(COL_STATE, key.as_ref());
-            }
-        }
-        (store_update, new_root)
+        Trie::flatten_nodes(memory, root_node)
     }
 
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
@@ -1208,22 +1207,23 @@ mod tests {
 
     type TrieChanges = Vec<(Vec<u8>, Option<Vec<u8>>)>;
 
-    fn test_populate_trie(trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
+    fn test_populate_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let mut other_changes = changes.clone();
-        let (db_changes, root) = trie.update(root, other_changes.drain(..));
+        let trie_changes = trie.update(root, other_changes.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
-        trie.clear_cache();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
         }
         root
     }
 
-    fn test_clear_trie(trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
+    fn test_clear_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let (db_changes, root) = trie.update(root, other_delete_changes.drain(..));
+        let trie_changes = trie.update(root, other_delete_changes.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
         trie.clear_cache();
         for (key, _) in delete_changes {
@@ -1266,8 +1266,8 @@ mod tests {
             (b"dog".to_vec(), Some(b"puppy".to_vec())),
             (b"h".to_vec(), Some(b"value".to_vec())),
         ];
-        let root = test_populate_trie(&trie, &empty_root, changes.clone());
-        let new_root = test_clear_trie(&trie, &root, changes);
+        let root = test_populate_trie(trie.clone(), &empty_root, changes.clone());
+        let new_root = test_clear_trie(trie.clone(), &root, changes);
         assert_eq!(new_root, empty_root);
         assert_eq!(trie.iter(&new_root).unwrap().fold(0, |acc, _| acc + 1), 0);
     }
@@ -1281,7 +1281,7 @@ mod tests {
             (b"x".to_vec(), Some(b"333".to_vec())),
             (b"y".to_vec(), Some(b"444".to_vec())),
         ];
-        let root = test_populate_trie(&trie, &Trie::empty_root(), pairs.clone());
+        let root = test_populate_trie(trie.clone(), &Trie::empty_root(), pairs.clone());
         let mut iter_pairs = vec![];
         for pair in trie.iter(&root).unwrap() {
             let (key, value) = pair.unwrap();
@@ -1302,7 +1302,7 @@ mod tests {
             (b"dog2".to_vec(), Some(b"puppy".to_vec())),
             (b"xxx".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&trie, &Trie::empty_root(), changes);
+        test_populate_trie(trie, &Trie::empty_root(), changes);
     }
 
     #[test]
@@ -1315,7 +1315,7 @@ mod tests {
             (b"catbb".to_vec(), Some(b"puppy".to_vec())),
             (b"dogax".to_vec(), Some(b"puppy".to_vec())),
         ];
-        test_populate_trie(&trie, &Trie::empty_root(), changes);
+        test_populate_trie(trie, &Trie::empty_root(), changes);
     }
 
     #[test]
@@ -1339,7 +1339,7 @@ mod tests {
                 Some(vec![0]),
             ),
         ];
-        let root = test_populate_trie(&trie, &Trie::empty_root(), changes);
+        let root = test_populate_trie(trie.clone(), &Trie::empty_root(), changes);
         let mut iter = trie.iter(&root).unwrap();
         iter.seek(&vec![0, 116, 101, 115, 116, 44]).unwrap();
         let mut pairs = vec![];
@@ -1369,17 +1369,17 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
-        let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
+        let trie_changes = trie.update(&Trie::empty_root(), initial.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
-        trie.clear_cache();
 
         let mut changes = vec![
             (vec![99, 44, 100, 58, 58, 45, 49], None),
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
-        let (db_changes, root) = trie.update(&root, changes.drain(..));
+        let trie_changes = trie.update(&root, changes.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
-        trie.clear_cache();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1393,17 +1393,18 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
+        let trie_changes = trie.update(&Trie::empty_root(), initial.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
-        trie.clear_cache();
+
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
 
         let mut changes = vec![(vec![1, 2, 3], None)];
-        let (db_changes, root) = trie.update(&root, changes.drain(..));
+        let trie_changes = trie.update(&root, changes.drain(..));
+        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
         db_changes.commit().unwrap();
-        trie.clear_cache();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1464,15 +1465,15 @@ mod tests {
             let trie_changes = gen_changes(&mut rng);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let (db_changes1, root1) =
+            let trie_changes1 =
                 trie.update(&Trie::empty_root(), trie_changes.iter().cloned());
-            let (db_changes2, root2) =
+            let trie_changes2 =
                 trie.update(&Trie::empty_root(), simplified_changes.iter().cloned());
-            if root1 != root2 {
+            if trie_changes1.new_root != trie_changes2.new_root {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
-                eprintln!("root1: {}", root1);
-                eprintln!("root2: {}", root2);
+                eprintln!("root1: {}", trie_changes1.new_root);
+                eprintln!("root2: {}", trie_changes2.new_root);
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?
