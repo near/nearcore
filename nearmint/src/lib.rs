@@ -3,31 +3,58 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fs;
 use std::path::Path;
-use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
 use abci::*;
 use log::{error, info};
 use protobuf::parse_from_bytes;
 
+use near::GenesisConfig;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::traits::ToBytes;
+use near_primitives::transaction::{SignedTransaction, TransactionStatus};
+use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
+use near_store::test_utils::create_test_store;
+use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
 use node_runtime::adapter::{query_client, RuntimeAdapter};
-use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::traits::ToBytes;
-use near_primitives::transaction::{SignedTransaction, TransactionStatus};
-use near_primitives::types::{AccountId, AuthorityStake, MerkleHash};
-use near_store::{create_store, Trie, TrieUpdate, Store};
 use verifier::TransactionVerifier;
 
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STORAGE_PATH: &str = "storage";
+
+fn chain_id_to_bytes(index: &u32) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(
+            index as *const u32 as *const u8,
+            std::mem::size_of::<u32>() / std::mem::size_of::<u8>(),
+        )
+    }
+}
+
+fn enc_slice(slice: &[u8]) -> Vec<u8> {
+    let id: u32 = 0u32; // chain id from legacy storage.
+    let mut res = vec![];
+    res.extend_from_slice(chain_id_to_bytes(&id));
+    res.extend_from_slice(slice);
+    res
+}
+
+fn best_index_key(genesis_hash: &CryptoHash) -> Vec<u8> {
+    let mut key = enc_slice(genesis_hash.as_ref());
+    key.extend_from_slice(&[0]);
+    key
+}
+
+fn best_hash_key(genesis_hash: &CryptoHash) -> Vec<u8> {
+    enc_slice(genesis_hash.as_ref())
+}
 
 /// Connector of NEAR Core with Tendermint.
 pub struct NearMint {
-    chain_spec: ChainSpec,
+    genesis_config: GenesisConfig,
     runtime: Runtime,
     trie: Arc<Trie>,
     trie_viewer: TrieViewer,
@@ -37,6 +64,7 @@ pub struct NearMint {
     apply_state: Option<ApplyState>,
     authority_proposals: Vec<AuthorityStake>,
     height: u64,
+    genesis_hash: CryptoHash,
 }
 
 fn get_storage_path(base_path: &Path) -> String {
@@ -53,7 +81,7 @@ impl NearMint {
     pub fn new_from_storage(
         base_path: &Path,
         store: Arc<Store>,
-        chain_spec: ChainSpec,
+        genesis_config: GenesisConfig,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut ethash_path = base_path.to_owned();
@@ -66,34 +94,20 @@ impl NearMint {
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         let (db_changes, genesis_root) = runtime.apply_genesis_state(
             state_update,
-            &chain_spec.accounts,
-            &chain_spec.genesis_wasm,
-            &chain_spec.initial_authorities,
+            &genesis_config.accounts,
+            &genesis_config.authorities,
+            &genesis_config.contracts,
         );
 
-        db_changes
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .blockchain_storage_mut()
-            .set_genesis_hash(genesis_root)
-            .expect("Failed to set genesis hash");
-
-        let maybe_best_hash = storage
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .blockchain_storage_mut()
-            .best_block_hash()
-            .map(Option::<&_>::cloned);
+        let mut store_update = store.store_update();
+        let maybe_best_hash = store.get_ser(COL_BLOCK_MISC, &best_hash_key(&genesis_root));
         let (root, height) = if let Ok(Some(best_hash)) = maybe_best_hash {
             (
                 best_hash,
-                storage
-                    .write()
-                    .expect(POISONED_LOCK_ERR)
-                    .blockchain_storage_mut()
-                    .best_block_index()
-                    .unwrap()
-                    .unwrap(),
+                store
+                    .get_ser(COL_BLOCK_MISC, b"BEST_INDEX")
+                    .expect("Failed to read from storage")
+                    .expect("Missing index with hash present"),
             )
         } else {
             // Apply genesis.
@@ -102,30 +116,29 @@ impl NearMint {
         };
 
         NearMint {
-            chain_spec,
+            genesis_config,
             runtime,
             trie,
             trie_viewer,
-            storage,
+            store,
             root,
             apply_state: None,
             state_update: None,
             authority_proposals: Vec::default(),
             height,
+            genesis_hash: genesis_root,
         }
     }
 
-    pub fn new(base_path: &Path, chain_spec: ChainSpec) -> Self {
-        let (_, mut storage) = create_storage(&get_storage_path(base_path), 1);
-        let storage = storage.pop().unwrap();
-
-        Self::new_from_storage(base_path, storage, chain_spec)
+    pub fn new(base_path: &Path, genesis_config: GenesisConfig) -> Self {
+        let store = create_store(&get_storage_path(base_path));
+        Self::new_from_storage(base_path, store, genesis_config)
     }
 
     /// In memory instance of nearmint used for test
-    pub fn new_for_test(chain_spec: ChainSpec) -> Self {
-        let (_, storage) = create_beacon_shard_storages();
-        Self::new_from_storage(Path::new("test"), storage, chain_spec)
+    pub fn new_for_test(genesis_config: GenesisConfig) -> Self {
+        let store = create_test_store();
+        Self::new_from_storage(Path::new("test"), store, genesis_config)
     }
 }
 
@@ -136,7 +149,11 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
 }
 
 impl RuntimeAdapter for NearMint {
-    fn view_account(&self, state_root: MerkleHash, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<AccountViewCallResult, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -144,6 +161,7 @@ impl RuntimeAdapter for NearMint {
     fn call_function(
         &self,
         state_root: MerkleHash,
+        _height: BlockIndex,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -174,7 +192,7 @@ impl Application for NearMint {
 
     fn query(&mut self, req: &RequestQuery) -> ResponseQuery {
         let mut resp = ResponseQuery::new();
-        match query_client(self, &req.path, &req.data, req.height as u64, req.prove) {
+        match query_client(self, self.root, self.height, &req.path, &req.data) {
             Ok(response) => {
                 resp.key = response.key;
                 resp.value = response.value;
@@ -215,7 +233,7 @@ impl Application for NearMint {
     fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
         info!("Init chain: {:?}", req);
         let mut resp = ResponseInitChain::new();
-        for (_, public_key, _, amount) in self.chain_spec.initial_authorities.iter() {
+        for (_, public_key, amount) in self.genesis_config.authorities.iter() {
             let mut validator = ValidatorUpdate::new();
             let mut pub_key = PubKey::new();
             pub_key.set_field_type("ed25519".to_string());
@@ -304,19 +322,19 @@ impl Application for NearMint {
         let mut resp = ResponseCommit::new();
         if let Some(state_update) = self.state_update.take() {
             info!("Commit: {:?}", req);
-            let (new_root, db_changes) = state_update.finalize();
-            self.trie.apply_changes(db_changes).expect("Failed to commit to database");
             if let Some(apply_state) = &self.apply_state {
-                let mut guard = self.storage.write().expect(POISONED_LOCK_ERR);
-                guard
-                    .blockchain_storage_mut()
-                    .set_best_block_index(apply_state.block_index)
-                    .expect("FAILED");
-                guard.blockchain_storage_mut().set_best_block_hash(new_root).expect("FAILED");
+                let (mut db_changes, new_root) = state_update.finalize();
+                db_changes.set_ser(
+                    COL_BLOCK_MISC,
+                    &best_index_key(&self.genesis_hash),
+                    &apply_state.block_index,
+                ).expect("Failed to serialize new index");
+                db_changes.set_ser(COL_BLOCK_MISC, &best_hash_key(&self.genesis_hash), &new_root).expect("Failed to serialize new root");
+                db_changes.commit().expect("Failed to commit to database");
+                self.state_update = None;
+                self.apply_state = None;
+                self.root = new_root;
             }
-            self.state_update = None;
-            self.apply_state = None;
-            self.root = new_root;
         }
         resp.data = self.root.as_ref().to_vec();
         resp
@@ -327,18 +345,17 @@ impl Application for NearMint {
 mod tests {
     use protobuf::Message;
 
-    use node_runtime::adapter::RuntimeAdapter;
-    use node_runtime::chain_spec::ChainSpec;
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::TransactionBody;
     use near_primitives::types::StructSignature;
+    use node_runtime::adapter::RuntimeAdapter;
 
     use super::*;
 
     #[test]
     fn test_apply_block() {
-        let chain_spec = ChainSpec::default_devnet();
+        let chain_spec = GenesisConfig::testing_spec(2, 1);
         let mut nearmint = NearMint::new_for_test(chain_spec);
         let req_init = RequestInitChain::new();
         let resp_init = nearmint.init_chain(&req_init);
@@ -351,9 +368,9 @@ mod tests {
         h.set_last_block_id(last_block_id);
         req_begin_block.set_header(h);
         nearmint.begin_block(&req_begin_block);
-        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        let signer = InMemorySigner::from_seed("near.0", "near.0");
         let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
+            TransactionBody::send_money(1, "near.0", "near.1", 10).sign(&signer).into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
         let deliver_resp = nearmint.deliver_tx(&deliver_req);
@@ -365,14 +382,14 @@ mod tests {
         let req_commit = RequestCommit::new();
         nearmint.commit(&req_commit);
 
-        let result = nearmint.view_account(&"alice.near".to_string()).unwrap();
+        let result = nearmint.view_account(nearmint.root, &"near.0".to_string()).unwrap();
         assert_eq!(result.amount, 999999999990);
-        let result = nearmint.view_account(&"bob.near".to_string()).unwrap();
+        let result = nearmint.view_account(nearmint.root, &"near.1".to_string()).unwrap();
         assert_eq!(result.amount, 1000000000010);
         assert_eq!(nearmint.height, 1);
 
         let mut req_query = RequestQuery::new();
-        req_query.path = "account/alice.near".to_string();
+        req_query.path = "account/near.0".to_string();
         let resp_query = nearmint.query(&req_query);
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
@@ -381,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_invalid_transaction() {
-        let chain_spec = ChainSpec::default_devnet();
+        let chain_spec = GenesisConfig::test(vec!["alice.near", "bob.near"]);
         let mut nearmint = NearMint::new_for_test(chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
         let body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);

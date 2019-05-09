@@ -20,7 +20,7 @@ members = [
     "chain/network",
     "chain/jsonrpc",
     "chain/near",
-    # "nearmint/",
+    "nearmint/",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
