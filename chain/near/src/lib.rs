@@ -5,12 +5,12 @@ use std::sync::Arc;
 use actix::{Actor, Addr, AsyncContext};
 use log::info;
 
-use near_client::{BlockProducer, ClientActor};
+use near_client::{BlockProducer, ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
 
-pub use crate::config::{GenesisConfig, NearConfig, init_configs, load_configs, load_test_configs};
+pub use crate::config::{init_configs, load_configs, load_test_configs, GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
@@ -33,16 +33,21 @@ pub fn start_with_config(
     genesis_config: GenesisConfig,
     config: NearConfig,
     block_producer: Option<BlockProducer>,
-) -> Addr<ClientActor> {
+) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
     let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config.clone()));
 
-    ClientActor::create(move |ctx| {
+    let view_client =
+        ViewClientActor::new(store.clone(), genesis_config.genesis_time.clone(), runtime.clone())
+            .unwrap()
+            .start();
+    let view_client1 = view_client.clone();
+    let client = ClientActor::create(move |ctx| {
         let network_actor =
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
                 .start();
 
-        start_http(config.rpc_config, ctx.address());
+        start_http(config.rpc_config, ctx.address(), view_client1);
 
         ClientActor::new(
             config.client_config,
@@ -53,5 +58,6 @@ pub fn start_with_config(
             block_producer,
         )
         .unwrap()
-    })
+    });
+    (client, view_client)
 }

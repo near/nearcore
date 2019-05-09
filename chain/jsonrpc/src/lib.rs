@@ -11,7 +11,7 @@ use serde_derive::{Serialize, Deserialize};
 use serde_json::Value;
 
 use message::Message;
-use near_client::{ClientActor, Query};
+use near_client::{ClientActor, Query, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_protos::signed_transaction as transaction_proto;
 
@@ -59,6 +59,7 @@ fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError
 
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
+    view_client_addr: Addr<ViewClientActor>,
 }
 
 impl JsonRpcHandler {
@@ -105,7 +106,7 @@ impl JsonRpcHandler {
         let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
         // TODO: simplify this.
         Box::new(
-            self.client_addr
+            self.view_client_addr
                 .send(Query { path, data })
                 .then(|response| match response {
                     Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
@@ -129,10 +130,10 @@ fn rpc_handler(
     handler.process(message.0).and_then(|message| Ok(HttpResponse::Ok().json(message)))
 }
 
-pub fn start_http(config: RpcConfig, client_addr: Addr<ClientActor>) {
+pub fn start_http(config: RpcConfig, client_addr: Addr<ClientActor>, view_client_addr: Addr<ViewClientActor>) {
     HttpServer::new(move || {
         App::new()
-            .data(JsonRpcHandler { client_addr: client_addr.clone() })
+            .data(JsonRpcHandler { client_addr: client_addr.clone(), view_client_addr: view_client_addr.clone() })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
     })

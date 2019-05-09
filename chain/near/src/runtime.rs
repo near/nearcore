@@ -6,7 +6,7 @@ use near_chain::{BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, W
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::transaction::{SignedTransaction, TransactionResult, ReceiptTransaction};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
@@ -65,7 +65,13 @@ impl RuntimeAdapter for NightshadeRuntime {
             .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
-        let contracts = self.genesis_config.contracts.iter().filter(|(account_id, _)| self.account_to_shard(account_id.clone()) == shard_id).cloned().collect::<Vec<_>>();
+        let contracts = self
+            .genesis_config
+            .contracts
+            .iter()
+            .filter(|(account_id, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .cloned()
+            .collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
             self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &contracts);
@@ -121,7 +127,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         };
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result = self.runtime.apply(state_update, &apply_state, &receipts, &transactions);
-        Ok((apply_result.state_update, apply_result.root, apply_result.tx_result, apply_result.new_receipts))
+        Ok((
+            apply_result.state_update,
+            apply_result.root,
+            apply_result.tx_result,
+            apply_result.new_receipts,
+        ))
     }
 
     fn query(

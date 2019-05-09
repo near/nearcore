@@ -144,10 +144,11 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
-                                    let _ = self.network_recipient.do_send(NetworkRequests::BanPeer {
-                                        peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
-                                    });
+                                    let _ =
+                                        self.network_recipient.do_send(NetworkRequests::BanPeer {
+                                            peer_id: peer.peer_info.id.clone(),
+                                            ban_reason: ReasonForBan::HeightFraud,
+                                        });
                                 }
                             }
                             _ => (),

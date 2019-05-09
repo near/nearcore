@@ -7,8 +7,8 @@ use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockIndex};
 use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::types::{AccountId, BlockIndex};
 
 #[derive(Debug)]
 pub enum Error {
@@ -162,7 +162,7 @@ impl Message for GetBlock {
 /// Queries client for given path / data.
 pub struct Query {
     pub path: String,
-    pub data: Vec<u8>
+    pub data: Vec<u8>,
 }
 
 impl Message for Query {

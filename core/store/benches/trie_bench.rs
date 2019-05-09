@@ -5,7 +5,7 @@ use bencher::Bencher;
 use rand::random;
 
 use near_store::test_utils::create_trie;
-use near_store::Trie;
+use near_store::{convert_to_store_update, Trie};
 
 fn rand_bytes() -> Vec<u8> {
     (0..10).map(|_| random::<u8>()).collect()
@@ -19,7 +19,8 @@ fn trie_lookup(bench: &mut Bencher) {
         changes.push((rand_bytes(), Some(rand_bytes())));
     }
     let other_changes = changes.clone();
-    let (state_update, root) = trie.update(&root, changes.drain(..));
+    let (state_update, root) =
+        convert_to_store_update(trie.clone(), trie.update(&root, changes.drain(..)));
     state_update.commit().expect("Failed to commit");
 
     bench.iter(|| {
@@ -41,7 +42,7 @@ fn trie_update(bench: &mut Bencher) {
 
     bench.iter(|| {
         let mut this_changes = changes.clone();
-        let (_, _) = trie.update(&root, this_changes.drain(..));
+        let _ = trie.update(&root, this_changes.drain(..));
     });
 }
 

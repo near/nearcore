@@ -39,7 +39,7 @@ fn sync_nodes() {
     let system = System::new("NEAR");
 
     let dir1 = TempDir::new("sync_nodes_1").unwrap();
-    let client1 = start_with_config(dir1.path(), genesis_config.clone(), near1, Some(bp1));
+    let (client1, _) = start_with_config(dir1.path(), genesis_config.clone(), near1, Some(bp1));
 
     let mut blocks = vec![];
     let mut prev = &genesis_header;
@@ -55,11 +55,11 @@ fn sync_nodes() {
     }
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
-    let client2 = start_with_config(dir2.path(), genesis_config, near2, Some(bp2));
+    let (_, view_client2) = start_with_config(dir2.path(), genesis_config, near2, Some(bp2));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(client2.send(GetBlock::Best).then(|res| {
+            actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                 match &res {
                     Ok(Some(b)) if b.header.height == 10 => System::current().stop(),
                     Err(_) => return futures::future::err(()),

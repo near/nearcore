@@ -47,7 +47,7 @@ fn produce_blocks_with_tx() {
     let count = Arc::new(AtomicUsize::new(0));
     init_test_logger();
     System::run(|| {
-        let client = setup_mock(
+        let (client, _) = setup_mock(
             vec!["test"],
             "test",
             true,
@@ -72,7 +72,7 @@ fn produce_blocks_with_tx() {
 fn receive_network_block() {
     init_test_logger();
     System::run(|| {
-        let client = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test2", "test1", "test3"],
             "test2",
             true,
@@ -84,7 +84,7 @@ fn receive_network_block() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let block = Block::produce(
@@ -109,7 +109,7 @@ fn receive_network_block_header() {
     init_test_logger();
     System::run(|| {
         let block_holder1 = block_holder.clone();
-        let client = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test"],
             "other",
             true,
@@ -131,7 +131,7 @@ fn receive_network_block_header() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             let block = Block::produce(
@@ -158,7 +158,7 @@ fn receive_network_block_header() {
 fn produce_block_with_approvals() {
     init_test_logger();
     System::run(|| {
-        let client = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test3", "test1", "test2"],
             "test2",
             true,
@@ -170,7 +170,7 @@ fn produce_block_with_approvals() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer1 = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let signer3 = Arc::new(InMemorySigner::from_seed("test3", "test3"));
@@ -200,7 +200,7 @@ fn produce_block_with_approvals() {
 fn invalid_blocks() {
     init_test_logger();
     System::run(|| {
-        let client = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test"],
             "other",
             false,
@@ -217,7 +217,7 @@ fn invalid_blocks() {
                 NetworkResponses::NoResponse
             }),
         );
-        actix::spawn(client.send(GetBlock::Best).then(move |res| {
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             // Send invalid state root.
@@ -294,7 +294,7 @@ fn client_sync() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
-        let _client = setup_mock(
+        let _ = setup_mock(
             vec!["test"],
             "other",
             false,
@@ -317,26 +317,6 @@ fn client_sync() {
             }),
         );
         wait_or_panic(1000);
-    })
-    .unwrap();
-}
-
-/// Query client
-#[test]
-fn query_client() {
-    init_test_logger();
-    System::run(|| {
-        let client = setup_mock(
-            vec!["test"],
-            "other",
-            true,
-            Box::new(move |_, _, _| NetworkResponses::NoResponse),
-        );
-        actix::spawn(client.send(Query { path: "account/test".to_string(), data: vec![] }).then(|res| {
-            assert_eq!(res.unwrap().unwrap().log, "exists");
-            System::current().stop();
-            future::result(Ok(()))
-        }));
     })
     .unwrap();
 }

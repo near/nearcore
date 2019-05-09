@@ -22,13 +22,13 @@ fn two_nodes() {
     let system = System::new("NEAR");
 
     let dir1 = TempDir::new("two_nodes_1").unwrap();
-    let client1 = start_with_config(dir1.path(), genesis_config.clone(), near1, Some(bp1));
+    let (_client1, view_client1) = start_with_config(dir1.path(), genesis_config.clone(), near1, Some(bp1));
     let dir2 = TempDir::new("two_nodes_2").unwrap();
-    let _client2 = start_with_config(dir2.path(), genesis_config, near2, Some(bp2));
+    let _ = start_with_config(dir2.path(), genesis_config, near2, Some(bp2));
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(client1.send(GetBlock::Best).then(|res| {
+            actix::spawn(view_client1.send(GetBlock::Best).then(|res| {
                 match &res {
                     Ok(Some(b)) if b.header.height > 2 && b.header.total_weight.to_num() > 2 => {
                         System::current().stop()
