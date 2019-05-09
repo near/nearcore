@@ -38,7 +38,7 @@ pub fn send_money(
     }
     if sender.amount >= transaction.amount {
         sender.amount -= transaction.amount;
-        set(state_update, &key_for_account(&transaction.originator), sender);
+        set(state_update, key_for_account(&transaction.originator), sender);
         let receipt = ReceiptTransaction::new(
             transaction.originator.clone(),
             transaction.receiver.clone(),
@@ -78,7 +78,7 @@ pub fn staking(
         });
         sender.amount -= body.amount;
         sender.staked += body.amount;
-        set(state_update, &key_for_account(sender_account_id), &sender);
+        set(state_update, key_for_account(sender_account_id), &sender);
         Ok(vec![])
     } else {
         let err_msg = format!(
@@ -111,7 +111,7 @@ pub fn deposit(
 
     if amount > 0 {
         receiver.amount += amount;
-        set(state_update, &key_for_account(&receiver_id), receiver);
+        set(state_update, key_for_account(&receiver_id), receiver);
     }
     Ok(receipts)
 }
@@ -128,7 +128,7 @@ pub fn create_account(
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
-        set(state_update, &key_for_account(&body.originator), &sender);
+        set(state_update, key_for_account(&body.originator), &sender);
         let new_nonce = create_nonce_with_nonce(&hash, 0);
         let receipt = ReceiptTransaction::new(
             body.originator.clone(),
@@ -160,8 +160,8 @@ pub fn deploy(
     let code = ContractCode::new(code.to_vec());
     // Signature should be already checked at this point
     sender.code_hash = code.get_hash();
-    set(state_update, &key_for_code(&sender_id), &code);
-    set(state_update, &key_for_account(&sender_id), &sender);
+    set(state_update, key_for_code(&sender_id), &code);
+    set(state_update, key_for_account(&sender_id), &sender);
     Ok(vec![])
 }
 
@@ -178,7 +178,7 @@ pub fn swap_key(
         return Err(format!("Account {} does not have public key {}", body.originator, cur_key));
     }
     account.public_keys.push(new_key);
-    set(state_update, &key_for_account(&body.originator), &account);
+    set(state_update, key_for_account(&body.originator), &account);
     Ok(vec![])
 }
 
@@ -200,7 +200,7 @@ pub fn add_key(
         if account.amount >= access_key.amount {
             if access_key.amount > 0 {
                 account.amount -= access_key.amount;
-                set(state_update, &key_for_account(&body.originator), &account);
+                set(state_update, key_for_account(&body.originator), &account);
             }
         } else {
             return Err(format!(
@@ -218,10 +218,10 @@ pub fn add_key(
                 return Err("Invalid account ID for contract ID in the access key".to_string());
             }
         }
-        set(state_update, &key_for_access_key(&body.originator, &new_key), access_key);
+        set(state_update, key_for_access_key(&body.originator, &new_key), access_key);
     } else {
         account.public_keys.push(new_key);
-        set(state_update, &key_for_account(&body.originator), &account);
+        set(state_update, key_for_account(&body.originator), &account);
     }
     Ok(vec![])
 }
@@ -257,13 +257,13 @@ pub fn delete_key(
                 new_receipts.push(new_receipt);
             } else {
                 account.amount += access_key.amount;
-                set(state_update, &key_for_account(&body.originator), &account);
+                set(state_update, key_for_account(&body.originator), &account);
             }
         }
         // Remove access key
         state_update.remove(&key_for_access_key(&body.originator, &cur_key));
     } else {
-        set(state_update, &key_for_account(&body.originator), &account);
+        set(state_update, key_for_account(&body.originator), &account);
     }
     Ok(new_receipts)
 }
@@ -280,10 +280,10 @@ pub fn system_create_account(
 
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
-    set(state_update, &account_id_bytes, &new_account);
+    set(state_update, account_id_bytes, &new_account);
     // TODO(#347): Remove default TX staking once tx staking is properly implemented
     let mut tx_total_stake = TxTotalStake::new(0);
     tx_total_stake.add_active_stake(100);
-    set(state_update, &key_for_tx_stake(&account_id, &None), &tx_total_stake);
+    set(state_update, key_for_tx_stake(&account_id, &None), &tx_total_stake);
     Ok(vec![])
 }

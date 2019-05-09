@@ -78,7 +78,7 @@ impl<'a> RuntimeExt<'a> {
     /// write callbacks to stateUpdate
     pub fn flush_callbacks(&mut self) {
         for (id, callback) in self.callbacks.drain() {
-            set(self.trie_update, &key_for_callback(&id), &callback);
+            set(self.trie_update, key_for_callback(&id), &callback);
         }
     }
 }
@@ -86,7 +86,7 @@ impl<'a> RuntimeExt<'a> {
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
         let storage_key = self.create_storage_key(key);
-        Ok(self.trie_update.set(&storage_key, &DBValue::from_slice(value)))
+        Ok(self.trie_update.set(storage_key, DBValue::from_slice(value)))
     }
 
     fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {

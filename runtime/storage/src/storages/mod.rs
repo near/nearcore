@@ -107,7 +107,7 @@ where
     /// Encodes a slice of bytes into a vector by adding a prefix that corresponds to the chain id.
     pub fn enc_slice(&self, slice: &[u8]) -> Vec<u8> {
         let id: u32 = self.chain_id.clone().into();
-        let mut res = vec![];
+        let mut res = Vec::with_capacity(4 + slice.len());
         res.extend_from_slice(chain_id_to_bytes(&id));
         res.extend_from_slice(slice);
         res
@@ -311,7 +311,7 @@ fn write_with_cache<T: Clone + Encode>(
 ) -> io::Result<()> {
     let data = Encode::encode(&value)?;
     let mut db_transaction = storage.transaction();
-    db_transaction.put(Some(col), key, &data);
+    db_transaction.put_vec(Some(col), key, data);
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.
     cache.cache_set(key.to_vec(), value);
@@ -325,11 +325,11 @@ fn extend_with_cache<T: Clone + Encode>(
     values: HashMap<Vec<u8>, T>,
 ) -> io::Result<()> {
     let mut db_transaction = storage.transaction();
-    let mut cache_to_extend = vec![];
+    let mut cache_to_extend = Vec::with_capacity(values.len());
     for (key, value) in values {
         let data = Encode::encode(&value)?;
-        cache_to_extend.push((key.clone(), value));
-        db_transaction.put(Some(col), &key, &data);
+        db_transaction.put_vec(Some(col), &key, data);
+        cache_to_extend.push((key, value));
     }
     storage.write(db_transaction)?;
     // If it has reached here then it is safe to put in cache.

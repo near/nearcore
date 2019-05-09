@@ -46,8 +46,6 @@ use std::fmt;
 pub struct NibbleSlice<'a> {
     data: &'a [u8],
     offset: usize,
-    data_encode_suffix: &'a [u8],
-    offset_encode_suffix: usize,
 }
 
 /// Iterator type for a nibble slice.
@@ -76,7 +74,7 @@ impl<'a> NibbleSlice<'a> {
 
     /// Create a new nibble slice with the given byte-slice with a nibble offset.
     pub fn new_offset(data: &'a [u8], offset: usize) -> Self {
-        NibbleSlice { data, offset, data_encode_suffix: &b""[..], offset_encode_suffix: 0 }
+        NibbleSlice { data, offset }
     }
 
     /// Get an iterator for the series of nibbles.
@@ -97,39 +95,22 @@ impl<'a> NibbleSlice<'a> {
     /// Get the length (in nibbles, naturally) of this slice.
     #[inline]
     pub fn len(&self) -> usize {
-        (self.data.len() + self.data_encode_suffix.len()) * 2
-            - self.offset
-            - self.offset_encode_suffix
+        self.data.len() * 2 - self.offset
     }
 
     /// Get the nibble at position `i`.
     #[inline(always)]
     pub fn at(&self, i: usize) -> u8 {
-        let l = self.data.len() * 2 - self.offset;
-        if i < l {
-            if (self.offset + i) & 1 == 1 {
-                self.data[(self.offset + i) / 2] & 15u8
-            } else {
-                self.data[(self.offset + i) / 2] >> 4
-            }
+        if (self.offset + i) & 1 == 1 {
+            self.data[(self.offset + i) / 2] & 15u8
         } else {
-            let i = i - l;
-            if (self.offset_encode_suffix + i) & 1 == 1 {
-                self.data_encode_suffix[(self.offset_encode_suffix + i) / 2] & 15u8
-            } else {
-                self.data_encode_suffix[(self.offset_encode_suffix + i) / 2] >> 4
-            }
+            self.data[(self.offset + i) / 2] >> 4
         }
     }
 
     /// Return object which represents a view on to this slice (further) offset by `i` nibbles.
     pub fn mid(&self, i: usize) -> NibbleSlice<'a> {
-        NibbleSlice {
-            data: self.data,
-            offset: self.offset + i,
-            data_encode_suffix: &b""[..],
-            offset_encode_suffix: 0,
-        }
+        NibbleSlice { data: self.data, offset: self.offset + i }
     }
 
     /// Do we start with the same nibbles as the whole of `them`?
@@ -157,6 +138,29 @@ impl<'a> NibbleSlice<'a> {
         r.push(if i == 1 { 0x10 + self.at(0) } else { 0 } + if is_leaf { 0x20 } else { 0 });
         while i < l {
             r.push(self.at(i) * 16 + self.at(i + 1));
+            i += 2;
+        }
+        r
+    }
+
+    pub fn merge_encoded(&self, other: &Self, is_leaf: bool) -> ElasticArray36<u8> {
+        let l = self.len() + other.len();
+        let mut r = ElasticArray36::new();
+        let mut i = l % 2;
+        r.push(if i == 1 { 0x10 + self.at(0) } else { 0 } + if is_leaf { 0x20 } else { 0 });
+        while i < l {
+            let bit1 = if i < self.len() { self.at(i) } else { other.at(i - self.len()) };
+            let bit2 = if i + 1 < l {
+                if i + 1 < self.len() {
+                    self.at(i + 1)
+                } else {
+                    other.at(i + 1 - self.len())
+                }
+            } else {
+                0
+            };
+
+            r.push(bit1 * 16 + bit2);
             i += 2;
         }
         r

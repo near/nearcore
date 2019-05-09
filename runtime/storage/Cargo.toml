@@ -16,7 +16,7 @@ parity-rocksdb = "0.5"
 parking_lot = "0.7.1"
 serde = "1.0"
 serde_derive = "1.0"
-cached = "0.8"
+cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
 
 primitives = { path = "../primitives" }
 
