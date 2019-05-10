@@ -269,8 +269,7 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update
-            .set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
+        state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (new_root, db_changes) = state_update.finalize();
         trie.apply_changes(db_changes).unwrap();
 

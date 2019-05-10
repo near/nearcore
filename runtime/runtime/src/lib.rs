@@ -179,10 +179,8 @@ impl Runtime {
         let meta_storage = key_for_account(account_id).len() as StorageUsage
             + account.encode().unwrap().len() as StorageUsage;
         let total_storage = account.storage_usage + meta_storage;
-        account.amount = max(
-            0,
-            account.amount - (block_index - account.storage_paid_at) * total_storage * STORAGE_COST,
-        );
+        let charge = (block_index - account.storage_paid_at) * total_storage * STORAGE_COST;
+        account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
 
