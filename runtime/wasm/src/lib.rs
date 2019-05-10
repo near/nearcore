@@ -19,7 +19,7 @@ extern crate primitives;
 #[macro_use]
 extern crate log;
 
-mod cache;
+pub mod cache;
 pub mod executor;
 pub mod ext;
 pub mod prepare;

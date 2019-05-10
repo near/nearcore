@@ -6,14 +6,15 @@ use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
+use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
 use storage::{get, TrieUpdate};
 use wasm::executor;
-use wasm::types::{ContractCode, ReturnData, RuntimeContext};
+use wasm::types::{ReturnData, RuntimeContext};
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
 use crate::ethereum::EthashProvider;
+use crate::Runtime;
 use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize)]
@@ -117,10 +118,7 @@ impl TrieViewer {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
         let root = state_update.get_root();
-        let code: ContractCode =
-            get(&state_update, &key_for_code(contract_id)).ok_or_else(|| {
-                format!("account {} does not have contract code", contract_id.clone())
-            })?;
+        let code = Runtime::get_code(&state_update, contract_id)?;
         let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
