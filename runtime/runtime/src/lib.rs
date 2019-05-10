@@ -37,6 +37,7 @@ use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
+use std::cmp::max;
 use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
@@ -167,6 +168,24 @@ impl Runtime {
         }
     }
 
+    /// Subtracts the storage rent from the given account balance.
+    fn apply_rent(account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
+        use primitives::serialize::Encode;
+        use primitives::types::StorageUsage;
+        // Cost of storing a single byte per block.
+        const STORAGE_COST: u64 = 1;
+
+        // The number of bytes the account occupies in the Trie.
+        let meta_storage = key_for_account(account_id).len() as StorageUsage
+            + account.encode().unwrap().len() as StorageUsage;
+        let total_storage = account.storage_usage + meta_storage;
+        account.amount = max(
+            0,
+            account.amount - (block_index - account.storage_paid_at) * total_storage * STORAGE_COST,
+        );
+        account.storage_paid_at = block_index;
+    }
+
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
@@ -181,6 +200,7 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
+        Self::apply_rent(&originator_id, &mut originator, block_index);
         set(state_update, &key_for_account(&originator_id), &originator);
         state_update.commit();
         let contract_id = transaction.body.get_contract_id();
@@ -430,6 +450,7 @@ impl Runtime {
                         mana_accounting.mana_refund = res.mana_left;
                         transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
+                        let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
@@ -445,6 +466,7 @@ impl Runtime {
                             })
                             .and_then(|receipts| {
                                 receiver.amount = balance;
+                                receiver.storage_usage = storage_usage;
                                 Ok(receipts)
                             })
                     })
@@ -787,6 +809,7 @@ impl Runtime {
                     staked: 0,
                     code_hash: code.get_hash(),
                     storage_usage: 0,
+                    storage_paid_at: 0,
                 },
             );
             // Default code
