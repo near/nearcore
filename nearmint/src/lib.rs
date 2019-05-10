@@ -328,7 +328,7 @@ mod tests {
     use protobuf::Message;
 
     use node_runtime::adapter::RuntimeAdapter;
-    use node_runtime::chain_spec::ChainSpec;
+    use node_runtime::chain_spec::{ChainSpec, TESTING_INIT_BALANCE};
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;
     use primitives::transaction::TransactionBody;
@@ -352,8 +352,13 @@ mod tests {
         req_begin_block.set_header(h);
         nearmint.begin_block(&req_begin_block);
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        // Send large enough amount of money so that we can simultaneously check whether they were
+        // debited and whether the rent was applied too.
+        let money_to_send = 1_000_000;
         let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                .sign(&signer)
+                .into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
         let deliver_resp = nearmint.deliver_tx(&deliver_req);
@@ -365,10 +370,13 @@ mod tests {
         let req_commit = RequestCommit::new();
         nearmint.commit(&req_commit);
 
-        let result = nearmint.view_account(&"alice.near".to_string()).unwrap();
-        assert_eq!(result.amount, 999999999990);
-        let result = nearmint.view_account(&"bob.near".to_string()).unwrap();
-        assert_eq!(result.amount, 1000000000010);
+        let alice_info = nearmint.view_account(&"alice.near".to_string()).unwrap();
+        // Should be strictly less, because the rent was applied too.
+        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        let bob_info = nearmint.view_account(&"bob.near".to_string()).unwrap();
+        // The balance was applied but the rent was not subtracted because we have not performed
+        // interactions from that account.
+        assert_eq!(bob_info.amount, TESTING_INIT_BALANCE + money_to_send);
         assert_eq!(nearmint.height, 1);
 
         let mut req_query = RequestQuery::new();
@@ -376,7 +384,7 @@ mod tests {
         let resp_query = nearmint.query(&req_query);
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
-        assert_eq!(resp.amount, 999999999990);
+        assert_eq!(resp.amount, alice_info.amount);
     }
 
     #[test]

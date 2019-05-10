@@ -108,14 +108,17 @@ mod test {
             let storage_path = "tmp/test_send_tx";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                    .sign(&signer)
+                    .into();
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - 10);
+            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
             let bob_account = view_account_request("bob.near").unwrap();
-            assert_eq!(bob_account.amount, TESTING_INIT_BALANCE + 10);
+            assert_eq!(bob_account.amount, TESTING_INIT_BALANCE + money_to_send);
         });
     }
 
@@ -125,12 +128,13 @@ mod test {
             let storage_path = "tmp/test_create_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
                     new_account_id: "test.near".to_string(),
-                    amount: 10,
+                    amount: money_to_send,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
                 .sign(&signer)
@@ -138,9 +142,9 @@ mod test {
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - 10);
+            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
             let eve_account = view_account_request("test.near").unwrap();
-            assert_eq!(eve_account.amount, 10);
+            assert_eq!(eve_account.amount, money_to_send);
         });
     }
 
@@ -150,12 +154,13 @@ mod test {
             let storage_path = "tmp/test_create_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
                     new_account_id: "test.near".to_string(),
-                    amount: 10,
+                    amount: money_to_send,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
                 .sign(&signer)
@@ -173,7 +178,8 @@ mod test {
                 .into();
             submit_tx(tx);
             let eve_account = view_account_request("test.near").unwrap();
-            assert_eq!(eve_account.amount, 10);
+            assert!(eve_account.amount > 0);
+            assert!(eve_account.amount < money_to_send);
             assert_eq!(eve_account.code_hash, hash(wasm_binary));
         });
     }
