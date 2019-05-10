@@ -102,7 +102,7 @@ mod test {
     };
     use testlib::test_helpers::heavy_test;
 
-    //    #[test]
+    #[test]
     fn test_send_tx() {
         heavy_test(|| {
             let storage_path = "tmp/test_send_tx";
@@ -122,7 +122,7 @@ mod test {
         });
     }
 
-    //    #[test]
+    #[test]
     fn test_create_account() {
         heavy_test(|| {
             let storage_path = "tmp/test_create_account";
