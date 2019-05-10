@@ -37,7 +37,6 @@ use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
-use std::cmp::max;
 use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
