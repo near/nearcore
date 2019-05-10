@@ -99,7 +99,6 @@ impl NearMint {
             &genesis_config.contracts,
         );
 
-        let mut store_update = store.store_update();
         let maybe_best_hash = store.get_ser(COL_BLOCK_MISC, &best_hash_key(&genesis_root));
         let (root, height) = if let Ok(Some(best_hash)) = maybe_best_hash {
             (
@@ -274,6 +273,9 @@ impl Application for NearMint {
                     &mut incoming_receipts,
                     &mut self.authority_proposals,
                 );
+                if tx_result.status != TransactionStatus::Completed {
+                    info!("Failed tx: {:?}", tx_result);
+                }
                 let mut logs = tx_result.logs;
                 if let Some(result) = tx_result.result {
                     resp.data = result;
@@ -293,13 +295,14 @@ impl Application for NearMint {
                                 receipt,
                                 &mut new_receipts,
                             );
-                            logs.extend(receipt_result.logs);
                             if receipt_result.status != TransactionStatus::Completed {
+                                info!("Failed tx: {:?}", receipt_result);
                                 resp.code = 1;
                             }
                             if let Some(result) = receipt_result.result {
                                 resp.data = result;
                             }
+                            logs.extend(receipt_result.logs);
                         }
                         receipts = new_receipts.remove(&0).unwrap_or_else(|| vec![]);
                     }

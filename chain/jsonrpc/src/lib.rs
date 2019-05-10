@@ -1,18 +1,22 @@
+use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use actix::Addr;
+use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use base64;
 use futures::future;
 use futures::future::Future;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use message::Message;
-use near_client::{ClientActor, Query, ViewClientActor};
+use near_client::{ClientActor, GetBlock, Query, Status, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
 use crate::message::{Request, RpcError};
@@ -28,10 +32,7 @@ pub struct RpcConfig {
 
 impl Default for RpcConfig {
     fn default() -> Self {
-        RpcConfig {
-            addr: "0.0.0.0:3030".to_string(),
-            cors_allowed_origins: vec!["*".to_string()]
-        }
+        RpcConfig { addr: "0.0.0.0:3030".to_string(), cors_allowed_origins: vec!["*".to_string()] }
     }
 }
 
@@ -57,6 +58,17 @@ fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError
     }
 }
 
+fn jsonify<T: serde::Serialize>(
+    response: Result<Result<T, String>, MailboxError>,
+) -> Result<Value, RpcError> {
+    response
+        .map_err(|err| err.to_string())
+        .and_then(|value| {
+            value.and_then(|value| serde_json::to_value(value).map_err(|err| err.to_string()))
+        })
+        .map_err(|err| RpcError::server_error(Some(err)))
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -77,6 +89,10 @@ impl JsonRpcHandler {
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params),
             "query" => self.query(request.params),
+            "health" => self.health(),
+            "status" => self.status(),
+            "tx" => self.tx_status(request.params),
+            "block" => self.block(request.params),
             _ => Box::new(future::err(RpcError::method_not_found(request.method))),
         }
     }
@@ -90,36 +106,44 @@ impl JsonRpcHandler {
             .map_err(|e| {
                 RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
             }));
-        let tx = ok_or_rpc_error!(tx.try_into().map_err(|e| {
+        let tx: SignedTransaction = ok_or_rpc_error!(tx.try_into().map_err(|e| {
             RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
         }));
+        let hash = (&tx.get_hash()).into();
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))
-                .map(|_| {})
-                .map_err(|_| {}),
+                .map(|_| ())
+                .map_err(|_| ()),
         );
+        Box::new(future::ok(Value::String(hash)))
+    }
+
+    fn health(&self) -> Box<Future<Item = Value, Error = RpcError>> {
         Box::new(future::ok(Value::Null))
+    }
+
+    fn status(&self) -> Box<Future<Item = Value, Error = RpcError>> {
+        Box::new(self.client_addr.send(Status {}).then(jsonify))
     }
 
     fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
         let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
-        // TODO: simplify this.
-        Box::new(
-            self.view_client_addr
-                .send(Query { path, data })
-                .then(|response| match response {
-                    Ok(response) => response.map_err(|e| RpcError::server_error(Some(e))),
-                    _ => Err(RpcError::server_error(Some("Failed to query client"))),
-                })
-                .then(|result| match result {
-                    Ok(result) => match serde_json::to_value(result) {
-                        Ok(value) => Ok(value),
-                        Err(err) => Err(RpcError::server_error(Some(err.to_string()))),
-                    },
-                    Err(err) => Err(RpcError::server_error(Some(err))),
-                }),
-        )
+        Box::new(self.view_client_addr.send(Query { path, data }).then(jsonify))
+    }
+
+    fn tx_status(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let (bs64,) = ok_or_rpc_error!(parse_params::<(String,)>(params));
+        let tx_hash = ok_or_rpc_error!(base64::decode(&bs64)
+            .map_err(|err| RpcError::parse_error(err.to_string()))
+            .and_then(|bytes| CryptoHash::try_from(bytes)
+                .map_err(|err| RpcError::parse_error(err.to_string()))));
+        Box::new(self.view_client_addr.send(TxStatus { tx_hash }).then(jsonify))
+    }
+
+    fn block(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let (height,) = ok_or_rpc_error!(parse_params::<(BlockIndex,)>(params));
+        Box::new(self.view_client_addr.send(GetBlock::Height(height)).then(jsonify))
     }
 }
 
@@ -130,10 +154,17 @@ fn rpc_handler(
     handler.process(message.0).and_then(|message| Ok(HttpResponse::Ok().json(message)))
 }
 
-pub fn start_http(config: RpcConfig, client_addr: Addr<ClientActor>, view_client_addr: Addr<ViewClientActor>) {
+pub fn start_http(
+    config: RpcConfig,
+    client_addr: Addr<ClientActor>,
+    view_client_addr: Addr<ViewClientActor>,
+) {
     HttpServer::new(move || {
         App::new()
-            .data(JsonRpcHandler { client_addr: client_addr.clone(), view_client_addr: view_client_addr.clone() })
+            .data(JsonRpcHandler {
+                client_addr: client_addr.clone(),
+                view_client_addr: view_client_addr.clone(),
+            })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
     })

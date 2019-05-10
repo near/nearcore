@@ -7,12 +7,15 @@ use log::debug;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, MerkleHash};
-use near_store::{read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_STATE_REF, COL_TRANSACTION_RESULT, COL_RECEIPTS};
+use near_store::{
+    read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX,
+    COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
+};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
+use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
 use near_primitives::utils::index_to_bytes;
-use near_primitives::transaction::{TransactionResult, ReceiptTransaction};
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -179,11 +182,22 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
-        option_to_not_found(read_with_cache(&*self.store, COL_RECEIPTS, &mut self.receipts, hash.as_ref()), &format!("RECEIPT: {}", hash))
+        option_to_not_found(
+            read_with_cache(&*self.store, COL_RECEIPTS, &mut self.receipts, hash.as_ref()),
+            &format!("RECEIPT: {}", hash),
+        )
     }
 
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
-        option_to_not_found(read_with_cache(&*self.store, COL_TRANSACTION_RESULT, &mut self.transaction_results, hash.as_ref()), &format!("TRANSACTION: {}", hash))
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_TRANSACTION_RESULT,
+                &mut self.transaction_results,
+                hash.as_ref(),
+            ),
+            &format!("TRANSACTION: {}", hash),
+        )
     }
 }
 

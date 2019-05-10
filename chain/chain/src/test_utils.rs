@@ -8,15 +8,15 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
-use near_store::{Store, StoreUpdate};
 use near_store::test_utils::create_test_store;
+use near_store::{Store, StoreUpdate};
 use node_runtime::state_viewer::AccountViewCallResult;
 
-use crate::{Block, Chain};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
+use crate::{Block, Chain};
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -100,9 +100,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
-        _transactions: &Vec<SignedTransaction>,
+        transactions: &Vec<SignedTransaction>,
     ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String> {
-        Ok((self.store.store_update(), *state_root, vec![], HashMap::default()))
+        let mut tx_results = vec![];
+        for _ in transactions {
+            tx_results.push(TransactionResult {
+                status: TransactionStatus::Completed,
+                logs: vec![],
+                receipts: vec![],
+                result: None
+            });
+        }
+        Ok((self.store.store_update(), *state_root, tx_results, HashMap::default()))
     }
 
     fn query(

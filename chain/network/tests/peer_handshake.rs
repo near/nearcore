@@ -73,7 +73,7 @@ fn peers_connect_all() {
 
     System::run(|| {
         let port = open_port();
-        let pm = make_peer_manager("test", port, vec![]).start();
+        let _pm = make_peer_manager("test", port, vec![]).start();
         let mut peers = vec![];
         for i in 0..5 {
             peers.push(

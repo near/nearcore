@@ -193,20 +193,22 @@ pub struct GenesisConfig {
 }
 
 impl GenesisConfig {
-    pub fn test(seeds: Vec<&str>) -> Self {
+    pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
         let mut authorities = vec![];
         let mut accounts = vec![];
         let mut contracts = vec![];
         let default_test_contract = base64::encode(
             include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
         );
-        for account in seeds {
+        for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
-            authorities.push((
-                account.to_string(),
-                signer.public_key.to_readable(),
-                TESTING_INIT_STAKE,
-            ));
+            if i < num_validators {
+                authorities.push((
+                    account.to_string(),
+                    signer.public_key.to_readable(),
+                    TESTING_INIT_STAKE,
+                ));
+            }
             accounts.push((
                 account.to_string(),
                 signer.public_key.to_readable(),
@@ -222,6 +224,11 @@ impl GenesisConfig {
             accounts,
             contracts,
         }
+    }
+
+    pub fn test(seeds: Vec<&str>) -> Self {
+        let num_validators = seeds.len();
+        Self::legacy_test(seeds, num_validators)
     }
 
     pub fn testing_spec(num_accounts: usize, num_authorities: usize) -> Self {

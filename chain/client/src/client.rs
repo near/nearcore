@@ -10,6 +10,7 @@ use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
 use ansi_term::Color::{Cyan, Green, White, Yellow};
+use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -28,9 +29,10 @@ use near_primitives::types::{AccountId, BlockIndex};
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
-use crate::types::{BlockProducer, ClientConfig, Error, NetworkInfo, SyncStatus};
-use chrono::{DateTime, Utc};
-use crate::sync;
+use crate::types::{
+    BlockProducer, ClientConfig, Error, NetworkInfo, Status, StatusSyncInfo, SyncStatus,
+};
+use crate::{sync, StatusResponse};
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -71,6 +73,9 @@ impl ClientActor {
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone());
+        if let Some(bp) = &block_producer {
+            info!("Starting validator node: {}", bp.account_id);
+        }
         Ok(ClientActor {
             config,
             sync_status,
@@ -170,6 +175,31 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
         }
+    }
+}
+
+impl Handler<Status> for ClientActor {
+    type Result = Result<StatusResponse, String>;
+
+    fn handle(&mut self, _: Status, _: &mut Context<Self>) -> Self::Result {
+        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let last_header =
+            self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
+        let latest_block_time = last_header.timestamp.clone();
+        let state_root =
+            self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
+        Ok(StatusResponse {
+            // TODO: fill in this info.
+            chain_id: "test".to_string(),
+            listener_addr: "123".to_string(),
+            sync_info: StatusSyncInfo {
+                latest_block_hash: head.last_block_hash,
+                latest_block_height: head.height,
+                latest_state_root: state_root.clone(),
+                latest_block_time,
+                syncing: self.sync_status.is_syncing(),
+            },
+        })
     }
 }
 

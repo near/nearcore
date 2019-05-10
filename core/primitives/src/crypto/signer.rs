@@ -168,8 +168,8 @@ pub fn get_or_create_key_file(
 ) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
         let (public_key, secret_key) = get_key_pair();
-        let bls_secret_key = BlsSecretKey::generate();
-        let bls_public_key = bls_secret_key.get_public_key();
+//        let bls_secret_key = BlsSecretKey::generate();
+//        let bls_public_key = bls_secret_key.get_public_key();
         let new_public_key = write_block_producer_key_file(
             key_store_path,
             public_key,

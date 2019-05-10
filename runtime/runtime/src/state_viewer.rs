@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::hash::{bs58_format, CryptoHash};
+use near_primitives::hash::{base64_format, CryptoHash};
 use near_primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use near_primitives::utils::{
     is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
@@ -35,7 +35,7 @@ pub struct AccountViewCallResult {
     pub amount: Balance,
     pub stake: u64,
     pub public_keys: Vec<PublicKey>,
-    #[serde(with = "bs58_format")]
+    #[serde(with = "base64_format")]
     pub code_hash: CryptoHash,
 }
 

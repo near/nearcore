@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use bs58;
+use base64;
 use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
@@ -15,7 +15,7 @@ pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
-        bs58::encode(h.0).into_string()
+        base64::encode(&h.0)
     }
 }
 
@@ -23,7 +23,7 @@ impl TryFrom<String> for CryptoHash {
     type Error = String;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = bs58::decode(s).into_vec().map_err(|e| format!("{}", e))?;
+        let bytes = base64::decode(&s).map_err(|e| format!("{}", e))?;
         Self::try_from(bytes)
     }
 }
@@ -99,11 +99,11 @@ impl PartialEq for CryptoHash {
 
 impl Eq for CryptoHash {}
 
-pub mod bs58_format {
+pub mod base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use super::{bs58, CryptoHash};
+    use super::{base64, CryptoHash};
     use std::convert::TryFrom;
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
@@ -118,8 +118,8 @@ pub mod bs58_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let mut array = [0; 32];
-        match bs58::decode(s).into(&mut array) {
+        let mut array = Vec::with_capacity(32);
+        match base64::decode_config_buf(&s, base64::STANDARD, &mut array) {
             Ok(_) => CryptoHash::try_from(array.as_ref()).map_err(de::Error::custom),
             Err(e) => Err(de::Error::custom(e.to_string())),
         }
@@ -158,7 +158,7 @@ mod tests {
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        #[serde(with = "bs58_format")]
+        #[serde(with = "base64_format")]
         hash: CryptoHash,
     }
 
@@ -167,32 +167,32 @@ mod tests {
         let hash = hash(&[0, 1, 2]);
         let s = Struct { hash };
         let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
+        assert_eq!(encoded, "{\"hash\":\"rksygOVuL6+D9BSm49q+nV++GJdlRMBf7RIazLhbU/w=\"}");
     }
 
     #[test]
     fn test_serialize_default() {
         let s = Struct { hash: CryptoHash::default() };
         let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
+        assert_eq!(encoded, "{\"hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}");
     }
 
     #[test]
     fn test_deserialize_default() {
-        let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
+        let encoded = "{\"hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.hash, CryptoHash::default());
     }
 
     #[test]
     fn test_deserialize_success() {
-        let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
+        let encoded = "{\"hash\":\"rksygOVuL6+D9BSm49q+nV++GJdlRMBf7RIazLhbU/w=\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.hash, hash(&[0, 1, 2]));
     }
 
     #[test]
-    fn test_deserialize_not_base58() {
+    fn test_deserialize_not_base64() {
         let encoded = "\"---\"";
         match serde_json::from_str(&encoded) {
             Ok(CryptoHash(_)) => assert!(false, "should have failed"),

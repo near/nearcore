@@ -2,7 +2,11 @@ use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
 
+use near_chain::Block;
+use near_client::StatusResponse;
 use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::transaction::FinalTransactionResult;
+use near_primitives::types::BlockIndex;
 
 use crate::message::{from_slice, Message};
 
@@ -90,10 +94,15 @@ macro_rules! jsonrpc_client {
 }
 
 jsonrpc_client!(pub struct JsonRpcClient {
-    pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<()>;
+    pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn query(&mut self, path: String, data: Vec<u8>) -> RpcRequest<ABCIQueryResponse>;
+    pub fn status(&mut self) -> RpcRequest<StatusResponse>;
+    pub fn health(&mut self) -> RpcRequest<()>;
+    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
+    pub fn block(&mut self, height: BlockIndex) -> RpcRequest<Block>;
 });
 
+/// Create new JSON RPC client that connects to the given address.
 pub fn new_client(server_addr: &str) -> JsonRpcClient {
     let client = Client::default();
     JsonRpcClient::new(server_addr, client)

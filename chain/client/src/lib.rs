@@ -1,6 +1,7 @@
 pub use crate::client::ClientActor;
 pub use crate::types::{
-    BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, Query, SyncStatus,
+    BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, Query, Status, StatusResponse,
+    SyncStatus, TxStatus,
 };
 pub use crate::view_client::ViewClientActor;
 

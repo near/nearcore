@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
-use chrono::Duration;
 use chrono::prelude::{DateTime, Utc};
+use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
@@ -13,6 +13,7 @@ use near_store::Store;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
+use near_primitives::transaction::TransactionResult;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -468,6 +469,12 @@ impl Chain {
         self.store.get_post_state_root(hash)
     }
 
+    /// Get transaction result for given hash of transaction.
+    #[inline]
+    pub fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+        self.store.get_transaction_result(hash)
+    }
+
     /// Returns underlying ChainStore.
     #[inline]
     pub fn store(&self) -> &ChainStore {
@@ -602,7 +609,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
         // Save resulting receipts.
         // TODO: currently only taking into account one shard.
-        self.chain_store_update.save_receipt(&block.hash(), receipts.get(&0).unwrap_or(&vec![]).to_vec());
+        self.chain_store_update
+            .save_receipt(&block.hash(), receipts.get(&0).unwrap_or(&vec![]).to_vec());
         // Save transaction results.
         for (tx, tx_result) in block.transactions.iter().zip(tx_results) {
             self.chain_store_update.save_transaction_result(&tx.get_hash(), tx_result);

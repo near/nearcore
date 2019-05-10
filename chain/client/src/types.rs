@@ -2,13 +2,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix::Message;
+use chrono::{DateTime, Utc};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::types::{AccountId, BlockIndex};
+use near_primitives::transaction::FinalTransactionResult;
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum Error {
@@ -156,7 +159,7 @@ pub enum GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Option<Block>;
+    type Result = Result<Block, String>;
 }
 
 /// Queries client for given path / data.
@@ -167,4 +170,34 @@ pub struct Query {
 
 impl Message for Query {
     type Result = Result<ABCIQueryResponse, String>;
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StatusSyncInfo {
+    pub latest_block_hash: CryptoHash,
+    pub latest_block_height: BlockIndex,
+    pub latest_state_root: MerkleHash,
+    pub latest_block_time: DateTime<Utc>,
+    pub syncing: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct StatusResponse {
+    pub chain_id: String,
+    pub listener_addr: String,
+    pub sync_info: StatusSyncInfo,
+}
+
+pub struct Status {}
+
+impl Message for Status {
+    type Result = Result<StatusResponse, String>;
+}
+
+pub struct TxStatus {
+    pub tx_hash: CryptoHash,
+}
+
+impl Message for TxStatus {
+    type Result = Result<FinalTransactionResult, String>;
 }
