@@ -104,6 +104,39 @@ export function testSetRemove(value: string): void {
   assert(storage.getItem("test") == null, "Item must be empty");
 }
 
+function buildString(n: i32): string {
+  assert(n >= 0);
+  let result = "";
+  for (let i = 20; i >= 0; --i) {
+    result = result + result;
+    if ((n >> i) & 1) {
+      result += "a";
+    }
+  }
+  return result;
+}
+
+export function insertStrings(from: i32, to: i32): void {
+  let str = buildString(to);
+  for (let i = from; i < to; i++) {
+    storage.setItem(str.substr(to - i) + "b", "x");
+  }
+}
+
+export function deleteStrings(from: i32, to: i32): void {
+  let str = buildString(to);
+  for (let i = to - 1; i >= from; i--) {
+    storage.removeItem(str.substr(to - i) + "b");
+  }
+}
+
+export function recurse(n: i32): i32 {
+  if (n <= 0) {
+    return n;
+  }
+  return recurse(n - 1) + 1;
+}
+
 // For testing promises
 
 export function callPromise(args: PromiseArgs): void {
