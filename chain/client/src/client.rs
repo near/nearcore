@@ -190,8 +190,8 @@ impl Handler<Status> for ClientActor {
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         Ok(StatusResponse {
             // TODO: fill in this info.
-            chain_id: "test".to_string(),
-            listener_addr: "123".to_string(),
+            chain_id: self.config.chain_id.clone(),
+            rpc_addr: self.config.rpc_addr.clone(),
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,

@@ -137,11 +137,14 @@ type KeyPair = (PublicKey, SecretKey);
 impl NearConfig {
     fn new(
         config: Config,
+        genesis_config: &GenesisConfig,
         network_key_pair: KeyPair,
         block_producer: Option<&BlockProducer>,
     ) -> Self {
         NearConfig {
             client_config: ClientConfig {
+                chain_id: genesis_config.chain_id.clone(),
+                rpc_addr: config.rpc.addr.clone(),
                 min_block_production_delay: Duration::from_millis(100),
                 max_block_production_delay: Duration::from_millis(2000),
                 block_expected_weight: 1000,
@@ -380,13 +383,14 @@ pub fn load_configs(dir: &Path) -> (NearConfig, GenesisConfig, BlockProducer) {
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
     let near_config = NearConfig::new(
         config,
+        &genesis_config,
         (network_signer.public_key, network_signer.secret_key),
         Some(&block_producer),
     );
     (near_config, genesis_config, block_producer)
 }
 
-pub fn load_test_configs(seed: &str, port: u64) -> (NearConfig, BlockProducer) {
+pub fn load_test_configs(seed: &str, port: u64, genesis_config: &GenesisConfig) -> (NearConfig, BlockProducer) {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);
@@ -394,6 +398,7 @@ pub fn load_test_configs(seed: &str, port: u64) -> (NearConfig, BlockProducer) {
     let block_producer = BlockProducer::from(signer.clone());
     let near_config = NearConfig::new(
         config,
+        &genesis_config,
         (signer.public_key, signer.secret_key.clone()),
         Some(&block_producer),
     );

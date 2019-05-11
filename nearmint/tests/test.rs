@@ -167,7 +167,7 @@ mod test {
     #[test]
     fn test_deploy_contract() {
         heavy_test(|| {
-            let storage_path = "tmp/test_create_account";
+            let storage_path = "tmp/test_deploy_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
             let tx: near_protos::signed_transaction::SignedTransaction =

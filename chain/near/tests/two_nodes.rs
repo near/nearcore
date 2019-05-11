@@ -14,9 +14,9 @@ fn two_nodes() {
 
     let genesis_config = GenesisConfig::test(vec!["test1", "test2"]);
 
-    let (mut near1, bp1) = load_test_configs("test1", 25123);
+    let (mut near1, bp1) = load_test_configs("test1", 25123, &genesis_config);
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let (mut near2, bp2) = load_test_configs("test2", 25124);
+    let (mut near2, bp2) = load_test_configs("test2", 25124, &genesis_config);
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
 
     let system = System::new("NEAR");

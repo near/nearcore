@@ -47,6 +47,10 @@ impl From<String> for Error {
 }
 
 pub struct ClientConfig {
+    /// Chain id for status.
+    pub chain_id: String,
+    /// Listening rpc port for status.
+    pub rpc_addr: String,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
@@ -74,6 +78,8 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
+            chain_id: "unittest".to_string(),
+            rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(300),
             block_expected_weight: 1000,
@@ -92,6 +98,8 @@ impl ClientConfig {
 impl ClientConfig {
     pub fn new() -> Self {
         ClientConfig {
+            chain_id: "test".to_string(),
+            rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(2000),
             block_expected_weight: 1000,
@@ -183,8 +191,10 @@ pub struct StatusSyncInfo {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
+    /// Unique chain id.
     pub chain_id: String,
-    pub listener_addr: String,
+    /// Address for RPC server.
+    pub rpc_addr: String,
     pub sync_info: StatusSyncInfo,
 }
 

@@ -111,8 +111,11 @@ fn test_status() {
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.status().then(|res| {
+            let res = res.unwrap();
             println!("{:?}", res);
-            assert!(res.is_ok());
+            assert_eq!(res.chain_id, "unittest");
+            assert_eq!(res.sync_info.latest_block_height, 0);
+            assert_eq!(res.sync_info.syncing, false);
             System::current().stop();
             future::result(Ok(()))
         }));
