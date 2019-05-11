@@ -16,7 +16,7 @@ use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Block, Chain};
+use crate::{Block, Chain, ValidTransaction};
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -91,6 +91,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _signature: &Signature,
     ) -> bool {
         true
+    }
+
+    fn num_shards(&self) -> ShardId {
+        1
+    }
+
+    fn account_id_to_shard_id(&self, _account_id: &AccountId) -> ShardId {
+        0
+    }
+
+    fn validate_tx(&self, _shard_id: ShardId, _state_root: MerkleHash, transaction: SignedTransaction) -> Result<ValidTransaction, Error> {
+        Ok(ValidTransaction { transaction })
     }
 
     fn apply_transactions(

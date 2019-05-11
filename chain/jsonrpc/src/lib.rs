@@ -69,6 +69,18 @@ fn jsonify<T: serde::Serialize>(
         .map_err(|err| RpcError::server_error(Some(err)))
 }
 
+fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
+    let (bs64,) = parse_params::<(String,)>(params)?;
+    let bytes = base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string()))?;
+    let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes)
+            .map_err(|e| {
+                RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
+            })?;
+    Ok(tx.try_into().map_err(|e| {
+            RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
+        })?)
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -88,6 +100,7 @@ impl JsonRpcHandler {
     fn process_request(&self, request: Request) -> Box<Future<Item = Value, Error = RpcError>> {
         match request.method.as_ref() {
             "broadcast_tx_async" => self.send_tx_async(request.params),
+            "broadcast_tx_commit" => self.send_tx_commit(request.params),
             "query" => self.query(request.params),
             "health" => self.health(),
             "status" => self.status(),
@@ -98,17 +111,7 @@ impl JsonRpcHandler {
     }
 
     fn send_tx_async(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let (bs64,) = ok_or_rpc_error!(parse_params::<(String,)>(params));
-        let bytes = ok_or_rpc_error!(
-            base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string()))
-        );
-        let tx: transaction_proto::SignedTransaction = ok_or_rpc_error!(parse_from_bytes(&bytes)
-            .map_err(|e| {
-                RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
-            }));
-        let tx: SignedTransaction = ok_or_rpc_error!(tx.try_into().map_err(|e| {
-            RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
-        }));
+        let tx = ok_or_rpc_error!(parse_tx(params));
         let hash = (&tx.get_hash()).into();
         actix::spawn(
             self.client_addr
@@ -117,6 +120,17 @@ impl JsonRpcHandler {
                 .map_err(|_| ()),
         );
         Box::new(future::ok(Value::String(hash)))
+    }
+
+    fn send_tx_commit(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let tx = ok_or_rpc_error!(parse_tx(params));
+        let hash = tx.get_hash();
+        Box::new(self.client_addr.send(NetworkClientMessages::Transaction(tx))
+            .map(|result| {
+                // TODO: run check on tx status or until timeout
+                Value::Null
+            })
+            .map_err(|err| RpcError::server_error(Some(err.to_string()))))
     }
 
     fn health(&self) -> Box<Future<Item = Value, Error = RpcError>> {

@@ -20,7 +20,7 @@ ethereum-bigint = "0.2"
 
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
-verifier = { path = "../../runtime/verifier" }
+near-verifier = { path = "../../runtime/verifier" }
 wasm = { path = "../../runtime/wasm" }
 
 [features]

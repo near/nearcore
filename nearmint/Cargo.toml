@@ -17,7 +17,7 @@ near-primitives = { path = "../core/primitives" }
 near-protos = { path = "../core/protos" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime" }
-verifier = { path = "../runtime/verifier" }
+near-verifier = { path = "../runtime/verifier" }
 near = { path = "../chain/near" }
 
 [dev-dependencies]

@@ -1868,6 +1868,7 @@ dependencies = [
  "near-pool 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
+ "near-verifier 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2036,6 +2037,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-verifier"
+version = "0.1.0"
+dependencies = [
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
+]
+
+[[package]]
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
@@ -2067,6 +2076,7 @@ dependencies = [
  "near-primitives 0.1.0",
  "near-protos 0.1.0",
  "near-store 0.1.0",
+ "near-verifier 0.1.0",
  "node-runtime 0.0.1",
  "protobuf 2.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.16 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2075,7 +2085,6 @@ dependencies = [
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "testlib 0.1.0",
- "verifier 0.1.0",
 ]
 
 [[package]]
@@ -2129,6 +2138,7 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
+ "near-verifier 0.1.0",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.90 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2136,7 +2146,6 @@ dependencies = [
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "testlib 0.1.0",
- "verifier 0.1.0",
  "wasm 0.0.2",
 ]
 
@@ -3593,14 +3602,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "vec_map"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "verifier"
-version = "0.1.0"
-dependencies = [
- "near-primitives 0.1.0",
- "near-store 0.1.0",
-]
 
 [[package]]
 name = "version_check"

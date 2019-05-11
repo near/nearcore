@@ -17,11 +17,11 @@ use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
+use near_verifier::TransactionVerifier;
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
-use verifier::TransactionVerifier;
 
 const STORAGE_PATH: &str = "storage";
 
@@ -327,12 +327,16 @@ impl Application for NearMint {
             info!("Commit: {:?}", req);
             if let Some(apply_state) = &self.apply_state {
                 let (mut db_changes, new_root) = state_update.finalize();
-                db_changes.set_ser(
-                    COL_BLOCK_MISC,
-                    &best_index_key(&self.genesis_hash),
-                    &apply_state.block_index,
-                ).expect("Failed to serialize new index");
-                db_changes.set_ser(COL_BLOCK_MISC, &best_hash_key(&self.genesis_hash), &new_root).expect("Failed to serialize new root");
+                db_changes
+                    .set_ser(
+                        COL_BLOCK_MISC,
+                        &best_index_key(&self.genesis_hash),
+                        &apply_state.block_index,
+                    )
+                    .expect("Failed to serialize new index");
+                db_changes
+                    .set_ser(COL_BLOCK_MISC, &best_hash_key(&self.genesis_hash), &new_root)
+                    .expect("Failed to serialize new root");
                 db_changes.commit().expect("Failed to commit to database");
                 self.state_update = None;
                 self.apply_state = None;

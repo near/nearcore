@@ -325,6 +325,15 @@ pub trait RuntimeAdapter {
     /// Validates authority's signature.
     fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
 
+    /// Get current number of shards.
+    fn num_shards(&self) -> ShardId;
+
+    /// Account Id to Shard Id mapping, given current number of shards.
+    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+
+    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    fn validate_tx(&self, shard_id: ShardId, state_root: MerkleHash, transaction: SignedTransaction) -> Result<ValidTransaction, Error>;
+
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(

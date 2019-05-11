@@ -121,12 +121,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
             NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
-                Some(valid_transaction) => {
+                Ok(valid_transaction) => {
                     self.tx_pool.insert_transaction(valid_transaction);
                     NetworkClientResponses::NoResponse
                 }
                 // TODO: should we ban for invalid tx?
-                None => NetworkClientResponses::NoResponse,
+                Err(_) => NetworkClientResponses::NoResponse,
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
@@ -515,9 +515,10 @@ impl ClientActor {
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(&self, tx: SignedTransaction) -> Option<ValidTransaction> {
-        // TODO: add actual validation.
-        Some(ValidTransaction { transaction: tx })
+    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, near_chain::Error> {
+        let head = self.chain.head()?;
+        let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
+        self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 
     /// Check whether need to (continue) sync.

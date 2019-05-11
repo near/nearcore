@@ -95,6 +95,7 @@ macro_rules! jsonrpc_client {
 
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
+    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalTransactionResult>;
     pub fn query(&mut self, path: String, data: Vec<u8>) -> RpcRequest<ABCIQueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;

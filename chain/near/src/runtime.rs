@@ -2,7 +2,9 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use near_chain::{BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, Weight};
+use near_chain::{
+    BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
+};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
@@ -10,6 +12,7 @@ use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, Transa
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
+use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
@@ -36,17 +39,6 @@ impl NightshadeRuntime {
         let trie_viewer = TrieViewer::new(ethash_provider);
         NightshadeRuntime { genesis_config, trie, runtime, trie_viewer }
     }
-
-    fn num_shards(&self) -> ShardId {
-        // TODO: should be dynamic.
-        self.genesis_config.num_shards
-    }
-
-    /// Maps account into shard, given current number of shards.
-    fn account_to_shard(&self, account_id: AccountId) -> ShardId {
-        // TODO: a better way to do this.
-        ((hash(&account_id.into_bytes()).0).0[0] % (self.num_shards() as u8)) as u32
-    }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -55,21 +47,21 @@ impl RuntimeAdapter for NightshadeRuntime {
             .genesis_config
             .accounts
             .iter()
-            .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
         let authorities = self
             .genesis_config
             .authorities
             .iter()
-            .filter(|(account_id, _, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
         let contracts = self
             .genesis_config
             .contracts
             .iter()
-            .filter(|(account_id, _)| self.account_to_shard(account_id.clone()) == shard_id)
+            .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
@@ -108,6 +100,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         _signature: &Signature,
     ) -> bool {
         true
+    }
+
+    fn num_shards(&self) -> ShardId {
+        // TODO: should be dynamic.
+        self.genesis_config.num_shards
+    }
+
+    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
+        // TODO: a better way to do this.
+        ((hash(&account_id.clone().into_bytes()).0).0[0] % (self.num_shards() as u8)) as u32
+    }
+
+    fn validate_tx(
+        &self,
+        _shard_id: ShardId,
+        state_root: MerkleHash,
+        transaction: SignedTransaction,
+    ) -> Result<ValidTransaction, near_chain::Error> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let verifier = TransactionVerifier::new(&state_update);
+        if let Err(e) = verifier.verify_transaction(&transaction) {
+            return Err(e.into());
+        }
+        Ok(ValidTransaction { transaction })
     }
 
     fn apply_transactions(

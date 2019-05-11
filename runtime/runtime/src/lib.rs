@@ -24,7 +24,7 @@ use near_primitives::utils::{
     key_for_tx_stake,
 };
 use near_store::{get, set, StoreUpdate, TrieUpdate};
-use verifier::{TransactionVerifier, VerificationData};
+use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 

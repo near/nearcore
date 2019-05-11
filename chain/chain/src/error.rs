@@ -117,3 +117,9 @@ impl From<io::Error> for Error {
         Error { inner: Context::new(ErrorKind::IOErr(error.to_string())) }
     }
 }
+
+impl From<String> for Error {
+    fn from(error: String) -> Error {
+        Error { inner: Context::new(ErrorKind::Other(error)) }
+    }
+}

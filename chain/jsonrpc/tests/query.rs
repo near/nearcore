@@ -64,6 +64,30 @@ fn test_send_tx_async() {
     .unwrap();
 }
 
+/// Test sending trasaction and waiting for it to be committed to a block.
+#[test]
+fn test_send_tx_commit() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_view_client_addr, addr) = start_all(true);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        let signer = InMemorySigner::from_seed("test1", "test1");
+        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
+        let tx_hash: String = (&tx.get_hash()).into();
+        let tx_hash2 = tx_hash.clone();
+        let proto: transaction_proto::SignedTransaction = tx.into();
+        actix::spawn(
+            client
+                .broadcast_tx_commit(base64::encode(&proto.write_to_bytes().unwrap()))
+                .map_err(|_| ())
+                .map(move |result| assert_eq!(result.status, FinalTransactionStatus::Completed)),
+        );
+    })
+        .unwrap();
+}
+
 /// Retrieve blocks via json rpc
 #[test]
 fn test_block() {
