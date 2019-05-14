@@ -317,6 +317,21 @@ impl Runtime {
         Ok(receipts)
     }
 
+    fn get_code(
+        state_update: &TrieUpdate,
+        receiver_id: &AccountId,
+    ) -> Result<Arc<ContractCode>, String> {
+        let account = get::<Account>(state_update, &key_for_account(receiver_id))
+            .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
+        let code_hash = account.code_hash;
+        let code = || {
+            get::<ContractCode>(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
+                format!("cannot find contract code for account {}", receiver_id.clone())
+            })
+        };
+        wasm::cache::get_code_with_cache(code_hash, code)
+    }
+
     fn apply_async_call(
         &mut self,
         state_update: &mut TrieUpdate,
@@ -329,10 +344,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("cannot find contract code for account {}", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -400,10 +412,7 @@ impl Runtime {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
             get(state_update, &key_for_callback(&callback_res.info.id));
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("account {} does not have contract code", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
         let receipts = match callback {
