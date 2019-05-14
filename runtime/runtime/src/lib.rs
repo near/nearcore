@@ -28,7 +28,6 @@ use primitives::types::{
 };
 use primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
-    key_for_tx_stake,
 };
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -37,7 +36,6 @@ use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
-use crate::tx_stakes::{TxStakeConfig, TxTotalStake};
 use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
@@ -50,7 +48,6 @@ mod system;
 pub mod ethereum;
 mod ext;
 pub mod state_viewer;
-mod tx_stakes;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -82,40 +79,6 @@ pub struct Runtime {
 impl Runtime {
     pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
         Runtime { ethash_provider, economics_config: Default::default() }
-    }
-
-    fn try_charge_mana(
-        &self,
-        state_update: &mut TrieUpdate,
-        block_index: BlockIndex,
-        originator: &AccountId,
-        contract_id: &Option<AccountId>,
-        mana: Mana,
-    ) -> Option<AccountingInfo> {
-        let config = TxStakeConfig::default();
-        let mut acc_info_options = Vec::new();
-        // Trying to use contract specific quota first
-        if let Some(ref contract_id) = contract_id {
-            acc_info_options.push(AccountingInfo {
-                originator: originator.clone(),
-                contract_id: Some(contract_id.clone()),
-            });
-        }
-        // Trying to use global quota
-        acc_info_options.push(AccountingInfo { originator: originator.clone(), contract_id: None });
-        for accounting_info in acc_info_options {
-            let key = key_for_tx_stake(&accounting_info.originator, &accounting_info.contract_id);
-            let tx_total_stake: Option<TxTotalStake> = get(state_update, &key);
-            if let Some(mut tx_total_stake) = tx_total_stake {
-                tx_total_stake.update(block_index, &config);
-                if tx_total_stake.available_mana(&config) >= mana {
-                    tx_total_stake.charge_mana(mana, &config);
-                    set(state_update, key, &tx_total_stake);
-                    return Some(accounting_info);
-                }
-            }
-        }
-        None
     }
 
     fn call_function(
@@ -772,11 +735,11 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         mut state_update: TrieUpdate,
-        balances: &[(AccountId, ReadablePublicKey, Balance, Balance)],
+        balances: &[(AccountId, ReadablePublicKey, Balance)],
         wasm_binary: &[u8],
         initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)],
     ) -> (MerkleHash, storage::DBChanges) {
-        balances.iter().for_each(|(account_id, public_key, balance, initial_tx_stake)| {
+        balances.iter().for_each(|(account_id, public_key, balance)| {
             let code = ContractCode::new(wasm_binary.to_vec());
             set(
                 &mut state_update,
@@ -793,12 +756,6 @@ impl Runtime {
             );
             // Default code
             set(&mut state_update, key_for_code(&account_id), &code);
-            // Default transaction stake
-            let key = key_for_tx_stake(&account_id, &None);
-            let mut tx_total_stake = TxTotalStake::new(0);
-            tx_total_stake.add_active_stake(*initial_tx_stake);
-            set(&mut state_update, key, &tx_total_stake);
-            // TODO(#345): Add system TX stake
         });
         for (account_id, _, _, amount) in initial_authorities {
             let account_id_bytes = key_for_account(account_id);

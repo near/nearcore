@@ -13,9 +13,7 @@ pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
     pub const CALLBACK: &[u8] = &[1];
     pub const CODE: &[u8] = &[2];
-    pub const TX_STAKE: &[u8] = &[3];
-    pub const TX_STAKE_SEPARATOR: &[u8] = &[4];
-    pub const ACCESS_KEY: &[u8] = &[5];
+    pub const ACCESS_KEY: &[u8] = &[3];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
@@ -48,14 +46,6 @@ pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
 pub fn key_for_callback(id: &[u8]) -> Vec<u8> {
     let mut key = col::CALLBACK.to_vec();
     key.extend_from_slice(id);
-    key
-}
-
-pub fn key_for_tx_stake(account_id: &AccountId, contract_id: &Option<AccountId>) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::TX_STAKE, &account_id);
-    if let Some(ref contract_id) = contract_id {
-        key.append(&mut key_for_column_account_id(col::TX_STAKE_SEPARATOR, contract_id));
-    }
     key
 }
 

@@ -10,13 +10,11 @@ use primitives::transaction::{
 };
 use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
 use primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
-    key_for_code, key_for_tx_stake,
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
 use std::convert::TryFrom;
 use storage::{get, set, TrieUpdate};
 
-use crate::TxTotalStake;
 use wasm::types::ContractCode;
 
 /// const does not allow function call, so have to resort to this
@@ -279,9 +277,5 @@ pub fn system_create_account(
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
     set(state_update, account_id_bytes, &new_account);
-    // TODO(#347): Remove default TX staking once tx staking is properly implemented
-    let mut tx_total_stake = TxTotalStake::new(0);
-    tx_total_stake.add_active_stake(100);
-    set(state_update, key_for_tx_stake(&account_id, &None), &tx_total_stake);
     Ok(vec![])
 }

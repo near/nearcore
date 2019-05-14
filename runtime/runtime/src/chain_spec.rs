@@ -21,8 +21,8 @@ pub enum AuthorityRotation {
 /// Specification of the blockchain in general.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ChainSpec {
-    /// Genesis state accounts: (AccountId, PK, Initial Balance, Initial TX Stake)
-    pub accounts: Vec<(AccountId, ReadablePublicKey, Balance, Balance)>,
+    /// Genesis state accounts: (AccountId, PK, Initial Balance)
+    pub accounts: Vec<(AccountId, ReadablePublicKey, Balance)>,
 
     /// Genesis smart contract code.
     pub genesis_wasm: Vec<u8>,
@@ -36,8 +36,6 @@ pub struct ChainSpec {
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
-/// Initial transactions stake used in tests.
-pub const TESTING_INIT_TX_STAKE: Balance = 1_000;
 /// Stake used by authorities to validate used in tests.
 pub const TESTING_INIT_STAKE: Balance = 100;
 
@@ -102,7 +100,6 @@ impl ChainSpec {
                     account_id.clone(),
                     signer.public_key().to_readable(),
                     TESTING_INIT_BALANCE,
-                    TESTING_INIT_TX_STAKE,
                 ));
             }
             if i < num_initial_authorities {
@@ -123,7 +120,6 @@ impl ChainSpec {
                 account_id.clone(),
                 signer.public_key().to_readable(),
                 TESTING_INIT_BALANCE,
-                TESTING_INIT_TX_STAKE,
             ));
         }
 
@@ -196,7 +192,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
-            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100, 10]],
+            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
             "initial_authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "7AnjkhbpbtqbZHwg4gTZJd4ZGc84EN3FUj5diEbipGinQfYA2MDfaoe5uo1qRhCnkD", 50)],
             "genesis_wasm": [0,1],
             "authority_rotation": {"ThresholdedProofOfStake": {"epoch_length": 10, "num_seats_per_slot": 100}},
