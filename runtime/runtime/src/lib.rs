@@ -43,6 +43,7 @@ use verifier::{TransactionVerifier, VerificationData};
 
 pub mod adapter;
 pub mod chain_spec;
+pub mod economics_config;
 mod system;
 
 pub mod ethereum;
