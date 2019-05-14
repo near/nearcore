@@ -23,8 +23,8 @@ use primitives::transaction::{
     TransactionStatus,
 };
 use primitives::types::{
-    AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
-    MerkleHash, PromiseId, ReadableBlsPublicKey, ReadablePublicKey, ShardId,
+    AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, MerkleHash, PromiseId,
+    ReadableBlsPublicKey, ReadablePublicKey, ShardId,
 };
 use primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
@@ -206,11 +206,8 @@ impl Runtime {
 
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
-        let accounting_info = self
-            .try_charge_mana(state_update, block_index, &originator_id, &contract_id, mana)
-            .ok_or_else(|| {
-                format!("sender {} does not have enough mana {}", originator_id, mana)
-            })?;
+        let accounting_info =
+            AccountingInfo { originator: originator_id.clone(), contract_id: None };
         match transaction.body {
             TransactionBody::SendMoney(ref t) => system::send_money(
                 state_update,
@@ -343,7 +340,7 @@ impl Runtime {
         receiver_id: &AccountId,
         nonce: &CryptoHash,
         receiver: &mut Account,
-        mana_accounting: &mut ManaAccounting,
+        leftover_balance: &mut Balance,
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
@@ -375,10 +372,9 @@ impl Runtime {
                 ),
             )
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
-            mana_accounting.gas_used = wasm_res.gas_used;
-            mana_accounting.mana_refund = wasm_res.mana_left;
             transaction_result.logs.append(&mut wasm_res.logs);
-            let balance = wasm_res.balance;
+            let balance = wasm_res.frozen_balance;
+            *leftover_balance += wasm_res.liquid_balance;
             let storage_usage = wasm_res.storage_usage;
             let return_data = wasm_res
                 .return_data
@@ -408,7 +404,8 @@ impl Runtime {
         receiver_id: &AccountId,
         nonce: &CryptoHash,
         receiver: &mut Account,
-        mana_accounting: &mut ManaAccounting,
+        leftover_balance: &mut Balance,
+        refund_account: &mut AccountId,
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
@@ -416,8 +413,6 @@ impl Runtime {
         let mut callback: Option<Callback> =
             get(state_update, &key_for_callback(&callback_res.info.id));
         let code = Self::get_code(state_update, receiver_id)?;
-        mana_accounting.gas_used = 0;
-        mana_accounting.mana_refund = 0;
         let receipts = match callback {
             Some(ref mut callback) => {
                 callback.results[callback_res.info.result_index] = callback_res.result.clone();
@@ -432,8 +427,7 @@ impl Runtime {
                         self.ethash_provider.clone(),
                     );
 
-                    mana_accounting.accounting_info = callback.accounting_info.clone();
-                    mana_accounting.mana_refund = callback.mana;
+                    *refund_account = callback.accounting_info.originator.clone();
                     needs_removal = true;
                     executor::execute(
                         &code,
@@ -455,10 +449,9 @@ impl Runtime {
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
                     .and_then(|mut res| {
-                        mana_accounting.gas_used = res.gas_used;
-                        mana_accounting.mana_refund = res.mana_left;
                         transaction_result.logs.append(&mut res.logs);
-                        let balance = res.balance;
+                        let balance = res.frozen_balance;
+                        *leftover_balance += res.liquid_balance;
                         let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
@@ -519,80 +512,59 @@ impl Runtime {
         let mut amount = 0;
         let mut callback_info = None;
         let mut receiver_exists = true;
-        let mut mana_accounting = ManaAccounting::default();
+        // Un-utilized leftover liquid balance that we can refund back to the originator.
+        let mut leftover_balance = 0;
+        let mut refund_account: String = Default::default();
         let result = match receiver {
-            Some(mut receiver) => {
-                match &receipt.body {
-                    ReceiptBody::NewCall(async_call) => {
-                        amount = async_call.amount;
-                        mana_accounting.mana_refund = 0; // Removed mana.
-                        mana_accounting.accounting_info = async_call.accounting_info.clone();
-                        callback_info = async_call.callback.clone();
-                        if async_call.method_name.is_empty() {
-                            transaction_result.result = Some(vec![]);
-                            system::deposit(
-                                state_update,
-                                async_call.amount,
-                                &async_call.callback,
-                                &receipt.receiver,
-                                &receipt.nonce,
-                                &mut receiver,
-                            )
-                        } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                            Err(format!("Account {} already exists", receipt.receiver))
-                        } else {
-                            self.apply_async_call(
-                                state_update,
-                                &async_call,
-                                &receipt.originator,
-                                &receipt.receiver,
-                                &receipt.nonce,
-                                &mut receiver,
-                                &mut mana_accounting,
-                                block_index,
-                                transaction_result,
-                            )
-                        }
-                    }
-                    ReceiptBody::Callback(callback_res) => self.apply_callback(
-                        state_update,
-                        &callback_res,
-                        &receipt.originator,
-                        &receipt.receiver,
-                        &receipt.nonce,
-                        &mut receiver,
-                        &mut mana_accounting,
-                        block_index,
-                        transaction_result,
-                    ),
-                    ReceiptBody::Refund(amount) => {
-                        receiver.amount += amount;
-                        set(state_update, key_for_account(&receipt.receiver), &receiver);
-                        Ok(vec![])
-                    }
-                    ReceiptBody::ManaAccounting(mana_accounting) => {
-                        let key = key_for_tx_stake(
-                            &mana_accounting.accounting_info.originator,
-                            &mana_accounting.accounting_info.contract_id,
-                        );
-                        let tx_total_stake: Option<TxTotalStake> = get(state_update, &key);
-                        if let Some(mut tx_total_stake) = tx_total_stake {
-                            let config = TxStakeConfig::default();
-                            tx_total_stake.update(block_index, &config);
-                            tx_total_stake.refund_mana_and_charge_gas(
-                                mana_accounting.mana_refund,
-                                mana_accounting.gas_used,
-                                &config,
-                            );
-                            set(state_update, key, &tx_total_stake);
-                        } else {
-                            // TODO(#445): Figure out what to do when the TxStake doesn't exist during mana accounting
-                            panic!("TX stake doesn't exist when mana accounting arrived");
-                        }
-                        Ok(vec![])
+            Some(mut receiver) => match &receipt.body {
+                ReceiptBody::NewCall(async_call) => {
+                    amount = async_call.amount;
+                    refund_account = async_call.accounting_info.originator.clone();
+                    callback_info = async_call.callback.clone();
+                    if async_call.method_name.is_empty() {
+                        transaction_result.result = Some(vec![]);
+                        system::deposit(
+                            state_update,
+                            async_call.amount,
+                            &async_call.callback,
+                            &receipt.receiver,
+                            &receipt.nonce,
+                            &mut receiver,
+                        )
+                    } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
+                        Err(format!("Account {} already exists", receipt.receiver))
+                    } else {
+                        self.apply_async_call(
+                            state_update,
+                            &async_call,
+                            &receipt.originator,
+                            &receipt.receiver,
+                            &receipt.nonce,
+                            &mut receiver,
+                            &mut leftover_balance,
+                            block_index,
+                            transaction_result,
+                        )
                     }
                 }
-            }
+                ReceiptBody::Callback(callback_res) => self.apply_callback(
+                    state_update,
+                    &callback_res,
+                    &receipt.originator,
+                    &receipt.receiver,
+                    &receipt.nonce,
+                    &mut receiver,
+                    &mut leftover_balance,
+                    &mut refund_account,
+                    block_index,
+                    transaction_result,
+                ),
+                ReceiptBody::Refund(amount) => {
+                    receiver.amount += amount;
+                    set(state_update, key_for_account(&receipt.receiver), &receiver);
+                    Ok(vec![])
+                }
+            },
             _ => {
                 receiver_exists = false;
                 let err = Err(format!("receiver {} does not exist", receipt.receiver));
@@ -637,12 +609,12 @@ impl Runtime {
                 Err(s)
             }
         };
-        if mana_accounting.mana_refund > 0 || mana_accounting.gas_used > 0 {
+        if leftover_balance > 0 {
             let new_receipt = ReceiptTransaction::new(
                 receipt.receiver.clone(),
-                mana_accounting.accounting_info.originator.clone(),
+                refund_account,
                 create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
-                ReceiptBody::ManaAccounting(mana_accounting),
+                ReceiptBody::Refund(leftover_balance),
             );
             new_receipts.push(new_receipt);
         }

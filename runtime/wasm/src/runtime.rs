@@ -27,9 +27,9 @@ pub struct Runtime<'a> {
     ext: &'a mut External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
-    pub mana_counter: Mana,
+    pub frozen_balance: Balance,
+    pub liquid_balance: Balance,
     context: &'a RuntimeContext,
-    pub balance: Balance,
     pub gas_counter: Gas,
     gas_limit: Gas,
     pub storage_counter: StorageUsageChange,
@@ -54,9 +54,9 @@ impl<'a> Runtime<'a> {
             ext,
             input_data,
             result_data,
-            mana_counter: 0,
+            frozen_balance: context.initial_balance,
+            liquid_balance: context.received_amount,
             context,
-            balance: context.initial_balance + context.received_amount,
             gas_counter: 0,
             gas_limit,
             storage_counter: 0,
@@ -156,16 +156,7 @@ impl<'a> Runtime<'a> {
     }
 
     fn charge_mana(&mut self, mana: Mana) -> bool {
-        let prev = self.mana_counter;
-        match prev.checked_add(mana) {
-            // mana charge overflow protection
-            None => false,
-            Some(val) if val > self.context.mana => false,
-            Some(_) => {
-                self.mana_counter = prev + mana;
-                true
-            }
-        }
+        unimplemented!()
     }
 
     fn charge_mana_or_fail(&mut self, mana: Mana) -> Result<()> {
@@ -286,10 +277,10 @@ impl<'a> Runtime<'a> {
         self.charge_mana_or_fail(mana)?;
         self.charge_mana_or_fail(1)?;
 
-        if amount > self.balance {
+        if amount > self.liquid_balance {
             return Err(Error::BalanceExceeded);
         }
-        self.balance -= amount;
+        self.liquid_balance -= amount;
 
         let promise_id = self
             .ext
@@ -418,8 +409,60 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn get_balance(&self) -> Result<u64> {
-        Ok(self.balance)
+    fn get_frozen_balance(&self) -> Result<u64> {
+        Ok(self.frozen_balance)
+    }
+
+    fn get_liquid_balance(&self) -> Result<u64> {
+        Ok(self.liquid_balance)
+    }
+
+    /// Helper function to transfer between two accounts.
+    fn transfer_helper(
+        from: &mut u64,
+        to: &mut u64,
+        min_amount: u64,
+        max_amount: u64,
+    ) -> Result<u64> {
+        let result = if *from >= max_amount {
+            *from -= max_amount;
+            *to += max_amount;
+            max_amount
+        } else {
+            if *from >= min_amount {
+                let amount = *from;
+                *from = 0;
+                *to += amount;
+                amount
+            } else {
+                0
+            }
+        };
+        Ok(result)
+    }
+
+    /// Deposit the given amount to the account balance and return deposited amount.
+    /// If there is enough of liquid balance will deposit `max_amount`, otherwise will deposit
+    /// as much as possible and will fail if there is less than `min_amount`.
+    fn deposit(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+        Self::transfer_helper(
+            &mut self.liquid_balance,
+            &mut self.frozen_balance,
+            min_amount,
+            max_amount,
+        )
+    }
+
+    /// Withdraw the given amount from the account balance and return withdrawn amount.
+    /// If there is enough of frozen balance will withdraw `max_amount`, otherwise will withdraw
+    /// as much as possible and will fail if there is less than `min_amount`.
+    fn withdraw(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+        Self::transfer_helper(
+            &mut self.frozen_balance,
+            &mut self.liquid_balance,
+            min_amount,
+            max_amount,
+        )
     }
 
     fn gas_left(&self) -> Result<u64> {
@@ -429,9 +472,7 @@ impl<'a> Runtime<'a> {
     }
 
     fn mana_left(&self) -> Result<u32> {
-        let mana_left = self.context.mana - self.mana_counter;
-
-        Ok(mana_left as u32)
+        unimplemented!()
     }
 
     fn storage_usage(&self) -> Result<StorageUsage> {
@@ -683,8 +724,15 @@ pub mod imports {
         "return_promise" => return_promise<[promise_index: u32] -> []>,
 
         // Context
-        // Returns the current balance.
-        "balance" => get_balance<[] -> [u64]>,
+        // Returns the frozen balance.
+        "frozen_balance" => get_frozen_balance<[] -> [u64]>,
+        // Returns the liquid balance.
+        "liquid_balance" => get_liquid_balance<[] -> [u64]>,
+        // Deposits balance from liquid to frozen.
+        "deposit" => deposit<[min_amount: u64, max_amount: u64] -> [u64]>,
+        // Withdraws balance from frozen to liquid.
+        "withdraw" => withdraw<[min_amount: u64, max_amount: u64] -> [u64]>,
+
         // Returns the amount of MANA left.
         "mana_left" => mana_left<[] -> [u32]>,
         // Returns the amount of GAS left.

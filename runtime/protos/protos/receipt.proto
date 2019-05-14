@@ -30,12 +30,6 @@ message CallbackResult {
     google.protobuf.BytesValue result = 2;
 }
 
-message ManaAccounting {
-    AccountingInfo accounting_info = 1;
-    uint32 mana_refund = 2;
-    uint64 gas_used = 3;
-}
-
 message ReceiptTransaction {
     string originator = 1;
     string receiver = 2;
@@ -44,6 +38,8 @@ message ReceiptTransaction {
         AsyncCall new_call = 4;
         CallbackResult callback = 5;
         uint64 refund = 6;
-        ManaAccounting mana_accounting = 7;
     }
+
+    reserved 7;
+    reserved "mana_accounting";
 }

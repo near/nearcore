@@ -15,9 +15,10 @@ pub struct ExecutionOutcome {
     pub gas_used: Gas,
     pub mana_used: Mana,
     pub mana_left: Mana,
+    pub frozen_balance: Balance,
+    pub liquid_balance: Balance,
     pub storage_usage: StorageUsage,
     pub return_data: Result<ReturnData, Error>,
-    pub balance: Balance,
     pub random_seed: Vec<u8>,
     pub logs: Vec<String>,
 }
@@ -29,7 +30,8 @@ impl fmt::Debug for ExecutionOutcome {
             .field("mana_used", &format_args!("{}", &self.mana_used))
             .field("mana_left", &format_args!("{}", &self.mana_left))
             .field("return_data", &self.return_data)
-            .field("balance", &format_args!("{}", &self.balance))
+            .field("frozen_balance", &format_args!("{}", &self.frozen_balance))
+            .field("liquid_balance", &format_args!("{}", &self.liquid_balance))
             .field("random_seed", &format_args!("{}", logging::pretty_utf8(&self.random_seed)))
             .field("logs", &format_args!("{}", logging::pretty_vec(&self.logs)))
             .finish()
@@ -81,12 +83,13 @@ pub fn execute(
     match instance.call(&method_name, &[]) {
         Ok(_) => Ok(ExecutionOutcome {
             gas_used: runtime.gas_counter,
-            mana_used: runtime.mana_counter,
-            mana_left: context.mana - runtime.mana_counter,
+            mana_used: 0,
+            mana_left: 0,
             storage_usage: (context.storage_usage as StorageUsageChange + runtime.storage_counter)
                 as StorageUsage,
             return_data: Ok(runtime.return_data),
-            balance: runtime.balance,
+            frozen_balance: runtime.frozen_balance,
+            liquid_balance: runtime.liquid_balance,
             random_seed: runtime.random_seed,
             logs: runtime.logs,
         }),
@@ -96,7 +99,8 @@ pub fn execute(
             mana_left: context.mana,
             storage_usage: context.storage_usage,
             return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
-            balance: context.initial_balance,
+            frozen_balance: runtime.frozen_balance,
+            liquid_balance: runtime.liquid_balance,
             random_seed: runtime.random_seed,
             logs: runtime.logs,
         }),

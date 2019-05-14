@@ -254,13 +254,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
     let receipt_info = node_user.get_receipt_info(&transaction_result.receipts[1]).unwrap();
     assert_eq!(receipt_info.receipt.originator, bob_account());
     assert_eq!(receipt_info.receipt.receiver, account_id.clone());
-    if let ReceiptBody::ManaAccounting(ref mana_accounting) = receipt_info.receipt.body {
-        assert_eq!(mana_accounting.mana_refund, 0);
-        assert!(mana_accounting.gas_used > 0);
-        assert_eq!(mana_accounting.accounting_info, accounting_info);
-    } else {
-        panic!();
-    }
+    // TODO: Check refund receipt.
 }
 
 pub fn test_async_call_with_logs(node: impl Node) {

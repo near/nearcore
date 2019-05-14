@@ -4,7 +4,7 @@ use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSignature};
 use crate::crypto::signature::{bs58_serializer, PublicKey, Signature};
 use crate::hash::CryptoHash;
 use crate::traits::Base58Encoded;
-use crate::utils::{proto_to_result, to_string_value};
+use crate::utils::to_string_value;
 use near_protos::receipt as receipt_proto;
 use near_protos::types as types_proto;
 use protobuf::SingularPtrField;
@@ -84,39 +84,6 @@ impl From<AccountingInfo> for receipt_proto::AccountingInfo {
         receipt_proto::AccountingInfo {
             originator: info.originator,
             contract_id,
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
-pub struct ManaAccounting {
-    pub accounting_info: AccountingInfo,
-    pub mana_refund: Mana,
-    pub gas_used: Gas,
-}
-
-impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
-    type Error = String;
-
-    fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
-        match proto_to_result(proto.accounting_info) {
-            Ok(info) => Ok(ManaAccounting {
-                accounting_info: info.into(),
-                mana_refund: proto.mana_refund,
-                gas_used: proto.gas_used,
-            }),
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl From<ManaAccounting> for receipt_proto::ManaAccounting {
-    fn from(accounting: ManaAccounting) -> Self {
-        receipt_proto::ManaAccounting {
-            accounting_info: SingularPtrField::some(accounting.accounting_info.into()),
-            mana_refund: accounting.mana_refund,
-            gas_used: accounting.gas_used,
             ..Default::default()
         }
     }

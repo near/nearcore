@@ -16,8 +16,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::traits::ToBytes;
 use crate::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
-    StructSignature,
+    AccountId, AccountingInfo, Balance, CallbackId, Mana, Nonce, ShardId, StructSignature,
 };
 use crate::utils::{account_to_shard_id, proto_to_result};
 
@@ -616,7 +615,6 @@ pub enum ReceiptBody {
     NewCall(AsyncCall),
     Callback(CallbackResult),
     Refund(u64),
-    ManaAccounting(ManaAccounting),
 }
 
 #[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -847,9 +845,6 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Some(receipt_proto::ReceiptTransaction_oneof_body::refund(refund)) => {
                 Ok(ReceiptBody::Refund(refund))
             }
-            Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
-                accounting.try_into().map(ReceiptBody::ManaAccounting)
-            }
             None => Err("No such receipt body type".to_string()),
         };
         match body {
@@ -875,9 +870,6 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             }
             ReceiptBody::Refund(refund) => {
                 receipt_proto::ReceiptTransaction_oneof_body::refund(refund)
-            }
-            ReceiptBody::ManaAccounting(accounting) => {
-                receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting.into())
             }
         };
         receipt_proto::ReceiptTransaction {

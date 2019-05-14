@@ -419,7 +419,7 @@ mod tests {
         let outcome =
             run(b"get_prev_balance", &input_data, &[], &runtime_context(90, 10, 0, 0)).expect("ok");
 
-        assert_eq!(outcome.balance, 100);
+        assert_eq!(outcome.liquid_balance, 100);
 
         match outcome.return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(90)),
