@@ -12,6 +12,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::utils::prefix_for_access_key;
 use near_store::{Store, StoreUpdate};
 use near_store::{Trie, TrieUpdate};
 use near_verifier::TransactionVerifier;
@@ -186,5 +187,19 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Vec<u8>, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
+    }
+
+    fn view_access_key(&self, state_root: MerkleHash, account_id: &String) -> Result<Vec<PublicKey>, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let prefix = prefix_for_access_key(account_id);
+        match state_update.iter(&prefix) {
+            Ok(iter) => iter
+                .map(|key| {
+                    let public_key = &key[prefix.len()..];
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                })
+                .collect::<Result<Vec<_>, String>>(),
+            Err(e) => Err(e),
+        }
     }
 }

@@ -6,8 +6,8 @@ use near::config::GenesisConfig;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-pub use runtime_node::RuntimeNode;
 
+pub use crate::node::runtime_node::RuntimeNode;
 use crate::user::{AsyncUser, User};
 
 pub mod runtime_node;

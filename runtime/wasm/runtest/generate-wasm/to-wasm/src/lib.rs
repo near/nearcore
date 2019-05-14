@@ -3,6 +3,7 @@
 #![feature(alloc_error_handler)]
 #![feature(allocator_api)]
 #![feature(const_vec_new)]
+#![feature(alloc)]
 
 use core::panic::PanicInfo;
 
@@ -85,6 +86,7 @@ extern "C" {
     fn balance() -> u64;
     fn mana_left() -> u32;
     fn gas_left() -> u64;
+    fn storage_usage() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
 
@@ -182,6 +184,16 @@ pub fn put_int(key: u32, value: i32) {
 }
 
 #[no_mangle]
+pub fn put_u64(key: u32, value: u64) {
+    unsafe {
+        let mut val_bytes = [0u8; 8];
+        LittleEndian::write_u64(&mut val_bytes, value);
+        let key = key_to_str(key);
+        storage_write(key.len(), key.as_ptr(), 8, val_bytes.as_ptr());
+    }
+}
+
+#[no_mangle]
 pub fn get_int(key: u32) -> i32 {
     unsafe {
         let key = key_to_str(key);
@@ -222,9 +234,12 @@ pub fn run_test_with_storage_change() {
     unsafe {
         put_int(10, 20);
         put_int(50, 150);
+        put_int(100, 300);
         assert(has_int(50));
         remove_int(50);
         assert(!has_int(50));
+
+        put_u64(100, 300);
         let res = get_int(10);
         return_i32(res)
     }
@@ -350,6 +365,14 @@ pub fn get_mana_left() {
     unsafe {
         let my_mana = mana_left();
         return_i32(my_mana as i32);
+    }
+}
+
+#[no_mangle]
+pub fn get_storage_usage() {
+    unsafe {
+        let su = storage_usage();
+        return_u64(su as u64);
     }
 }
 

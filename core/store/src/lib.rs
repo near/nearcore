@@ -179,12 +179,9 @@ pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option
 }
 
 /// Writes an object into Trie.
-pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: &[u8], value: &T) {
-    value
-        .encode()
-        .ok()
-        .map(|data| state_update.set(key, &DBValue::from_slice(&data)))
-        .unwrap_or_else(|| {
-            debug!("set value failed");
-        })
+pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| {
+        debug!("set value failed");
+        None
+    });
 }

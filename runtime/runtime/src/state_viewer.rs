@@ -8,13 +8,14 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{base64_format, CryptoHash};
 use near_primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
 use near_primitives::utils::{
-    is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
+    is_valid_account_id, key_for_access_key, key_for_account,
 };
 use near_store::{get, TrieUpdate};
 use wasm::executor;
-use wasm::types::{ContractCode, ReturnData, RuntimeContext};
+use wasm::types::{ReturnData, RuntimeContext};
 
 use crate::ethereum::EthashProvider;
+use crate::Runtime;
 
 use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
@@ -120,10 +121,7 @@ impl TrieViewer {
             return Err(format!("Contract ID '{}' is not valid", contract_id));
         }
         let root = state_update.get_root();
-        let code: ContractCode =
-            get(&state_update, &key_for_code(contract_id)).ok_or_else(|| {
-                format!("account {} does not have contract code", contract_id.clone())
-            })?;
+        let code = Runtime::get_code(&state_update, contract_id)?;
         let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
@@ -146,6 +144,7 @@ impl TrieViewer {
                         0,
                         contract_id,
                         contract_id,
+                        0,
                         0,
                         block_index,
                         root.as_ref().into(),
@@ -271,8 +270,7 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update
-            .set(&account_suffix(&alice_account(), b"test123"), &DBValue::from_slice(b"123"));
+        state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (db_changes, new_root) = state_update.finalize();
         db_changes.commit().unwrap();
 

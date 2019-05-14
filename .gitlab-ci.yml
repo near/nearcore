@@ -154,16 +154,8 @@ test_nearlib:
     dependencies:
     - release_build
     script:
-    - cargo run --package keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
-    - cargo build --package nearmint --release
-    - ./target/release/nearmint --devnet &
-    - tendermint node --rpc.laddr "tcp://0.0.0.0:3030" &
+    - ./scripts/start_nearmint.sh &
     - ./scripts/test_nearlib.sh
-
-lint_nearlib:
-    stage: libs
-    script:
-    - cd nearlib && npm install eslint && npm run lint
 
 #test_pynear:
 #    stage: libs

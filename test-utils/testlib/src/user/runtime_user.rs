@@ -13,13 +13,13 @@ use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, MerkleHash, Nonce};
+use near_primitives::types::{AccountId, MerkleHash};
 use near_store::{Trie, TrieUpdate};
-use node_runtime::{ApplyState, Runtime};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
+use node_runtime::{ApplyState, Runtime};
 
-use crate::user::{POISONED_LOCK_ERR, User};
+use crate::user::{User, POISONED_LOCK_ERR};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -38,7 +38,6 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub nonce: RefCell<Nonce>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -59,7 +58,6 @@ impl RuntimeUser {
         RuntimeUser {
             trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
-            nonce: Default::default(),
             client,
             transaction_results: Default::default(),
             receipts: Default::default(),
@@ -158,7 +156,6 @@ impl User for RuntimeUser {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        *self.nonce.borrow_mut() += 1;
         self.apply_all(apply_state, vec![], vec![transaction]);
         Ok(())
     }

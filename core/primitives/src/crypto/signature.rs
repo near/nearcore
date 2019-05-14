@@ -4,10 +4,10 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-pub use crate::crypto::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::logging::pretty_hash;
 use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::ReadablePublicKey;
+pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);

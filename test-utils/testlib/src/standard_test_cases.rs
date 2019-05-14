@@ -341,7 +341,7 @@ pub fn test_callback(node: RuntimeNode) {
     let callback_id = [0; 32].to_vec();
 
     let mut state_update = node.client.read().unwrap().get_state_update();
-    set(&mut state_update, &key_for_callback(&callback_id), &callback);
+    set(&mut state_update, key_for_callback(&callback_id), &callback);
     let (transaction, root) = state_update.finalize();
     {
         let mut client = node.client.write().unwrap();
@@ -387,7 +387,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
     let mut state_update = node.client.read().unwrap().get_state_update();
-    set(&mut state_update, &key_for_callback(&callback_id.clone()), &callback);
+    set(&mut state_update, key_for_callback(&callback_id.clone()), &callback);
     let (transaction, root) = state_update.finalize();
     {
         let mut client = node.client.write().unwrap();

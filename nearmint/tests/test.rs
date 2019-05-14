@@ -5,6 +5,7 @@ use std::time::Duration;
 use protobuf::Message;
 use serde_derive::{Deserialize, Serialize};
 
+use near_primitives::crypto::signature::PublicKey;
 use node_runtime::state_viewer::AccountViewCallResult;
 use testlib::test_helpers::wait;
 
@@ -98,6 +99,28 @@ fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
         })
 }
 
+fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
+    let client = reqwest::Client::new();
+    let mut response = client
+        .post("http://127.0.0.1:3030/abci_query")
+        .form(&[("path", format!("\"access_key/{}\"", account_id))])
+        .send()
+        .unwrap();
+    let response: JsonRpcResponse = response.json().expect("cannot decode response");
+    response
+        .result
+        .unwrap()
+        .as_object()
+        .and_then(|m| m.get("response"))
+        .unwrap()
+        .as_object()
+        .and_then(|m| m.get("value"))
+        .and_then(|v| {
+            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
+        })
+}
+
 fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcResponse {
     let client = reqwest::Client::new();
     let tx_bytes = tx.write_to_bytes().expect("write to bytes failed");
@@ -113,10 +136,11 @@ fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcR
 #[cfg(test)]
 mod test {
     use near::config::TESTING_INIT_BALANCE;
+    use near_primitives::account::AccessKey;
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::hash;
     use near_primitives::transaction::{
-        CreateAccountTransaction, DeployContractTransaction, TransactionBody,
+        AddKeyTransaction, CreateAccountTransaction, DeployContractTransaction, TransactionBody,
     };
     use testlib::test_helpers::heavy_test;
 
@@ -128,14 +152,17 @@ mod test {
             let storage_path = "tmp/test_send_tx";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
-                TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
+                TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                    .sign(&signer)
+                    .into();
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - 10);
+            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
             let bob_account = view_account_request("bob.near").unwrap();
-            assert_eq!(bob_account.amount, TESTING_INIT_BALANCE + 10);
+            assert_eq!(bob_account.amount, TESTING_INIT_BALANCE + money_to_send);
         });
     }
 
@@ -145,12 +172,13 @@ mod test {
             let storage_path = "tmp/test_create_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
                     new_account_id: "test.near".to_string(),
-                    amount: 10,
+                    amount: money_to_send,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
                 .sign(&signer)
@@ -158,9 +186,9 @@ mod test {
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - 10);
+            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
             let eve_account = view_account_request("test.near").unwrap();
-            assert_eq!(eve_account.amount, 10);
+            assert_eq!(eve_account.amount, money_to_send);
         });
     }
 
@@ -170,12 +198,13 @@ mod test {
             let storage_path = "tmp/test_deploy_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
             let tx: near_protos::signed_transaction::SignedTransaction =
                 TransactionBody::CreateAccount(CreateAccountTransaction {
                     nonce: 1,
                     originator: "alice.near".to_string(),
                     new_account_id: "test.near".to_string(),
-                    amount: 10,
+                    amount: money_to_send,
                     public_key: signer.public_key.0[..].to_vec(),
                 })
                 .sign(&signer)
@@ -193,8 +222,33 @@ mod test {
                 .into();
             submit_tx(tx);
             let eve_account = view_account_request("test.near").unwrap();
-            assert_eq!(eve_account.amount, 10);
+            assert!(eve_account.amount > 0);
+            assert!(eve_account.amount < money_to_send);
             assert_eq!(eve_account.code_hash, hash(wasm_binary));
+        });
+    }
+
+    #[test]
+    fn test_view_access_key() {
+        heavy_test(|| {
+            let storage_path = "tmp/test_view_acccess_key";
+            let _test_node = start_nearmint(storage_path);
+            let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let signer1 = InMemorySigner::from_seed("alice.near", "test");
+            let access_key =
+                AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
+            let tx: near_protos::signed_transaction::SignedTransaction =
+                TransactionBody::AddKey(AddKeyTransaction {
+                    nonce: 1,
+                    originator: "alice.near".to_string(),
+                    new_key: signer1.public_key.0[..].to_vec(),
+                    access_key: Some(access_key),
+                })
+                .sign(&signer)
+                .into();
+            submit_tx(tx);
+            let keys = view_access_key_request("alice.near").unwrap();
+            assert_eq!(keys, vec![signer1.public_key]);
         });
     }
 }

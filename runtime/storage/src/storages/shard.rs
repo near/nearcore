@@ -144,20 +144,20 @@ impl ShardChainStorage {
     pub fn get_state(&self, hash: &CryptoHash) -> StorageResult<Vec<u8>> {
         self.generic_storage
             .storage
-            .get(Some(COL_STATE), &self.generic_storage.enc_slice(hash.as_ref()))
+            .get(Some(COL_STATE), &self.generic_storage.enc_hash(hash))
             .map(|a| a.map(|b| b.to_vec()))
     }
 
     /// Saves state updates in the db.
     pub fn apply_state_updates(
         &self,
-        changes: &HashMap<Vec<u8>, Option<Vec<u8>>>,
+        changes: HashMap<Vec<u8>, Option<Vec<u8>>>,
     ) -> std::io::Result<()> {
         let mut db_transaction = self.generic_storage.storage.transaction();
         let col = Some(COL_STATE);
-        for (key, value) in changes {
+        for (key, value) in changes.into_iter() {
             match value {
-                Some(arr) => db_transaction.put(col, &self.generic_storage.enc_slice(&key), &arr),
+                Some(arr) => db_transaction.put_vec(col, &self.generic_storage.enc_slice(&key), arr),
                 None => db_transaction.delete(col, &self.generic_storage.enc_slice(&key)),
             }
         }

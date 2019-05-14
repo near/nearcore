@@ -15,6 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::traits::ToBytes;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
+use near_primitives::utils::prefix_for_access_key;
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
 use near_verifier::TransactionVerifier;
@@ -175,6 +176,20 @@ impl RuntimeAdapter for NearMint {
             args,
             logs,
         )
+    }
+
+    fn view_access_key(&self, state_root: MerkleHash, account_id: &String) -> Result<Vec<PublicKey>, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let prefix = prefix_for_access_key(account_id);
+        match state_update.iter(&prefix) {
+            Ok(iter) => iter
+                .map(|key| {
+                    let public_key = &key[prefix.len()..];
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                })
+                .collect::<Result<Vec<_>, String>>(),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -357,6 +372,7 @@ mod tests {
     use near_primitives::transaction::TransactionBody;
     use near_primitives::types::StructSignature;
     use node_runtime::adapter::RuntimeAdapter;
+    use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
 
     use super::*;
 
@@ -376,8 +392,11 @@ mod tests {
         req_begin_block.set_header(h);
         nearmint.begin_block(&req_begin_block);
         let signer = InMemorySigner::from_seed("near.0", "near.0");
+        // Send large enough amount of money so that we can simultaneously check whether they were
+        // debited and whether the rent was applied too.
+        let money_to_send = 1_000_000;
         let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::send_money(1, "near.0", "near.1", 10).sign(&signer).into();
+            TransactionBody::send_money(1, "near.0", "near.1", money_to_send).sign(&signer).into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
         let deliver_resp = nearmint.deliver_tx(&deliver_req);
@@ -389,10 +408,13 @@ mod tests {
         let req_commit = RequestCommit::new();
         nearmint.commit(&req_commit);
 
-        let result = nearmint.view_account(nearmint.root, &"near.0".to_string()).unwrap();
-        assert_eq!(result.amount, 999999999990);
-        let result = nearmint.view_account(nearmint.root, &"near.1".to_string()).unwrap();
-        assert_eq!(result.amount, 1000000000010);
+        let alice_info = nearmint.view_account(nearmint.root, &"near.0".to_string()).unwrap();
+        // Should be strictly less, because the rent was applied too.
+        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        let bob_info = nearmint.view_account(nearmint.root, &"near.1".to_string()).unwrap();
+        // The balance was applied but the rent was not subtracted because we have not performed
+        // interactions from that account.
+        assert_eq!(bob_info.amount, TESTING_INIT_BALANCE + money_to_send);
         assert_eq!(nearmint.height, 1);
 
         let mut req_query = RequestQuery::new();
@@ -400,7 +422,7 @@ mod tests {
         let resp_query = nearmint.query(&req_query);
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
-        assert_eq!(resp.amount, 999999999990);
+        assert_eq!(resp.amount, alice_info.amount);
     }
 
     #[test]

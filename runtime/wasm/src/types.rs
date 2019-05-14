@@ -1,9 +1,10 @@
 use std::fmt;
 
+use wasmer_runtime::error as WasmerError;
+
+use near_primitives::types::{AccountId, Balance, BlockIndex, Mana, PromiseId, StorageUsage};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging;
-use near_primitives::types::{AccountId, Balance, BlockIndex, Mana, PromiseId};
-use wasmer_runtime::error as WasmerError;
 
 #[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -284,6 +285,8 @@ pub struct RuntimeContext {
     pub account_id: AccountId,
     /// Available mana for the execution by this contract.
     pub mana: Mana,
+    /// Storage that the account is already using.
+    pub storage_usage: StorageUsage,
     /// Currently produced block index
     pub block_index: BlockIndex,
     /// Initial seed for randomness
@@ -297,6 +300,7 @@ impl RuntimeContext {
         sender_id: &AccountId,
         account_id: &AccountId,
         mana: Mana,
+        storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
     ) -> RuntimeContext {
@@ -306,6 +310,7 @@ impl RuntimeContext {
             originator_id: sender_id.clone(),
             account_id: account_id.clone(),
             mana,
+            storage_usage,
             block_index,
             random_seed,
         }

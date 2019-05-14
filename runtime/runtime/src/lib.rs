@@ -10,11 +10,13 @@ use std::sync::{Arc, Mutex};
 use near_primitives::account::Account;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::Encode;
 use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
+use near_primitives::types::StorageUsage;
 use near_primitives::types::{
     AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, ManaAccounting,
     MerkleHash, PromiseId, ReadablePublicKey, ShardId,
@@ -97,7 +99,7 @@ impl Runtime {
                 tx_total_stake.update(block_index, &config);
                 if tx_total_stake.available_mana(&config) >= mana {
                     tx_total_stake.charge_mana(mana, &config);
-                    set(state_update, &key, &tx_total_stake);
+                    set(state_update, key, &tx_total_stake);
                     return Some(accounting_info);
                 }
             }
@@ -130,7 +132,7 @@ impl Runtime {
         };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
-            set(state_update, &key_for_account(&transaction.originator), sender);
+            set(state_update, key_for_account(&transaction.originator), sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.contract_id.clone(),
@@ -157,6 +159,20 @@ impl Runtime {
         }
     }
 
+    /// Subtracts the storage rent from the given account balance.
+    fn apply_rent(account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
+        // Cost of storing a single byte per block.
+        const STORAGE_COST: u64 = 1;
+
+        // The number of bytes the account occupies in the Trie.
+        let meta_storage = key_for_account(account_id).len() as StorageUsage
+            + account.encode().unwrap().len() as StorageUsage;
+        let total_storage = account.storage_usage + meta_storage;
+        let charge = (block_index - account.storage_paid_at) * total_storage * STORAGE_COST;
+        account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
+        account.storage_paid_at = block_index;
+    }
+
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
@@ -171,7 +187,8 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
-        set(state_update, &key_for_account(&originator_id), &originator);
+        Self::apply_rent(&originator_id, &mut originator, block_index);
+        set(state_update, key_for_account(&originator_id), &originator);
         state_update.commit();
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
@@ -290,6 +307,21 @@ impl Runtime {
         Ok(receipts)
     }
 
+    fn get_code(
+        state_update: &TrieUpdate,
+        receiver_id: &AccountId,
+    ) -> Result<Arc<ContractCode>, String> {
+        let account = get::<Account>(state_update, &key_for_account(receiver_id))
+            .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
+        let code_hash = account.code_hash;
+        let code = || {
+            get::<ContractCode>(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
+                format!("cannot find contract code for account {}", receiver_id.clone())
+            })
+        };
+        wasm::cache::get_code_with_cache(code_hash, code)
+    }
+
     fn apply_async_call(
         &self,
         state_update: &mut TrieUpdate,
@@ -302,10 +334,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("cannot find contract code for account {}", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -327,6 +356,7 @@ impl Runtime {
                     sender_id,
                     receiver_id,
                     async_call.mana,
+                    receiver.storage_usage,
                     block_index,
                     nonce.as_ref().to_vec(),
                 ),
@@ -336,6 +366,7 @@ impl Runtime {
             mana_accounting.mana_refund = wasm_res.mana_left;
             transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.balance;
+            let storage_usage = wasm_res.storage_usage;
             let return_data = wasm_res
                 .return_data
                 .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
@@ -348,10 +379,11 @@ impl Runtime {
             )
             .and_then(|receipts| {
                 receiver.amount = balance;
+                receiver.storage_usage = storage_usage;
                 Ok(receipts)
             })
         };
-        set(state_update, &key_for_account(&receiver_id), receiver);
+        set(state_update, key_for_account(&receiver_id), receiver);
         result
     }
 
@@ -370,10 +402,7 @@ impl Runtime {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
             get(state_update, &key_for_callback(&callback_res.info.id));
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("account {} does not have contract code", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
         let receipts = match callback {
@@ -406,6 +435,7 @@ impl Runtime {
                             sender_id,
                             receiver_id,
                             callback.mana,
+                            receiver.storage_usage,
                             block_index,
                             nonce.as_ref().to_vec(),
                         ),
@@ -416,6 +446,7 @@ impl Runtime {
                         mana_accounting.mana_refund = res.mana_left;
                         transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
+                        let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
@@ -431,6 +462,7 @@ impl Runtime {
                             })
                             .and_then(|receipts| {
                                 receiver.amount = balance;
+                                receiver.storage_usage = storage_usage;
                                 Ok(receipts)
                             })
                     })
@@ -451,13 +483,13 @@ impl Runtime {
                 state_update.commit();
             } else {
                 state_update.remove(&key_for_callback(&callback_res.info.id));
-                set(state_update, &key_for_account(&receiver_id), receiver);
+                set(state_update, key_for_account(&receiver_id), receiver);
             }
         } else {
             // if we don't need to remove callback, since it is updated, we need
             // to update the storage.
             let callback = callback.expect("Cannot be none");
-            set(state_update, &key_for_callback(&callback_res.info.id), &callback);
+            set(state_update, key_for_callback(&callback_res.info.id), &callback);
         }
         receipts
     }
@@ -522,7 +554,7 @@ impl Runtime {
                     ),
                     ReceiptBody::Refund(amount) => {
                         receiver.amount += amount;
-                        set(state_update, &key_for_account(&receipt.receiver), &receiver);
+                        set(state_update, key_for_account(&receipt.receiver), &receiver);
                         Ok(vec![])
                     }
                     ReceiptBody::ManaAccounting(mana_accounting) => {
@@ -539,7 +571,7 @@ impl Runtime {
                                 mana_accounting.gas_used,
                                 &config,
                             );
-                            set(state_update, &key, &tx_total_stake);
+                            set(state_update, key, &tx_total_stake);
                         } else {
                             // TODO(#445): Figure out what to do when the TxStake doesn't exist during mana accounting
                             panic!("TX stake doesn't exist when mana accounting arrived");
@@ -763,21 +795,24 @@ impl Runtime {
     ) -> (StoreUpdate, MerkleHash) {
         let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
         for (account_id, wasm) in contracts {
-            let code = ContractCode::new(base64::decode(wasm).expect("Failed to decode wasm from base64"));
+            let code =
+                ContractCode::new(base64::decode(wasm).expect("Failed to decode wasm from base64"));
             code_hash.insert(account_id.clone(), code.get_hash());
-            // TODO: why do we need code hash if we store code per account?
-            set(&mut state_update, &key_for_code(&account_id), &code);
+            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
+            set(&mut state_update, key_for_code(&account_id), &code);
         }
         for (account_id, public_key, balance) in balances {
             set(
                 &mut state_update,
-                &key_for_account(&account_id),
+                key_for_account(&account_id),
                 &Account {
                     public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
                     code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
+                    storage_usage: 0,
+                    storage_paid_at: 0,
                 },
             );
         }
@@ -786,13 +821,7 @@ impl Runtime {
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
-            set(&mut state_update, &account_id_bytes, &account);
-            // Default transaction stake
-            let key = key_for_tx_stake(&account_id, &None);
-            let mut tx_total_stake = TxTotalStake::new(0);
-            tx_total_stake.add_active_stake(*amount);
-            set(&mut state_update, &key, &tx_total_stake);
-            // TODO(#345): Add system TX stake
+            set(&mut state_update, account_id_bytes, &account);
         }
         state_update.finalize()
     }
@@ -815,7 +844,7 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &key_for_account(&account_id), &test_account);
+        set(&mut state_update, key_for_account(&account_id), &test_account);
         let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
     }
@@ -827,9 +856,9 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, &key_for_account(&account_id), &test_account);
-        let (transaction, new_root) = state_update.finalize();
-        transaction.commit().unwrap();
+        set(&mut state_update, key_for_account(&account_id), &test_account);
+        let (store_update, new_root) = state_update.finalize();
+        store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);

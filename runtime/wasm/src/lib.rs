@@ -10,7 +10,7 @@ extern crate serde_derive;
 #[cfg(test)]
 extern crate wabt;
 
-mod cache;
+pub mod cache;
 pub mod executor;
 pub mod ext;
 pub mod prepare;

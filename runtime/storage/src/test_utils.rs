@@ -7,7 +7,8 @@ use crate::Trie;
 use std::sync::RwLock;
 
 /// Creates one beacon storage and one shard storage using in-memory database.
-pub fn create_beacon_shard_storages() -> (Arc<RwLock<BeaconChainStorage>>, Arc<RwLock<ShardChainStorage>>) {
+pub fn create_beacon_shard_storages(
+) -> (Arc<RwLock<BeaconChainStorage>>, Arc<RwLock<ShardChainStorage>>) {
     let db = Arc::new(kvdb_memorydb::create(NUM_COLS));
     let beacon = BeaconChainStorage::new(db.clone());
     let shard = ShardChainStorage::new(db.clone(), 0);

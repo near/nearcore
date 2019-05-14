@@ -1,3 +1,4 @@
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 
@@ -20,6 +21,8 @@ pub trait RuntimeAdapter {
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, String>;
+
+    fn view_access_key(&self, state_root: MerkleHash, account_id: &AccountId) -> Result<Vec<PublicKey>, String>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
@@ -54,6 +57,14 @@ pub fn query_client(
                 Err(e) => Ok(ABCIQueryResponse::result_err(path, e, logs)),
             }
         }
+        "access_key" => match adapter.view_access_key(state_root, &AccountId::from(path_parts[1])) {
+            Ok(keys) => Ok(ABCIQueryResponse::result(
+                path,
+                serde_json::to_string(&keys).map_err(|e| format!("{}", e))?.as_bytes().to_vec(),
+                vec![],
+            )),
+            Err(e) => Ok(ABCIQueryResponse::result_err(path, e, vec![])),
+        },
         _ => Err(format!("Unknown path {}", path)),
     }
 }

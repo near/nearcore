@@ -1,20 +1,21 @@
-use crate::ext::External;
-
 use std::ffi::c_void;
 use std::fmt;
 
+use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
+
+use near_primitives::logging;
+use near_primitives::types::{Balance, Gas, Mana, StorageUsage, StorageUsageChange};
+
 use crate::cache;
+use crate::ext::External;
 use crate::runtime::{self, Runtime};
 use crate::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
-use near_primitives::logging;
-use near_primitives::types::{Balance, Gas, Mana};
-
-use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
 
 pub struct ExecutionOutcome {
     pub gas_used: Gas,
     pub mana_used: Mana,
     pub mana_left: Mana,
+    pub storage_usage: StorageUsage,
     pub return_data: Result<ReturnData, Error>,
     pub balance: Balance,
     pub random_seed: Vec<u8>,
@@ -82,6 +83,8 @@ pub fn execute(
             gas_used: runtime.gas_counter,
             mana_used: runtime.mana_counter,
             mana_left: context.mana - runtime.mana_counter,
+            storage_usage: (context.storage_usage as StorageUsageChange + runtime.storage_counter)
+                as StorageUsage,
             return_data: Ok(runtime.return_data),
             balance: runtime.balance,
             random_seed: runtime.random_seed,
@@ -91,6 +94,7 @@ pub fn execute(
             gas_used: runtime.gas_counter,
             mana_used: 0,
             mana_left: context.mana,
+            storage_usage: context.storage_usage,
             return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
             balance: context.initial_balance,
             random_seed: runtime.random_seed,
