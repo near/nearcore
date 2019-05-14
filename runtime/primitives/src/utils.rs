@@ -28,6 +28,12 @@ pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::ACCOUNT, account_key)
 }
 
+pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
+    key.extend_from_slice(col::ACCESS_KEY);
+    key
+}
+
 pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
     key.extend_from_slice(col::ACCESS_KEY);

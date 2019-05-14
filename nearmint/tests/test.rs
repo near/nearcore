@@ -1,4 +1,5 @@
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::crypto::signature::PublicKey;
 use primitives::rpc::JsonRpcResponse;
 use protobuf::Message;
 use std::process::{Child, Command};
@@ -79,6 +80,28 @@ fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
         })
 }
 
+fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
+    let client = reqwest::Client::new();
+    let mut response = client
+        .post("http://127.0.0.1:3030/abci_query")
+        .form(&[("path", format!("\"access_key/{}\"", account_id))])
+        .send()
+        .unwrap();
+    let response: JsonRpcResponse = response.json().expect("cannot decode response");
+    response
+        .result
+        .unwrap()
+        .as_object()
+        .and_then(|m| m.get("response"))
+        .unwrap()
+        .as_object()
+        .and_then(|m| m.get("value"))
+        .and_then(|v| {
+            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
+        })
+}
+
 fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcResponse {
     let client = reqwest::Client::new();
     let tx_bytes = tx.write_to_bytes().expect("write to bytes failed");
@@ -95,10 +118,11 @@ fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcR
 mod test {
     use super::*;
     use node_runtime::chain_spec::TESTING_INIT_BALANCE;
+    use primitives::account::AccessKey;
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::hash;
     use primitives::transaction::{
-        CreateAccountTransaction, DeployContractTransaction, TransactionBody,
+        AddKeyTransaction, CreateAccountTransaction, DeployContractTransaction, TransactionBody,
     };
     use testlib::test_helpers::heavy_test;
 
@@ -181,6 +205,30 @@ mod test {
             assert!(eve_account.amount > 0);
             assert!(eve_account.amount < money_to_send);
             assert_eq!(eve_account.code_hash, hash(wasm_binary));
+        });
+    }
+
+    #[test]
+    fn test_view_access_key() {
+        heavy_test(|| {
+            let storage_path = "tmp/test_view_acccess_key";
+            let _test_node = start_nearmint(storage_path);
+            let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let signer1 = InMemorySigner::from_seed("alice.near", "test");
+            let access_key =
+                AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
+            let tx: near_protos::signed_transaction::SignedTransaction =
+                TransactionBody::AddKey(AddKeyTransaction {
+                    nonce: 1,
+                    originator: "alice.near".to_string(),
+                    new_key: signer1.public_key.0[..].to_vec(),
+                    access_key: Some(access_key),
+                })
+                .sign(&signer)
+                .into();
+            submit_tx(tx);
+            let keys = view_access_key_request("alice.near").unwrap();
+            assert_eq!(keys, vec![signer1.public_key]);
         });
     }
 }
