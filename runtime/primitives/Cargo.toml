@@ -22,6 +22,7 @@ pairing = { git = "https://github.com/nearprotocol/pairing.git", rev = "f009a9f5
 rand = "0.6"
 rand_xorshift = "0.1"
 protobuf = "2.4"
+jemallocator = "0.3.0"
 
 near-protos = { path = "../protos" }
 
