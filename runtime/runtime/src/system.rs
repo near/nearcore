@@ -8,7 +8,7 @@ use primitives::transaction::{
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use primitives::types::{AccountId, AccountingInfo, AuthorityStake};
+use primitives::types::{AccountId, AuthorityStake};
 use primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
@@ -29,7 +29,7 @@ pub fn send_money(
     transaction: &SendMoneyTransaction,
     hash: CryptoHash,
     sender: &mut Account,
-    accounting_info: AccountingInfo,
+    refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if transaction.amount == 0 {
         return Err("Sending 0 tokens".to_string());
@@ -46,7 +46,7 @@ pub fn send_money(
                 vec![],
                 vec![],
                 transaction.amount,
-                accounting_info,
+                refund_account_id.clone(),
             )),
         );
         Ok(vec![receipt])
@@ -118,7 +118,7 @@ pub fn create_account(
     body: &CreateAccountTransaction,
     hash: CryptoHash,
     sender: &mut Account,
-    accounting_info: AccountingInfo,
+    refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
         return Err(format!("Account {} does not match requirements", body.new_account_id));
@@ -135,7 +135,7 @@ pub fn create_account(
                 SYSTEM_METHOD_CREATE_ACCOUNT.to_vec(),
                 body.public_key.clone(),
                 body.amount,
-                accounting_info,
+                refund_account_id.clone(),
             )),
         );
         Ok(vec![receipt])

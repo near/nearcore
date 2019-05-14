@@ -4,10 +4,7 @@ use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSignature};
 use crate::crypto::signature::{bs58_serializer, PublicKey, Signature};
 use crate::hash::CryptoHash;
 use crate::traits::Base58Encoded;
-use crate::utils::to_string_value;
-use near_protos::receipt as receipt_proto;
 use near_protos::types as types_proto;
-use protobuf::SingularPtrField;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -58,35 +55,6 @@ pub enum PromiseId {
     Receipt(ReceiptId),
     Callback(CallbackId),
     Joiner(Vec<ReceiptId>),
-}
-
-// Accounting Info contains the originator account id information required
-// to identify quota that was used to issue the original signed transaction.
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
-pub struct AccountingInfo {
-    pub originator: AccountId,
-    pub contract_id: Option<AccountId>,
-    // TODO(#260): Add QuotaID to identify which quota was used for the call.
-}
-
-impl From<receipt_proto::AccountingInfo> for AccountingInfo {
-    fn from(proto: receipt_proto::AccountingInfo) -> Self {
-        AccountingInfo {
-            originator: proto.originator,
-            contract_id: proto.contract_id.into_option().map(|s| s.value),
-        }
-    }
-}
-
-impl From<AccountingInfo> for receipt_proto::AccountingInfo {
-    fn from(info: AccountingInfo) -> Self {
-        let contract_id = SingularPtrField::from_option(info.contract_id.map(to_string_value));
-        receipt_proto::AccountingInfo {
-            originator: info.originator,
-            contract_id,
-            ..Default::default()
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]

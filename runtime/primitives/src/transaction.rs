@@ -15,9 +15,7 @@ use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::traits::ToBytes;
-use crate::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana, Nonce, ShardId, StructSignature,
-};
+use crate::types::{AccountId, Balance, CallbackId, Mana, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
@@ -623,23 +621,20 @@ pub struct AsyncCall {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
-    pub accounting_info: AccountingInfo,
+    pub refund_account: AccountId,
 }
 
 impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
     type Error = String;
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
-        match proto_to_result(proto.accounting_info) {
-            Ok(accounting_info) => Ok(AsyncCall {
-                amount: proto.amount,
-                method_name: proto.method_name,
-                args: proto.args,
-                callback: proto.callback.into_option().map(std::convert::Into::into),
-                accounting_info: accounting_info.into(),
-            }),
-            Err(e) => Err(e),
-        }
+        Ok(AsyncCall {
+            amount: proto.amount,
+            method_name: proto.method_name,
+            args: proto.args,
+            callback: proto.callback.into_option().map(std::convert::Into::into),
+            refund_account: proto.refund_account,
+        })
     }
 }
 
@@ -650,7 +645,7 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
-            accounting_info: SingularPtrField::some(call.accounting_info.into()),
+            refund_account: call.refund_account,
             ..Default::default()
         }
     }
@@ -661,9 +656,9 @@ impl AsyncCall {
         method_name: Vec<u8>,
         args: Vec<u8>,
         amount: Balance,
-        accounting_info: AccountingInfo,
+        refund_account: AccountId,
     ) -> Self {
-        AsyncCall { amount, method_name, args, callback: None, accounting_info }
+        AsyncCall { amount, method_name, args, callback: None, refund_account }
     }
 }
 
@@ -674,7 +669,7 @@ impl fmt::Debug for AsyncCall {
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("callback", &self.callback)
-            .field("accounting_info", &self.accounting_info)
+            .field("refund_account", &self.refund_account)
             .finish()
     }
 }
@@ -687,16 +682,11 @@ pub struct Callback {
     pub mana: Mana,
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
-    pub accounting_info: AccountingInfo,
+    pub refund_account: AccountId,
 }
 
 impl Callback {
-    pub fn new(
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        mana: Mana,
-        accounting_info: AccountingInfo,
-    ) -> Self {
+    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: Mana, refund_account: AccountId) -> Self {
         Callback {
             method_name,
             args,
@@ -704,7 +694,7 @@ impl Callback {
             mana,
             callback: None,
             result_counter: 0,
-            accounting_info,
+            refund_account,
         }
     }
 }
@@ -718,7 +708,7 @@ impl fmt::Debug for Callback {
             .field("mana", &format_args!("{}", &self.mana))
             .field("callback", &self.callback)
             .field("result_counter", &format_args!("{}", &self.result_counter))
-            .field("accounting_info", &self.accounting_info)
+            .field("refund_account", &self.refund_account)
             .finish()
     }
 }

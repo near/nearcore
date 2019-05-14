@@ -14,7 +14,6 @@ use primitives::transaction::{
     FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
     TransactionStatus,
 };
-use primitives::types::AccountingInfo;
 use primitives::utils::key_for_callback;
 use storage::set;
 
@@ -195,7 +194,7 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
             b"run_test".to_vec(),
             vec![],
             0,
-            AccountingInfo { originator: account_id.clone(), contract_id: None },
+            account_id.clone(),
         )),
     };
 
@@ -218,11 +217,11 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
 pub fn test_async_call_with_callback(node: impl Node) {
     let account_id = &node.signer().account_id;
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-    let accounting_info = AccountingInfo { originator: account_id.clone(), contract_id: None };
-    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
+    let refund_account = account_id;
+    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, accounting_info.clone());
+    let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, refund_account.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -268,7 +267,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
             b"log_something".to_vec(),
             vec![],
             0,
-            AccountingInfo { originator: account_id.clone(), contract_id: None },
+            account_id.clone(),
         )),
     };
 
@@ -292,11 +291,11 @@ pub fn test_async_call_with_logs(node: impl Node) {
 pub fn test_deposit_with_callback(node: impl Node) {
     let account_id = &node.signer().account_id;
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
-    let accounting_info = AccountingInfo { originator: account_id.clone(), contract_id: None };
-    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
+    let refund_account = account_id;
+    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(vec![], vec![], 0, accounting_info.clone());
+    let mut async_call = AsyncCall::new(vec![], vec![], 0, refund_account.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -324,9 +323,9 @@ pub fn test_deposit_with_callback(node: impl Node) {
 // This test only works with RuntimeNode because it requires modifying state.
 pub fn test_callback(node: RuntimeNode) {
     let account_id = &node.signer().account_id;
-    let accounting_info = AccountingInfo { originator: account_id.clone(), contract_id: None };
+    let refund_account = account_id;
     let mut callback =
-        Callback::new(b"run_test_with_storage_change".to_vec(), vec![], 0, accounting_info.clone());
+        Callback::new(b"run_test_with_storage_change".to_vec(), vec![], 0, refund_account.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
 
@@ -367,12 +366,12 @@ pub fn test_callback(node: RuntimeNode) {
 
 pub fn test_callback_failure(node: RuntimeNode) {
     let account_id = &node.signer().account_id;
-    let accounting_info = AccountingInfo { originator: account_id.clone(), contract_id: None };
+    let refund_account = account_id;
     let mut callback = Callback::new(
         b"a_function_that_does_not_exist".to_vec(),
         vec![],
         0,
-        accounting_info.clone(),
+        refund_account.clone(),
     );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();

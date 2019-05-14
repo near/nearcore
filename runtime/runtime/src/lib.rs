@@ -23,7 +23,7 @@ use primitives::transaction::{
     TransactionStatus,
 };
 use primitives::types::{
-    AccountId, AccountingInfo, AuthorityStake, Balance, BlockIndex, Mana, MerkleHash, PromiseId,
+    AccountId, AuthorityStake, Balance, BlockIndex, Mana, MerkleHash, PromiseId,
     ReadableBlsPublicKey, ReadablePublicKey, ShardId,
 };
 use primitives::utils::{
@@ -87,7 +87,7 @@ impl Runtime {
         transaction: &FunctionCallTransaction,
         hash: CryptoHash,
         sender: &mut Account,
-        accounting_info: AccountingInfo,
+        refund_account_id: &AccountId,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         match transaction.method_name.get(0) {
             Some(b'_') => {
@@ -114,7 +114,7 @@ impl Runtime {
                     transaction.method_name.clone(),
                     transaction.args.clone(),
                     transaction.amount,
-                    accounting_info,
+                    refund_account_id.clone(),
                 )),
             );
             Ok(vec![receipt])
@@ -169,15 +169,15 @@ impl Runtime {
 
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
-        let accounting_info =
-            AccountingInfo { originator: originator_id.clone(), contract_id: None };
+
+        let refund_account_id = &originator_id;
         match transaction.body {
             TransactionBody::SendMoney(ref t) => system::send_money(
                 state_update,
                 &t,
                 transaction.get_hash(),
                 &mut originator,
-                accounting_info,
+                refund_account_id,
             ),
             TransactionBody::Stake(ref t) => system::staking(
                 state_update,
@@ -191,7 +191,7 @@ impl Runtime {
                 &t,
                 transaction.get_hash(),
                 &mut originator,
-                accounting_info,
+                refund_account_id,
             ),
             TransactionBody::DeployContract(ref t) => {
                 system::deploy(state_update, &t.contract_id, &t.wasm_byte_array, &mut originator)
@@ -201,7 +201,7 @@ impl Runtime {
                 t,
                 transaction.get_hash(),
                 &mut originator,
-                accounting_info,
+                refund_account_id,
             ),
             TransactionBody::SwapKey(ref t) => system::swap_key(state_update, t, &mut originator),
             TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut originator),
@@ -312,7 +312,7 @@ impl Runtime {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
                 receiver_id,
-                &async_call.accounting_info,
+                &async_call.refund_account,
                 nonce,
                 self.ethash_provider.clone(),
             );
@@ -385,12 +385,12 @@ impl Runtime {
                     let mut runtime_ext = RuntimeExt::new(
                         state_update,
                         receiver_id,
-                        &callback.accounting_info,
+                        &callback.refund_account,
                         nonce,
                         self.ethash_provider.clone(),
                     );
 
-                    *refund_account = callback.accounting_info.originator.clone();
+                    *refund_account = callback.refund_account.clone();
                     needs_removal = true;
                     executor::execute(
                         &code,
@@ -472,9 +472,9 @@ impl Runtime {
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver));
+        let receiver_exists = receiver.is_some();
         let mut amount = 0;
         let mut callback_info = None;
-        let mut receiver_exists = true;
         // Un-utilized leftover liquid balance that we can refund back to the originator.
         let mut leftover_balance = 0;
         let mut refund_account: String = Default::default();
@@ -482,7 +482,7 @@ impl Runtime {
             Some(mut receiver) => match &receipt.body {
                 ReceiptBody::NewCall(async_call) => {
                     amount = async_call.amount;
-                    refund_account = async_call.accounting_info.originator.clone();
+                    refund_account = async_call.refund_account.clone();
                     callback_info = async_call.callback.clone();
                     if async_call.method_name.is_empty() {
                         transaction_result.result = Some(vec![]);
@@ -529,7 +529,6 @@ impl Runtime {
                 }
             },
             _ => {
-                receiver_exists = false;
                 let err = Err(format!("receiver {} does not exist", receipt.receiver));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
