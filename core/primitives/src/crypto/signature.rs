@@ -4,11 +4,9 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use bs58;
-
 pub use crate::crypto::signature::sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::logging::pretty_hash;
-use crate::traits::{Base58Encoded, ToBytes};
+use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::ReadablePublicKey;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
@@ -33,8 +31,8 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-impl Base58Encoded for PublicKey {}
-impl Base58Encoded for SecretKey {}
+impl Base64Encoded for PublicKey {}
+impl Base64Encoded for SecretKey {}
 impl ToBytes for PublicKey {
     fn to_bytes(&self) -> Vec<u8> {
         self.as_ref().to_vec()
@@ -57,10 +55,6 @@ impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
         ReadablePublicKey(self.to_string())
     }
-
-    pub fn to_base64(&self) -> String {
-        base64::encode(&self.to_bytes())
-    }
 }
 
 impl Hash for PublicKey {
@@ -69,14 +63,8 @@ impl Hash for PublicKey {
     }
 }
 
-impl SecretKey {
-    pub fn to_base64(&self) -> String {
-        base64::encode(&self.to_bytes())
-    }
-}
-
 impl TryFrom<&[u8]> for PublicKey {
-    type Error = Box<std::error::Error>;
+    type Error = String;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
@@ -103,9 +91,8 @@ impl TryFrom<&str> for PublicKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-        let bytes = bs58::decode(s)
-            .into_vec()
-            .map_err(|e| format!("Failed to convert public key from base58: {}", e))?;
+        let bytes = base64::decode(s)
+            .map_err(|e| format!("Failed to convert public key from base64: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for public key", s));
         }
@@ -117,7 +104,7 @@ impl TryFrom<&str> for PublicKey {
 }
 
 impl TryFrom<&[u8]> for SecretKey {
-    type Error = Box<std::error::Error>;
+    type Error = String;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
@@ -135,9 +122,8 @@ impl TryFrom<&str> for SecretKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
-        let bytes = bs58::decode(s)
-            .into_vec()
-            .map_err(|e| format!("Failed to convert secret key from base58: {}", e))?;
+        let bytes = base64::decode(s)
+            .map_err(|e| format!("Failed to convert secret key from base64: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for secret key", s));
         }
@@ -149,7 +135,7 @@ impl TryFrom<&str> for SecretKey {
 }
 
 impl TryFrom<&[u8]> for Signature {
-    type Error = Box<std::error::Error>;
+    type Error = String;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
@@ -176,8 +162,7 @@ impl TryFrom<&str> for Signature {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-        let bytes = bs58::decode(s)
-            .into_vec()
+        let bytes = base64::decode(s)
             .map_err(|e| format!("Failed to convert signature from base58: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for signature", s));
@@ -203,7 +188,7 @@ impl From<PublicKey> for Vec<u8> {
 
 impl<'a> From<&'a PublicKey> for String {
     fn from(h: &'a PublicKey) -> Self {
-        bs58::encode(h.0).into_string()
+        base64::encode(&h.0)
     }
 }
 
@@ -227,7 +212,7 @@ impl std::convert::AsRef<[u8]> for SecretKey {
 
 impl<'a> From<&'a SecretKey> for String {
     fn from(h: &'a SecretKey) -> Self {
-        bs58::encode(h).into_string()
+        base64::encode(h)
     }
 }
 
@@ -251,7 +236,7 @@ impl fmt::Display for SecretKey {
 
 impl<'a> From<&'a Signature> for String {
     fn from(h: &'a Signature) -> Self {
-        bs58::encode(h).into_string()
+        base64::encode(h)
     }
 }
 
@@ -279,7 +264,7 @@ impl fmt::Display for Signature {
     }
 }
 
-pub mod bs58_pub_key_format {
+pub mod bs64_pub_key_format {
     use std::convert::TryInto;
 
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
@@ -301,7 +286,7 @@ pub mod bs58_pub_key_format {
     }
 }
 
-pub mod bs58_secret_key_format {
+pub mod bs64_secret_key_format {
     use std::convert::TryInto;
 
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
@@ -323,7 +308,7 @@ pub mod bs58_secret_key_format {
     }
 }
 
-pub mod bs58_signature_format {
+pub mod bs64_signature_format {
     use std::convert::TryInto;
 
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
@@ -345,26 +330,26 @@ pub mod bs58_signature_format {
     }
 }
 
-pub mod bs58_serializer {
+pub mod bs64_serializer {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use crate::traits::Base58Encoded;
+    use crate::traits::Base64Encoded;
 
     pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
-        T: Base58Encoded,
+        T: Base64Encoded,
         S: Serializer,
     {
-        serializer.serialize_str(&t.to_base58())
+        serializer.serialize_str(&t.to_base64())
     }
 
     pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
     where
-        T: Base58Encoded,
+        T: Base64Encoded,
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(T::from_base58(&s).unwrap())
+        Ok(T::from_base64(&s).unwrap())
     }
 }
 

@@ -4,7 +4,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::aggregate_signature::BlsPublicKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::traits::Base58Encoded;
+use near_primitives::traits::Base64Encoded;
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
@@ -73,7 +73,7 @@ pub fn staking(
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::try_from(body.public_key.as_str())?,
-            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key)
+            bls_public_key: BlsPublicKey::from_base64(&body.bls_public_key)
                 .map_err(|e| format!("{}", e))?,
             amount: body.amount,
         });

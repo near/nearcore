@@ -1,5 +1,4 @@
 extern crate bincode;
-extern crate bs58;
 extern crate byteorder;
 extern crate exonum_sodiumoxide;
 extern crate heapsize;

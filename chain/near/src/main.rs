@@ -1,11 +1,12 @@
+use std::fs;
 use std::path::Path;
 
 use actix::System;
 use clap::{App, Arg, SubCommand};
-use log::LevelFilter;
+use log::{info, LevelFilter};
 
 use near::config::init_testnet_configs;
-use near::{init_configs, load_configs, start_with_config};
+use near::{get_store_path, init_configs, load_configs, start_with_config};
 
 fn init_logging(verbose: bool) {
     if verbose {
@@ -57,6 +58,7 @@ fn main() {
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node"))
+        .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .get_matches();
 
     init_logging(matches.is_present("verbose"));
@@ -83,12 +85,17 @@ fn main() {
             let prefix = args.value_of("prefix").unwrap_or("node");
             init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
         }
-        ("run", None) => {
+        ("run", Some(_args)) => {
             // Load configs from home.
             let system = System::new("NEAR");
             let (near_config, genesis_config, block_producer) = load_configs(home_dir);
             start_with_config(home_dir, genesis_config, near_config, Some(block_producer));
             system.run().unwrap();
+        }
+        ("unsafe_reset_data", Some(_args)) => {
+            let store_path = get_store_path(home_dir);
+            info!(target: "near", "Removing all data from {}", store_path);
+            fs::remove_dir_all(store_path).expect("Removing data failed");
         }
         (_, _) => unreachable!(),
     }

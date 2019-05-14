@@ -3,8 +3,7 @@ import os
 
 import ed25519
 
-import b58
-
+import base64
 
 class AmbiguousPublicKey(Exception):
     def __init__(self):
@@ -48,7 +47,7 @@ class InMemoryKeyStore(KeyStore):
 
     def create_key_pair(self, seed=None):
         (secret_key, public_key) = self._create_key_pair(seed)
-        encoded = b58.b58encode(public_key.to_bytes()).decode('utf-8')
+        encoded = base64.b64encode(public_key.to_bytes()).decode('utf-8')
         self._key_pairs[encoded] = secret_key
         return encoded
 
@@ -70,45 +69,16 @@ class InMemoryKeyStore(KeyStore):
 
 class FileKeyStore(KeyStore):
     def __init__(self, path):
-        self._path = path
-
-    def create_key_pair(self, seed=None):
-        if not os.path.exists(self._path):
-            os.makedirs(self._path)
-
-        (secret_key, public_key) = self._create_key_pair(seed)
-        encoded_pub = b58.b58encode(public_key.to_bytes()).decode('utf-8')
-        encoded_secret = b58.b58encode(secret_key.to_bytes()).decode('utf-8')
-
-        with open(os.path.join(self._path, encoded_pub), 'w') as f:
-            key_file = {
-                'public_key': encoded_pub,
-                'secret_key': encoded_secret,
-            }
-            f.write(json.dumps(key_file))
-
-        return encoded_pub
+        keys = json.loads(open(path).read())
+        self.public_key = keys['public_key']
+        self.secret_key = ed25519.SigningKey(base64.b64decode(keys['secret_key']))
 
     def sign(self, data, public_key=None):
-        if public_key is None:
-            public_key = self.get_only_public_key()
-
-        with open(os.path.join(self._path, public_key)) as f:
-            key_file = json.loads(f.read())
-            encoded_secret = key_file['secret_key']
-
-        secret_key = b58.b58decode(encoded_secret)
-        secret_key = ed25519.SigningKey(secret_key)
-        return secret_key.sign(data)
+        return self.secret_key.sign(data)
 
     def get_only_public_key(self):
-        if not os.path.exists(self._path):
-            raise NoKeyPairs
+        return self.public_key
 
-        pub_keys = os.listdir(self._path)
-        if len(pub_keys) > 1:
-            raise AmbiguousPublicKey
-        elif len(pub_keys) == 0:
-            raise NoKeyPairs
+    def verify(self, signature, data):
+        return ed25519.VerifyingKey(base64.b64decode(self.public_key)).verify(signature, data)
 
-        return pub_keys[0]

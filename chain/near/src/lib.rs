@@ -18,12 +18,12 @@ mod runtime;
 
 const STORE_PATH: &str = "data";
 
-fn get_store_path(base_path: &Path) -> String {
+pub fn get_store_path(base_path: &Path) -> String {
     let mut store_path = base_path.to_owned();
     store_path.push(STORE_PATH);
     match fs::canonicalize(store_path.clone()) {
         Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
-        _ => info!(target: "near", "Could not resolve {:?} path", store_path),
+        _ => info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path),
     };
     store_path.to_str().unwrap().to_owned()
 }

@@ -119,6 +119,13 @@ impl Chain {
         match head_res {
             Ok(h) => {
                 head = h;
+
+                // Check that genesis in the store is the same as genesis given in the config.
+                let genesis_hash = store_update.get_block_hash_by_height(0)?;
+                if genesis_hash != genesis.hash() {
+                    return Err(ErrorKind::Other(format!("Genesis mismatch between storage and config: {:?} vs {:?}", genesis_hash, genesis.hash())).into());
+                }
+
                 // Check we have the header corresponding to the header_head.
                 let header_head = store_update.header_head()?;
                 if store_update.get_block_header(&header_head.last_block_hash).is_err() {
@@ -129,7 +136,6 @@ impl Chain {
                     // Reset sync head to be consistent with current header head.
                     store_update.save_sync_head(&header_head);
                 }
-                // TODO: check that genesis root / timestamp matches.
                 // TODO: perform validation that latest state in runtime matches the stored chain.
             }
             Err(err) => match err.kind() {

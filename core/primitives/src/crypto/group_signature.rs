@@ -1,9 +1,9 @@
 use crate::crypto::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
-use crate::crypto::signature::bs58_serializer;
+use crate::crypto::signature::bs64_serializer;
 use crate::logging::pretty_hash;
-use crate::traits::{Base58Encoded, ToBytes};
+use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::{AuthorityMask, PartialSignature};
 use core::fmt;
 use std::convert::TryFrom;
@@ -11,7 +11,7 @@ use near_protos::types as types_proto;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "bs64_serializer")]
     pub signature: BlsSignature,
     pub authority_mask: AuthorityMask,
 }
@@ -20,7 +20,7 @@ impl TryFrom<types_proto::GroupSignature> for GroupSignature {
     type Error = String;
 
     fn try_from(proto: types_proto::GroupSignature) -> Result<Self, String> {
-        Base58Encoded::from_base58(&proto.signature)
+        Base64Encoded::from_base64(&proto.signature)
             .map(|signature| GroupSignature { signature, authority_mask: proto.authority_mask })
             .map_err(|e| format!("cannot decode signature {:?}", e))
     }
@@ -29,7 +29,7 @@ impl TryFrom<types_proto::GroupSignature> for GroupSignature {
 impl From<GroupSignature> for types_proto::GroupSignature {
     fn from(signature: GroupSignature) -> Self {
         types_proto::GroupSignature {
-            signature: Base58Encoded::to_base58(&signature.signature),
+            signature: Base64Encoded::to_base64(&signature.signature),
             authority_mask: signature.authority_mask,
             ..Default::default()
         }
@@ -42,7 +42,7 @@ impl fmt::Debug for GroupSignature {
             f,
             "{:?} {:?}",
             self.authority_mask,
-            pretty_hash(&bs58::encode(&self.signature.to_bytes()).into_string())
+            pretty_hash(&base64::encode(&self.signature.to_bytes()))
         )
     }
 }

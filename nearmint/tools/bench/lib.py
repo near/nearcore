@@ -13,8 +13,7 @@ except ImportError:
     from urllib.parse import quote
 
 import protos.signed_transaction_pb2 as signed_transaction
-from key_store import InMemoryKeyStore
-import b58
+from key_store import InMemoryKeyStore, FileKeyStore
 
 
 def _post(url, data=''):
@@ -45,7 +44,12 @@ class RPC(object):
         try:
             connection = _post(self._server_url, data)
             raw = connection.read()
-            return json.loads(raw.decode('utf-8'))
+            response = json.loads(raw.decode('utf-8'))
+            if 'error' in response:
+                raise Exception("RPC: %s: %s" % (
+                    response['error']['message'],
+                    response['error'].get('data')))
+            return response
         except HTTPError as e:
             if e.code == 400:
                 raise Exception(e.fp.read())
@@ -80,15 +84,16 @@ class RPC(object):
 
 class User(object):
 
-    def __init__(self, rpc, account_id, public_key=None, keystore=None):
+    def __init__(self, rpc, account_id, keystore=None):
         self._rpc = rpc
         self._account_id = account_id
         self._nonce = rpc.get_account(account_id)['nonce']
         if keystore is None:
             keystore = InMemoryKeyStore()
-        self._keystore = keystore
-        if public_key is None:
             public_key = keystore.create_key_pair(seed=account_id)
+        else:
+            public_key = keystore.get_only_public_key()
+        self._keystore = keystore
         self._public_key = public_key
 
     @property
@@ -136,7 +141,7 @@ class User(object):
         create_account.originator = self._account_id
         create_account.new_account_id = account_id
         create_account.amount = amount
-        create_account.public_key = b58.b58decode(account_public_key)
+        create_account.public_key = base64.b64decode(account_public_key)
 
         signature = self._sign_transaction_body(create_account)
 
@@ -148,11 +153,13 @@ class User(object):
 
 
 if __name__ == "__main__":
-    rpc = RPC('http://localhost:25223/')
-    alice = User(rpc, "alice.near")
+    keystore = FileKeyStore('/Users/cypress/.near/validator_key.json')
+    rpc = RPC('http://localhost:3030/')
+
+    alice = User(rpc, "test.near", keystore=keystore)
     print(alice.view_account())
-    alice.create_account('bob.near', 1000, None)
-#    print(alice.send_money('bob.near', 10, wait=False))
+#    alice.create_account('bob.near', 1000, None, wait=True)
+    print(alice.send_money('bob.near', 10000, wait=False))
     import time
     time.sleep(1)
     print(User(rpc, "bob.near").view_account())

@@ -10,7 +10,9 @@ use serde::Serialize;
 
 use near_primitives::serialize::{Decode, Encode};
 
-pub use crate::trie::{update::TrieUpdate, update::TrieUpdateIterator, Trie, convert_to_store_update};
+pub use crate::trie::{
+    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie,
+};
 
 pub mod test_utils;
 mod trie;
@@ -139,11 +141,9 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
+                    write!(f, "  + {:?} {}\n", col, base64::encode(key))?
                 }
-                DBOp::Delete { col, key } => {
-                    write!(f, "  - {:?} {}\n", col, bs58::encode(key.to_vec()).into_string())?
-                }
+                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, base64::encode(key))?,
             }
         }
         write!(f, "}}\n")

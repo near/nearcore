@@ -61,8 +61,8 @@ def benchmark(rpc, users, duration):
 
 
 if __name__ == "__main__":
-    rpc = RPC('http://localhost:25223/')
-    alice = User(rpc, "alice.near")
+    rpc = RPC('http://localhost:3030/')
+    alice = User(rpc, "test.near")
     bob = User(rpc, "bob.near")
 
     benchmark(rpc, [alice, bob], 10)

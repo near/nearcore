@@ -1,7 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
-use bs58;
 use byteorder::{LittleEndian, WriteBytesExt};
 use lazy_static::lazy_static;
 use protobuf::{well_known_types::StringValue, SingularPtrField};
@@ -73,8 +72,8 @@ pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
     0
 }
 
-pub fn bs58_vec2str(buf: &[u8]) -> String {
-    bs58::encode(buf).into_string()
+pub fn base64_vec2str(buf: &[u8]) -> String {
+    base64::encode(buf)
 }
 
 lazy_static! {

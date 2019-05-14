@@ -45,6 +45,8 @@ struct Network {
     pub handshake_timeout: Duration,
     /// Duration before trying to reconnect to a peer.
     pub reconnect_delay: Duration,
+    /// Skip waiting for peers before starting node.
+    pub skip_sync_wait: bool,
 }
 
 impl Default for Network {
@@ -56,6 +58,7 @@ impl Default for Network {
             max_peers: 40,
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
+            skip_sync_wait: false,
         }
     }
 }
@@ -68,6 +71,8 @@ struct Consensus {
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
     pub max_block_production_delay: Duration,
+    /// Produce empty blocks, use `false` for testing.
+    pub produce_empty_blocks: bool,
 }
 
 impl Default for Consensus {
@@ -76,6 +81,7 @@ impl Default for Consensus {
             min_num_peers: 3,
             min_block_production_delay: Duration::from_secs(1),
             max_block_production_delay: Duration::from_secs(6),
+            produce_empty_blocks: true,
         }
     }
 }
@@ -148,7 +154,7 @@ impl NearConfig {
                 min_block_production_delay: Duration::from_millis(100),
                 max_block_production_delay: Duration::from_millis(2000),
                 block_expected_weight: 1000,
-                skip_sync_wait: false,
+                skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
@@ -156,6 +162,7 @@ impl NearConfig {
                 min_num_peers: 1,
                 fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
+                produce_empty_blocks: config.consensus.produce_empty_blocks,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.0,
@@ -303,7 +310,8 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
-            let config = Config::default();
+            let mut config = Config::default();
+            config.network.skip_sync_wait = true;
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             let account_id = account_id.unwrap_or("test.near").to_string();
@@ -390,7 +398,11 @@ pub fn load_configs(dir: &Path) -> (NearConfig, GenesisConfig, BlockProducer) {
     (near_config, genesis_config, block_producer)
 }
 
-pub fn load_test_configs(seed: &str, port: u64, genesis_config: &GenesisConfig) -> (NearConfig, BlockProducer) {
+pub fn load_test_configs(
+    seed: &str,
+    port: u64,
+    genesis_config: &GenesisConfig,
+) -> (NearConfig, BlockProducer) {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);

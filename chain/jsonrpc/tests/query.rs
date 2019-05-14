@@ -65,6 +65,7 @@ fn test_send_tx_async() {
 }
 
 /// Test sending trasaction and waiting for it to be committed to a block.
+/// TODO: doesn't work yet
 #[test]
 fn test_send_tx_commit() {
     init_test_logger();
@@ -116,7 +117,6 @@ fn test_query() {
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.query("account/test".to_string(), vec![]).then(|res| {
-            println!("{:?}", res);
             assert!(res.is_ok());
             System::current().stop();
             future::result(Ok(()))
@@ -136,7 +136,6 @@ fn test_status() {
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.status().then(|res| {
             let res = res.unwrap();
-            println!("{:?}", res);
             assert_eq!(res.chain_id, "unittest");
             assert_eq!(res.sync_info.latest_block_height, 0);
             assert_eq!(res.sync_info.syncing, false);

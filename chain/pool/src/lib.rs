@@ -11,19 +11,21 @@ pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
 pub struct TransactionPool {
+    num_transactions: usize,
     /// Transactions grouped by account and ordered by nonce.
     pub transactions: HashMap<AccountId, BTreeMap<Nonce, SignedTransaction>>,
 }
 
 impl TransactionPool {
     pub fn new() -> Self {
-        TransactionPool { transactions: HashMap::default() }
+        TransactionPool { num_transactions: 0, transactions: HashMap::default() }
     }
 
     /// Insert a valid transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, valid_transaction: ValidTransaction) {
         let account = valid_transaction.transaction.body.get_originator();
         let nonce = valid_transaction.transaction.body.get_nonce();
+        self.num_transactions += 1;
         self.transactions
             .entry(account)
             .or_insert_with(BTreeMap::new)
@@ -59,9 +61,14 @@ impl TransactionPool {
                 remove_map = map.is_empty();
             }
             if remove_map {
+                self.num_transactions -= 1;
                 self.transactions.remove(&account);
             }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.num_transactions
     }
 }
 

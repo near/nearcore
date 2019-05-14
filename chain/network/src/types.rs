@@ -17,7 +17,7 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
-use near_primitives::traits::Base58Encoded;
+use near_primitives::traits::Base64Encoded;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
@@ -52,7 +52,7 @@ impl Hash for PeerId {
 
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", pretty_str(&self.0.to_base58(), 4))
+        write!(f, "{}", pretty_str(&self.0.to_base64(), 4))
     }
 }
 

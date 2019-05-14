@@ -2,6 +2,8 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use log::debug;
+
 use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
@@ -120,8 +122,9 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<ValidTransaction, near_chain::Error> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let verifier = TransactionVerifier::new(&state_update);
-        if let Err(e) = verifier.verify_transaction(&transaction) {
-            return Err(e.into());
+        if let Err(err) = verifier.verify_transaction(&transaction) {
+            debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
+            return Err(err.into());
         }
         Ok(ValidTransaction { transaction })
     }

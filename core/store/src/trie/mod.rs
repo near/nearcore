@@ -391,13 +391,12 @@ enum FlattenNodesCrumb {
     Exiting,
 }
 
-
 pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreUpdate, CryptoHash) {
-    let mut store_update = StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
+    let mut store_update =
+        StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
     let TrieChanges { new_root, insertions, deletions } = changes;
     for (key, value, rc) in insertions.into_iter() {
-        let storage_rc =
-            trie.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
+        let storage_rc = trie.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
         let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
         store_update.set(COL_STATE, key.as_ref(), &bytes);
     }
@@ -406,8 +405,7 @@ pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreU
             trie.storage.retrieve_raw_node(&key).expect("Node to delete does not exist");
         assert!(rc <= storage_rc);
         if rc < storage_rc {
-            let bytes =
-                RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
+            let bytes = RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
             store_update.set(COL_STATE, key.as_ref(), &bytes);
         } else {
             store_update.delete(COL_STATE, key.as_ref());
@@ -1465,8 +1463,7 @@ mod tests {
             let trie_changes = gen_changes(&mut rng);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let trie_changes1 =
-                trie.update(&Trie::empty_root(), trie_changes.iter().cloned());
+            let trie_changes1 = trie.update(&Trie::empty_root(), trie_changes.iter().cloned());
             let trie_changes2 =
                 trie.update(&Trie::empty_root(), simplified_changes.iter().cloned());
             if trie_changes1.new_root != trie_changes2.new_root {

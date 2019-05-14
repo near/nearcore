@@ -73,6 +73,8 @@ pub struct ClientConfig {
     pub fetch_info_period: Duration,
     /// Period between logging summary information.
     pub log_summary_period: Duration,
+    /// Produce empty blocks, use `false` for testing.
+    pub produce_empty_blocks: bool,
 }
 
 impl ClientConfig {
@@ -91,6 +93,7 @@ impl ClientConfig {
             min_num_peers: 1,
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
+            produce_empty_blocks: true,
         }
     }
 }
@@ -111,6 +114,7 @@ impl ClientConfig {
             min_num_peers: 1,
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
+            produce_empty_blocks: true,
         }
     }
 }

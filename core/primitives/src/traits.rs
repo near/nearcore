@@ -5,16 +5,15 @@ pub trait ToBytes: Sized {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
-pub trait Base58Encoded:
-    for<'a> TryFrom<&'a [u8], Error = Box<std::error::Error>> + ToBytes
+pub trait Base64Encoded:
+    for<'a> TryFrom<&'a [u8], Error = String> + ToBytes
 {
-    fn from_base58(s: &str) -> Result<Self, Box<std::error::Error>> {
-        let bytes = bs58::decode(s).into_vec()?;
+    fn from_base64(s: &str) -> Result<Self, String> {
+        let bytes = base64::decode(s).map_err(|e| format!("{}", e))?;
         Self::try_from(&bytes)
     }
 
-    fn to_base58(&self) -> String {
-        let bytes = self.to_bytes();
-        bs58::encode(bytes).into_string()
+    fn to_base64(&self) -> String {
+        base64::encode(&self.to_bytes())
     }
 }

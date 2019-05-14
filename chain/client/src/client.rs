@@ -308,8 +308,8 @@ impl ClientActor {
             Ok(head) => head,
             Err(_) => return,
         };
-        // If height changed, exit.
-        if head.height != last_height {
+        // If height increased, exit.
+        if head.height > last_height {
             return;
         }
         debug!("Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
@@ -356,6 +356,12 @@ impl ClientActor {
             return Ok(());
         }
 
+        // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
+        if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 {
+            self.handle_scheduling_block_production(ctx, next_height);
+            return Ok(())
+        }
+
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
         let block = Block::produce(
@@ -366,6 +372,7 @@ impl ClientActor {
             self.approvals.drain().collect(),
             block_producer.signer.clone(),
         );
+
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }
 

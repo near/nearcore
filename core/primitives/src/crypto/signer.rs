@@ -10,7 +10,7 @@ use rand::Rng;
 
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{
-    bs58_pub_key_format, bs58_secret_key_format, bs58_serializer, get_key_pair, sign, PublicKey,
+    bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey,
     SecretKey, Signature,
 };
 use crate::types::{AccountId, PartialSignature};
@@ -36,9 +36,9 @@ pub trait BLSSigner: Sync + Send {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
-    #[serde(with = "bs58_pub_key_format")]
+    #[serde(with = "bs64_pub_key_format")]
     pub public_key: PublicKey,
-    #[serde(with = "bs58_secret_key_format")]
+    #[serde(with = "bs64_secret_key_format")]
     pub secret_key: SecretKey,
 }
 
@@ -86,13 +86,13 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockProducerKeyFile {
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "bs64_serializer")]
     pub public_key: PublicKey,
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "bs64_serializer")]
     pub secret_key: SecretKey,
-    //    #[serde(with = "bs58_serializer")]
+    //    #[serde(with = "bs64_serializer")]
     //    pub bls_public_key: BlsPublicKey,
-    //    #[serde(with = "bs58_serializer")]
+    //    #[serde(with = "bs64_serializer")]
     //    pub bls_secret_key: BlsSecretKey,
 }
 
@@ -168,8 +168,8 @@ pub fn get_or_create_key_file(
 ) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
         let (public_key, secret_key) = get_key_pair();
-//        let bls_secret_key = BlsSecretKey::generate();
-//        let bls_public_key = bls_secret_key.get_public_key();
+        //        let bls_secret_key = BlsSecretKey::generate();
+        //        let bls_public_key = bls_secret_key.get_public_key();
         let new_public_key = write_block_producer_key_file(
             key_store_path,
             public_key,
@@ -186,9 +186,9 @@ pub fn get_or_create_key_file(
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "bs64_serializer")]
     pub public_key: PublicKey,
-    #[serde(with = "bs58_serializer")]
+    #[serde(with = "bs64_serializer")]
     pub secret_key: SecretKey,
 }
 
