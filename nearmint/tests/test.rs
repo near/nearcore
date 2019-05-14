@@ -210,23 +210,25 @@ mod test {
 
     #[test]
     fn test_view_access_key() {
-        let storage_path = "tmp/test_view_acccess_key";
-        let _test_node = start_nearmint(storage_path);
-        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
-        let signer1 = InMemorySigner::from_seed("alice.near", "test");
-        let access_key =
-            AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
-        let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::AddKey(AddKeyTransaction {
-                nonce: 1,
-                originator: "alice.near".to_string(),
-                new_key: signer1.public_key.0[..].to_vec(),
-                access_key: Some(access_key),
-            })
-            .sign(&signer)
-            .into();
-        submit_tx(tx);
-        let keys = view_access_key_request("alice.near").unwrap();
-        assert_eq!(keys, vec![signer1.public_key]);
+        heavy_test(|| {
+            let storage_path = "tmp/test_view_acccess_key";
+            let _test_node = start_nearmint(storage_path);
+            let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let signer1 = InMemorySigner::from_seed("alice.near", "test");
+            let access_key =
+                AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
+            let tx: near_protos::signed_transaction::SignedTransaction =
+                TransactionBody::AddKey(AddKeyTransaction {
+                    nonce: 1,
+                    originator: "alice.near".to_string(),
+                    new_key: signer1.public_key.0[..].to_vec(),
+                    access_key: Some(access_key),
+                })
+                .sign(&signer)
+                .into();
+            submit_tx(tx);
+            let keys = view_access_key_request("alice.near").unwrap();
+            assert_eq!(keys, vec![signer1.public_key]);
+        });
     }
 }
