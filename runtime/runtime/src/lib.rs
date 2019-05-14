@@ -33,6 +33,7 @@ use primitives::utils::{
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
+use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
@@ -75,11 +76,12 @@ pub struct ApplyResult {
 
 pub struct Runtime {
     ethash_provider: Arc<Mutex<EthashProvider>>,
+    economics_config: EconomicsConfig,
 }
 
 impl Runtime {
     pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Runtime { ethash_provider }
+        Runtime { ethash_provider, economics_config: Default::default() }
     }
 
     fn try_charge_mana(
@@ -123,7 +125,6 @@ impl Runtime {
         hash: CryptoHash,
         sender: &mut Account,
         accounting_info: AccountingInfo,
-        mana: Mana,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         match transaction.method_name.get(0) {
             Some(b'_') => {
@@ -150,7 +151,6 @@ impl Runtime {
                     transaction.method_name.clone(),
                     transaction.args.clone(),
                     transaction.amount,
-                    mana - 1,
                     accounting_info,
                 )),
             );
@@ -169,17 +169,17 @@ impl Runtime {
     }
 
     /// Subtracts the storage rent from the given account balance.
-    fn apply_rent(account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
+    fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
         use primitives::serialize::Encode;
         use primitives::types::StorageUsage;
-        // Cost of storing a single byte per block.
-        const STORAGE_COST: u64 = 1;
 
         // The number of bytes the account occupies in the Trie.
         let meta_storage = key_for_account(account_id).len() as StorageUsage
             + account.encode().unwrap().len() as StorageUsage;
         let total_storage = account.storage_usage + meta_storage;
-        let charge = (block_index - account.storage_paid_at) * total_storage * STORAGE_COST;
+        let charge = (block_index - account.storage_paid_at)
+            * total_storage
+            * self.economics_config.storage_cost_byte_per_block;
         account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
@@ -198,9 +198,12 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
-        Self::apply_rent(&originator_id, &mut originator, block_index);
+        let transaction_cost = self.economics_config.transactions_costs.cost(&transaction.body);
+        originator.checked_sub(transaction_cost)?;
+        self.apply_rent(&originator_id, &mut originator, block_index);
         set(state_update, key_for_account(&originator_id), &originator);
         state_update.commit();
+
         let contract_id = transaction.body.get_contract_id();
         let mana = transaction.body.get_mana();
         let accounting_info = self
@@ -229,7 +232,6 @@ impl Runtime {
                 transaction.get_hash(),
                 &mut originator,
                 accounting_info,
-                mana,
             ),
             TransactionBody::DeployContract(ref t) => {
                 system::deploy(state_update, &t.contract_id, &t.wasm_byte_array, &mut originator)
@@ -366,7 +368,7 @@ impl Runtime {
                     async_call.amount,
                     sender_id,
                     receiver_id,
-                    async_call.mana,
+                    0, // Removed mana.
                     receiver.storage_usage,
                     block_index,
                     nonce.as_ref().to_vec(),
@@ -523,7 +525,7 @@ impl Runtime {
                 match &receipt.body {
                     ReceiptBody::NewCall(async_call) => {
                         amount = async_call.amount;
-                        mana_accounting.mana_refund = async_call.mana;
+                        mana_accounting.mana_refund = 0; // Removed mana.
                         mana_accounting.accounting_info = async_call.accounting_info.clone();
                         callback_info = async_call.callback.clone();
                         if async_call.method_name.is_empty() {

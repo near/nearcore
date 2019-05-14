@@ -15,11 +15,14 @@ message AccountingInfo {
 
 message AsyncCall {
     uint64 amount = 1;
-    uint32 mana = 2;
     bytes method_name = 3;
     bytes args = 4;
     CallbackInfo callback = 5;
     AccountingInfo accounting_info = 6;
+
+    // Removed fields.
+    reserved 2;
+    reserved "mana";
 }
 
 message CallbackResult {

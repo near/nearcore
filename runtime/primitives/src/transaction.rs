@@ -622,7 +622,6 @@ pub enum ReceiptBody {
 #[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AsyncCall {
     pub amount: Balance,
-    pub mana: Mana,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
@@ -636,7 +635,6 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
         match proto_to_result(proto.accounting_info) {
             Ok(accounting_info) => Ok(AsyncCall {
                 amount: proto.amount,
-                mana: proto.mana,
                 method_name: proto.method_name,
                 args: proto.args,
                 callback: proto.callback.into_option().map(std::convert::Into::into),
@@ -651,7 +649,6 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
     fn from(call: AsyncCall) -> Self {
         receipt_proto::AsyncCall {
             amount: call.amount,
-            mana: call.mana,
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
@@ -666,10 +663,9 @@ impl AsyncCall {
         method_name: Vec<u8>,
         args: Vec<u8>,
         amount: Balance,
-        mana: Mana,
         accounting_info: AccountingInfo,
     ) -> Self {
-        AsyncCall { amount, mana, method_name, args, callback: None, accounting_info }
+        AsyncCall { amount, method_name, args, callback: None, accounting_info }
     }
 }
 
@@ -677,7 +673,6 @@ impl fmt::Debug for AsyncCall {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("AsyncCall")
             .field("amount", &format_args!("{}", &self.amount))
-            .field("mana", &format_args!("{}", &self.mana))
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("callback", &self.callback)

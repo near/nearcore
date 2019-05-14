@@ -48,7 +48,6 @@ pub fn send_money(
                 vec![],
                 vec![],
                 transaction.amount,
-                0,
                 accounting_info,
             )),
         );
@@ -138,7 +137,6 @@ pub fn create_account(
                 SYSTEM_METHOD_CREATE_ACCOUNT.to_vec(),
                 body.public_key.clone(),
                 body.amount,
-                0,
                 accounting_info,
             )),
         );

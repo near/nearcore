@@ -167,7 +167,6 @@ impl<'a> External for RuntimeExt<'a> {
                 method_name,
                 arguments,
                 amount,
-                mana,
                 self.accounting_info.clone(),
             )),
         );

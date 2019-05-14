@@ -195,7 +195,6 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
             b"run_test".to_vec(),
             vec![],
             0,
-            0,
             AccountingInfo { originator: account_id.clone(), contract_id: None },
         )),
     };
@@ -223,8 +222,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
     let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call =
-        AsyncCall::new(b"run_test".to_vec(), vec![], 0, 0, accounting_info.clone());
+    let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, accounting_info.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -276,7 +274,6 @@ pub fn test_async_call_with_logs(node: impl Node) {
             b"log_something".to_vec(),
             vec![],
             0,
-            0,
             AccountingInfo { originator: account_id.clone(), contract_id: None },
         )),
     };
@@ -305,7 +302,7 @@ pub fn test_deposit_with_callback(node: impl Node) {
     let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, accounting_info.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(vec![], vec![], 0, 0, accounting_info.clone());
+    let mut async_call = AsyncCall::new(vec![], vec![], 0, accounting_info.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
