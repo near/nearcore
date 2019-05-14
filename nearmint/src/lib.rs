@@ -19,6 +19,7 @@ use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
+use primitives::utils::prefix_for_access_key;
 use storage::test_utils::create_beacon_shard_storages;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 use verifier::TransactionVerifier;
@@ -158,6 +159,20 @@ impl RuntimeAdapter for NearMint {
             args,
             logs,
         )
+    }
+
+    fn view_access_key(&self, account_id: &String) -> Result<Vec<PublicKey>, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+        let prefix = prefix_for_access_key(account_id);
+        match state_update.iter(&prefix) {
+            Ok(iter) => iter
+                .map(|key| {
+                    let public_key = &key[prefix.len()..];
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                })
+                .collect::<Result<Vec<_>, String>>(),
+            Err(e) => Err(e),
+        }
     }
 }
 
