@@ -288,9 +288,7 @@ impl ClientActor {
         if let Some(block_producer) = &self.block_producer {
             if Ok(block_producer.account_id.clone()) == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
-                    if let Err(err) = act.produce_block(ctx, last_height + 1) {
-                        error!(target: "client", "Block production failed: {:?}", err);
-                    }
+                    act.produce_block(ctx, last_height + 1);
                 });
             } else {
                 // Otherwise, schedule timeout to check if the next block was produced.
@@ -318,8 +316,17 @@ impl ClientActor {
         self.handle_scheduling_block_production(ctx, last_height + 1);
     }
 
+    /// Produce block if we are block producer for given block. If error happens, retry.
+    fn produce_block(&mut self, ctx: &mut Context<ClientActor>, next_height: BlockIndex) {
+        if let Err(err) = self.produce_block_err(ctx, next_height) {
+            error!(target: "client", "Block production failed: {:?}", err);
+            self.handle_scheduling_block_production(ctx, next_height - 1);
+        }
+    }
+
     /// Produce block if we are block producer for given block.
-    fn produce_block(
+    /// Can return error, should be called with `produce_block` to handle errors and reschedule.
+    fn produce_block_err(
         &mut self,
         ctx: &mut Context<ClientActor>,
         next_height: BlockIndex,
@@ -336,7 +343,7 @@ impl ClientActor {
         let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
-        // Wait until we have all approvals or timeouts per max block produciton delay.
+        // Wait until we have all approvals or timeouts per max block production delay.
         let total_authorities = self.runtime_adapter.get_epoch_block_proposers(next_height).len();
         let prev_same_bp = self.runtime_adapter.get_block_proposer(next_height - 1)?
             == block_producer.account_id.clone();
@@ -348,9 +355,7 @@ impl ClientActor {
             ctx.run_later(
                 self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
                 move |act, ctx| {
-                    if let Err(err) = act.produce_block(ctx, next_height) {
-                        error!(target: "client", "Block production failed: {:?}", err);
-                    }
+                    act.produce_block(ctx, next_height);
                 },
             );
             return Ok(());

@@ -65,7 +65,6 @@ fn main() {
 
     let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
 
-    // TODO: implement flags parsing here and reading config from NEARHOME env or base-dir flag.
     match matches.subcommand() {
         ("init", Some(args)) => {
             // TODO: Check if `home` exists. If exists check what networks we already have there.

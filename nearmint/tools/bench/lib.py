@@ -68,11 +68,11 @@ class RPC(object):
         result = self._call_rpc('broadcast_tx_commit' if wait else 'broadcast_tx_async', [data])
         return result
 
-    def get_header(self, index):
-        return self._call_rpc('block', [str(index)])
+    def get_block(self, index):
+        return self._call_rpc('block', [index])['result']
 
     def status(self):
-        return self._call_rpc('status', [])
+        return self._call_rpc('status', [])['result']
 
     def get_account(self, account_id):
         response = self.query('account/%s' % account_id)
@@ -155,6 +155,7 @@ class User(object):
 if __name__ == "__main__":
     keystore = FileKeyStore('/Users/cypress/.near/validator_key.json')
     rpc = RPC('http://localhost:3030/')
+    print(rpc.status())
 
     alice = User(rpc, "test.near", keystore=keystore)
     print(alice.view_account())
