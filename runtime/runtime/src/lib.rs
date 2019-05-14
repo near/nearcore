@@ -662,7 +662,7 @@ impl Runtime {
     }
 
     pub fn process_transaction(
-        runtime: &Self,
+        &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
@@ -670,7 +670,7 @@ impl Runtime {
         authority_proposals: &mut Vec<AuthorityStake>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
-        match runtime.apply_signed_transaction(
+        match self.apply_signed_transaction(
             state_update,
             block_index,
             transaction,
@@ -696,7 +696,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        runtime: &mut Self,
+        &mut self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -706,7 +706,7 @@ impl Runtime {
         let mut result = TransactionResult::default();
         if account_to_shard_id(&receipt.receiver) == shard_id {
             let mut tmp_new_receipts = vec![];
-            let apply_result = runtime.apply_receipt(
+            let apply_result = self.apply_receipt(
                 state_update,
                 receipt,
                 &mut tmp_new_receipts,
@@ -751,8 +751,7 @@ impl Runtime {
         let mut tx_result = vec![];
         let mut largest_tx_nonce = HashMap::new();
         for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
-            tx_result.push(Self::process_receipt(
-                self,
+            tx_result.push(self.process_receipt(
                 &mut state_update,
                 shard_id,
                 block_index,
@@ -775,8 +774,7 @@ impl Runtime {
                 }
             };
 
-            tx_result.push(Self::process_transaction(
-                self,
+            tx_result.push(self.process_transaction(
                 &mut state_update,
                 block_index,
                 transaction,

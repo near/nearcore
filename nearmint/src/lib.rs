@@ -263,8 +263,7 @@ impl Application for NearMint {
                 (&mut self.state_update, &self.apply_state)
             {
                 let mut incoming_receipts = HashMap::default();
-                let tx_result = Runtime::process_transaction(
-                    &self.runtime,
+                let tx_result = self.runtime.process_transaction(
                     state_update,
                     apply_state.block_index,
                     &tx,
@@ -282,8 +281,7 @@ impl Application for NearMint {
                     while !receipts.is_empty() {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
-                            let receipt_result = Runtime::process_receipt(
-                                &mut self.runtime,
+                            let receipt_result = self.runtime.process_receipt(
                                 state_update,
                                 0,
                                 apply_state.block_index,
