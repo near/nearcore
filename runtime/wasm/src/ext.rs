@@ -1,4 +1,4 @@
-use primitives::types::{AccountId, Balance, Mana, PromiseId};
+use primitives::types::{AccountId, Balance, PromiseId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
@@ -34,7 +34,6 @@ pub trait External {
         account_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
         amount: Balance,
     ) -> Result<PromiseId>;
 
@@ -43,7 +42,7 @@ pub trait External {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
+        amount: Balance,
     ) -> Result<PromiseId>;
 
     fn check_ethash(

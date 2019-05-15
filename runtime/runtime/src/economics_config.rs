@@ -1,26 +1,24 @@
 //! Settings of the parameters of the economics.
 use primitives::transaction::TransactionBody;
 use primitives::types::Balance;
+use wasm::types::Config;
 
 /// The structure that holds the parameters of the economics.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EconomicsConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,
-    /// The cost of calling a contract.
-    pub contract_call_cost: Balance,
-    /// Cost of requesting a callback.
-    pub callback_cost: Balance,
     pub transactions_costs: TransactionsCosts,
+    /// Config of wasm operations.
+    pub wasm_config: Config,
 }
 
 impl Default for EconomicsConfig {
     fn default() -> Self {
         Self {
-            storage_cost_byte_per_block: 1,
-            contract_call_cost: 10,
-            callback_cost: 10,
+            storage_cost_byte_per_block: 0,
             transactions_costs: Default::default(),
+            wasm_config: Default::default(),
         }
     }
 }
@@ -41,14 +39,14 @@ pub struct TransactionsCosts {
 impl Default for TransactionsCosts {
     fn default() -> Self {
         Self {
-            create_account: 1,
-            deploy_contract: 1,
-            function_call: 1,
-            send_money: 1,
-            stake: 1,
-            swap_key: 1,
-            add_key: 1,
-            delete_key: 1,
+            create_account: 0,
+            deploy_contract: 0,
+            function_call: 0,
+            send_money: 0,
+            stake: 0,
+            swap_key: 0,
+            add_key: 0,
+            delete_key: 0,
         }
     }
 }

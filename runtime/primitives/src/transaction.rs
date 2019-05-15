@@ -15,7 +15,7 @@ use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::traits::ToBytes;
-use crate::types::{AccountId, Balance, CallbackId, Mana, Nonce, ShardId, StructSignature};
+use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
@@ -404,21 +404,6 @@ impl TransactionBody {
         }
     }
 
-    /// Returns mana required to execute this transaction.
-    pub fn get_mana(&self) -> Mana {
-        match self {
-            TransactionBody::CreateAccount(_) => 1,
-            TransactionBody::DeployContract(_) => 1,
-            // TODO(#344): DEFAULT_MANA_LIMIT is 20. Need to check that the value is at least 1 mana.
-            TransactionBody::FunctionCall(_t) => 20,
-            TransactionBody::SendMoney(_) => 1,
-            TransactionBody::Stake(_) => 1,
-            TransactionBody::SwapKey(_) => 1,
-            TransactionBody::AddKey(_) => 1,
-            TransactionBody::DeleteKey(_) => 1,
-        }
-    }
-
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = match self.clone() {
             TransactionBody::CreateAccount(t) => {
@@ -679,19 +664,24 @@ pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub results: Vec<Option<Vec<u8>>>,
-    pub mana: Mana,
+    pub amount: Balance,
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
     pub refund_account: AccountId,
 }
 
 impl Callback {
-    pub fn new(method_name: Vec<u8>, args: Vec<u8>, mana: Mana, refund_account: AccountId) -> Self {
+    pub fn new(
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        amount: Balance,
+        refund_account: AccountId,
+    ) -> Self {
         Callback {
             method_name,
             args,
             results: vec![],
-            mana,
+            amount,
             callback: None,
             result_counter: 0,
             refund_account,
@@ -705,7 +695,7 @@ impl fmt::Debug for Callback {
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("results", &format_args!("{}", logging::pretty_results(&self.results)))
-            .field("mana", &format_args!("{}", &self.mana))
+            .field("amount", &format_args!("{}", &self.amount))
             .field("callback", &self.callback)
             .field("result_counter", &format_args!("{}", &self.result_counter))
             .field("refund_account", &self.refund_account)

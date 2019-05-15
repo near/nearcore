@@ -23,8 +23,8 @@ use primitives::transaction::{
     TransactionStatus,
 };
 use primitives::types::{
-    AccountId, AuthorityStake, Balance, BlockIndex, Mana, MerkleHash, PromiseId,
-    ReadableBlsPublicKey, ReadablePublicKey, ShardId,
+    AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadableBlsPublicKey,
+    ReadablePublicKey, ShardId,
 };
 use primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
@@ -166,9 +166,6 @@ impl Runtime {
         self.apply_rent(&originator_id, &mut originator, block_index);
         set(state_update, key_for_account(&originator_id), &originator);
         state_update.commit();
-
-        let contract_id = transaction.body.get_contract_id();
-        let mana = transaction.body.get_mana();
 
         let refund_account_id = &originator_id;
         match transaction.body {
@@ -328,7 +325,6 @@ impl Runtime {
                     async_call.amount,
                     sender_id,
                     receiver_id,
-                    0, // Removed mana.
                     receiver.storage_usage,
                     block_index,
                     nonce.as_ref().to_vec(),
@@ -401,10 +397,9 @@ impl Runtime {
                         &wasm::types::Config::default(),
                         &RuntimeContext::new(
                             receiver.amount,
-                            0,
+                            callback.amount,
                             sender_id,
                             receiver_id,
-                            callback.mana,
                             receiver.storage_usage,
                             block_index,
                             nonce.as_ref().to_vec(),

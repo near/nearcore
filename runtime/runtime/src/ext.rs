@@ -5,7 +5,7 @@ use kvdb::DBValue;
 
 use primitives::hash::CryptoHash;
 use primitives::transaction::{AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction};
-use primitives::types::{AccountId, Balance, CallbackId, Mana, Nonce, PromiseId, ReceiptId};
+use primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
 use storage::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
@@ -153,7 +153,6 @@ impl<'a> External for RuntimeExt<'a> {
         account_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
         amount: Balance,
     ) -> ExtResult<PromiseId> {
         let nonce = self.create_nonce();
@@ -178,7 +177,7 @@ impl<'a> External for RuntimeExt<'a> {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
+        amount: Balance,
     ) -> ExtResult<PromiseId> {
         let callback_id = self.create_nonce();
         let receipt_ids = match promise_id {
@@ -187,7 +186,7 @@ impl<'a> External for RuntimeExt<'a> {
             PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
         };
         let mut callback =
-            Callback::new(method_name, arguments, mana, self.refund_account_id.clone());
+            Callback::new(method_name, arguments, amount, self.refund_account_id.clone());
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {

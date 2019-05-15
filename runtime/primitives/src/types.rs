@@ -27,10 +27,6 @@ pub type AuthorityMask = Vec<bool>;
 pub type PartialSignature = BlsSignature;
 /// Monetary balance of an account or an amount for transfer.
 pub type Balance = u64;
-/// MANA points for async calls and callbacks.
-pub type Mana = u32;
-/// Gas type is used to count the compute and storage within smart contract execution.
-pub type Gas = u64;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.

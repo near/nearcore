@@ -7,14 +7,11 @@ use crate::cache;
 use crate::runtime::{self, Runtime};
 use crate::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
 use primitives::logging;
-use primitives::types::{Balance, Gas, Mana, StorageUsage, StorageUsageChange};
+use primitives::types::{Balance, StorageUsage, StorageUsageChange};
 
 use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
 
 pub struct ExecutionOutcome {
-    pub gas_used: Gas,
-    pub mana_used: Mana,
-    pub mana_left: Mana,
     pub frozen_balance: Balance,
     pub liquid_balance: Balance,
     pub storage_usage: StorageUsage,
@@ -26,9 +23,6 @@ pub struct ExecutionOutcome {
 impl fmt::Debug for ExecutionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ExecutionOutcome")
-            .field("gas_used", &format_args!("{}", &self.gas_used))
-            .field("mana_used", &format_args!("{}", &self.mana_used))
-            .field("mana_left", &format_args!("{}", &self.mana_left))
             .field("return_data", &self.return_data)
             .field("frozen_balance", &format_args!("{}", &self.frozen_balance))
             .field("liquid_balance", &format_args!("{}", &self.liquid_balance))
@@ -61,7 +55,7 @@ pub fn execute(
     .map_err(Into::<wasmer_runtime::error::Error>::into)?;
 
     let mut runtime =
-        Runtime::new(ext, input_data, result_data, context, config.gas_limit, memory.clone());
+        Runtime::new(ext, input_data, result_data, context, config.clone(), memory.clone());
 
     let import_object = runtime::imports::build(memory);
 
@@ -82,9 +76,6 @@ pub fn execute(
 
     match instance.call(&method_name, &[]) {
         Ok(_) => Ok(ExecutionOutcome {
-            gas_used: runtime.gas_counter,
-            mana_used: 0,
-            mana_left: 0,
             storage_usage: (context.storage_usage as StorageUsageChange + runtime.storage_counter)
                 as StorageUsage,
             return_data: Ok(runtime.return_data),
@@ -94,9 +85,6 @@ pub fn execute(
             logs: runtime.logs,
         }),
         Err(e) => Ok(ExecutionOutcome {
-            gas_used: runtime.gas_counter,
-            mana_used: 0,
-            mana_left: context.mana,
             storage_usage: context.storage_usage,
             return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
             frozen_balance: runtime.frozen_balance,
