@@ -266,7 +266,7 @@ impl Default for Config {
             max_stack_height: 64 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,
-            usage_limit: 10 * 1024 * 1024,
+            usage_limit: 1024 * 1024 * 1024,
         }
     }
 }

@@ -17,8 +17,11 @@ use primitives::transaction::{
 use primitives::utils::key_for_callback;
 use storage::set;
 
+/// The amount to send with function call.
+const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000_000;
+
 /// validate transaction result in the case that it is successfully and generate one receipt which
-/// itself generates another receipt. sfdsa
+/// itself generates another receipt.
 pub fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash) {
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
@@ -81,7 +84,7 @@ pub fn test_smart_contract_simple(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&*node.signer());
 
@@ -151,7 +154,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
         contract_id: bob_account(),
         method_name: vec![],
         args: vec![],
-        amount: 10,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&*node.signer());
 
@@ -171,7 +174,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"run_test".to_vec(),
         args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&*node.signer());
 
@@ -193,7 +196,7 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
         body: ReceiptBody::NewCall(AsyncCall::new(
             b"run_test".to_vec(),
             vec![],
-            0,
+            FUNCTION_CALL_AMOUNT,
             account_id.clone(),
         )),
     };
@@ -218,10 +221,16 @@ pub fn test_async_call_with_callback(node: impl Node) {
     let account_id = &node.signer().account_id;
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
     let refund_account = account_id;
-    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
+    let mut callback = Callback::new(
+        b"sum_with_input".to_vec(),
+        args,
+        FUNCTION_CALL_AMOUNT,
+        refund_account.clone(),
+    );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(b"run_test".to_vec(), vec![], 0, refund_account.clone());
+    let mut async_call =
+        AsyncCall::new(b"run_test".to_vec(), vec![], FUNCTION_CALL_AMOUNT, refund_account.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -266,7 +275,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
         body: ReceiptBody::NewCall(AsyncCall::new(
             b"log_something".to_vec(),
             vec![],
-            0,
+            FUNCTION_CALL_AMOUNT,
             account_id.clone(),
         )),
     };
@@ -324,8 +333,12 @@ pub fn test_deposit_with_callback(node: impl Node) {
 pub fn test_callback(node: RuntimeNode) {
     let account_id = &node.signer().account_id;
     let refund_account = account_id;
-    let mut callback =
-        Callback::new(b"run_test_with_storage_change".to_vec(), vec![], 0, refund_account.clone());
+    let mut callback = Callback::new(
+        b"run_test_with_storage_change".to_vec(),
+        vec![],
+        FUNCTION_CALL_AMOUNT,
+        refund_account.clone(),
+    );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
 
@@ -1245,7 +1258,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
 
 pub fn test_access_key_smart_contract(node: impl Node) {
     let access_key = AccessKey {
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
         balance_owner: None,
         contract_id: Some(bob_account()),
         method_name: None,
@@ -1261,7 +1274,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&signer2);
 
@@ -1270,39 +1283,6 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
     validate_tx_result(node_user, root, &hash);
-}
-
-pub fn test_access_key_smart_contract_reject_positive_amount(node: impl Node) {
-    let access_key = AccessKey {
-        amount: 0,
-        balance_owner: None,
-        contract_id: Some(bob_account()),
-        method_name: None,
-    };
-    let node_user = node.user();
-    let account_id = &node.signer().account_id;
-    let signer2 = InMemorySigner::from_random();
-    add_access_key(&node, &node_user, &access_key, &signer2);
-
-    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
-        method_name: b"run_test".to_vec(),
-        args: vec![],
-        amount: 10,
-    })
-    .sign(&signer2);
-
-    let hash = transaction.get_hash();
-    let root = node_user.get_state_root();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    let transaction_result = node_user.get_transaction_result(&hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Failed);
-    assert_eq!(transaction_result.receipts.len(), 0);
-    let new_root = node_user.get_state_root();
-    assert_eq!(root, new_root);
 }
 
 pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
@@ -1323,7 +1303,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&signer2);
 
@@ -1356,7 +1336,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         contract_id: eve_account(),
         method_name: b"run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&signer2);
 

@@ -169,10 +169,18 @@ mod tests {
         tmp
     }
 
+    fn decode_i32(val: &[u8]) -> i32 {
+        LittleEndian::read_i32(val)
+    }
+
     fn encode_u64(val: u64) -> [u8; 8] {
         let mut tmp = [0u8; 8];
         LittleEndian::write_u64(&mut tmp, val);
         tmp
+    }
+
+    fn decode_u64(val: &[u8]) -> u64 {
+        LittleEndian::read_u64(val)
     }
 
     fn runtime_context(
@@ -195,12 +203,12 @@ mod tests {
     fn test_storage() {
         let input_data = [0u8; 0];
 
-        let return_data = run(b"run_test", &input_data, &[], &runtime_context(0, 0, 0))
+        let return_data = run(b"run_test", &input_data, &[], &runtime_context(0, 1_000_000, 0))
             .map(|outcome| outcome.return_data)
             .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -209,12 +217,13 @@ mod tests {
     fn test_input() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0];
 
-        let return_data = run(b"sum_with_input", &input_data, &[], &runtime_context(0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"sum_with_input", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(40)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 40),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -228,13 +237,17 @@ mod tests {
             Some(encode_i32(6).to_vec()),
         ];
 
-        let return_data =
-            run(b"sum_with_multiple_results", &input_data, &result_data, &runtime_context(0, 0, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+        let return_data = run(
+            b"sum_with_multiple_results",
+            &input_data,
+            &result_data,
+            &runtime_context(0, 1_000_000_000, 0),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(12)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 12),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -243,27 +256,15 @@ mod tests {
     fn test_promises() {
         let input_data = [0u8; 0];
 
-        let outcome = run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 0, 0))
-            .expect("ok");
+        let outcome =
+            run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 1_000_000, 0))
+                .expect("ok");
 
         match outcome.return_data {
             Ok(ReturnData::Promise(promise_id)) => {
                 assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec()))
             }
             _ => assert!(false, "Expected returned promise"),
-        };
-    }
-
-    #[test]
-    fn test_promises_no_mana() {
-        let input_data = [0u8; 0];
-
-        let outcome = run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 0, 0))
-            .expect("outcome to be ok");
-
-        match outcome.return_data {
-            Err(_) => assert!(true, "That's legit"),
-            _ => assert!(false, "Expected to fail with mana limit"),
         };
     }
 
@@ -288,14 +289,31 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mana() {
+    fn test_frozen_balance() {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_mana_left", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"get_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
 
+        // The frozen balance is not used for the runtime deductions.
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_liquid_balance() {
+        let input_data = [0u8; 0];
+
+        let outcome =
+            run(b"get_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        // At the moment of measurement the liquid balance is at 97 which is the value returned.
+        // However returning the value itself costs additional balance which results in final
+        // liquid balance being 79.
+        assert_eq!(outcome.liquid_balance, 79);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -304,12 +322,13 @@ mod tests {
     fn test_get_storage_usage() {
         let input_data = [0u8; 0];
         let outcome =
-            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 100, 10)).expect("ok");
 
+        // The storage usage is not changed by this function call.
         assert_eq!(outcome.storage_usage, 10);
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -317,9 +336,13 @@ mod tests {
     #[test]
     fn test_storage_usage_changed() {
         let input_data = [0u8; 0];
-        let outcome =
-            run(b"run_test_with_storage_change", &input_data, &[], &runtime_context(0, 0, 0))
-                .expect("ok");
+        let outcome = run(
+            b"run_test_with_storage_change",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 10),
+        )
+        .expect("ok");
 
         // We inserted three entries 15 (as defined in the contract) + 4 (i32) bytes each.
         // Then we removed one entry, and replaced another with 15 + 8 (u64) bytes.
@@ -337,7 +360,7 @@ mod tests {
             b"hello",
             input_data,
             &[],
-            &runtime_context(0, 0, 0),
+            &runtime_context(0, 1_000_000_000, 0),
             path.to_str().unwrap(),
         )
         .expect("ok");
@@ -358,7 +381,7 @@ mod tests {
             b"limited_storage",
             input_data,
             &[],
-            &runtime_context(0, 0, 0),
+            &runtime_context(0, 1_000_000_000, 0),
             path.to_str().unwrap(),
         )
         .expect("ok");
@@ -376,27 +399,13 @@ mod tests {
     }
 
     #[test]
-    fn test_get_balance_and_amount() {
-        let input_data = [0u8; 0];
-
-        let outcome =
-            run(b"get_prev_balance", &input_data, &[], &runtime_context(90, 10, 0)).expect("ok");
-
-        assert_eq!(outcome.liquid_balance, 100);
-
-        match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(90)),
-            _ => assert!(false, "Expected returned value"),
-        };
-    }
-
-    #[test]
     fn test_originator() {
         let input_data = [0u8; 0];
 
-        let return_data = run(b"get_originator_id", &input_data, &[], &runtime_context(0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"get_originator_id", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         match return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice.near"),
@@ -411,7 +420,7 @@ mod tests {
         let mut output_data = Vec::new();
 
         for _ in 0..2 {
-            let return_data = run(b"get_random_32", &input_data, &[], &runtime_context(0, 0, 0))
+            let return_data = run(b"get_random_32", &input_data, &[], &runtime_context(0, 100, 0))
                 .map(|outcome| outcome.return_data)
                 .expect("ok");
 
@@ -432,9 +441,10 @@ mod tests {
         let mut output_data = Vec::new();
 
         for _ in 0..2 {
-            let return_data = run(b"get_random_buf", &input_data, &[], &runtime_context(0, 0, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+            let return_data =
+                run(b"get_random_buf", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                    .map(|outcome| outcome.return_data)
+                    .expect("ok");
 
             let data = match return_data {
                 Ok(ReturnData::Value(output_data)) => output_data,
@@ -453,9 +463,10 @@ mod tests {
     fn test_hash() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data = run(b"hash_given_input", input_data, &[], &runtime_context(0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"hash_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -471,9 +482,10 @@ mod tests {
     fn test_hash32() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data = run(b"hash32_given_input", input_data, &[], &runtime_context(0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"hash32_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -492,10 +504,10 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_block_index", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"get_block_index", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(123)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 123),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -505,7 +517,7 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"log_something", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"log_something", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
 
         assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
     }
@@ -514,7 +526,7 @@ mod tests {
     fn test_mock_check_ethash() {
         let input_data = [0u8; 0];
         let outcome =
-            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
         println!("{:?}", outcome);
 
         let output_data = match outcome.return_data {

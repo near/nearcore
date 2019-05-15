@@ -169,7 +169,8 @@ impl<'a> Runtime<'a> {
 
     /// Called by WASM.
     fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        self.charge_balance_with_limit(Balance::from(gas_amount))
+        let res = self.charge_balance_with_limit(Balance::from(gas_amount));
+        res
     }
 
     /// Writes to storage from wasm memory
