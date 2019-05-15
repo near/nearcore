@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
- clap = "2.32.0"
+clap = "2.32.0"
 hex = "0.3"
 
 primitives = { path = "../../runtime/primitives" }
