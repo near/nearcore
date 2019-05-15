@@ -46,9 +46,9 @@ pub mod chain_spec;
 mod system;
 
 pub mod ethereum;
-mod ext;
+pub mod ext;
 pub mod state_viewer;
-mod tx_stakes;
+pub mod tx_stakes;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";

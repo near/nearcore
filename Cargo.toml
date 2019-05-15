@@ -17,6 +17,7 @@ members = [
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/state-viewer",
     "nearmint/",
 ]
 exclude = [
@@ -37,6 +38,7 @@ testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
 near-protos = { path = "./runtime/protos" }
 nearmint = { path = "./nearmint" }
+wasm = { path = "./runtime/wasm" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
