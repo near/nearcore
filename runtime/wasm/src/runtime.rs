@@ -1,16 +1,17 @@
-use crate::ext::External;
-
-use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
+use std::collections::HashSet;
 
 use byteorder::{ByteOrder, LittleEndian};
-use primitives::hash::hash;
-use primitives::logging::pretty_utf8;
-use primitives::types::{
+use wasmer_runtime::{memory::Memory, units::Bytes};
+
+use near_primitives::hash::hash;
+use near_primitives::logging::pretty_utf8;
+use near_primitives::types::{
     AccountId, Balance, Gas, Mana, PromiseId, ReceiptId, StorageUsage, StorageUsageChange,
 };
-use primitives::utils::is_valid_account_id;
-use std::collections::HashSet;
-use wasmer_runtime::{memory::Memory, units::Bytes};
+use near_primitives::utils::is_valid_account_id;
+
+use crate::ext::External;
+use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
 
 type Result<T> = ::std::result::Result<T, Error>;
 
@@ -600,9 +601,9 @@ impl<'a> Runtime<'a> {
 }
 
 pub mod imports {
-    use super::{Memory, Result, Runtime};
-
     use wasmer_runtime::{func, imports, Ctx, ImportObject};
+
+    use super::{Memory, Result, Runtime};
 
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {

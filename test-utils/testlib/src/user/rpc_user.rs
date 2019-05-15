@@ -1,5 +1,9 @@
-use crate::user::{AsyncUser, User};
 use futures::Future;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
+    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+};
+use near_primitives::types::AccountId;
 use node_http::types::{
     GetBlocksByIndexRequest, GetTransactionRequest, ReceiptInfoResponse, SignedBeaconBlockResponse,
     SignedShardBlockResponse, SignedShardBlocksResponse, SubmitTransactionRequest,
@@ -7,16 +11,13 @@ use node_http::types::{
     ViewAccountRequest, ViewAccountResponse, ViewStateRequest, ViewStateResponse,
 };
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
-    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
-};
-use primitives::types::AccountId;
 use reqwest::r#async::Client;
 use shard::ReceiptInfo;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::time::Duration;
+
+use crate::user::{AsyncUser, User};
 
 pub struct RpcUser {
     url: String,
@@ -88,7 +89,7 @@ impl AsyncUser for RpcUser {
                 values: response
                     .values
                     .into_iter()
-                    .map(|(s, v)| (bs58::decode(s).into_vec().unwrap(), v))
+                    .map(|(s, v)| (base64::decode(s).unwrap(), v))
                     .collect(),
             })
             .map_err(|err| format!("{}", err));
@@ -276,7 +277,7 @@ impl User for RpcUser {
             values: response
                 .values
                 .into_iter()
-                .map(|(s, v)| (bs58::decode(s).into_vec().unwrap(), v))
+                .map(|(s, v)| (base64::decode(s).unwrap(), v))
                 .collect(),
         };
         Ok(result)

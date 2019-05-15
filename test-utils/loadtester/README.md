@@ -37,3 +37,27 @@ cargo run --package loadtester --bin loadtester -- --key-files-path /tmp/keys \
 
 Observe that the TestNet produces up to 700 TPS and then after a random amount of time it stops creating new blocks.
 
+## Benchmark NEAR (1 node)
+
+Here how you can run benchmarking for one local node:
+
+```
+cargo build --release -p near
+cargo build --release -p loadtester
+
+# Start NEAR node
+./target/release/near init
+./target/release/near run
+
+# Run load tester
+mkdir /tmp/keys
+cp ~/.near/validator_key.json /tmp/keys/
+# Get public key to use for next command.
+cat ~/.near/validator_key.json
+
+./target/release/loadtester --key-files-path /tmp/keys \
+ --address 127.0.0.1:3030 \
+ --public-keys <PUBLIC KEY> \
+ --account-ids test.near 2>&1 | tee /tmp/out.txt
+```
+

@@ -2,12 +2,12 @@ use crate::runtime_utils::to_receipt_block;
 use crate::user::{User, POISONED_LOCK_ERR};
 use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use primitives::block_traits::SignedBlock;
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::block_traits::SignedBlock;
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::{AccountId, MerkleHash};
+use near_primitives::types::{AccountId, MerkleHash};
 use shard::{ReceiptInfo, ShardClient};
 use std::sync::Arc;
 use storage::storages::GenericStorage;

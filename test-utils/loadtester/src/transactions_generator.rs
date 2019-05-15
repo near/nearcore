@@ -1,7 +1,7 @@
 //! Set of methods that construct transactions of various kind.
 
 use crate::remote_node::RemoteNode;
-use primitives::transaction::{
+use near_primitives::transaction::{
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction, TransactionBody,
 };
 use std::sync::{Arc, RwLock};

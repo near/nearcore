@@ -1,8 +1,8 @@
 use crate::node::{Node, ProcessNode, ThreadNode, TEST_BLOCK_MAX_SIZE};
 use crate::user::{ShardClientUser, User};
 use configs::ClientConfig;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::types::AccountId;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::types::AccountId;
 use shard::ShardClient;
 use std::sync::Arc;
 use storage::test_utils::create_beacon_shard_storages;

@@ -1,8 +1,8 @@
 use futures::Future;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::{AccountId, Nonce};
 use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::transaction::SignedTransaction;
-use primitives::types::{AccountId, Nonce};
 use protobuf::Message;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;

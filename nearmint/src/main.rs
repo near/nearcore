@@ -1,9 +1,10 @@
-use clap::{App, Arg};
-use env_logger::Builder;
 use std::path::PathBuf;
 
+use clap::{App, Arg};
+use env_logger::Builder;
+
+use near::config::GenesisConfig;
 use nearmint::NearMint;
-use node_runtime::chain_spec::ChainSpec;
 
 const DEFAULT_BASE_PATH: &str = "";
 
@@ -39,10 +40,14 @@ fn main() {
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
     let chain_spec = if matches.is_present("devnet") {
-        ChainSpec::default_devnet()
+        GenesisConfig::legacy_test(vec!["alice.near", "bob.near", "carol.near"], 1)
     } else {
         let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
-        ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
+        if let Some(path) = chain_spec_path {
+            GenesisConfig::from_file(&path)
+        } else {
+            GenesisConfig::testing_spec(3, 2)
+        }
     };
     let addr = matches.value_of("abci_address").map(|address| address.parse().unwrap()).unwrap();
 

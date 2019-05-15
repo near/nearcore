@@ -1,8 +1,8 @@
 use crate::node::Node;
 use crate::user::{RpcUser, User};
 use log::error;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::types::AccountId;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::types::AccountId;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::{Child, Command};
 use std::sync::Arc;

@@ -3,7 +3,7 @@ extern crate bencher;
 
 use bencher::Bencher;
 
-use primitives::transaction::{
+use near_primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, TransactionBody,
 };
 use testlib::node::{Node, RuntimeNode};

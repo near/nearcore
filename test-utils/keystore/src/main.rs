@@ -7,10 +7,12 @@ use std::process;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 
-use primitives::crypto::signature::{sign, PublicKey, SecretKey};
-use primitives::crypto::signer::{get_key_file, write_block_producer_key_file, InMemorySigner};
-use primitives::hash::hash;
-use primitives::traits::ToBytes;
+use near_primitives::crypto::signature::{sign, PublicKey, SecretKey};
+use near_primitives::crypto::signer::{
+    get_key_file, write_block_producer_key_file, InMemorySigner,
+};
+use near_primitives::hash::hash;
+use near_primitives::traits::{Base64Encoded, ToBytes};
 
 #[derive(Serialize)]
 struct TypeValue {
@@ -73,8 +75,8 @@ fn generate_key(matches: &ArgMatches) {
         &key_store_path.as_path(),
         signer.public_key,
         signer.secret_key,
-        signer.bls_public_key,
-        signer.bls_secret_key,
+        //        signer.bls_public_key,
+        //        signer.bls_secret_key,
     );
 }
 

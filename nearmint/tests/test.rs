@@ -1,11 +1,30 @@
-use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::crypto::signature::PublicKey;
-use primitives::rpc::JsonRpcResponse;
-use protobuf::Message;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
+
+use protobuf::Message;
+use serde_derive::{Deserialize, Serialize};
+
+use near_primitives::crypto::signature::PublicKey;
+use node_runtime::state_viewer::AccountViewCallResult;
 use testlib::test_helpers::wait;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcResponseError>,
+    pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct JsonRpcResponseError {
+    code: i64,
+    message: String,
+    data: serde_json::Value,
+}
 
 /// Test node that contains the subprocesses of tendermint and nearmint.
 /// Used for shutting down the processes gracefully.
@@ -116,15 +135,16 @@ fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcR
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use node_runtime::chain_spec::TESTING_INIT_BALANCE;
-    use primitives::account::AccessKey;
-    use primitives::crypto::signer::InMemorySigner;
-    use primitives::hash::hash;
-    use primitives::transaction::{
+    use near::config::TESTING_INIT_BALANCE;
+    use near_primitives::account::AccessKey;
+    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::hash::hash;
+    use near_primitives::transaction::{
         AddKeyTransaction, CreateAccountTransaction, DeployContractTransaction, TransactionBody,
     };
     use testlib::test_helpers::heavy_test;
+
+    use super::*;
 
     #[test]
     fn test_send_tx() {
@@ -175,7 +195,7 @@ mod test {
     #[test]
     fn test_deploy_contract() {
         heavy_test(|| {
-            let storage_path = "tmp/test_create_account";
+            let storage_path = "tmp/test_deploy_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
             let money_to_send = 1_000_000;

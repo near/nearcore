@@ -1,25 +1,25 @@
-use crate::runtime_utils::to_receipt_block;
-use crate::user::{User, POISONED_LOCK_ERR};
-use lazy_static::lazy_static;
-use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
-use node_runtime::{ApplyState, Runtime};
-use primitives::chain::ReceiptBlock;
-use primitives::hash::CryptoHash;
-use primitives::receipt::ReceiptInfo;
-use primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus,
-};
-use primitives::types::{AccountId, MerkleHash};
-use storage::{Trie, TrieUpdate};
-
-use node_runtime::ethereum::EthashProvider;
-use primitives::account::AccessKey;
-use primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
+
+use lazy_static::lazy_static;
 use tempdir::TempDir;
+
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptInfo;
+use near_primitives::transaction::{
+    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
+    TransactionLogs, TransactionResult, TransactionStatus,
+};
+use near_primitives::types::{AccountId, MerkleHash};
+use near_store::{Trie, TrieUpdate};
+use node_runtime::ethereum::EthashProvider;
+use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
+use node_runtime::{ApplyState, Runtime};
+
+use crate::user::{User, POISONED_LOCK_ERR};
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -67,7 +67,7 @@ impl RuntimeUser {
     pub fn apply_all(
         &self,
         apply_state: ApplyState,
-        prev_receipts: Vec<ReceiptBlock>,
+        prev_receipts: Vec<Vec<ReceiptTransaction>>,
         transactions: Vec<SignedTransaction>,
     ) {
         let mut cur_apply_state = apply_state;
@@ -79,7 +79,7 @@ impl RuntimeUser {
             let mut apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs);
             let mut counter = 0;
-            for (i, receipt) in receipts.iter().flat_map(|b| b.receipts.iter()).enumerate() {
+            for (i, receipt) in receipts.iter().flatten().enumerate() {
                 counter += 1;
                 let transaction_result = apply_result.tx_result[i].clone();
                 self.transaction_results.borrow_mut().insert(receipt.nonce, transaction_result);
@@ -88,7 +88,7 @@ impl RuntimeUser {
                 let transaction_result = apply_result.tx_result[i + counter].clone();
                 self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
             }
-            client.trie.apply_changes(apply_result.db_changes).unwrap();
+            apply_result.state_update.commit().unwrap();
             if apply_result.new_receipts.is_empty() {
                 client.state_root = apply_result.root;
                 return;
@@ -104,7 +104,7 @@ impl RuntimeUser {
             for receipt in new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.nonce, receipt.clone());
             }
-            receipts = vec![to_receipt_block(new_receipts)];
+            receipts = vec![new_receipts];
             txs = vec![];
         }
     }
@@ -167,7 +167,7 @@ impl User for RuntimeUser {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        self.apply_all(apply_state, vec![to_receipt_block(vec![receipt])], vec![]);
+        self.apply_all(apply_state, vec![vec![receipt]], vec![]);
         Ok(())
     }
 

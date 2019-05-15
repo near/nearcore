@@ -1,22 +1,23 @@
-use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
-use crate::test_helpers::wait;
-use crate::user::User;
-use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::account::AccessKey;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::{hash, CryptoHash};
-use primitives::serialize::Decode;
-use primitives::transaction::{
+use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::serialize::Decode;
+use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
     TransactionStatus,
 };
-use primitives::types::AccountingInfo;
-use primitives::utils::key_for_callback;
-use storage::set;
+use near_primitives::types::AccountingInfo;
+use near_primitives::utils::key_for_callback;
+use near_store::set;
+use node_runtime::state_viewer::AccountViewCallResult;
+
+use crate::node::{Node, RuntimeNode};
+use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use crate::test_helpers::wait;
+use crate::user::User;
 
 /// validate transaction result in the case that it is successfully and generate one receipt which
 /// itself generates another receipt. sfdsa
@@ -341,11 +342,11 @@ pub fn test_callback(node: RuntimeNode) {
 
     let mut state_update = node.client.read().unwrap().get_state_update();
     set(&mut state_update, key_for_callback(&callback_id), &callback);
-    let (root, transaction) = state_update.finalize();
+    let (transaction, root) = state_update.finalize();
     {
         let mut client = node.client.write().unwrap();
         client.state_root = root;
-        client.trie.apply_changes(transaction).unwrap();
+        transaction.commit().unwrap();
     }
 
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
@@ -387,11 +388,11 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let callback_id = [0; 32].to_vec();
     let mut state_update = node.client.read().unwrap().get_state_update();
     set(&mut state_update, key_for_callback(&callback_id.clone()), &callback);
-    let (root, transaction) = state_update.finalize();
+    let (transaction, root) = state_update.finalize();
     {
         let mut client = node.client.write().unwrap();
         client.state_root = root;
-        client.trie.apply_changes(transaction).unwrap();
+        transaction.commit().unwrap();
     }
 
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());

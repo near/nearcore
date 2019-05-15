@@ -1,10 +1,10 @@
 [package]
-name = "verifier"
+name = "near-verifier"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
 
-primitives = { path = "../primitives" }
-storage = { path = "../storage"}
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store"}
