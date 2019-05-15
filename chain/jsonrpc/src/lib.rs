@@ -72,13 +72,12 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (bs64,) = parse_params::<(String,)>(params)?;
     let bytes = base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string()))?;
-    let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes)
-            .map_err(|e| {
-                RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
-            })?;
+    let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
+        RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
+    })?;
     Ok(tx.try_into().map_err(|e| {
-            RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
-        })?)
+        RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
+    })?)
 }
 
 struct JsonRpcHandler {
@@ -125,12 +124,25 @@ impl JsonRpcHandler {
     fn send_tx_commit(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
         let tx = ok_or_rpc_error!(parse_tx(params));
         let hash = tx.get_hash();
-        Box::new(self.client_addr.send(NetworkClientMessages::Transaction(tx))
-            .map(|result| {
-                // TODO: run check on tx status or until timeout
-                Value::Null
-            })
-            .map_err(|err| RpcError::server_error(Some(err.to_string()))))
+        Box::new(
+            self.client_addr
+                .send(NetworkClientMessages::Transaction(tx))
+                .and_then(|_result| {
+                    // TODO: implement waiting for transaction hash to appear in client or some timeout without blocking.
+                    unimplemented!();
+                    Ok(Value::Null)
+                    //                let check_result = Interval::new(Instant::now(), Duration::from_secs(1)).take(5).for_each(|()| {
+                    //                    self.client_addr.send()
+                    //                }).wait();
+                    //                match check_result {
+                    //                    Ok(result) => {
+                    //                        Ok(Value::Null)
+                    //                    },
+                    //                    Err(result) => Err(RpcError::server_error(Some(format!("Waiting for {} timed out.", hash))))
+                    //                }
+                })
+                .map_err(|err| RpcError::server_error(Some(err.to_string()))),
+        )
     }
 
     fn health(&self) -> Box<Future<Item = Value, Error = RpcError>> {

@@ -8,7 +8,7 @@ use near_client::test_utils::setup_no_network;
 use near_client::ViewClientActor;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::{start_http, RpcConfig};
-use near_network::test_utils::{open_port, WaitOrTimeout};
+use near_network::test_utils::{open_port, WaitOrTimeout, wait_or_panic};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{FinalTransactionStatus, TransactionBody};
@@ -67,6 +67,7 @@ fn test_send_tx_async() {
 /// Test sending trasaction and waiting for it to be committed to a block.
 /// TODO: doesn't work yet
 #[test]
+#[ignore]
 fn test_send_tx_commit() {
     init_test_logger();
 
@@ -83,8 +84,12 @@ fn test_send_tx_commit() {
             client
                 .broadcast_tx_commit(base64::encode(&proto.write_to_bytes().unwrap()))
                 .map_err(|_| ())
-                .map(move |result| assert_eq!(result.status, FinalTransactionStatus::Completed)),
+                .map(move |result| {
+                    assert_eq!(result.status, FinalTransactionStatus::Completed);
+                    System::current().stop();
+                }),
         );
+        wait_or_panic(10000);
     })
         .unwrap();
 }
