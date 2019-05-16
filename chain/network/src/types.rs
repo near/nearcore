@@ -31,7 +31,7 @@ use crate::peer::Peer;
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Peer id is the public key.
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
 
 impl From<PeerId> for Vec<u8> {
@@ -68,6 +68,12 @@ impl Hash for PeerId {
 
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Debug for PeerId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", pretty_str(&self.0.to_base64(), 4))
     }
 }
@@ -99,6 +105,22 @@ impl fmt::Display for PeerInfo {
         } else {
             write!(f, "({}, {:?})", self.id, self.addr)
         }
+    }
+}
+
+impl TryFrom<&str> for PeerInfo {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let chunks: Vec<_> = s.split("@").collect();
+        if chunks.len() != 2 {
+            return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s));
+        }
+        Ok(PeerInfo {
+            id: PublicKey::try_from(chunks[0])?.into(),
+            addr: Some(chunks[1].parse().map_err(|err| format!("Invalid ip address format for {}: {}", chunks[1], err))?),
+            account_id: None,
+        })
     }
 }
 

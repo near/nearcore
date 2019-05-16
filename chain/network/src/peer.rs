@@ -199,7 +199,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
     fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
         match (self.peer_type, self.peer_status, msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
-                debug!(target: "network", "{} received handshake {:?}", self.node_info.id, handshake);
+                debug!(target: "network", "{:?} received handshake {:?}", self.node_info.id, handshake);
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();

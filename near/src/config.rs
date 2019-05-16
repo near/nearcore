@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -173,7 +174,16 @@ impl NearConfig {
                 } else {
                     Some(config.network.addr.parse().unwrap())
                 },
-                boot_nodes: vec![], // TODO
+                boot_nodes: if config.network.boot_nodes.is_empty() {
+                    vec![]
+                } else {
+                    config
+                        .network
+                        .boot_nodes
+                        .split(",")
+                        .map(|chunk| chunk.try_into().unwrap())
+                        .collect()
+                },
                 handshake_timeout: config.network.handshake_timeout,
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),

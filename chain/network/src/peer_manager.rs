@@ -145,7 +145,7 @@ impl PeerManagerActor {
             );
             unwrap_or_error!(store_update.commit(), "Failed to store peer data");
         } else {
-            error!(target: "network", "Unregistering unknown peer: {}", peer_id);
+            error!(target: "network", "Unregistering unknown peer: {:?}", peer_id);
         }
     }
 
@@ -156,7 +156,7 @@ impl PeerManagerActor {
             peer_state.last_seen = Utc::now();
             peer_state.status = KnownPeerStatus::Banned(ban_reason);
         } else {
-            error!(target: "network", "Trying to ban unknown peer: {}", peer_id);
+            error!(target: "network", "Trying to ban unknown peer: {:?}", peer_id);
         }
     }
 
@@ -279,7 +279,7 @@ impl PeerManagerActor {
                     .and_then(|_, _, _| actix::fut::ok(()))
                     .spawn(ctx);
             } else {
-                error!(target: "network", "Missing peer {} that is related to account {}", peer_id, account_id);
+                error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
             }
         } else {
             warn!(target: "network", "Unknown account {} in peers, not supported indirect routing", account_id);
@@ -295,7 +295,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
             let listener = TcpListener::bind(&server_addr).unwrap();
-            info!(target: "network", "Server listening at {}", server_addr);
+            info!(target: "network", "Server listening at {}@{}", self.peer_id, server_addr);
             ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(InboundTcpConnect::new));
         }
 
