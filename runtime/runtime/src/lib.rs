@@ -815,6 +815,12 @@ impl Runtime {
                     storage_paid_at: 0,
                 },
             );
+            // Default transaction stake
+            let key = key_for_tx_stake(&account_id, &None);
+            let mut tx_total_stake = TxTotalStake::new(0);
+            tx_total_stake.add_active_stake(1_000_000);
+            set(&mut state_update, key, &tx_total_stake);
+            // TODO(#345): Add system TX stake
         }
         for (account_id, _, amount) in authorities {
             let account_id_bytes = key_for_account(account_id);
