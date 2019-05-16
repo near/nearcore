@@ -384,8 +384,7 @@ mod tests {
         nearmint.commit(&req_commit);
 
         let alice_info = nearmint.view_account(&"alice.near".to_string()).unwrap();
-        // Should be strictly less, because the rent was applied too.
-        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        assert_eq!(alice_info.amount, TESTING_INIT_BALANCE - money_to_send);
         let bob_info = nearmint.view_account(&"bob.near".to_string()).unwrap();
         // The balance was applied but the rent was not subtracted because we have not performed
         // interactions from that account.

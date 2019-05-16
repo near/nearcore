@@ -20,17 +20,21 @@ use storage::set;
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000_000;
 
-/// validate transaction result in the case that it is successfully and generate one receipt which
-/// itself generates another receipt.
-pub fn validate_tx_result(node_user: Box<User>, root: CryptoHash, hash: &CryptoHash) {
-    let transaction_result = node_user.get_transaction_result(&hash);
+/// validate transaction result in the case that it is successful and generates given number of receipts
+/// recursively.
+pub fn validate_tx_result(
+    node_user: Box<User>,
+    root: CryptoHash,
+    hash: &CryptoHash,
+    receipt_depth: usize,
+) {
+    let mut transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
-    assert_eq!(transaction_result.receipts.len(), 1);
-    let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
-    assert_eq!(transaction_result.status, TransactionStatus::Completed);
-    assert_eq!(transaction_result.receipts.len(), 1);
-    let transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
-    assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    for _ in 0..receipt_depth {
+        assert_eq!(transaction_result.receipts.len(), 1);
+        transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
+        assert_eq!(transaction_result.status, TransactionStatus::Completed);
+    }
     assert_eq!(transaction_result.receipts.len(), 0);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
@@ -93,7 +97,7 @@ pub fn test_smart_contract_simple(node: impl Node) {
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
-    validate_tx_result(node_user, root, &hash);
+    validate_tx_result(node_user, root, &hash, 2);
 }
 
 pub fn test_smart_contract_bad_method_name(node: impl Node) {
@@ -163,7 +167,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
-    validate_tx_result(node_user, root, &hash);
+    validate_tx_result(node_user, root, &hash, 1);
 }
 
 pub fn test_smart_contract_with_args(node: impl Node) {
@@ -183,7 +187,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
-    validate_tx_result(node_user, root, &hash);
+    validate_tx_result(node_user, root, &hash, 2);
 }
 
 pub fn test_async_call_with_no_callback(node: impl Node) {
@@ -1282,7 +1286,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
-    validate_tx_result(node_user, root, &hash);
+    validate_tx_result(node_user, root, &hash, 2);
 }
 
 pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
