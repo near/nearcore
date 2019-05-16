@@ -328,6 +328,7 @@ impl Runtime {
                     receiver.storage_usage,
                     block_index,
                     nonce.as_ref().to_vec(),
+                    false,
                 ),
             )
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
@@ -403,6 +404,7 @@ impl Runtime {
                             receiver.storage_usage,
                             block_index,
                             nonce.as_ref().to_vec(),
+                            false,
                         ),
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))

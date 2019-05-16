@@ -147,7 +147,11 @@ impl<'a> Runtime<'a> {
     /// Attempt to charge liquid balance.
     fn charge_balance(&mut self, amount: Balance) -> Result<()> {
         if self.liquid_balance < amount {
-            Err(Error::BalanceExceeded)
+            if self.context.free_of_charge {
+                Ok(())
+            } else {
+                Err(Error::BalanceExceeded)
+            }
         } else {
             self.liquid_balance -= amount;
             Ok(())
@@ -158,7 +162,11 @@ impl<'a> Runtime<'a> {
     fn charge_balance_with_limit(&mut self, amount: Balance) -> Result<()> {
         let new_usage = self.usage_counter + amount;
         if new_usage > self.config.usage_limit {
-            Err(Error::UsageLimit)
+            if self.context.free_of_charge {
+                Ok(())
+            } else {
+                Err(Error::UsageLimit)
+            }
         } else {
             self.charge_balance(amount).map(|res| {
                 self.usage_counter = new_usage;

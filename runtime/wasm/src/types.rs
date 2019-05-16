@@ -289,6 +289,8 @@ pub struct RuntimeContext {
     pub block_index: BlockIndex,
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
+    /// Whether the execution should not charge any costs.
+    pub free_of_charge: bool,
 }
 
 impl RuntimeContext {
@@ -300,6 +302,7 @@ impl RuntimeContext {
         storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
+        free_of_charge: bool,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
@@ -309,6 +312,7 @@ impl RuntimeContext {
             storage_usage,
             block_index,
             random_seed,
+            free_of_charge,
         }
     }
 }
