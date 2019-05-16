@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -11,8 +12,6 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signature::SecretKey;
 use near_primitives::crypto::signer::{InMemorySigner, EDSigner};
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
 

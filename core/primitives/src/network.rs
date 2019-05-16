@@ -1,9 +1,3 @@
-use crate::hash::CryptoHash;
-use crate::types::{AccountId, PeerId};
-use crate::utils::to_string_value;
-use near_protos::network as network_proto;
-use protobuf::well_known_types::UInt32Value;
-use protobuf::{RepeatedField, SingularPtrField};
 use std::borrow::Borrow;
 use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
@@ -11,6 +5,15 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::net::SocketAddr;
+
+use protobuf::well_known_types::UInt32Value;
+use protobuf::{RepeatedField, SingularPtrField};
+
+use near_protos::network as network_proto;
+
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, PeerId};
+use crate::utils::to_string_value;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
@@ -115,12 +118,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo {
-            id: id.into(),
-            addr,
-            account_id,
-            ..Default::default()
-        }
+        network_proto::PeerInfo { id: id.into(), addr, account_id, ..Default::default() }
     }
 }
 
@@ -212,9 +210,6 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(PeerMessage::InfoGossip(peer_info))
             }
-//            Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
-//                Ok(PeerMessage::Message(message))
-//            }
             None => unreachable!(),
             _ => unreachable!(),
         }
@@ -236,14 +231,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
-//            PeerMessage::Message(message) => {
-//                Some(network_proto::PeerMessage_oneof_message_type::message(message))
-//            }
             _ => unreachable!(),
         };
-        network_proto::PeerMessage {
-            message_type,
-            ..Default::default()
-        }
+        network_proto::PeerMessage { message_type, ..Default::default() }
     }
 }

@@ -8,7 +8,7 @@ use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
 
-use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::crypto::aggregate_signature::{BlsPublicKey};
 use crate::crypto::signature::{
     bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey,
     SecretKey, Signature,
@@ -90,18 +90,12 @@ pub struct BlockProducerKeyFile {
     pub public_key: PublicKey,
     #[serde(with = "bs64_serializer")]
     pub secret_key: SecretKey,
-    //    #[serde(with = "bs64_serializer")]
-    //    pub bls_public_key: BlsPublicKey,
-    //    #[serde(with = "bs64_serializer")]
-    //    pub bls_secret_key: BlsSecretKey,
 }
 
 pub fn write_block_producer_key_file(
     key_store_path: &Path,
     public_key: PublicKey,
     secret_key: SecretKey,
-    //    bls_public_key: BlsPublicKey,
-    //    bls_secret_key: BlsSecretKey,
 ) -> String {
     if !key_store_path.exists() {
         fs::create_dir_all(key_store_path).unwrap();
@@ -110,7 +104,6 @@ pub fn write_block_producer_key_file(
     let key_file = BlockProducerKeyFile {
         public_key,
         secret_key,
-        // bls_public_key, bls_secret_key
     };
     let key_file_path = key_store_path.join(Path::new(&key_file.public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
@@ -168,14 +161,10 @@ pub fn get_or_create_key_file(
 ) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
         let (public_key, secret_key) = get_key_pair();
-        //        let bls_secret_key = BlsSecretKey::generate();
-        //        let bls_public_key = bls_secret_key.get_public_key();
         let new_public_key = write_block_producer_key_file(
             key_store_path,
             public_key,
             secret_key,
-            //            bls_public_key,
-            //            bls_secret_key,
         );
         get_block_producer_key_file(key_store_path, Some(new_public_key))
     } else {
@@ -249,14 +238,3 @@ impl EDSigner for InMemorySigner {
         sign(data, &self.secret_key)
     }
 }
-
-//impl BLSSigner for InMemorySigner {
-//    #[inline]
-//    fn bls_public_key(&self) -> BlsPublicKey {
-//        self.bls_public_key.clone()
-//    }
-//
-//    fn bls_sign(&self, data: &[u8]) -> PartialSignature {
-//        self.bls_secret_key.sign(data)
-//    }
-//}

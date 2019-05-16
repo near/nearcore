@@ -55,13 +55,10 @@ pub fn get_bls_key_pair_from_seed(seed_string: &str) -> (BlsPublicKey, BlsSecret
 impl InMemorySigner {
     pub fn from_seed(account_id: &str, seed_string: &str) -> Self {
         let (public_key, secret_key) = get_key_pair_from_seed(seed_string);
-//        let (bls_public_key, bls_secret_key) = get_bls_key_pair_from_seed(seed_string);
         InMemorySigner {
             account_id: account_id.to_string(),
             public_key,
             secret_key,
-//            bls_public_key,
-//            bls_secret_key,
         }
     }
 }
