@@ -67,6 +67,10 @@ impl Store {
     pub fn store_update(&self) -> StoreUpdate {
         StoreUpdate::new(self.storage.clone())
     }
+
+    pub fn iter<'a>(&'a self, column: Option<u32>) -> Box<Iterator<Item=(Box<[u8]>, Box<[u8]>)> + 'a> {
+        self.storage.iter(column)
+    }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.

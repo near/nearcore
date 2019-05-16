@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use actix::actors::resolver::{ConnectAddr, Resolver};
@@ -16,16 +17,41 @@ use tokio::codec::FramedRead;
 use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, TcpStream};
 
-use near_store::Store;
 use near_primitives::types::AccountId;
+use near_store::{Store, COL_PEERS};
 
 use crate::codec::Codec;
 use crate::peer::Peer;
-use crate::types::{Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus, OutboundTcpConnect, PeerId, PeerMessage, PeerType, SendMessage, Unregister, ReasonForBan};
+use crate::types::{
+    Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerState, KnownPeerStatus,
+    OutboundTcpConnect, PeerId, PeerMessage, PeerType, ReasonForBan, SendMessage, Unregister,
+};
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
+macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
+    Ok(()) => (),
+    Err(err) => {
+        error!(target: "network", "{}: {}", $error, err);
+    }
+}));
+
+/// Load peers from the storage.
+fn load_peer_states(store: &Store) -> Result<HashMap<PeerId, KnownPeerState>, String> {
+    let mut peer_states = HashMap::default();
+    for (key, value) in store.iter(COL_PEERS) {
+        let key: Vec<u8> = key.into();
+        let value: Vec<u8> = value.into();
+        let peer_id: PeerId = key.try_into()?;
+        let mut peer_state: KnownPeerState = value.try_into()?;
+        peer_state.status = KnownPeerStatus::NotConnected;
+        peer_states.insert(peer_id, peer_state);
+    }
+    Ok(peer_states)
+}
+
+/// Actor that manages peers connections.
 pub struct PeerManagerActor {
     /// Networking configuration.
     config: NetworkConfig,
@@ -51,14 +77,15 @@ impl PeerManagerActor {
         store: Arc<Store>,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
-    ) -> Self {
-        let mut peer_states = HashMap::default();
+    ) -> Result<Self, String> {
+        let mut peer_states = load_peer_states(&*store)?;
         for peer_info in config.boot_nodes.iter() {
-            peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
+            if !peer_states.contains_key(&peer_info.id) {
+                peer_states.insert(peer_info.id, KnownPeerState::new(peer_info.clone()));
+            }
         }
-        // TODO: load from store.
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_states.len(), config.boot_nodes.len());
-        PeerManagerActor {
+        Ok(PeerManagerActor {
             peer_id: config.public_key.into(),
             config,
             client_addr,
@@ -67,7 +94,7 @@ impl PeerManagerActor {
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
             account_peers: HashMap::default(),
-        }
+        })
     }
 
     fn num_active_peers(&self) -> usize {
@@ -84,6 +111,12 @@ impl PeerManagerActor {
             .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
         entry.last_seen = Utc::now();
         entry.status = KnownPeerStatus::Connected;
+        let mut store_update = self.store.store_update();
+        unwrap_or_error!(
+            store_update.set_ser(COL_PEERS, peer_info.peer_info.id.as_ref(), entry),
+            "Failed to store peer data"
+        );
+        unwrap_or_error!(store_update.commit(), "Failed to store peer data");
         if let Some(account_id) = &peer_info.peer_info.account_id {
             self.account_peers.insert(account_id.clone(), peer_info.peer_info.id);
         }
@@ -105,6 +138,12 @@ impl PeerManagerActor {
             }
             peer_state.last_seen = Utc::now();
             peer_state.status = KnownPeerStatus::NotConnected;
+            let mut store_update = self.store.store_update();
+            unwrap_or_error!(
+                store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state),
+                "Failed to store peer data"
+            );
+            unwrap_or_error!(store_update.commit(), "Failed to store peer data");
         } else {
             error!(target: "network", "Unregistering unknown peer: {}", peer_id);
         }
@@ -164,12 +203,15 @@ impl PeerManagerActor {
                 Some(w) => w,
                 None => return vec![],
             };
-        self
-            .active_peers
+        self.active_peers
             .values()
-            .filter_map(
-                |(_, x)| if x.chain_info.total_weight == max_weight { Some(x.clone()) } else { None },
-            )
+            .filter_map(|(_, x)| {
+                if x.chain_info.total_weight == max_weight {
+                    Some(x.clone())
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>()
     }
 
@@ -273,10 +315,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 most_weight_peers: self.most_weight_peers(),
             },
             NetworkRequests::Block { block } => {
-                self.broadcast_message(
-                    ctx,
-                    SendMessage { message: PeerMessage::Block(block) },
-                );
+                self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockHeaderAnnounce { header, approval } => {
@@ -306,17 +345,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     addr.do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
                 }
                 NetworkResponses::NoResponse
-            },
+            }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                 if let Some((addr, _)) = self.active_peers.get(&peer_id) {
                     addr.do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
                 }
                 NetworkResponses::NoResponse
-            },
+            }
             NetworkRequests::StateRequest { shard_id: _, state_root: _ } => {
                 // TODO: implement state sync.
                 NetworkResponses::NoResponse
-            },
+            }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 if let Some((_addr, _full_info)) = self.active_peers.get(&peer_id) {
                     // TODO: send stop signal to the addr.

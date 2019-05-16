@@ -35,7 +35,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         }
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient())
+    PeerManagerActor::new(store, config, client_addr.recipient()).unwrap()
 }
 
 #[test]

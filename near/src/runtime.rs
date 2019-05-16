@@ -189,7 +189,11 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
     }
 
-    fn view_access_key(&self, state_root: MerkleHash, account_id: &String) -> Result<Vec<PublicKey>, String> {
+    fn view_access_key(
+        &self,
+        state_root: MerkleHash,
+        account_id: &String,
+    ) -> Result<Vec<PublicKey>, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {

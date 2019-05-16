@@ -1,3 +1,4 @@
+use std::convert::From;
 use std::convert::{Into, TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -17,6 +18,7 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
+use near_primitives::serialize::Decode;
 use near_primitives::traits::Base64Encoded;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
@@ -41,6 +43,20 @@ impl From<PeerId> for Vec<u8> {
 impl From<PublicKey> for PeerId {
     fn from(public_key: PublicKey) -> PeerId {
         PeerId(public_key)
+    }
+}
+
+impl TryFrom<Vec<u8>> for PeerId {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<PeerId, String> {
+        Ok(PeerId(bytes.try_into()?))
+    }
+}
+
+impl std::convert::AsRef<[u8]> for PeerId {
+    fn as_ref(&self) -> &[u8] {
+        &(self.0).0[..]
     }
 }
 
@@ -420,6 +436,14 @@ impl KnownPeerState {
             first_seen: Utc::now(),
             last_seen: Utc::now(),
         }
+    }
+}
+
+impl TryFrom<Vec<u8>> for KnownPeerState {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, String> {
+        Decode::decode(&bytes).map_err(|err| err.to_string())
     }
 }
 
