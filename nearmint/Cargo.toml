@@ -18,7 +18,7 @@ near-protos = { path = "../core/protos" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime" }
 near-verifier = { path = "../runtime/verifier" }
-near = { path = "../chain/near" }
+near = { path = "../near" }
 
 [dev-dependencies]
 tempdir = "0.3"

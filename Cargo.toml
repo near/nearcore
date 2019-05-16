@@ -19,7 +19,7 @@ members = [
     "chain/client",
     "chain/network",
     "chain/jsonrpc",
-    "chain/near",
+    "near",
     "nearmint/",
     "test-utils/keystore",
     "test-utils/testlib",
@@ -43,7 +43,7 @@ near-store = { path = "./core/store" }
 keystore = { path = "./test-utils/keystore" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
-near = { path = "./chain/near"}
+near = { path = "./near"}
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

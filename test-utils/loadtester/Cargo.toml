@@ -21,7 +21,7 @@ near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos", features = ["with-serde"] }
 node-runtime = { path = "../../runtime/runtime" }
 testlib = { path = "../testlib" }
-near = { path = "../../chain/near" }
+near = { path = "../../near" }
 
 [dependencies.reqwest]
 version = "0.9"

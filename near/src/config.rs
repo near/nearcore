@@ -208,7 +208,7 @@ impl GenesisConfig {
         let mut accounts = vec![];
         let mut contracts = vec![];
         let default_test_contract = base64::encode(
-            include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
+            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
         );
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
