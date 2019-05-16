@@ -1,15 +1,19 @@
-use crate::traits::{Base64Encoded, ToBytes};
-use crate::types::ReadableBlsPublicKey;
-use pairing::{
-    CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
-    PrimeFieldRepr, Rand,
-};
-use rand::rngs::OsRng;
-use rand::Rng;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
+
+use pairing::{
+    CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
+    PrimeFieldRepr, Rand,
+};
+use pairing::bls12_381::Bls12;
+use rand::Rng;
+use rand::rngs::OsRng;
+
+use crate::serialize::to_base64;
+use crate::traits::{Base64Encoded, ToBytes};
+use crate::types::ReadableBlsPublicKey;
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
@@ -140,13 +144,13 @@ impl<E: Engine> PublicKey<E> {
 
 impl<E: Engine> fmt::Debug for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", base64::encode(self.compress().as_ref()))
+        write!(f, "{}", to_base64(self.compress().as_ref()))
     }
 }
 
 impl<E: Engine> fmt::Display for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", base64::encode(self.compress().as_ref()))
+        write!(f, "{}", to_base64(self.compress().as_ref()))
     }
 }
 
@@ -465,8 +469,6 @@ impl<E: Engine> Default for AggregateSignature<E> {
     }
 }
 
-use pairing::bls12_381::Bls12;
-
 pub type BlsSecretKey = SecretKey<Bls12>;
 pub type BlsPublicKey = PublicKey<Bls12>;
 pub type BlsSignature = Signature<Bls12>;
@@ -474,9 +476,10 @@ pub type BlsAggregatePublicKey = AggregatePublicKey<Bls12>;
 pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 
 pub mod uncompressed_bs64_signature_serializer {
+    use serde::{Deserialize, Deserializer, Serializer};
+
     use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
     use crate::traits::Base64Encoded;
-    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -497,10 +500,10 @@ pub mod uncompressed_bs64_signature_serializer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
+
+    use super::*;
 
     #[test]
     fn sign_verify() {

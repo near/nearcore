@@ -14,6 +14,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::crypto::signer::{InMemorySigner, EDSigner};
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
+use near_primitives::serialize::to_base64;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
@@ -174,7 +175,7 @@ impl GenesisConfig {
         let mut authorities = vec![];
         let mut accounts = vec![];
         let mut contracts = vec![];
-        let default_test_contract = base64::encode(
+        let default_test_contract = to_base64(
             include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
         );
         for (i, account) in seeds.iter().enumerate() {

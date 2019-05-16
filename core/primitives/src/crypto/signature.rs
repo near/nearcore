@@ -8,6 +8,7 @@ use crate::logging::pretty_hash;
 use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::ReadablePublicKey;
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
+use crate::serialize::{from_base64, to_base64};
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -91,7 +92,7 @@ impl TryFrom<&str> for PublicKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-        let bytes = base64::decode(s)
+        let bytes = from_base64(s)
             .map_err(|e| format!("Failed to convert public key from base64: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for public key", s));
@@ -122,7 +123,7 @@ impl TryFrom<&str> for SecretKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
-        let bytes = base64::decode(s)
+        let bytes = from_base64(s)
             .map_err(|e| format!("Failed to convert secret key from base64: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for secret key", s));
@@ -162,7 +163,7 @@ impl TryFrom<&str> for Signature {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-        let bytes = base64::decode(s)
+        let bytes = from_base64(s)
             .map_err(|e| format!("Failed to convert signature from base58: {}", e))?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for signature", s));
@@ -188,7 +189,7 @@ impl From<PublicKey> for Vec<u8> {
 
 impl<'a> From<&'a PublicKey> for String {
     fn from(h: &'a PublicKey) -> Self {
-        base64::encode(&h.0)
+        to_base64(&h.0)
     }
 }
 
@@ -212,7 +213,7 @@ impl std::convert::AsRef<[u8]> for SecretKey {
 
 impl<'a> From<&'a SecretKey> for String {
     fn from(h: &'a SecretKey) -> Self {
-        base64::encode(h)
+        to_base64(h)
     }
 }
 
@@ -236,7 +237,7 @@ impl fmt::Display for SecretKey {
 
 impl<'a> From<&'a Signature> for String {
     fn from(h: &'a Signature) -> Self {
-        base64::encode(h)
+        to_base64(h)
     }
 }
 

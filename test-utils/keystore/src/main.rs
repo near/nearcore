@@ -12,6 +12,7 @@ use near_primitives::crypto::signer::{
     get_key_file, write_block_producer_key_file, InMemorySigner,
 };
 use near_primitives::hash::hash;
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::traits::{Base64Encoded, ToBytes};
 
 #[derive(Serialize)]
@@ -62,22 +63,16 @@ fn sign_data(matches: &ArgMatches) {
     let key_file = get_key_file(&key_store_path, public_key);
 
     let data = matches.value_of("data").unwrap();
-    let bytes = base64::decode(data).unwrap();
+    let bytes = from_base64(data).unwrap();
     let signature = sign(&bytes, &key_file.secret_key);
-    let encoded = base64::encode(&signature);
+    let encoded = to_base64(&signature);
     print!("{}", encoded);
 }
 
 fn generate_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
     let signer = InMemorySigner::from_seed("not_used", matches.value_of("test_seed").unwrap());
-    write_block_producer_key_file(
-        &key_store_path.as_path(),
-        signer.public_key,
-        signer.secret_key,
-        //        signer.bls_public_key,
-        //        signer.bls_secret_key,
-    );
+    write_block_producer_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key);
 }
 
 fn generate_tendermint_key(matches: &ArgMatches) {

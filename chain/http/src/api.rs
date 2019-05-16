@@ -101,7 +101,7 @@ impl<T> HttpApi<T> {
 }
 
 fn decode_transaction(value: &serde_json::Value) -> Result<SignedTransaction, RPCError> {
-    let data = base64::decode(
+    let data = from_base64(
         value.as_str().ok_or_else(|| RPCError::BadRequest("Param should be bytes".to_string()))?,
     )
     .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
@@ -152,8 +152,8 @@ impl<T> HttpApi<T> {
                    "log": response.log,
                     "height": response.height,
                     "proof": response.proof,
-                    "value": base64::encode(&response.value),
-                    "key": base64::encode(&response.key),
+                    "value": to_base64(&response.value),
+                    "key": to_base64(&response.key),
                     "index": response.index,
                     "code": response.code
                 }}))
@@ -177,7 +177,7 @@ impl<T> HttpApi<T> {
                 let hash_str = params[0].as_str().ok_or_else(|| {
                     RPCError::BadRequest("Hash param must be base64 string".to_string())
                 })?;
-                let hash = base64::decode(hash_str)
+                let hash = from_base64(hash_str)
                     .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?
                     .try_into()
                     .map_err(|e| RPCError::BadRequest(format!("Bad hash: {}", e)))?;
@@ -188,7 +188,7 @@ impl<T> HttpApi<T> {
                     "tx": "null",
                     "tx_result": {
                         "log": result.final_log(),
-                        "data": base64::encode(&result.last_result()),
+                        "data": to_base64(&result.last_result()),
                         "code": result.status.to_code(),
                     },
                     "index": 0,

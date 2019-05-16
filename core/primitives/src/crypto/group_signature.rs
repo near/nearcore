@@ -1,13 +1,16 @@
+use core::fmt;
+use std::convert::TryFrom;
+
+use near_protos::types as types_proto;
+
 use crate::crypto::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
 use crate::crypto::signature::bs64_serializer;
 use crate::logging::pretty_hash;
+use crate::serialize::to_base64;
 use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::{AuthorityMask, PartialSignature};
-use core::fmt;
-use std::convert::TryFrom;
-use near_protos::types as types_proto;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
@@ -42,7 +45,7 @@ impl fmt::Debug for GroupSignature {
             f,
             "{:?} {:?}",
             self.authority_mask,
-            pretty_hash(&base64::encode(&self.signature.to_bytes()))
+            pretty_hash(&to_base64(&self.signature.to_bytes()))
         )
     }
 }

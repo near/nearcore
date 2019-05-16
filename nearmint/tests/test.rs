@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use near_primitives::crypto::signature::PublicKey;
 use node_runtime::state_viewer::AccountViewCallResult;
 use testlib::test_helpers::wait;
+use near_primitives::serialize::from_base64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRpcResponse {
@@ -94,7 +95,7 @@ fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
         .as_object()
         .and_then(|m| m.get("value"))
         .and_then(|v| {
-            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            let bytes = from_base64(v.as_str().unwrap()).unwrap();
             serde_json::from_str::<AccountViewCallResult>(std::str::from_utf8(&bytes).unwrap()).ok()
         })
 }
@@ -116,7 +117,7 @@ fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
         .as_object()
         .and_then(|m| m.get("value"))
         .and_then(|v| {
-            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            let bytes = from_base64(v.as_str().unwrap()).unwrap();
             serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
         })
 }

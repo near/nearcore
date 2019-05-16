@@ -1,5 +1,6 @@
 use futures::Future;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
@@ -89,7 +90,7 @@ impl AsyncUser for RpcUser {
                 values: response
                     .values
                     .into_iter()
-                    .map(|(s, v)| (base64::decode(s).unwrap(), v))
+                    .map(|(s, v)| (from_base64(s).unwrap(), v))
                     .collect(),
             })
             .map_err(|err| format!("{}", err));
@@ -277,7 +278,7 @@ impl User for RpcUser {
             values: response
                 .values
                 .into_iter()
-                .map(|(s, v)| (base64::decode(s).unwrap(), v))
+                .map(|(s, v)| (from_base64(s).unwrap(), v))
                 .collect(),
         };
         Ok(result)

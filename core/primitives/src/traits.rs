@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use crate::serialize::{from_base64, to_base64};
 
 /// ToBytes is like Into<Vec<u8>>, but doesn't consume self
 pub trait ToBytes: Sized {
@@ -9,11 +10,11 @@ pub trait Base64Encoded:
     for<'a> TryFrom<&'a [u8], Error = String> + ToBytes
 {
     fn from_base64(s: &str) -> Result<Self, String> {
-        let bytes = base64::decode(s).map_err(|e| format!("{}", e))?;
+        let bytes = from_base64(s)?;
         Self::try_from(&bytes)
     }
 
     fn to_base64(&self) -> String {
-        base64::encode(&self.to_bytes())
+        to_base64(&self.to_bytes())
     }
 }

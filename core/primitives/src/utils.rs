@@ -78,10 +78,6 @@ pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
     0
 }
 
-pub fn base64_vec2str(buf: &[u8]) -> String {
-    base64::encode(buf)
-}
-
 lazy_static! {
     static ref VALID_ACCOUNT_ID: Regex = Regex::new(r"^[a-z0-9@._\-]{5,32}$").unwrap();
 }

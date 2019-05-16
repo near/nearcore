@@ -1,12 +1,13 @@
 pub mod b64_format {
-    use base64;
     use serde::{Deserialize, Deserializer, Serializer};
+
+    use crate::serialize::{from_base64, to_base64};
 
     pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let encoded = base64::encode(&bytes);
+        let encoded = to_base64(&bytes);
         serializer.serialize_str(&encoded)
     }
 
@@ -15,7 +16,7 @@ pub mod b64_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        base64::decode(&s).map_err(serde::de::Error::custom)
+        from_base64(&s).map_err(serde::de::Error::custom)
     }
 }
 
