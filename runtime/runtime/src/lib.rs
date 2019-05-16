@@ -39,9 +39,9 @@ pub mod adapter;
 mod system;
 
 pub mod ethereum;
-mod ext;
+pub mod ext;
 pub mod state_viewer;
-mod tx_stakes;
+pub mod tx_stakes;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -311,6 +311,7 @@ impl Runtime {
         state_update: &TrieUpdate,
         receiver_id: &AccountId,
     ) -> Result<Arc<ContractCode>, String> {
+        debug!(target:"runtime", "Calling the contract at account {}", receiver_id);
         let account = get::<Account>(state_update, &key_for_account(receiver_id))
             .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
         let code_hash = account.code_hash;

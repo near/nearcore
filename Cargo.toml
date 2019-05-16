@@ -17,6 +17,7 @@ members = [
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/state-viewer",
     "nearmint/",
 ]
 exclude = [
@@ -35,6 +36,7 @@ near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 near-protos = { path = "./core/protos" }
 node-runtime = { path = "./runtime/runtime" }
+wasm = { path = "./runtime/wasm" }
 nearmint = { path = "./nearmint" }
 testlib = { path = "./test-utils/testlib" }
 

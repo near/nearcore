@@ -57,13 +57,13 @@ fn best_hash_key(genesis_hash: &CryptoHash) -> Vec<u8> {
 pub struct NearMint {
     genesis_config: GenesisConfig,
     runtime: Runtime,
-    trie: Arc<Trie>,
+    pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
-    root: MerkleHash,
+    pub root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
     authority_proposals: Vec<AuthorityStake>,
-    height: u64,
+    pub height: u64,
     genesis_hash: CryptoHash,
 }
 
@@ -176,7 +176,11 @@ impl RuntimeAdapter for NearMint {
         )
     }
 
-    fn view_access_key(&self, state_root: MerkleHash, account_id: &String) -> Result<Vec<PublicKey>, String> {
+    fn view_access_key(
+        &self,
+        state_root: MerkleHash,
+        account_id: &String,
+    ) -> Result<Vec<PublicKey>, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
@@ -365,12 +369,12 @@ impl Application for NearMint {
 mod tests {
     use protobuf::Message;
 
+    use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::TransactionBody;
     use near_primitives::types::StructSignature;
     use node_runtime::adapter::RuntimeAdapter;
-    use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
 
     use super::*;
 

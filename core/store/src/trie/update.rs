@@ -8,8 +8,8 @@ use log::debug;
 
 use near_primitives::types::MerkleHash;
 
-use crate::StoreUpdate;
 use crate::trie::convert_to_store_update;
+use crate::StoreUpdate;
 
 use super::{Trie, TrieIterator};
 

@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::{fmt, io};
 
 use cached::{Cached, SizedCache};
-use kvdb::{DBOp, DBTransaction, DBValue, KeyValueDB};
+pub use kvdb::DBValue;
+use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 use log::debug;
 use serde::de::DeserializeOwned;
@@ -11,7 +12,7 @@ use serde::Serialize;
 use near_primitives::serialize::{Decode, Encode};
 
 pub use crate::trie::{
-    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie,
+    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator,
 };
 
 pub mod test_utils;

@@ -1,0 +1,15 @@
+[package]
+name = "state-viewer"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.32.0"
+hex = "0.3"
+
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+node-runtime = { path = "../../runtime/runtime" }
+nearmint = { path = "../../nearmint" }
+near = { path = "../../near" }
