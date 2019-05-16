@@ -72,7 +72,9 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
-        self.receipts.drain().map(|(_, v)| v).collect()
+        let mut vec: Vec<ReceiptTransaction> = self.receipts.drain().map(|(_, v)| v).collect();
+        vec.sort_by_key(|a| a.nonce);
+        vec
     }
 
     /// write callbacks to stateUpdate
