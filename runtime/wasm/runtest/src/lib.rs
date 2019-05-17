@@ -173,13 +173,6 @@ mod tests {
         LittleEndian::read_i32(val)
     }
 
-    #[allow(dead_code)]
-    fn encode_u64(val: u64) -> [u8; 8] {
-        let mut tmp = [0u8; 8];
-        LittleEndian::write_u64(&mut tmp, val);
-        tmp
-    }
-
     fn decode_u64(val: &[u8]) -> u64 {
         LittleEndian::read_u64(val)
     }
