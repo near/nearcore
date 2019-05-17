@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "dependencies": {
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#accounting"
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
     },
     "scripts": {
         "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"

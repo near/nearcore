@@ -7,7 +7,7 @@ set -ex
 
 # Run nearlib tests
 rm -rf nearlib
-git clone -b accounting https://github.com/nearprotocol/nearlib.git nearlib
+git clone https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
 export NEARCORE_DIR="../"
 npm install
