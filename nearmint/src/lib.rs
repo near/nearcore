@@ -31,14 +31,14 @@ const STORAGE_PATH: &str = "storage";
 pub struct NearMint {
     chain_spec: ChainSpec,
     runtime: Runtime,
-    trie: Arc<Trie>,
+    pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     storage: Arc<RwLock<ShardChainStorage>>,
-    root: MerkleHash,
+    pub root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
     authority_proposals: Vec<AuthorityStake>,
-    height: u64,
+    pub height: u64,
 }
 
 fn get_storage_path(base_path: &Path) -> String {

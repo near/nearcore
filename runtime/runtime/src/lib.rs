@@ -46,7 +46,7 @@ pub mod economics_config;
 mod system;
 
 pub mod ethereum;
-mod ext;
+pub mod ext;
 pub mod state_viewer;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
@@ -281,6 +281,7 @@ impl Runtime {
         state_update: &TrieUpdate,
         receiver_id: &AccountId,
     ) -> Result<Arc<ContractCode>, String> {
+        debug!(target:"runtime", "Calling the contract at account {}", receiver_id);
         let account = get::<Account>(state_update, &key_for_account(receiver_id))
             .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
         let code_hash = account.code_hash;

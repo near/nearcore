@@ -47,6 +47,8 @@ pub fn execute(
 
     let module = cache::compile_cached_module(code, config)?;
 
+    debug!(target:"runtime", "Executing method {:?}", String::from_utf8(method_name.to_vec()).unwrap_or_else(|_| hex::encode(method_name)));
+
     let memory = Memory::new(MemoryDescriptor {
         minimum: Pages(config.initial_memory_pages),
         maximum: Some(Pages(config.max_memory_pages)),
@@ -75,22 +77,30 @@ pub fn execute(
     let method_name = std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
 
     match instance.call(&method_name, &[]) {
-        Ok(_) => Ok(ExecutionOutcome {
-            storage_usage: (context.storage_usage as StorageUsageChange + runtime.storage_counter)
-                as StorageUsage,
-            return_data: Ok(runtime.return_data),
-            frozen_balance: runtime.frozen_balance,
-            liquid_balance: runtime.liquid_balance,
-            random_seed: runtime.random_seed,
-            logs: runtime.logs,
-        }),
-        Err(e) => Ok(ExecutionOutcome {
-            storage_usage: context.storage_usage,
-            return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
-            frozen_balance: runtime.frozen_balance,
-            liquid_balance: runtime.liquid_balance,
-            random_seed: runtime.random_seed,
-            logs: runtime.logs,
-        }),
+        Ok(_) => {
+            let e = ExecutionOutcome {
+                storage_usage: (context.storage_usage as StorageUsageChange
+                    + runtime.storage_counter) as StorageUsage,
+                return_data: Ok(runtime.return_data),
+                frozen_balance: runtime.frozen_balance,
+                liquid_balance: runtime.liquid_balance,
+                random_seed: runtime.random_seed,
+                logs: runtime.logs,
+            };
+            debug!(target:"runtime", "{:?}", e);
+            Ok(e)
+        }
+        Err(e) => {
+            let e = ExecutionOutcome {
+                storage_usage: context.storage_usage,
+                return_data: Err(Into::<wasmer_runtime::error::Error>::into(e).into()),
+                frozen_balance: runtime.frozen_balance,
+                liquid_balance: runtime.liquid_balance,
+                random_seed: runtime.random_seed,
+                logs: runtime.logs,
+            };
+            debug!(target:"runtime", "{:?}", e);
+            Ok(e)
+        }
     }
 }
