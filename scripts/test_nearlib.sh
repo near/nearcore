@@ -10,6 +10,7 @@ rm -rf nearlib
 git clone https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
 export NEARCORE_DIR="../"
+export HELLO_WASM_PATH="../tests/hello.wasm"
 npm install
 npm test
 npm run build
