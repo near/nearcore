@@ -166,7 +166,7 @@ mod test {
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - money_to_send);
+            assert!(alice_account.amount <= TESTING_INIT_BALANCE - money_to_send);
             let eve_account = view_account_request("test.near").unwrap();
             assert_eq!(eve_account.amount, money_to_send);
         });
