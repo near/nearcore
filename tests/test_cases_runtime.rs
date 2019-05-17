@@ -213,12 +213,6 @@ mod test {
     }
 
     #[test]
-    fn test_access_key_smart_contract_reject_positive_amount_runtime() {
-        let node = create_runtime_node();
-        test_access_key_smart_contract_reject_positive_amount(node);
-    }
-
-    #[test]
     fn test_access_key_smart_contract_reject_method_name_runtime() {
         let node = create_runtime_node();
         test_access_key_smart_contract_reject_method_name(node);

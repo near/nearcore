@@ -5,7 +5,7 @@ use std::time::Instant;
 use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
-use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
+use primitives::types::{AccountId, Balance, Nonce};
 use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
 use storage::{get, TrieUpdate};
 use wasm::executor;
@@ -125,7 +125,7 @@ impl TrieViewer {
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    &AccountingInfo { originator: contract_id.clone(), contract_id: None },
+                    contract_id,
                     &empty_hash,
                     self.ethash_provider.clone(),
                 );
@@ -142,9 +142,9 @@ impl TrieViewer {
                         contract_id,
                         contract_id,
                         0,
-                        0,
                         block_index,
                         root.as_ref().into(),
+                        true,
                     ),
                 )
             }

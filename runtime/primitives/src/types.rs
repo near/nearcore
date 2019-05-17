@@ -4,10 +4,7 @@ use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSignature};
 use crate::crypto::signature::{bs58_serializer, PublicKey, Signature};
 use crate::hash::CryptoHash;
 use crate::traits::Base58Encoded;
-use crate::utils::{proto_to_result, to_string_value};
-use near_protos::receipt as receipt_proto;
 use near_protos::types as types_proto;
-use protobuf::SingularPtrField;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -30,10 +27,6 @@ pub type AuthorityMask = Vec<bool>;
 pub type PartialSignature = BlsSignature;
 /// Monetary balance of an account or an amount for transfer.
 pub type Balance = u64;
-/// MANA points for async calls and callbacks.
-pub type Mana = u32;
-/// Gas type is used to count the compute and storage within smart contract execution.
-pub type Gas = u64;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
@@ -58,68 +51,6 @@ pub enum PromiseId {
     Receipt(ReceiptId),
     Callback(CallbackId),
     Joiner(Vec<ReceiptId>),
-}
-
-// Accounting Info contains the originator account id information required
-// to identify quota that was used to issue the original signed transaction.
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
-pub struct AccountingInfo {
-    pub originator: AccountId,
-    pub contract_id: Option<AccountId>,
-    // TODO(#260): Add QuotaID to identify which quota was used for the call.
-}
-
-impl From<receipt_proto::AccountingInfo> for AccountingInfo {
-    fn from(proto: receipt_proto::AccountingInfo) -> Self {
-        AccountingInfo {
-            originator: proto.originator,
-            contract_id: proto.contract_id.into_option().map(|s| s.value),
-        }
-    }
-}
-
-impl From<AccountingInfo> for receipt_proto::AccountingInfo {
-    fn from(info: AccountingInfo) -> Self {
-        let contract_id = SingularPtrField::from_option(info.contract_id.map(to_string_value));
-        receipt_proto::AccountingInfo {
-            originator: info.originator,
-            contract_id,
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
-pub struct ManaAccounting {
-    pub accounting_info: AccountingInfo,
-    pub mana_refund: Mana,
-    pub gas_used: Gas,
-}
-
-impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
-    type Error = String;
-
-    fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
-        match proto_to_result(proto.accounting_info) {
-            Ok(info) => Ok(ManaAccounting {
-                accounting_info: info.into(),
-                mana_refund: proto.mana_refund,
-                gas_used: proto.gas_used,
-            }),
-            Err(e) => Err(e),
-        }
-    }
-}
-
-impl From<ManaAccounting> for receipt_proto::ManaAccounting {
-    fn from(accounting: ManaAccounting) -> Self {
-        receipt_proto::ManaAccounting {
-            accounting_info: SingularPtrField::some(accounting.accounting_info.into()),
-            mana_refund: accounting.mana_refund,
-            gas_used: accounting.gas_used,
-            ..Default::default()
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]

@@ -1,8 +1,8 @@
 use std::fmt;
 
-use primitives::hash::{CryptoHash, hash};
-use primitives::types::{PromiseId, AccountId, Balance, Mana, BlockIndex, StorageUsage};
+use primitives::hash::{hash, CryptoHash};
 use primitives::logging;
+use primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
 use wasmer_runtime::error as WasmerError;
 
 #[derive(Debug, Clone)]
@@ -72,10 +72,8 @@ pub enum RuntimeError {
     BalanceExceeded,
     /// WASM-side assert failed
     AssertFailed,
-    /// Mana limit exceeded
-    ManaLimit,
     /// Gas limit reached
-    GasLimit,
+    UsageLimit,
     /// Unknown runtime function
     Unknown,
     /// Passed string had invalid utf-8 encoding
@@ -119,30 +117,41 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::MemoryAccessViolation => write!(f, "Memory access violation"),
             RuntimeError::InvalidGasState => write!(f, "Invalid gas state"),
             RuntimeError::BalanceQueryError => write!(f, "Balance query resulted in an error"),
-            RuntimeError::BalanceExceeded => write!(f, "Transfer exceeded the available balance of the account"),
+            RuntimeError::BalanceExceeded => {
+                write!(f, "Transfer exceeded the available balance of the account")
+            }
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
             RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
             RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
-            RuntimeError::InvalidResultIndex => write!(f, "Invalid result index given by the WASM to read results"),
-            RuntimeError::ResultIsNotOk => write!(f, "WASM is trying to read data from a result that is an error"),
+            RuntimeError::InvalidResultIndex => {
+                write!(f, "Invalid result index given by the WASM to read results")
+            }
+            RuntimeError::ResultIsNotOk => {
+                write!(f, "WASM is trying to read data from a result that is an error")
+            }
             RuntimeError::Unknown => write!(f, "Unknown runtime function invoked"),
             RuntimeError::AssertFailed => write!(f, "WASM-side assert failed"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
             RuntimeError::BadUtf16 => write!(f, "String encoding is bad utf-16 sequence"),
-            RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
-            RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
+            RuntimeError::UsageLimit => write!(f, "Invocation resulted in usage limit violated"),
             RuntimeError::Log => write!(f, "Error occured while logging an event"),
-            RuntimeError::InvalidSyscall => write!(f, "Invalid syscall signature encountered at runtime"),
+            RuntimeError::InvalidSyscall => {
+                write!(f, "Invalid syscall signature encountered at runtime")
+            }
             RuntimeError::Other => write!(f, "Other unspecified error"),
             RuntimeError::Unreachable => write!(f, "Unreachable instruction encountered"),
             RuntimeError::InvalidVirtualCall => write!(f, "Invalid virtual call"),
             RuntimeError::DivisionByZero => write!(f, "Division by zero"),
             RuntimeError::StackOverflow => write!(f, "Stack overflow"),
             RuntimeError::InvalidConversionToInt => write!(f, "Invalid conversion to integer"),
-            RuntimeError::UnknownDataTypeIndex => write!(f, "Unknown data type index for reading or writing"),
+            RuntimeError::UnknownDataTypeIndex => {
+                write!(f, "Unknown data type index for reading or writing")
+            }
             RuntimeError::InvalidAccountId => write!(f, "Invalid AccountID"),
             RuntimeError::PrivateMethod => write!(f, "Creating a promise with a private method"),
-            RuntimeError::EmptyMethodName => write!(f, "Creating a callback with an empty method name"),
+            RuntimeError::EmptyMethodName => {
+                write!(f, "Creating a callback with an empty method name")
+            }
             RuntimeError::Panic(ref msg) => write!(f, "Panic: {}", msg),
         }
     }
@@ -181,7 +190,7 @@ impl From<RuntimeError> for Error {
     }
 }
 
-/// Returned data from the method. 
+/// Returned data from the method.
 #[derive(Clone)]
 pub enum ReturnData {
     /// Method returned some value or data.
@@ -207,23 +216,16 @@ impl fmt::Debug for ReturnData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ReturnData::Value(v) => {
-                f.debug_tuple("Value")
-                    .field(&format_args!("{}", logging::pretty_utf8(&v)))
-                    .finish()
+                f.debug_tuple("Value").field(&format_args!("{}", logging::pretty_utf8(&v))).finish()
             }
-            ReturnData::Promise(promise_id) => {
-                f.debug_tuple("Promise")
-                    .field(&promise_id)
-                    .finish()
-            }
-            ReturnData::None => write!(f, "None")
+            ReturnData::Promise(promise_id) => f.debug_tuple("Promise").field(&promise_id).finish(),
+            ReturnData::None => write!(f, "None"),
         }
     }
 }
 
-
 // TODO: Extract it to the root of the crate
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
@@ -233,6 +235,9 @@ pub struct Config {
 
     /// Gas cost per one byte returned.
     pub return_data_per_byte_cost: u32,
+
+    /// Gas cost of the contract call.
+    pub contract_call_cost: u64,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -248,7 +253,7 @@ pub struct Config {
     pub max_memory_pages: u32,
 
     /// Gas limit of the one contract call
-    pub gas_limit: u64,
+    pub usage_limit: u64,
 }
 
 impl Default for Config {
@@ -257,10 +262,11 @@ impl Default for Config {
             grow_mem_cost: 1,
             regular_op_cost: 1,
             return_data_per_byte_cost: 1,
+            contract_call_cost: 0,
             max_stack_height: 64 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,
-            gas_limit: 10 * 1024 * 1024,
+            usage_limit: 1024 * 1024 * 1024,
         }
     }
 }
@@ -277,14 +283,14 @@ pub struct RuntimeContext {
     pub originator_id: AccountId,
     /// Current Account ID.
     pub account_id: AccountId,
-    /// Available mana for the execution by this contract.
-    pub mana: Mana,
     /// Storage that the account is already using.
     pub storage_usage: StorageUsage,
     /// Currently produced block index
     pub block_index: BlockIndex,
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
+    /// Whether the execution should not charge any costs.
+    pub free_of_charge: bool,
 }
 
 impl RuntimeContext {
@@ -293,20 +299,20 @@ impl RuntimeContext {
         received_amount: Balance,
         sender_id: &AccountId,
         account_id: &AccountId,
-        mana: Mana,
         storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
+        free_of_charge: bool,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
             received_amount,
             originator_id: sender_id.clone(),
             account_id: account_id.clone(),
-            mana,
             storage_usage,
             block_index,
             random_seed,
+            free_of_charge,
         }
     }
 }

@@ -1,12 +1,12 @@
 use crate::ext::External;
 
-use crate::types::{ReturnData, RuntimeContext, RuntimeError as Error};
+use crate::types::{Config, ReturnData, RuntimeContext, RuntimeError as Error};
 
 use byteorder::{ByteOrder, LittleEndian};
 use primitives::hash::hash;
 use primitives::logging::pretty_utf8;
 use primitives::types::{
-    AccountId, Balance, Gas, Mana, PromiseId, ReceiptId, StorageUsage, StorageUsageChange,
+    AccountId, Balance, PromiseId, ReceiptId, StorageUsage, StorageUsageChange,
 };
 use primitives::utils::is_valid_account_id;
 use std::collections::HashSet;
@@ -27,11 +27,13 @@ pub struct Runtime<'a> {
     ext: &'a mut External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
-    pub mana_counter: Mana,
+    pub frozen_balance: Balance,
+    pub liquid_balance: Balance,
+    /// Keep track of how much of the liquid balance is used by the contract so far,
+    /// without deposits/withdrawals and resending of the balance to other contracts.
+    usage_counter: Balance,
     context: &'a RuntimeContext,
-    pub balance: Balance,
-    pub gas_counter: Gas,
-    gas_limit: Gas,
+    config: Config,
     pub storage_counter: StorageUsageChange,
     promise_ids: Vec<PromiseId>,
     pub return_data: ReturnData,
@@ -47,18 +49,18 @@ impl<'a> Runtime<'a> {
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         context: &'a RuntimeContext,
-        gas_limit: Gas,
+        config: Config,
         memory: Memory,
     ) -> Runtime<'a> {
         Runtime {
             ext,
             input_data,
             result_data,
-            mana_counter: 0,
+            frozen_balance: context.initial_balance,
+            liquid_balance: context.received_amount,
+            usage_counter: 0,
             context,
-            balance: context.initial_balance + context.received_amount,
-            gas_counter: 0,
-            gas_limit,
+            config,
             storage_counter: 0,
             promise_ids: Vec::new(),
             return_data: ReturnData::None,
@@ -142,38 +144,41 @@ impl<'a> Runtime<'a> {
         Ok(account_id)
     }
 
-    fn charge_gas(&mut self, gas_amount: Gas) -> bool {
-        let prev = self.gas_counter;
-        match prev.checked_add(gas_amount) {
-            // gas charge overflow protection
-            None => false,
-            Some(val) if val > self.gas_limit => false,
-            Some(_) => {
-                self.gas_counter = prev + gas_amount;
-                true
+    /// Attempt to charge liquid balance.
+    fn charge_balance(&mut self, amount: Balance) -> Result<()> {
+        if self.liquid_balance < amount {
+            if self.context.free_of_charge {
+                Ok(())
+            } else {
+                Err(Error::BalanceExceeded)
             }
-        }
-    }
-
-    fn charge_mana(&mut self, mana: Mana) -> bool {
-        let prev = self.mana_counter;
-        match prev.checked_add(mana) {
-            // mana charge overflow protection
-            None => false,
-            Some(val) if val > self.context.mana => false,
-            Some(_) => {
-                self.mana_counter = prev + mana;
-                true
-            }
-        }
-    }
-
-    fn charge_mana_or_fail(&mut self, mana: Mana) -> Result<()> {
-        if self.charge_mana(mana) {
-            Ok(())
         } else {
-            Err(Error::ManaLimit)
+            self.liquid_balance -= amount;
+            Ok(())
         }
+    }
+
+    /// Attempt to charge liquid balance, respecting usage limit.
+    fn charge_balance_with_limit(&mut self, amount: Balance) -> Result<()> {
+        let new_usage = self.usage_counter + amount;
+        if new_usage > self.config.usage_limit {
+            if self.context.free_of_charge {
+                Ok(())
+            } else {
+                Err(Error::UsageLimit)
+            }
+        } else {
+            self.charge_balance(amount).map(|res| {
+                self.usage_counter = new_usage;
+                res
+            })
+        }
+    }
+
+    /// Called by WASM.
+    fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        let res = self.charge_balance_with_limit(Balance::from(gas_amount));
+        res
     }
 
     /// Writes to storage from wasm memory
@@ -253,15 +258,6 @@ impl<'a> Runtime<'a> {
         debug!(target: "wasm", "storage_iter_next({}) -> '{}'", storage_id, pretty_utf8(&key.clone().unwrap_or_default()));
         Ok(key.is_some() as u32)
     }
-
-    fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        if self.charge_gas(Gas::from(gas_amount)) {
-            Ok(())
-        } else {
-            Err(Error::GasLimit)
-        }
-    }
-
     fn promise_create(
         &mut self,
         account_id_len: u32,
@@ -270,7 +266,6 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        mana: u32,
         amount: u64,
     ) -> Result<u32> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
@@ -281,19 +276,11 @@ impl<'a> Runtime<'a> {
         }
 
         let arguments = self.memory_get(arguments_ptr as usize, arguments_len as usize)?;
-
-        // Charging separately reserved mana + 1 to call this promise.
-        self.charge_mana_or_fail(mana)?;
-        self.charge_mana_or_fail(1)?;
-
-        if amount > self.balance {
-            return Err(Error::BalanceExceeded);
-        }
-        self.balance -= amount;
+        self.charge_balance(self.config.contract_call_cost + amount)?;
 
         let promise_id = self
             .ext
-            .promise_create(account_id, method_name, arguments, mana, amount)
+            .promise_create(account_id, method_name, arguments, amount)
             .map_err(|_| Error::PromiseError)?;
 
         let promise_index = self.promise_ids.len();
@@ -309,7 +296,7 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        mana: u32,
+        amount: Balance,
     ) -> Result<u32> {
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
@@ -318,19 +305,16 @@ impl<'a> Runtime<'a> {
         }
         let arguments = self.memory_get(arguments_ptr as usize, arguments_len as usize)?;
 
-        // Charging separately reserved mana + N to add callback for the promise.
-        // N is the number of callbacks in case of promise joiner.
-        self.charge_mana_or_fail(mana)?;
         let num_promises = match &promise_id {
             PromiseId::Receipt(_) => 1,
             PromiseId::Callback(_) => return Err(Error::PromiseError),
-            PromiseId::Joiner(v) => v.len() as u32,
+            PromiseId::Joiner(v) => v.len() as u64,
         };
-        self.charge_mana_or_fail(num_promises)?;
+        self.charge_balance(num_promises * self.config.contract_call_cost + amount)?;
 
         let promise_id = self
             .ext
-            .promise_then(promise_id, method_name, arguments, mana)
+            .promise_then(promise_id, method_name, arguments, amount)
             .map_err(|_| Error::PromiseError)?;
 
         let promise_index = self.promise_ids.len();
@@ -418,20 +402,60 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn get_balance(&self) -> Result<u64> {
-        Ok(self.balance)
+    fn get_frozen_balance(&self) -> Result<u64> {
+        Ok(self.frozen_balance)
     }
 
-    fn gas_left(&self) -> Result<u64> {
-        let gas_left = self.gas_limit - self.gas_counter;
-
-        Ok(gas_left)
+    fn get_liquid_balance(&self) -> Result<u64> {
+        Ok(self.liquid_balance)
     }
 
-    fn mana_left(&self) -> Result<u32> {
-        let mana_left = self.context.mana - self.mana_counter;
+    /// Helper function to transfer between two accounts.
+    fn transfer_helper(
+        from: &mut u64,
+        to: &mut u64,
+        min_amount: u64,
+        max_amount: u64,
+    ) -> Result<u64> {
+        let result = if *from >= max_amount {
+            *from -= max_amount;
+            *to += max_amount;
+            max_amount
+        } else {
+            if *from >= min_amount {
+                let amount = *from;
+                *from = 0;
+                *to += amount;
+                amount
+            } else {
+                0
+            }
+        };
+        Ok(result)
+    }
 
-        Ok(mana_left as u32)
+    /// Deposit the given amount to the account balance and return deposited amount.
+    /// If there is enough of liquid balance will deposit `max_amount`, otherwise will deposit
+    /// as much as possible and will fail if there is less than `min_amount`.
+    fn deposit(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+        Self::transfer_helper(
+            &mut self.liquid_balance,
+            &mut self.frozen_balance,
+            min_amount,
+            max_amount,
+        )
+    }
+
+    /// Withdraw the given amount from the account balance and return withdrawn amount.
+    /// If there is enough of frozen balance will withdraw `max_amount`, otherwise will withdraw
+    /// as much as possible and will fail if there is less than `min_amount`.
+    fn withdraw(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+        Self::transfer_helper(
+            &mut self.frozen_balance,
+            &mut self.liquid_balance,
+            min_amount,
+            max_amount,
+        )
     }
 
     fn storage_usage(&self) -> Result<StorageUsage> {
@@ -652,7 +676,6 @@ pub mod imports {
             account_id_len: u32, account_id_ptr: u32,
             method_name_len: u32, method_name_ptr: u32,
             arguments_len: u32, arguments_ptr: u32,
-            mana: u32,
             amount: u64
         ] -> [u32]>,
         // Attaches a callback to a given promise. This promise can be either an
@@ -662,7 +685,7 @@ pub mod imports {
             promise_index: u32,
             method_name_len: u32, method_name_ptr: u32,
             arguments_len: u32, arguments_ptr: u32,
-            mana: u32
+            amount: u64
         ] -> [u32]>,
         // Joins 2 given promises together and returns a new promise.
         "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
@@ -683,12 +706,15 @@ pub mod imports {
         "return_promise" => return_promise<[promise_index: u32] -> []>,
 
         // Context
-        // Returns the current balance.
-        "balance" => get_balance<[] -> [u64]>,
-        // Returns the amount of MANA left.
-        "mana_left" => mana_left<[] -> [u32]>,
-        // Returns the amount of GAS left.
-        "gas_left" => gas_left<[] -> [u64]>,
+        // Returns the frozen balance.
+        "frozen_balance" => get_frozen_balance<[] -> [u64]>,
+        // Returns the liquid balance.
+        "liquid_balance" => get_liquid_balance<[] -> [u64]>,
+        // Deposits balance from liquid to frozen.
+        "deposit" => deposit<[min_amount: u64, max_amount: u64] -> [u64]>,
+        // Withdraws balance from frozen to liquid.
+        "withdraw" => withdraw<[min_amount: u64, max_amount: u64] -> [u64]>,
+
         // Returns the storage usage.
         "storage_usage" => storage_usage<[] -> [u64]>,
         // Returns the amount of tokens received with this call.

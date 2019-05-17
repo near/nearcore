@@ -2,7 +2,6 @@ use clap::{App, Arg};
 use nearmint::NearMint;
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ext::ACCOUNT_DATA_SEPARATOR;
-use node_runtime::tx_stakes::TxTotalStake;
 use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::hash;
@@ -59,18 +58,6 @@ fn print_state_entry(key: Vec<u8>, value: DBValue) {
         col::CODE => {
             let account_name = to_printable(&key[1..]);
             println!("Code for {:?}: {}", account_name, to_printable(&value));
-        }
-        col::TX_STAKE => {
-            let separator = (1..key.len()).find(|&x| key[x] == col::TX_STAKE_SEPARATOR[0]);
-            let stake: TxTotalStake = Decode::decode(&value).unwrap();
-            if let Some(separator) = separator {
-                let account_name = to_printable(&key[1..separator]);
-                let contract_id = to_printable(&key[(separator + 1)..]);
-                println!("Tx_stake {:?},{:?}: {:?}", account_name, contract_id, stake);
-            } else {
-                let account_name = to_printable(&key[1..]);
-                println!("Tx_stake {:?}: {:?}", account_name, stake);
-            }
         }
         col::ACCESS_KEY => {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();

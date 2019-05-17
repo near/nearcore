@@ -38,6 +38,17 @@ impl Account {
             storage_paid_at: 0,
         }
     }
+
+    /// Try debiting the balance by the given amount.
+    pub fn checked_sub(&mut self, amount: Balance) -> Result<(), String> {
+        self.amount = self.amount.checked_sub(amount).ok_or_else(|| {
+            format!(
+                "Sender does not have enough balance {} for operation costing {}",
+                self.amount, amount
+            )
+        })?;
+        Ok(())
+    }
 }
 
 /// Limited Access key to use owner's account with the fixed public_key.

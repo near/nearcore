@@ -86,12 +86,6 @@ impl<'a> TransactionVerifier<'a> {
                                         function_call.contract_id,
                                     ));
                                 }
-                                if function_call.amount > 0 {
-                                    return Err(format!(
-                                        "Transaction amount {} should be 0 for the access key",
-                                        function_call.amount,
-                                    ));
-                                }
                                 if let Some(ref access_method_name) = access_key.method_name {
                                     if &function_call.method_name != access_method_name {
                                         return Err(format!(

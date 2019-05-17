@@ -58,7 +58,6 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        mana: u32,
         amount: u64,
     ) -> u32;
 
@@ -68,7 +67,7 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        mana: u32,
+        amount: u64,
     ) -> u32;
 
     fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
@@ -83,9 +82,10 @@ extern "C" {
         difficulty: u64,
     ) -> u32;
 
-    fn balance() -> u64;
-    fn mana_left() -> u32;
-    fn gas_left() -> u64;
+    fn frozen_balance() -> u64;
+    fn liquid_balance() -> u64;
+    fn deposit(min_amout: u64, max_amount: u64) -> u64;
+    fn withdraw(min_amout: u64, max_amount: u64) -> u64;
     fn storage_usage() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
@@ -302,7 +302,6 @@ pub fn create_promises_and_join() {
             5,
             b"args1".to_vec().as_ptr(),
             0,
-            0,
         );
         let promise2 = promise_create(
             5,
@@ -311,7 +310,6 @@ pub fn create_promises_and_join() {
             b"run2".to_vec().as_ptr(),
             5,
             b"args2".to_vec().as_ptr(),
-            0,
             0,
         );
         let promise_joined = promise_and(promise1, promise2);
@@ -336,7 +334,6 @@ pub fn transfer_to_bob() {
             b"deposit".to_vec().as_ptr(),
             0,
             0 as (*const u8),
-            0,
             1u64,
         );
         return_promise(promise1);
@@ -344,27 +341,18 @@ pub fn transfer_to_bob() {
 }
 
 #[no_mangle]
-pub fn get_prev_balance() {
+pub fn get_frozen_balance() {
     unsafe {
-        let bal = balance();
-        let amount = received_amount();
-        return_u64(bal - amount);
+        let my_frozen_balance = frozen_balance();
+        return_u64(my_frozen_balance);
     }
 }
 
 #[no_mangle]
-pub fn get_gas_left() {
+pub fn get_liquid_balance() {
     unsafe {
-        let my_gas = gas_left();
-        return_u64(my_gas);
-    }
-}
-
-#[no_mangle]
-pub fn get_mana_left() {
-    unsafe {
-        let my_mana = mana_left();
-        return_i32(my_mana as i32);
+        let my_liquid_balance = liquid_balance();
+        return_u64(my_liquid_balance);
     }
 }
 

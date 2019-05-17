@@ -15,10 +15,7 @@ use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::traits::ToBytes;
-use crate::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana, ManaAccounting, Nonce, ShardId,
-    StructSignature,
-};
+use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
 pub type LogEntry = String;
@@ -407,21 +404,6 @@ impl TransactionBody {
         }
     }
 
-    /// Returns mana required to execute this transaction.
-    pub fn get_mana(&self) -> Mana {
-        match self {
-            TransactionBody::CreateAccount(_) => 1,
-            TransactionBody::DeployContract(_) => 1,
-            // TODO(#344): DEFAULT_MANA_LIMIT is 20. Need to check that the value is at least 1 mana.
-            TransactionBody::FunctionCall(_t) => 20,
-            TransactionBody::SendMoney(_) => 1,
-            TransactionBody::Stake(_) => 1,
-            TransactionBody::SwapKey(_) => 1,
-            TransactionBody::AddKey(_) => 1,
-            TransactionBody::DeleteKey(_) => 1,
-        }
-    }
-
     pub fn get_hash(&self) -> CryptoHash {
         let bytes = match self.clone() {
             TransactionBody::CreateAccount(t) => {
@@ -616,34 +598,28 @@ pub enum ReceiptBody {
     NewCall(AsyncCall),
     Callback(CallbackResult),
     Refund(u64),
-    ManaAccounting(ManaAccounting),
 }
 
 #[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AsyncCall {
     pub amount: Balance,
-    pub mana: Mana,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
-    pub accounting_info: AccountingInfo,
+    pub refund_account: AccountId,
 }
 
 impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
     type Error = String;
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
-        match proto_to_result(proto.accounting_info) {
-            Ok(accounting_info) => Ok(AsyncCall {
-                amount: proto.amount,
-                mana: proto.mana,
-                method_name: proto.method_name,
-                args: proto.args,
-                callback: proto.callback.into_option().map(std::convert::Into::into),
-                accounting_info: accounting_info.into(),
-            }),
-            Err(e) => Err(e),
-        }
+        Ok(AsyncCall {
+            amount: proto.amount,
+            method_name: proto.method_name,
+            args: proto.args,
+            callback: proto.callback.into_option().map(std::convert::Into::into),
+            refund_account: proto.refund_account,
+        })
     }
 }
 
@@ -651,11 +627,10 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
     fn from(call: AsyncCall) -> Self {
         receipt_proto::AsyncCall {
             amount: call.amount,
-            mana: call.mana,
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
-            accounting_info: SingularPtrField::some(call.accounting_info.into()),
+            refund_account: call.refund_account,
             ..Default::default()
         }
     }
@@ -666,10 +641,9 @@ impl AsyncCall {
         method_name: Vec<u8>,
         args: Vec<u8>,
         amount: Balance,
-        mana: Mana,
-        accounting_info: AccountingInfo,
+        refund_account: AccountId,
     ) -> Self {
-        AsyncCall { amount, mana, method_name, args, callback: None, accounting_info }
+        AsyncCall { amount, method_name, args, callback: None, refund_account }
     }
 }
 
@@ -677,11 +651,10 @@ impl fmt::Debug for AsyncCall {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("AsyncCall")
             .field("amount", &format_args!("{}", &self.amount))
-            .field("mana", &format_args!("{}", &self.mana))
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("callback", &self.callback)
-            .field("accounting_info", &self.accounting_info)
+            .field("refund_account", &self.refund_account)
             .finish()
     }
 }
@@ -691,27 +664,27 @@ pub struct Callback {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub results: Vec<Option<Vec<u8>>>,
-    pub mana: Mana,
+    pub amount: Balance,
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
-    pub accounting_info: AccountingInfo,
+    pub refund_account: AccountId,
 }
 
 impl Callback {
     pub fn new(
         method_name: Vec<u8>,
         args: Vec<u8>,
-        mana: Mana,
-        accounting_info: AccountingInfo,
+        amount: Balance,
+        refund_account: AccountId,
     ) -> Self {
         Callback {
             method_name,
             args,
             results: vec![],
-            mana,
+            amount,
             callback: None,
             result_counter: 0,
-            accounting_info,
+            refund_account,
         }
     }
 }
@@ -722,10 +695,10 @@ impl fmt::Debug for Callback {
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("results", &format_args!("{}", logging::pretty_results(&self.results)))
-            .field("mana", &format_args!("{}", &self.mana))
+            .field("amount", &format_args!("{}", &self.amount))
             .field("callback", &self.callback)
             .field("result_counter", &format_args!("{}", &self.result_counter))
-            .field("accounting_info", &self.accounting_info)
+            .field("refund_account", &self.refund_account)
             .finish()
     }
 }
@@ -852,9 +825,6 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Some(receipt_proto::ReceiptTransaction_oneof_body::refund(refund)) => {
                 Ok(ReceiptBody::Refund(refund))
             }
-            Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
-                accounting.try_into().map(ReceiptBody::ManaAccounting)
-            }
             None => Err("No such receipt body type".to_string()),
         };
         match body {
@@ -880,9 +850,6 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             }
             ReceiptBody::Refund(refund) => {
                 receipt_proto::ReceiptTransaction_oneof_body::refund(refund)
-            }
-            ReceiptBody::ManaAccounting(accounting) => {
-                receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting.into())
             }
         };
         receipt_proto::ReceiptTransaction {
