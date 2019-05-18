@@ -931,6 +931,12 @@ pub enum FinalTransactionStatus {
     Completed,
 }
 
+impl Default for FinalTransactionStatus {
+    fn default() -> Self {
+        FinalTransactionStatus::Unknown
+    }
+}
+
 impl FinalTransactionStatus {
     pub fn to_code(&self) -> u64 {
         match self {
@@ -992,7 +998,7 @@ impl fmt::Debug for TransactionLogs {
 }
 
 /// Result of transaction and all of subsequent the receipts.
-#[derive(PartialEq, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct FinalTransactionResult {
     /// Status of the whole transaction and it's receipts.
     pub status: FinalTransactionStatus,

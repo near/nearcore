@@ -1,94 +1,77 @@
-use crate::runtime_utils::to_receipt_block;
-use crate::user::{User, POISONED_LOCK_ERR};
-use client::Client;
-use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
-use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
+use std::sync::Arc;
+
+use actix::Addr;
+use near_client::{ClientActor, ViewClientActor};
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, MerkleHash};
-use shard::ReceiptInfo;
-use std::sync::Arc;
+use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
+
+use crate::runtime_utils::to_receipt_block;
+use crate::user::{User, POISONED_LOCK_ERR};
+use near_primitives::receipt::ReceiptInfo;
 
 pub struct ThreadUser {
-    pub client: Arc<Client<InMemorySigner>>,
+    pub client_addr: Addr<ClientActor>,
+    pub view_client_addr: Addr<ViewClientActor>,
 }
 
 impl ThreadUser {
-    pub fn new(client: Arc<Client<InMemorySigner>>) -> ThreadUser {
-        ThreadUser { client }
+    pub fn new(
+        client_addr: Addr<ClientActor>,
+        view_client_addr: Addr<ViewClientActor>,
+    ) -> ThreadUser {
+        ThreadUser { client_addr, view_client_addr }
     }
 }
 
 impl User for ThreadUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let state_update = self.client.shard_client.get_state_update();
-        self.client.shard_client.trie_viewer.view_account(&state_update, account_id)
+        Err("".to_string())
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        let state_update = self.client.shard_client.get_state_update();
-        self.client.shard_client.trie_viewer.view_state(&state_update, account_id)
+        Err("".to_string())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.client
-            .shard_client
-            .pool
-            .clone()
-            .expect("Must have pool")
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .add_transaction(transaction)
+        Err("".to_string())
     }
 
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
-        let receipt_block = to_receipt_block(vec![receipt]);
-        self.client
-            .shard_client
-            .pool
-            .clone()
-            .expect("Must have pool")
-            .write()
-            .expect(POISONED_LOCK_ERR)
-            .add_receipt(receipt_block)
+        Err("".to_string())
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
-        self.client.shard_client.get_account_nonce(account_id.clone())
+        None
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
-        Some(self.client.beacon_client.chain.best_index())
+        None
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
-        self.client.shard_client.get_transaction_result(hash)
+        TransactionResult::default()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        self.client.shard_client.get_transaction_final_result(hash)
+        FinalTransactionResult::default()
     }
 
     fn get_state_root(&self) -> MerkleHash {
-        self.client.shard_client.chain.best_header().body.merkle_root_state
+        MerkleHash::default()
     }
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
-        self.client.shard_client.get_receipt_info(hash)
+        None
     }
 
-    fn get_shard_blocks_by_index(
-        &self,
-        r: GetBlocksByIndexRequest,
-    ) -> Result<SignedShardBlocksResponse, String> {
-        let start = r.start.unwrap_or_else(|| self.client.shard_client.chain.best_index());
-        let limit = r.limit.unwrap_or(25);
-        let blocks = self.client.shard_client.chain.get_blocks_by_indices(start, limit);
-        Ok(SignedShardBlocksResponse {
-            blocks: blocks.into_iter().map(std::convert::Into::into).collect(),
-        })
+    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
+        Err("".to_string())
     }
 }

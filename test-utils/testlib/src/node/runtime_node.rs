@@ -23,9 +23,9 @@ impl RuntimeNode {
     }
 
     pub fn send_money(&self, account_id: &AccountId, amount: Balance) {
-        let nonce = self.get_account_nonce(self.account_id().unwrap()).unwrap_or_default() + 1;
+        let nonce = self.get_account_nonce(&self.account_id().unwrap()).unwrap_or_default() + 1;
         let transaction =
-            TransactionBody::send_money(nonce, self.account_id().unwrap(), account_id, amount)
+            TransactionBody::send_money(nonce, &self.account_id().unwrap(), account_id, amount)
                 .sign(&*self.signer());
         self.user().add_transaction(transaction).unwrap();
     }
@@ -38,7 +38,7 @@ impl RuntimeNode {
         amount: Balance,
     ) {
         let account_id = self.account_id().unwrap();
-        let nonce = self.get_account_nonce(account_id).unwrap_or_default() + 1;
+        let nonce = self.get_account_nonce(&account_id).unwrap_or_default() + 1;
         let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce,
             originator: account_id.to_string(),
@@ -53,8 +53,8 @@ impl RuntimeNode {
 }
 
 impl Node for RuntimeNode {
-    fn account_id(&self) -> Option<&AccountId> {
-        Some(&self.signer.account_id)
+    fn account_id(&self) -> Option<AccountId> {
+        Some(self.signer.account_id.clone())
     }
 
     fn start(&mut self) {}

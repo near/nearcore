@@ -46,6 +46,7 @@ impl From<String> for Error {
     }
 }
 
+#[derive(Clone)]
 pub struct ClientConfig {
     /// Chain id for status.
     pub chain_id: String,
@@ -120,9 +121,16 @@ impl ClientConfig {
 }
 
 /// Required information to produce blocks.
+#[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
     pub signer: Arc<EDSigner>,
+}
+
+impl From<InMemorySigner> for BlockProducer {
+    fn from(signer: InMemorySigner) -> Self {
+        BlockProducer { account_id: signer.account_id(), signer: Arc::new(signer) }
+    }
 }
 
 impl From<Arc<InMemorySigner>> for BlockProducer {

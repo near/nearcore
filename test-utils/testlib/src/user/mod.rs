@@ -13,6 +13,8 @@ use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 pub use crate::user::runtime_user::RuntimeUser;
 
 pub mod runtime_user;
+pub mod thread_user;
+// pub mod rpc_user;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

@@ -6,7 +6,7 @@ use clap::{App, Arg, SubCommand};
 use log::{info, LevelFilter};
 
 use near::config::init_testnet_configs;
-use near::{get_store_path, init_configs, load_configs, start_with_config};
+use near::{get_store_path, init_configs, load_config, start_with_config};
 
 fn init_logging(verbose: bool) {
     if verbose {
@@ -87,8 +87,8 @@ fn main() {
         ("run", Some(_args)) => {
             // Load configs from home.
             let system = System::new("NEAR");
-            let (near_config, genesis_config, block_producer) = load_configs(home_dir);
-            start_with_config(home_dir, genesis_config, near_config, Some(block_producer));
+            let near_config = load_config(home_dir);
+            start_with_config(home_dir, near_config);
             system.run().unwrap();
         }
         ("unsafe_reset_data", Some(_args)) => {

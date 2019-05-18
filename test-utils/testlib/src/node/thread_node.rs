@@ -1,14 +1,20 @@
-use crate::node::{LocalNodeConfig, Node};
-use crate::user::rpc_user::RpcUser;
-use crate::user::{ThreadUser, User};
-use client::Client;
-use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::types::AccountId;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tokio_utils::ShutdownableThread;
+
+use actix::System;
+
+use near::config::Config;
+use near::{start_with_config, NearConfig};
+use near_client::ClientActor;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::types::AccountId;
+
+use crate::node::Node;
+use crate::tokio_utils::ShutdownableThread;
+use crate::user::User;
 
 pub enum ThreadNodeState {
     Stopped,
@@ -16,25 +22,28 @@ pub enum ThreadNodeState {
 }
 
 pub struct ThreadNode {
-    pub config: LocalNodeConfig,
-    pub client: Arc<Client<InMemorySigner>>,
+    pub config: NearConfig,
     pub state: ThreadNodeState,
     use_rpc_user: bool,
 }
 
+fn start_thread(config: NearConfig) -> ShutdownableThread {
+    ShutdownableThread::start("test", move || {
+        let tmp_dir = tempdir::TempDir::new("thread_node").unwrap();
+        start_with_config(tmp_dir.path(), config);
+    })
+}
+
 impl Node for ThreadNode {
-    fn account_id(&self) -> Option<&AccountId> {
-        self.config.client_cfg.account_id.as_ref()
+    fn account_id(&self) -> Option<AccountId> {
+        match &self.config.block_producer {
+            Some(bp) => Some(bp.account_id.clone()),
+            None => None,
+        }
     }
 
     fn start(&mut self) {
-        let client = self.client.clone();
-        let network_cfg = self.config.network_cfg.clone();
-        let rpc_cfg = self.config.rpc_cfg.clone();
-        let client_cfg = self.config.client_cfg.clone();
-        let proxy_handlers = self.config.proxy_handlers.clone();
-        let handle =
-            alphanet::start_from_client(client, network_cfg, rpc_cfg, client_cfg, proxy_handlers);
+        let handle = start_thread(self.config.clone());
         self.state = ThreadNodeState::Running(handle);
         thread::sleep(Duration::from_secs(1));
     }
@@ -50,7 +59,11 @@ impl Node for ThreadNode {
     }
 
     fn signer(&self) -> Arc<InMemorySigner> {
-        self.client.signer.clone().expect("Must have a signer")
+        // self.config.block_producer.clone().expect("Must have a signer").signer
+        Arc::new(InMemorySigner::from_seed(
+            &self.account_id().unwrap(),
+            &self.account_id().unwrap(),
+        ))
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {
@@ -69,27 +82,22 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        if self.use_rpc_user {
-            Box::new(RpcUser::new(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                self.config.rpc_cfg.rpc_port,
-            )))
-        } else {
-            Box::new(ThreadUser::new(self.client.clone()))
-        }
+        unimplemented!();
+        //        if self.use_rpc_user {
+        //            Box::new(RpcUser::new(SocketAddr::new(
+        //                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        //                self.config.rpc_cfg.rpc_port,
+        //            )))
+        //        } else {
+        //            Box::new(ThreadUser::new(self.client.clone()))
+        //        }
     }
 }
 
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
-    pub fn new(config: LocalNodeConfig) -> ThreadNode {
-        let signer = match &config.client_cfg.account_id {
-            Some(account_id) => Some(Arc::new(InMemorySigner::from_seed(&account_id, &account_id))),
-            None => None,
-        };
-        let client = Arc::new(Client::new(&config.client_cfg, signer));
-        let state = ThreadNodeState::Stopped;
-        ThreadNode { config, client, state, use_rpc_user: false }
+    pub fn new(config: NearConfig) -> ThreadNode {
+        ThreadNode { config, state: ThreadNodeState::Stopped, use_rpc_user: false }
     }
 
     /// Enables or disables using `RPCUser` instead of `ThreadUser`.

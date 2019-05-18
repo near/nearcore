@@ -420,6 +420,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
 }
 
 /// Configuration for the peer-to-peer manager.
+#[derive(Clone)]
 pub struct NetworkConfig {
     pub public_key: PublicKey,
     pub secret_key: SecretKey,

@@ -14,6 +14,7 @@ use crate::crypto::signature::{
     SecretKey, Signature,
 };
 use crate::types::{AccountId, PartialSignature};
+use std::sync::Arc;
 
 /// Trait to abstract the signer account.
 pub trait AccountSigner: Sync + Send {
@@ -229,6 +230,18 @@ impl InMemorySigner {
 impl From<&str> for InMemorySigner {
     fn from(key_file: &str) -> Self {
         serde_json::from_str(key_file).expect("Failed to deserialize the key file.")
+    }
+}
+
+impl From<InMemorySigner> for KeyFile {
+    fn from(signer: InMemorySigner) -> KeyFile {
+        KeyFile { public_key: signer.public_key, secret_key: signer.secret_key.clone() }
+    }
+}
+
+impl From<Arc<InMemorySigner>> for KeyFile {
+    fn from(signer: Arc<InMemorySigner>) -> KeyFile {
+        KeyFile { public_key: signer.public_key, secret_key: signer.secret_key.clone() }
     }
 }
 

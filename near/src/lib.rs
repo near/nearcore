@@ -10,7 +10,7 @@ use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
 
-pub use crate::config::{init_configs, load_configs, load_test_configs, GenesisConfig, NearConfig};
+pub use crate::config::{init_configs, load_config, load_test_config, GenesisConfig, NearConfig};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
@@ -32,15 +32,13 @@ pub fn get_store_path(base_path: &Path) -> String {
 
 pub fn start_with_config(
     home_dir: &Path,
-    genesis_config: GenesisConfig,
     config: NearConfig,
-    block_producer: Option<BlockProducer>,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
-    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), genesis_config.clone()));
+    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
 
     let view_client =
-        ViewClientActor::new(store.clone(), genesis_config.genesis_time.clone(), runtime.clone())
+        ViewClientActor::new(store.clone(), config.genesis_config.genesis_time.clone(), runtime.clone())
             .unwrap()
             .start();
     let view_client1 = view_client.clone();
@@ -55,10 +53,10 @@ pub fn start_with_config(
         ClientActor::new(
             config.client_config,
             store.clone(),
-            genesis_config.genesis_time,
+            config.genesis_config.genesis_time,
             runtime,
             network_actor.recipient(),
-            block_producer,
+            config.block_producer,
         )
         .unwrap()
     });
