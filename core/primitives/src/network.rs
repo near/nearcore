@@ -22,7 +22,7 @@ pub struct PeerAddr {
 }
 
 impl PeerAddr {
-    pub fn parse(addr_id: &str) -> Result<Self, String> {
+    pub fn parse(addr_id: &str) -> Result<Self, Box<std::error::Error>> {
         let addr_id: Vec<_> = addr_id.split('/').collect();
         let (addr, id) = (addr_id[0], addr_id[1]);
         Ok(PeerAddr {
@@ -41,12 +41,12 @@ impl Display for PeerAddr {
 }
 
 impl TryFrom<PeerInfo> for PeerAddr {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(peer_info: PeerInfo) -> Result<Self, Self::Error> {
         match peer_info.addr {
             Some(addr) => Ok(PeerAddr { id: peer_info.id, addr }),
-            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info)),
+            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info).into()),
         }
     }
 }
@@ -102,7 +102,7 @@ impl From<PeerAddr> for PeerInfo {
 }
 
 impl TryFrom<network_proto::PeerInfo> for PeerInfo {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
         let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
@@ -139,7 +139,7 @@ pub struct Handshake {
 }
 
 impl TryFrom<network_proto::Handshake> for Handshake {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
@@ -195,7 +195,7 @@ impl fmt::Display for PeerMessage {
 }
 
 impl TryFrom<network_proto::PeerMessage> for PeerMessage {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::PeerMessage) -> Result<Self, Self::Error> {
         match proto.message_type {

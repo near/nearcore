@@ -30,7 +30,7 @@ pub struct ShardBlockHeader {
 }
 
 impl TryFrom<chain_proto::ShardBlockHeader> for ShardBlockHeader {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::ShardBlockHeader) -> Result<Self, Self::Error> {
         Ok(ShardBlockHeader {
@@ -64,7 +64,7 @@ pub struct SignedShardBlockHeader {
 }
 
 impl TryFrom<chain_proto::SignedShardBlockHeader> for SignedShardBlockHeader {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::SignedShardBlockHeader) -> Result<Self, Self::Error> {
         let body = proto_to_type(proto.body)?;
@@ -105,7 +105,7 @@ pub struct ShardBlock {
 }
 
 impl TryFrom<chain_proto::ShardBlock> for ShardBlock {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::ShardBlock) -> Result<Self, Self::Error> {
         let transactions =
@@ -136,7 +136,7 @@ pub struct SignedShardBlock {
 }
 
 impl TryFrom<chain_proto::SignedShardBlock> for SignedShardBlock {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::SignedShardBlock) -> Result<Self, Self::Error> {
         let body = proto_to_type(proto.body)?;
@@ -193,7 +193,7 @@ pub struct ReceiptBlock {
 }
 
 impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::ReceiptBlock) -> Result<Self, Self::Error> {
         let path = proto
@@ -201,7 +201,7 @@ impl TryFrom<chain_proto::ReceiptBlock> for ReceiptBlock {
             .into_iter()
             .map(|node| {
                 let direction = if node.direction { Direction::Left } else { Direction::Right };
-                Ok::<_, String>((node.hash.try_into()?, direction))
+                Ok::<_, Self::Error>((node.hash.try_into()?, direction))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let receipts =
@@ -374,7 +374,7 @@ pub struct ChainPayload {
 }
 
 impl TryFrom<chain_proto::ChainPayload> for ChainPayload {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::ChainPayload) -> Result<Self, Self::Error> {
         let transactions =
@@ -457,7 +457,7 @@ pub struct ChainState {
 }
 
 impl TryFrom<chain_proto::ChainState> for ChainState {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::ChainState) -> Result<Self, Self::Error> {
         Ok(ChainState {
@@ -486,7 +486,7 @@ pub struct MissingPayloadRequest {
 }
 
 impl TryFrom<network_proto::MissingPayloadRequest> for MissingPayloadRequest {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::MissingPayloadRequest) -> Result<Self, Self::Error> {
         let transactions =
@@ -527,7 +527,7 @@ pub struct MissingPayloadResponse {
 }
 
 impl TryFrom<network_proto::MissingPayloadResponse> for MissingPayloadResponse {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::MissingPayloadResponse) -> Result<Self, Self::Error> {
         let transactions =
@@ -584,7 +584,7 @@ pub struct Snapshot {
 }
 
 impl TryFrom<network_proto::Snapshot> for Snapshot {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::Snapshot) -> Result<Self, Self::Error> {
         let transactions =

@@ -140,9 +140,9 @@ impl NearMint {
     }
 }
 
-fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
+fn convert_tx(data: &[u8]) -> Result<SignedTransaction, Box<std::error::Error>> {
     parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
-        .map_err(|e| format!("Protobuf error: {}", e))
+        .map_err(|e| format!("Protobuf error: {}", e).into())
         .and_then(TryInto::try_into)
 }
 

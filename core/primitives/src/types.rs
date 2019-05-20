@@ -97,7 +97,7 @@ pub struct ManaAccounting {
 }
 
 impl TryFrom<receipt_proto::ManaAccounting> for ManaAccounting {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: receipt_proto::ManaAccounting) -> Result<Self, Self::Error> {
         match proto_to_result(proto.accounting_info) {
@@ -144,11 +144,11 @@ pub struct AuthorityStake {
 }
 
 impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
         let bls_key = BlsPublicKey::from_base64(&proto.bls_public_key)
-            .map_err(|e| format!("cannot decode signature {:?}", e))?;
+            .map_err::<Self::Error, _>(|e| format!("cannot decode signature {:?}", e).into())?;
         Ok(AuthorityStake {
             account_id: proto.account_id,
             public_key: PublicKey::try_from(proto.public_key.as_str())?,

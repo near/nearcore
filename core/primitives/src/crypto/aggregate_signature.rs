@@ -3,13 +3,13 @@ use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
 
+use pairing::bls12_381::Bls12;
 use pairing::{
     CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
     PrimeFieldRepr, Rand,
 };
-use pairing::bls12_381::Bls12;
-use rand::Rng;
 use rand::rngs::OsRng;
+use rand::Rng;
 
 use crate::serialize::to_base64;
 use crate::traits::{Base64Encoded, ToBytes};
@@ -216,7 +216,7 @@ impl<E: Engine> ToBytes for SecretKey<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let mut repr: <E::Fr as PrimeField>::Repr = Default::default();
@@ -265,10 +265,10 @@ impl fmt::Display for LengthError {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for PublicKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
-        Ok(CompressedPublicKey::try_from(v)?.decompress().map_err(|err| err.to_string())?)
+        Ok(CompressedPublicKey::try_from(v)?.decompress()?)
     }
 }
 
@@ -279,7 +279,7 @@ impl<E: Engine> ToBytes for Signature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(CompressedSignature::try_from(v)?.decode().map_err(|err| err.to_string())?)
@@ -325,12 +325,12 @@ impl<E: Engine> ToBytes for CompressedPublicKey<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedPublicKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G1Affine as CurveAffine>::Compressed::empty();
         encoded.as_mut().copy_from_slice(v);
@@ -364,12 +364,12 @@ impl<E: Engine> ToBytes for CompressedSignature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedSignature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Compressed::empty();
         encoded.as_mut().copy_from_slice(v);
@@ -403,12 +403,12 @@ impl<E: Engine> ToBytes for UncompressedSignature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for UncompressedSignature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Uncompressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Uncompressed::empty();
         encoded.as_mut().copy_from_slice(v);

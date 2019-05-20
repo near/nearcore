@@ -42,7 +42,7 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Decode + DeserializeOwned + std::fmt::Debug>(
+    pub fn get_ser<T: Decode + DeserializeOwned>(
         &self,
         column: Option<u32>,
         key: &[u8],
@@ -151,7 +151,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Decode + DeserializeOwned + std::fmt::Debug + 'a>(
+pub fn read_with_cache<'a, T: Decode + DeserializeOwned + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,

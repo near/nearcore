@@ -8,7 +8,7 @@ use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
 
-use crate::crypto::aggregate_signature::{BlsPublicKey};
+use crate::crypto::aggregate_signature::BlsPublicKey;
 use crate::crypto::signature::{
     bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey,
     SecretKey, Signature,
@@ -101,10 +101,7 @@ pub fn write_block_producer_key_file(
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let key_file = BlockProducerKeyFile {
-        public_key,
-        secret_key,
-    };
+    let key_file = BlockProducerKeyFile { public_key, secret_key };
     let key_file_path = key_store_path.join(Path::new(&key_file.public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
     fs::write(key_file_path, serialized).unwrap();
@@ -161,11 +158,7 @@ pub fn get_or_create_key_file(
 ) -> BlockProducerKeyFile {
     if !key_store_path.exists() {
         let (public_key, secret_key) = get_key_pair();
-        let new_public_key = write_block_producer_key_file(
-            key_store_path,
-            public_key,
-            secret_key,
-        );
+        let new_public_key = write_block_producer_key_file(key_store_path, public_key, secret_key);
         get_block_producer_key_file(key_store_path, Some(new_public_key))
     } else {
         get_block_producer_key_file(key_store_path, public_key)

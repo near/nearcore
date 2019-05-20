@@ -20,12 +20,12 @@ pub struct GroupSignature {
 }
 
 impl TryFrom<types_proto::GroupSignature> for GroupSignature {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
-    fn try_from(proto: types_proto::GroupSignature) -> Result<Self, String> {
+    fn try_from(proto: types_proto::GroupSignature) -> Result<Self, Self::Error> {
         Base64Encoded::from_base64(&proto.signature)
             .map(|signature| GroupSignature { signature, authority_mask: proto.authority_mask })
-            .map_err(|e| format!("cannot decode signature {:?}", e))
+            .map_err(|e| format!("cannot decode signature {:?}", e).into())
     }
 }
 

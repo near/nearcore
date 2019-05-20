@@ -517,7 +517,7 @@ impl PartialEq for SignedTransaction {
 }
 
 impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(t: transaction_proto::SignedTransaction) -> Result<Self, Self::Error> {
         let mut bytes;
@@ -554,7 +554,7 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::DeleteKey(DeleteKeyTransaction::from(t))
             }
-            None => return Err("No such transaction body type".to_string()),
+            None => return Err("No such transaction body type".into()),
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
         let hash = hash(&bytes);
@@ -630,7 +630,7 @@ pub struct AsyncCall {
 }
 
 impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
         match proto_to_result(proto.accounting_info) {
@@ -786,7 +786,7 @@ pub struct CallbackResult {
 }
 
 impl TryFrom<receipt_proto::CallbackResult> for CallbackResult {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: receipt_proto::CallbackResult) -> Result<Self, Self::Error> {
         match proto_to_result(proto.info) {
@@ -839,7 +839,7 @@ pub struct ReceiptTransaction {
 }
 
 impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: receipt_proto::ReceiptTransaction) -> Result<Self, Self::Error> {
         let body = match proto.body {
@@ -855,7 +855,7 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
                 accounting.try_into().map(ReceiptBody::ManaAccounting)
             }
-            None => Err("No such receipt body type".to_string()),
+            None => Err("No such receipt body type".into()),
         };
         match body {
             Ok(body) => Ok(ReceiptTransaction {

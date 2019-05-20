@@ -65,7 +65,7 @@ pub enum Message {
 }
 
 impl TryFrom<network_proto::Message> for Message {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::Message) -> Result<Self, Self::Error> {
         match proto.message_type {

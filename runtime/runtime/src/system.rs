@@ -72,7 +72,7 @@ pub fn staking(
     if sender.amount >= body.amount {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: PublicKey::try_from(body.public_key.as_str())?,
+            public_key: PublicKey::try_from(body.public_key.as_str()).map_err(|err| err.to_string())?,
             bls_public_key: BlsPublicKey::from_base64(&body.bls_public_key)
                 .map_err(|e| format!("{}", e))?,
             amount: body.amount,

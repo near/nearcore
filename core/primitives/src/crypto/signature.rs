@@ -5,10 +5,10 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::logging::pretty_hash;
+use crate::serialize::{from_base64, to_base64};
 use crate::traits::{Base64Encoded, ToBytes};
 use crate::types::ReadablePublicKey;
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
-use crate::serialize::{from_base64, to_base64};
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -65,7 +65,7 @@ impl Hash for PublicKey {
 }
 
 impl TryFrom<&[u8]> for PublicKey {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
@@ -79,23 +79,24 @@ impl TryFrom<&[u8]> for PublicKey {
 }
 
 impl TryFrom<Vec<u8>> for PublicKey {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let bytes: &[u8] = bytes.as_ref();
-        Self::try_from(bytes).map_err(|e| format!("{}", e))
+        Self::try_from(bytes)
     }
 }
 
 impl TryFrom<&str> for PublicKey {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-        let bytes = from_base64(s)
-            .map_err(|e| format!("Failed to convert public key from base64: {}", e))?;
+        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+            format!("Failed to convert public key from base64: {}", e).into()
+        })?;
         if bytes.len() != array.len() {
-            return Err(format!("decoded {} is not long enough for public key", s));
+            return Err(format!("decoded {} is not long enough for public key", s).into());
         }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);
@@ -105,7 +106,7 @@ impl TryFrom<&str> for PublicKey {
 }
 
 impl TryFrom<&[u8]> for SecretKey {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
@@ -119,14 +120,15 @@ impl TryFrom<&[u8]> for SecretKey {
 }
 
 impl TryFrom<&str> for SecretKey {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
-        let bytes = from_base64(s)
-            .map_err(|e| format!("Failed to convert secret key from base64: {}", e))?;
+        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+            format!("Failed to convert secret key from base64: {}", e).into()
+        })?;
         if bytes.len() != array.len() {
-            return Err(format!("decoded {} is not long enough for secret key", s));
+            return Err(format!("decoded {} is not long enough for secret key", s).into());
         }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);
@@ -136,7 +138,7 @@ impl TryFrom<&str> for SecretKey {
 }
 
 impl TryFrom<&[u8]> for Signature {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
@@ -150,23 +152,24 @@ impl TryFrom<&[u8]> for Signature {
 }
 
 impl TryFrom<Vec<u8>> for Signature {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let bytes: &[u8] = bytes.as_ref();
-        Self::try_from(bytes).map_err(|e| format!("{}", e))
+        Self::try_from(bytes)
     }
 }
 
 impl TryFrom<&str> for Signature {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-        let bytes = from_base64(s)
-            .map_err(|e| format!("Failed to convert signature from base58: {}", e))?;
+        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+            format!("Failed to convert signature from base58: {}", e).into()
+        })?;
         if bytes.len() != array.len() {
-            return Err(format!("decoded {} is not long enough for signature", s));
+            return Err(format!("decoded {} is not long enough for signature", s).into());
         }
         let bytes_arr = &bytes[..array.len()];
         array.copy_from_slice(bytes_arr);

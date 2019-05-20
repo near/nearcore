@@ -23,7 +23,7 @@ pub struct BeaconBlockHeader {
 }
 
 impl TryFrom<chain_proto::BeaconBlockHeader> for BeaconBlockHeader {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::BeaconBlockHeader) -> Result<Self, Self::Error> {
         let parent_hash = proto.parent_hash.try_into()?;
@@ -60,7 +60,7 @@ pub struct SignedBeaconBlockHeader {
 }
 
 impl TryFrom<chain_proto::SignedBeaconBlockHeader> for SignedBeaconBlockHeader {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::SignedBeaconBlockHeader) -> Result<Self, Self::Error> {
         let hash = proto.hash.try_into()?;
@@ -87,7 +87,7 @@ pub struct BeaconBlock {
 }
 
 impl TryFrom<chain_proto::BeaconBlock> for BeaconBlock {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::BeaconBlock) -> Result<Self, Self::Error> {
         proto_to_result(proto.header)
@@ -113,7 +113,7 @@ pub struct SignedBeaconBlock {
 }
 
 impl TryFrom<chain_proto::SignedBeaconBlock> for SignedBeaconBlock {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::SignedBeaconBlock) -> Result<Self, Self::Error> {
         let body = proto_to_type(proto.body)?;

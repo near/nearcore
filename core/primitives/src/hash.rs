@@ -19,10 +19,10 @@ impl<'a> From<&'a CryptoHash> for String {
 }
 
 impl TryFrom<String> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = from_base64(&s).map_err(|e| format!("{}", e))?;
+        let bytes = from_base64(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
         Self::try_from(bytes)
     }
 }
@@ -46,11 +46,11 @@ impl AsMut<[u8]> for CryptoHash {
 }
 
 impl TryFrom<&[u8]> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 32 {
-            return Err("incorrect length for hash".to_string());
+            return Err("incorrect length for hash".into());
         }
         let mut buf = [0; 32];
         buf.copy_from_slice(bytes);
@@ -59,7 +59,7 @@ impl TryFrom<&[u8]> for CryptoHash {
 }
 
 impl TryFrom<Vec<u8>> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(v.as_ref())

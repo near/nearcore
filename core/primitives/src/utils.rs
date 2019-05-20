@@ -92,17 +92,19 @@ pub fn to_string_value(s: String) -> StringValue {
     res
 }
 
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, String> {
-    proto.into_option().ok_or_else(|| "Bad Proto".to_string())
+pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<std::error::Error>> {
+    proto.into_option().ok_or_else(|| "Bad Proto".into())
 }
 
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, String>
+pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<std::error::Error>>
 where
-    U: TryFrom<T, Error = String>,
+    U: TryFrom<T, Error = Box<std::error::Error>>,
 {
     proto_to_result(proto).and_then(TryInto::try_into)
 }
 
+/// A wrapper around Option<T> that provides native Display trait.
+/// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);
 
 impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
