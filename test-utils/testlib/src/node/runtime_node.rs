@@ -3,7 +3,7 @@ use crate::runtime_utils::get_runtime_and_trie;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
 use near_primitives::types::{AccountId, Balance};
 
@@ -61,7 +61,7 @@ impl Node for RuntimeNode {
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<InMemorySigner> {
+    fn signer(&self) -> Arc<EDSigner> {
         self.signer.clone()
     }
 

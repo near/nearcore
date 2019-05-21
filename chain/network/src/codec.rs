@@ -99,7 +99,6 @@ mod test {
             peer_id: peer_info.id,
             account_id: Some("alice.near".to_string()),
             listen_port: None,
-            peers_info: vec![peer_info],
             chain_info: PeerChainInfo { height: 0, total_weight: 0.into() },
         };
         let msg = PeerMessage::Handshake(fake_handshake);
@@ -110,7 +109,7 @@ mod test {
     fn test_peer_message_info_gossip() {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = PeerInfo::random();
-        let msg = PeerMessage::InfoGossip(vec![peer_info1, peer_info2]);
+        let msg = PeerMessage::PeersResponse(vec![peer_info1, peer_info2]);
         test_codec(msg);
     }
 }

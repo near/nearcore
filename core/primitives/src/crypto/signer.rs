@@ -3,18 +3,18 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process;
+use std::sync::Arc;
 
 use rand::distributions::Alphanumeric;
 use rand::rngs::OsRng;
 use rand::Rng;
 
-use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::crypto::aggregate_signature::BlsPublicKey;
 use crate::crypto::signature::{
     bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey,
     SecretKey, Signature,
 };
 use crate::types::{AccountId, PartialSignature};
-use std::sync::Arc;
 
 /// Trait to abstract the signer account.
 pub trait AccountSigner: Sync + Send {

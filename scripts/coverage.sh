@@ -15,8 +15,9 @@ rm -rf kcov-master
 rm -rf target/debug/deps/test*
 rm -rf target/debug/deps/nearcore*
 rm -rf target/debug/deps/alphanet*
-rm -rf target/debug/deps/near*
 rm -rf target/debug/deps/nearmint*
+rm -rf target/debug/deps/near
+rm -rf target/debug/deps/near-*
 
 for file in target/debug/deps/*
 do

@@ -22,12 +22,11 @@ message Handshake {
     bytes peer_id = 2;
     google.protobuf.StringValue account_id = 3;
     google.protobuf.UInt32Value listen_port = 4;
-    repeated PeerInfo peers_info = 5;
     PeerChainInfo chain_info = 6;
 }
 
-message PeerInfoGossip {
-    repeated PeerInfo info_gossip = 1;
+message PeersResponse {
+    repeated PeerInfo peers = 1;
 }
 
 message BlockApproval {
@@ -47,14 +46,15 @@ message BlockHeaders {
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
-        PeerInfoGossip info_gossip = 2;
-        Block block = 3;
-        BlockHeader block_header_announce = 4;
-        SignedTransaction transaction = 5;
-        BlockApproval block_approval = 6;
+        bool peers_request = 2;
+        PeersResponse peers_response = 3;
+        BlockHeaderRequest block_headers_request = 4;
+        BlockHeaders block_headers = 5;
+        BlockHeader block_header_announce = 6;
         bytes block_request = 7;
-        BlockHeaderRequest block_headers_request = 8;
-        BlockHeaders block_headers = 9;
+        Block block = 8;
+        BlockApproval block_approval = 9;
+        SignedTransaction transaction = 10;
     }
 }
 

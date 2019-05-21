@@ -1,19 +1,14 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::Path;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use actix::System;
-
-use near::config::Config;
 use near::{start_with_config, NearConfig};
-use near_client::ClientActor;
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::types::AccountId;
 
+use crate::actix_utils::ShutdownableThread;
 use crate::node::Node;
-use crate::tokio_utils::ShutdownableThread;
+use crate::user::rpc_user::RpcUser;
 use crate::user::User;
 
 pub enum ThreadNodeState {
@@ -24,7 +19,6 @@ pub enum ThreadNodeState {
 pub struct ThreadNode {
     pub config: NearConfig,
     pub state: ThreadNodeState,
-    use_rpc_user: bool,
 }
 
 fn start_thread(config: NearConfig) -> ShutdownableThread {
@@ -58,12 +52,8 @@ impl Node for ThreadNode {
         }
     }
 
-    fn signer(&self) -> Arc<InMemorySigner> {
-        // self.config.block_producer.clone().expect("Must have a signer").signer
-        Arc::new(InMemorySigner::from_seed(
-            &self.account_id().unwrap(),
-            &self.account_id().unwrap(),
-        ))
+    fn signer(&self) -> Arc<EDSigner> {
+        self.config.block_producer.clone().unwrap().signer.clone()
     }
 
     fn as_thread_ref(&self) -> &ThreadNode {
@@ -82,26 +72,13 @@ impl Node for ThreadNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        unimplemented!();
-        //        if self.use_rpc_user {
-        //            Box::new(RpcUser::new(SocketAddr::new(
-        //                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-        //                self.config.rpc_cfg.rpc_port,
-        //            )))
-        //        } else {
-        //            Box::new(ThreadUser::new(self.client.clone()))
-        //        }
+        Box::new(RpcUser::new(&self.config.rpc_config.addr))
     }
 }
 
 impl ThreadNode {
     /// Side effects: create storage, open database, lock database
     pub fn new(config: NearConfig) -> ThreadNode {
-        ThreadNode { config, state: ThreadNodeState::Stopped, use_rpc_user: false }
-    }
-
-    /// Enables or disables using `RPCUser` instead of `ThreadUser`.
-    pub fn use_rpc_user(&mut self, value: bool) {
-        self.use_rpc_user = value;
+        ThreadNode { config, state: ThreadNodeState::Stopped }
     }
 }

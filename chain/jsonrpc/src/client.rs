@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
@@ -9,6 +11,9 @@ use near_primitives::transaction::FinalTransactionResult;
 use near_primitives::types::BlockIndex;
 
 use crate::message::{from_slice, Message};
+
+/// Timeout for establishing connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 
 type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
 
@@ -105,6 +110,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
 
 /// Create new JSON RPC client that connects to the given address.
 pub fn new_client(server_addr: &str) -> JsonRpcClient {
-    let client = Client::default();
+    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
     JsonRpcClient::new(server_addr, client)
 }

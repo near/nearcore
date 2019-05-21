@@ -2,11 +2,12 @@ use std::panic;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use near::config::{create_testnet_configs, Config, GenesisConfig};
+use near::config::{create_testnet_configs, GenesisConfig};
 use near::NearConfig;
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
+use node_runtime::state_viewer::AccountViewCallResult;
 
 pub use crate::node::runtime_node::RuntimeNode;
 use crate::node::thread_node::ThreadNode;
@@ -40,6 +41,10 @@ pub trait Node: Send + Sync {
 
     fn kill(&mut self);
 
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+        self.user().view_account(account_id)
+    }
+
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         self.user().view_balance(account_id)
     }
@@ -52,7 +57,7 @@ pub trait Node: Send + Sync {
         self.user().get_account_nonce(account_id)
     }
 
-    fn signer(&self) -> Arc<InMemorySigner>;
+    fn signer(&self) -> Arc<EDSigner>;
 
     fn is_running(&self) -> bool;
 
@@ -90,7 +95,7 @@ impl Node {
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (mut configs, signers, network_signers, genesis_config) =
+    let (configs, signers, network_signers, genesis_config) =
         create_testnet_configs(num_nodes, 0, prefix, true);
     let mut result = vec![];
     for i in 0..num_nodes {

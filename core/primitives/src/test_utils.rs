@@ -27,6 +27,12 @@ pub fn init_test_logger() {
         .try_init();
 }
 
+pub fn init_integration_logger() {
+    let _ = env_logger::Builder::new()
+        .filter(None, LevelFilter::Info)
+        .try_init();
+}
+
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);

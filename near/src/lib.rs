@@ -5,7 +5,7 @@ use std::sync::Arc;
 use actix::{Actor, Addr, AsyncContext};
 use log::info;
 
-use near_client::{BlockProducer, ClientActor, ViewClientActor};
+use near_client::{ClientActor, ViewClientActor};
 use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;

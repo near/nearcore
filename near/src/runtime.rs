@@ -24,6 +24,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use crate::config::GenesisConfig;
 
 /// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
+/// TODO: this possibly should be merged with the runtime cargo or at least reconsiled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
 

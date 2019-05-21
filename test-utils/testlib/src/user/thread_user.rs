@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actix::Addr;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, ViewClientActor, Query};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
@@ -15,6 +15,7 @@ use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 use crate::runtime_utils::to_receipt_block;
 use crate::user::{User, POISONED_LOCK_ERR};
 use near_primitives::receipt::ReceiptInfo;
+use futures::future::Future;
 
 pub struct ThreadUser {
     pub client_addr: Addr<ClientActor>,
@@ -32,6 +33,8 @@ impl ThreadUser {
 
 impl User for ThreadUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+        let result = self.view_client_addr.send(Query { path: format!("account/{}", account_id), data: vec![] }).wait();
+        println!("{:?}", result);
         Err("".to_string())
     }
 
@@ -48,6 +51,8 @@ impl User for ThreadUser {
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
+        let result = self.view_client_addr.send(Query { path: format!("account/{}", account_id), data: vec![] }).wait();
+        println!("{:?}", result);
         None
     }
 

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use actix::io::{FramedWrite, WriteHandler};
 use actix::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
-    Handler, Recipient, Running, StreamHandler, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, Running, StreamHandler, WrapFuture,
 };
 use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
@@ -16,7 +16,7 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::Codec;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatus, PeerType, SendMessage, Unregister,
+    PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -118,16 +118,14 @@ impl Peer {
             PeerMessage::BlockApproval(account_id, hash, signature) => {
                 NetworkClientMessages::BlockApproval(account_id, hash, signature)
             }
-            PeerMessage::BlockRequest(hash) => {
-                NetworkClientMessages::BlockRequest(hash)
-            }
+            PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkClientMessages::BlockHeadersRequest(hashes)
             }
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         };
         self.client_addr
             .send(network_client_msg)
@@ -138,7 +136,7 @@ impl Peer {
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.peer_status = PeerStatus::Banned(ban_reason);
                         ctx.stop();
-                    },
+                    }
                     Ok(NetworkClientResponses::Block(block)) => {
                         act.send_message(PeerMessage::Block(block))
                     }
@@ -206,7 +204,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                 }
                 let peer_info = PeerInfo {
                     id: handshake.peer_id,
-                    addr: Some(self.peer_addr),
+                    addr: handshake.listen_port.map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: handshake.account_id.clone(),
                 };
                 self.peer_manager_addr
@@ -238,8 +236,18 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                     })
                     .wait(ctx);
             }
-            (_, PeerStatus::Ready, PeerMessage::InfoGossip(_)) => {
-                // TODO: implement gossip of peers.
+            (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
+                self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
+                    if let Ok(peers) = res {
+                        debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
+                        act.send_message(PeerMessage::PeersResponse(peers.peers));
+                    }
+                    actix::fut::ok(())
+                }).spawn(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
+                debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
+                self.peer_manager_addr.do_send(PeersResponse { peers });
             }
             (_, PeerStatus::Ready, msg) => {
                 self.receive_client_message(ctx, msg);

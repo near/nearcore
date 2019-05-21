@@ -21,12 +21,14 @@ base64 = "0.10.0"
 byteorder = "1.2"
 tempdir = "0.3"
 tokio-signal = "0.2"
+protobuf = "2.4"
 
 near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 near-store = { path = "../../core/store" }
-near-client = { path = "../../chain/client" }
 node-runtime = { path = "../../runtime/runtime" }
+near-client = { path = "../../chain/client" }
+near-jsonrpc = { path = "../../chain/jsonrpc" }
 near = { path = "../../near" }
 
 [dependencies.reqwest]

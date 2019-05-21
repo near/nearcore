@@ -125,8 +125,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.tx_pool.insert_transaction(valid_transaction);
                     NetworkClientResponses::NoResponse
                 }
-                // TODO: should we ban for invalid tx?
-                Err(_) => NetworkClientResponses::NoResponse,
+                Err(err) => {
+                    warn!(target: "client", "Invalid Tx: {}", err);
+                    // TODO: should we ban for invalid tx?
+                    NetworkClientResponses::NoResponse
+                },
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
@@ -476,7 +479,7 @@ impl ClientActor {
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
         if headers.len() == 0 {
-            return false;
+            return true;
         }
         match self.chain.sync_block_headers(headers) {
             Ok(_) => true,

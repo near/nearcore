@@ -1,14 +1,6 @@
 use std::sync::mpsc;
-use std::thread::JoinHandle;
-use std::{panic, thread};
 
-use actix::{Actor, Addr, System};
-use futures::future::IntoFuture;
-use futures::stream::Stream;
-use log::{debug, error};
-use tokio::prelude::Future;
-use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use actix::System;
 
 pub struct ShutdownableThread {
     pub join: Option<std::thread::JoinHandle<()>>,
@@ -25,7 +17,7 @@ impl ShutdownableThread {
             let system = System::new(name);
             f();
             tx.send(System::current()).unwrap();
-            system.run();
+            system.run().unwrap();
             ()
         });
 

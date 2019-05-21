@@ -118,7 +118,11 @@ impl TryFrom<&str> for PeerInfo {
         }
         Ok(PeerInfo {
             id: PublicKey::try_from(chunks[0])?.into(),
-            addr: Some(chunks[1].parse().map_err(|err| format!("Invalid ip address format for {}: {}", chunks[1], err))?),
+            addr: Some(
+                chunks[1].parse().map_err(|err| {
+                    format!("Invalid ip address format for {}: {}", chunks[1], err)
+                })?,
+            ),
             account_id: None,
         })
     }
@@ -202,8 +206,6 @@ pub struct Handshake {
     pub account_id: Option<AccountId>,
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
-    /// Sender's information about known peers.
-    pub peers_info: PeersInfo,
     /// Peer's chain information.
     pub chain_info: PeerChainInfo,
 }
@@ -215,14 +217,7 @@ impl Handshake {
         listen_port: Option<u16>,
         chain_info: PeerChainInfo,
     ) -> Self {
-        Handshake {
-            version: PROTOCOL_VERSION,
-            peer_id,
-            account_id,
-            listen_port,
-            peers_info: vec![],
-            chain_info,
-        }
+        Handshake { version: PROTOCOL_VERSION, peer_id, account_id, listen_port, chain_info }
     }
 }
 
@@ -232,8 +227,6 @@ impl TryFrom<network_proto::Handshake> for Handshake {
     fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
-        let peers_info =
-            proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
         let chain_info = proto_to_type(proto.chain_info)?;
         Ok(Handshake {
@@ -241,7 +234,6 @@ impl TryFrom<network_proto::Handshake> for Handshake {
             peer_id: peer_id.into(),
             account_id,
             listen_port,
-            peers_info,
             chain_info,
         })
     }
@@ -258,9 +250,6 @@ impl From<Handshake> for network_proto::Handshake {
         network_proto::Handshake {
             version: handshake.version,
             peer_id: handshake.peer_id.into(),
-            peers_info: RepeatedField::from_iter(
-                handshake.peers_info.into_iter().map(std::convert::Into::into),
-            ),
             account_id,
             listen_port,
             chain_info: SingularPtrField::some(handshake.chain_info.into()),
@@ -269,19 +258,20 @@ impl From<Handshake> for network_proto::Handshake {
     }
 }
 
-pub type PeersInfo = Vec<PeerInfo>;
-
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
-    InfoGossip(PeersInfo),
 
-    Block(Block),
-    BlockHeaderAnnounce(BlockHeader),
-    BlockRequest(CryptoHash),
+    PeersRequest,
+    PeersResponse(Vec<PeerInfo>),
+
     BlockHeadersRequest(Vec<CryptoHash>),
-    BlockApproval(AccountId, CryptoHash, Signature),
     BlockHeaders(Vec<BlockHeader>),
+    BlockHeaderAnnounce(BlockHeader),
+
+    BlockRequest(CryptoHash),
+    Block(Block),
+    BlockApproval(AccountId, CryptoHash, Signature),
 
     Transaction(SignedTransaction),
 }
@@ -290,14 +280,15 @@ impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
-            PeerMessage::InfoGossip(_) => f.write_str("InfoGossip"),
-            PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
-            PeerMessage::Transaction(_) => f.write_str("Transaction"),
-            PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+            PeerMessage::PeersRequest => f.write_str("PeersRequest"),
+            PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
-            PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::BlockHeaders(_) => f.write_str("BlockHeaders"),
+            PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
+            PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
+            PeerMessage::Block(_) => f.write_str("Block"),
+            PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+            PeerMessage::Transaction(_) => f.write_str("Transaction"),
         }
     }
 }
@@ -310,13 +301,16 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake)) => {
                 hand_shake.try_into().map(PeerMessage::Handshake)
             }
-            Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip)) => {
-                let peer_info = gossip
-                    .info_gossip
+            Some(network_proto::PeerMessage_oneof_message_type::peers_request(_)) => {
+                Ok(PeerMessage::PeersRequest)
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::peers_response(peers_response)) => {
+                let peers_response = peers_response
+                    .peers
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(PeerMessage::InfoGossip(peer_info))
+                Ok(PeerMessage::PeersResponse(peers_response))
             }
             Some(network_proto::PeerMessage_oneof_message_type::block(block)) => {
                 Ok(PeerMessage::Block(block.try_into()?))
@@ -366,14 +360,17 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::Handshake(hand_shake) => {
                 Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake.into()))
             }
-            PeerMessage::InfoGossip(peers_info) => {
-                let gossip = network_proto::PeerInfoGossip {
-                    info_gossip: RepeatedField::from_iter(
-                        peers_info.into_iter().map(std::convert::Into::into),
+            PeerMessage::PeersRequest => {
+                Some(network_proto::PeerMessage_oneof_message_type::peers_request(true))
+            }
+            PeerMessage::PeersResponse(peers_response) => {
+                let peers_response = network_proto::PeersResponse {
+                    peers: RepeatedField::from_iter(
+                        peers_response.into_iter().map(std::convert::Into::into),
                     ),
                     ..Default::default()
                 };
-                Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
+                Some(network_proto::PeerMessage_oneof_message_type::peers_response(peers_response))
             }
             PeerMessage::Block(block) => {
                 Some(network_proto::PeerMessage_oneof_message_type::block(block.into()))
@@ -431,19 +428,25 @@ pub struct NetworkConfig {
     pub reconnect_delay: Duration,
     pub bootstrap_peers_period: Duration,
     pub peer_max_count: u32,
+    /// Duration of the ban for misbehaving peers.
+    pub ban_window: Duration,
+    /// Remove expired peers.
+    pub peer_expiration_duration: Duration,
+    /// Maximum number of peer addresses we should ever send.
+    pub max_send_peers: u32,
 }
 
 /// Status of the known peers.
-#[derive(Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan),
+    Banned(ReasonForBan, DateTime<Utc>),
 }
 
 /// Information node stores about known peers.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -509,12 +512,42 @@ impl Message for Consolidate {
     type Result = bool;
 }
 
+/// Unregister message from Peer to PeerManager.
 #[derive(Message)]
 pub struct Unregister {
     pub peer_id: PeerId,
 }
 
-// Ban reason.
+pub struct PeerList {
+    pub peers: Vec<PeerInfo>,
+}
+
+/// Requesting peers from peer manager to communicate to a peer.
+pub struct PeersRequest {}
+
+impl Message for PeersRequest {
+    type Result = PeerList;
+}
+
+/// Received new peers from another peer.
+#[derive(Message)]
+pub struct PeersResponse {
+    pub peers: Vec<PeerInfo>,
+}
+
+impl<A, M> MessageResponse<A, M> for PeerList
+where
+    A: Actor,
+    M: Message<Result = PeerList>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+/// Ban reason.
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub enum ReasonForBan {
     None = 0,

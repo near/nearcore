@@ -187,6 +187,10 @@ impl NearConfig {
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
                 peer_max_count: config.network.max_peers,
+                // TODO: push this into config.
+                ban_window: Duration::from_secs(3 * 60 * 60),
+                max_send_peers: 512,
+                peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
             },
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),
@@ -388,12 +392,13 @@ pub fn create_testnet_configs(
         let mut config = Config::default();
         if local_ports {
             config.network.addr = format!("0.0.0.0:{}", if i == 0 { 26567 } else { 0 });
-            config.rpc.addr = format!("0.0.0.0:{}", if i == 0 { 3030 } else { 0 });
+            config.rpc.addr = format!("0.0.0.0:{}", 3030 + i);
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
                 format!("{}@127.0.0.1:26567", network_signers[0].public_key)
-            }
+            };
+            config.network.skip_sync_wait = num_validators == 1;
         }
         configs.push(config);
     }

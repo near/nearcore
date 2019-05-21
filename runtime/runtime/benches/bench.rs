@@ -22,7 +22,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         nonce: node.get_account_nonce(&account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: "test_contract".to_string(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: 0,
     })
     .sign(&*node.signer());

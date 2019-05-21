@@ -8,7 +8,7 @@ use near_client::test_utils::setup_no_network;
 use near_client::ViewClientActor;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::{start_http, RpcConfig};
-use near_network::test_utils::{open_port, WaitOrTimeout, wait_or_panic};
+use near_network::test_utils::{open_port, wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{FinalTransactionStatus, TransactionBody};
@@ -91,7 +91,7 @@ fn test_send_tx_commit() {
         );
         wait_or_panic(10000);
     })
-        .unwrap();
+    .unwrap();
 }
 
 /// Retrieve blocks via json rpc
