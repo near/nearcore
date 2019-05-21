@@ -282,8 +282,7 @@ impl Application for NearMint {
                 (&mut self.state_update, &self.apply_state)
             {
                 let mut incoming_receipts = HashMap::default();
-                let tx_result = Runtime::process_transaction(
-                    &self.runtime,
+                let tx_result = self.runtime.process_transaction(
                     state_update,
                     apply_state.block_index,
                     &tx,
@@ -304,8 +303,7 @@ impl Application for NearMint {
                     while !receipts.is_empty() {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
-                            let receipt_result = Runtime::process_receipt(
-                                &mut self.runtime,
+                            let receipt_result = self.runtime.process_receipt(
                                 state_update,
                                 0,
                                 apply_state.block_index,
@@ -411,8 +409,7 @@ mod tests {
         nearmint.commit(&req_commit);
 
         let alice_info = nearmint.view_account(nearmint.root, &"near.0".to_string()).unwrap();
-        // Should be strictly less, because the rent was applied too.
-        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        assert_eq!(alice_info.amount, TESTING_INIT_BALANCE - money_to_send);
         let bob_info = nearmint.view_account(nearmint.root, &"near.1".to_string()).unwrap();
         // The balance was applied but the rent was not subtracted because we have not performed
         // interactions from that account.

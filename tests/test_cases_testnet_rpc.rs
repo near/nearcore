@@ -195,11 +195,6 @@ mod test {
     }
 
     #[test]
-    fn test_access_key_smart_contract_reject_positive_amount_testnet() {
-        run_testnet_test!(test_access_key_smart_contract_reject_positive_amount);
-    }
-
-    #[test]
     fn test_access_key_smart_contract_reject_method_name_testnet() {
         run_testnet_test!(test_access_key_smart_contract_reject_method_name);
     }

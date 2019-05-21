@@ -10,15 +10,13 @@ use near_primitives::transaction::{
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use near_primitives::types::{AccountId, AccountingInfo, AuthorityStake};
+use near_primitives::types::{AccountId, AuthorityStake};
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
-    key_for_code, key_for_tx_stake,
+    key_for_code,
 };
 use near_store::{get, set, TrieUpdate};
 use wasm::types::ContractCode;
-
-use crate::TxTotalStake;
 
 /// const does not allow function call, so have to resort to this
 pub fn system_account() -> AccountId {
@@ -32,7 +30,7 @@ pub fn send_money(
     transaction: &SendMoneyTransaction,
     hash: CryptoHash,
     sender: &mut Account,
-    accounting_info: AccountingInfo,
+    refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if transaction.amount == 0 {
         return Err("Sending 0 tokens".to_string());
@@ -49,8 +47,7 @@ pub fn send_money(
                 vec![],
                 vec![],
                 transaction.amount,
-                0,
-                accounting_info,
+                refund_account_id.clone(),
             )),
         );
         Ok(vec![receipt])
@@ -72,7 +69,8 @@ pub fn staking(
     if sender.amount >= body.amount {
         authority_proposals.push(AuthorityStake {
             account_id: sender_account_id.clone(),
-            public_key: PublicKey::try_from(body.public_key.as_str()).map_err(|err| err.to_string())?,
+            public_key: PublicKey::try_from(body.public_key.as_str())
+                .map_err(|err| err.to_string())?,
             bls_public_key: BlsPublicKey::from_base64(&body.bls_public_key)
                 .map_err(|e| format!("{}", e))?,
             amount: body.amount,
@@ -122,7 +120,7 @@ pub fn create_account(
     body: &CreateAccountTransaction,
     hash: CryptoHash,
     sender: &mut Account,
-    accounting_info: AccountingInfo,
+    refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
         return Err(format!("Account {} does not match requirements", body.new_account_id));
@@ -139,8 +137,7 @@ pub fn create_account(
                 SYSTEM_METHOD_CREATE_ACCOUNT.to_vec(),
                 body.public_key.clone(),
                 body.amount,
-                0,
-                accounting_info,
+                refund_account_id.clone(),
             )),
         );
         Ok(vec![receipt])
@@ -282,9 +279,5 @@ pub fn system_create_account(
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
     set(state_update, account_id_bytes, &new_account);
-    // TODO(#347): Remove default TX staking once tx staking is properly implemented
-    let mut tx_total_stake = TxTotalStake::new(0);
-    tx_total_stake.add_active_stake(100);
-    set(state_update, key_for_tx_stake(&account_id, &None), &tx_total_stake);
     Ok(vec![])
 }

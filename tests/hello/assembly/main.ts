@@ -145,13 +145,13 @@ export function callPromise(args: PromiseArgs): void {
       args.receiver,
       args.methodName,
       inputArgs.encode(),
-      args.additionalMana);
+      args.balance);
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     promise = promise.then(
         args.callback,
         inputArgs.encode(),
-        args.callbackAdditionalMana);
+        args.callbackBalance);
   }
   promise.returnAsResult();
 }

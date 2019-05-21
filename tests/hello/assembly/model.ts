@@ -2,10 +2,10 @@ export class PromiseArgs {
     receiver: string;
     methodName: string;
     args: PromiseArgs;
-    additionalMana: i32;
+    balance: i32;
     callback: string;
     callbackArgs: PromiseArgs;
-    callbackAdditionalMana: i32;
+    callbackBalance: i32;
 }
 
 export class InputPromiseArgs {
