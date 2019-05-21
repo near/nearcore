@@ -30,10 +30,16 @@ pub fn validate_tx_result(
     receipt_depth: usize,
 ) {
     let mut transaction_result = node_user.get_transaction_result(&hash);
+    if transaction_result.status != TransactionStatus::Completed {
+        println!("Tx failed: {:?}", transaction_result);
+    }
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     for _ in 0..receipt_depth {
         assert_eq!(transaction_result.receipts.len(), 1);
         transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
+        if transaction_result.status != TransactionStatus::Completed {
+            println!("Tx failed: {:?}", transaction_result);
+        }
         assert_eq!(transaction_result.status, TransactionStatus::Completed);
     }
     assert_eq!(transaction_result.receipts.len(), 0);

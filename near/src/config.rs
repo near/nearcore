@@ -17,7 +17,7 @@ use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
 use near_primitives::serialize::to_base64;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 /// Stake used by authorities to validate used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
