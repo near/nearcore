@@ -289,7 +289,6 @@ mod tests {
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
-        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add and right away delete element.
@@ -298,7 +297,6 @@ mod tests {
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
-        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
 
         // Add, apply changes and then delete element.
@@ -311,7 +309,6 @@ mod tests {
         trie_update.remove(b"dog");
         let (store_update, new_root) = trie_update.finalize();
         store_update.commit().ok();
-        trie.clear_cache();
         assert_eq!(new_root, MerkleHash::default());
     }
 

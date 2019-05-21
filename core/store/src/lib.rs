@@ -130,7 +130,7 @@ impl StoreUpdate {
 
     pub fn commit(self) -> Result<(), io::Error> {
         if let Some(trie) = self.trie {
-            trie.clear_cache();
+            trie.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction)
     }

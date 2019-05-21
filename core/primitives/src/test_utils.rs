@@ -9,7 +9,6 @@ use rand_xorshift::XorShiftRng;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
-use crate::hash::CryptoHash;
 use crate::transaction::{SignedTransaction, TransactionBody};
 
 pub fn init_test_logger() {
