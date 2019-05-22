@@ -714,7 +714,10 @@ impl ClientActor {
         // TODO: figure out how to validate better before hitting the disk? For example authority and account cache to validate signature first.
         let header = match self.chain.get_block_header(&hash) {
             Ok(header) => header,
-            Err(_) => return false,
+            Err(_) => {
+                // TODO: This header is missing, should collect for later? should have better way to verify then.
+                return true
+            },
         };
         // If given account is not current block proposer.
         let position = self

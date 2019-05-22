@@ -123,7 +123,7 @@ impl JsonRpcHandler {
 
     fn send_tx_commit(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
         let tx = ok_or_rpc_error!(parse_tx(params));
-        let hash = tx.get_hash();
+        let _hash = tx.get_hash();
         Box::new(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))

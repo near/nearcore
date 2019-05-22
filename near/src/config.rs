@@ -18,6 +18,7 @@ use near_jsonrpc::RpcConfig;
 use near_network::NetworkConfig;
 use near_primitives::crypto::signer::{InMemorySigner, KeyFile};
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
+use near_network::test_utils::open_port;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
@@ -391,7 +392,8 @@ pub fn create_testnet_configs(
     for i in 0..(num_validators + num_non_validators) {
         let mut config = Config::default();
         if local_ports {
-            config.network.addr = format!("0.0.0.0:{}", if i == 0 { 26567 } else { 0 });
+            config.network.addr = format!("0.0.0.0:{}", if i == 0 { 26567 } else { open_port() });
+            config.consensus.min_num_peers = 3;
             config.rpc.addr = format!("0.0.0.0:{}", 3030 + i);
             config.network.boot_nodes = if i == 0 {
                 "".to_string()

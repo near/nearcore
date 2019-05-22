@@ -1,0 +1,33 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use tempdir::TempDir;
+
+use near::config::init_testnet_configs;
+use near::{get_store_path, load_test_config, GenesisConfig, NightshadeRuntime};
+use near_chain::{Block, Chain, Provenance};
+use near_primitives::crypto::signer::InMemorySigner;
+use near_store::create_store;
+use near_primitives::transaction::TransactionBody;
+
+#[test]
+fn runtime_hanldle_fork() {
+    let tmp_dir = TempDir::new("handle_fork").unwrap();
+    let store = create_store(&get_store_path(tmp_dir.path()));
+    let genesis_config = GenesisConfig::testing_spec(2, 1);
+    let signer = Arc::new(InMemorySigner::from_seed("near.0", "near.0"));
+    let runtime =
+        Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
+
+    let mut chain = Chain::new(store, runtime, genesis_config.genesis_time).unwrap();
+
+    let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
+    let tx2 = TransactionBody::send_money(1, "near.0", "near.1", 500).sign(&*signer);
+    let state_root = chain.get_post_state_root(&chain.genesis().hash()).unwrap().clone();
+    let b1 =
+        Block::produce(chain.genesis(), 1, state_root, vec![tx1], HashMap::default(), signer.clone());
+    chain.process_block(b1, Provenance::PRODUCED, |_, _, _| {}).unwrap();
+    let b2 =
+        Block::produce(chain.genesis(), 1, state_root, vec![tx2], HashMap::default(), signer.clone());
+    chain.process_block(b2, Provenance::PRODUCED, |_, _, _| {}).unwrap();
+}
