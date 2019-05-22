@@ -2,6 +2,7 @@ use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, TransactionBody,
 };
 use testlib::node::{Node, RuntimeNode};
+const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
@@ -37,7 +38,7 @@ fn test_evil_deep_trie() {
             "test_contract",
             "insertStrings",
             input_data.as_bytes().to_vec(),
-            0,
+            FUNCTION_CALL_AMOUNT,
         );
     });
     (0..50).rev().for_each(|i| {
@@ -47,7 +48,7 @@ fn test_evil_deep_trie() {
             "test_contract",
             "deleteStrings",
             input_data.as_bytes().to_vec(),
-            0,
+            FUNCTION_CALL_AMOUNT,
         );
     });
 }
@@ -58,6 +59,11 @@ fn test_evil_deep_recursion() {
     [100, 1000, 10000, 100000, 1000000].iter().for_each(|n| {
         println!("{}", n);
         let input_data = format!("{{\"n\": {}}}", n);
-        node.call_function("test_contract", "recurse", input_data.as_bytes().to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "recurse",
+            input_data.as_bytes().to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }

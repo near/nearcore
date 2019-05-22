@@ -63,15 +63,6 @@ pub fn execute(
 
     let mut instance = module.instantiate(&import_object)?;
 
-    // WORKAROUND: Wasmer has a thread-local panic trap, and to run correctly,
-    // we have to set the panic trap to this module.
-    //
-    // Currently it only does this in Module::new(), which is wrong because
-    // latest module created is not necessarily the one currently executing.
-    //
-    // instance.module() is a way to trigger the code we need.
-    instance.module();
-
     instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
 
     let method_name = std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
