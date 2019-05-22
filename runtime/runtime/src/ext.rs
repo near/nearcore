@@ -9,9 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
 };
-use near_primitives::types::{
-    AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId,
-};
+use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
 use near_primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
 use near_store::set;
 use near_store::{TrieUpdate, TrieUpdateIterator};

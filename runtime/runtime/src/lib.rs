@@ -10,21 +10,21 @@ use std::sync::{Arc, Mutex};
 use near_primitives::account::Account;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{Encode, from_base64};
+use near_primitives::serialize::{from_base64, Encode};
 use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
-use near_primitives::types::{
-    AccountId, AuthorityStake, Balance, BlockIndex,
-    MerkleHash, PromiseId, ReadablePublicKey, ShardId,
-};
 use near_primitives::types::StorageUsage;
+use near_primitives::types::{
+    AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey,
+    ShardId,
+};
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
 };
-use near_store::{get, set, StoreUpdate, TrieUpdate};
+use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
 use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -36,10 +36,10 @@ use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_
 
 pub mod adapter;
 pub mod economics_config;
-mod system;
 pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
+mod system;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -55,7 +55,7 @@ pub struct ApplyState {
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
-    pub state_update: StoreUpdate,
+    pub trie_changes: TrieChanges,
     pub authority_proposals: Vec<AuthorityStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
@@ -665,7 +665,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Vec<ReceiptTransaction>],
         transactions: &[SignedTransaction],
-    ) -> ApplyResult {
+    ) -> Result<ApplyResult, Box<std::error::Error>> {
         let mut new_receipts = HashMap::new();
         let mut authority_proposals = vec![];
         let shard_id = apply_state.shard_id;
@@ -704,16 +704,16 @@ impl Runtime {
                 &mut authority_proposals,
             ));
         }
-        let (state_update, root) = state_update.finalize();
-        ApplyResult {
-            root,
-            state_update,
+        let trie_changes = state_update.finalize()?;
+        Ok(ApplyResult {
+            root: trie_changes.new_root,
+            trie_changes,
             authority_proposals,
             shard_id,
             new_receipts,
             tx_result,
             largest_tx_nonce,
-        }
+        })
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
@@ -754,7 +754,12 @@ impl Runtime {
             account.staked = *amount;
             set(&mut state_update, account_id_bytes, &account);
         }
-        state_update.finalize()
+        let trie = state_update.trie.clone();
+        state_update
+            .finalize()
+            .expect("Genesis state update failed")
+            .into(trie)
+            .expect("Genesis state update failed")
     }
 }
 
@@ -788,7 +793,7 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
-        let (store_update, new_root) = state_update.finalize();
+        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();

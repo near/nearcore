@@ -11,7 +11,7 @@ use serde::Serialize;
 use near_primitives::serialize::{to_base64, Decode, Encode};
 
 pub use crate::trie::{
-    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator,
+    update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator, TrieChanges, WrappedTrieChanges
 };
 
 pub mod test_utils;

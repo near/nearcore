@@ -129,7 +129,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     warn!(target: "client", "Invalid Tx: {}", err);
                     // TODO: should we ban for invalid tx?
                     NetworkClientResponses::NoResponse
-                },
+                }
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
@@ -367,7 +367,7 @@ impl ClientActor {
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 {
             self.handle_scheduling_block_production(ctx, next_height);
-            return Ok(())
+            return Ok(());
         }
 
         // Take transactions from the pool.
@@ -530,7 +530,10 @@ impl ClientActor {
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, near_chain::Error> {
+    fn validate_tx(
+        &mut self,
+        tx: SignedTransaction,
+    ) -> Result<ValidTransaction, near_chain::Error> {
         let head = self.chain.head()?;
         let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
         self.runtime_adapter.validate_tx(0, state_root, tx)
@@ -716,8 +719,8 @@ impl ClientActor {
             Ok(header) => header,
             Err(_) => {
                 // TODO: This header is missing, should collect for later? should have better way to verify then.
-                return true
-            },
+                return true;
+            }
         };
         // If given account is not current block proposer.
         let position = self

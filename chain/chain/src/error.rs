@@ -4,7 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
-#[derive(Debug, Fail)]
+#[derive(Debug)]
 pub struct Error {
     inner: Context<ErrorKind>,
 }
@@ -123,3 +123,8 @@ impl From<String> for Error {
         Error { inner: Context::new(ErrorKind::Other(error)) }
     }
 }
+
+impl std::error::Error for Error {}
+
+unsafe impl Send for Error {}
+unsafe impl Sync for Error {}

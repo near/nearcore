@@ -12,8 +12,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, AuthorityStake};
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
-    key_for_code,
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
 use near_store::{get, set, TrieUpdate};
 use wasm::types::ContractCode;

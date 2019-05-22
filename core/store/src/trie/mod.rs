@@ -388,37 +388,88 @@ pub struct Trie {
 pub struct TrieChanges {
     #[allow(dead_code)]
     old_root: CryptoHash,
-    new_root: CryptoHash,
+    pub new_root: CryptoHash,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
+}
+
+impl TrieChanges {
+    pub fn empty(old_root: CryptoHash) -> Self {
+        TrieChanges {
+            old_root,
+            new_root: old_root,
+            insertions: vec![],
+            deletions: vec![],
+        }
+    }
+    pub fn insertions_into(
+        &self,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<std::error::Error>> {
+        store_update.trie = Some(trie.clone());
+        for (key, value, rc) in self.insertions.iter() {
+            let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
+            let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
+            store_update.set(COL_STATE, key.as_ref(), &bytes);
+        }
+        Ok(())
+    }
+
+    pub fn deletions_into(
+        &self,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<std::error::Error>> {
+        store_update.trie = Some(trie.clone());
+        for (key, value, rc) in self.deletions.iter() {
+            let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
+            assert!(*rc <= storage_rc);
+            if *rc < storage_rc {
+                let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
+                store_update.set(COL_STATE, key.as_ref(), &bytes);
+            } else {
+                store_update.delete(COL_STATE, key.as_ref());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn into(
+        self,
+        trie: Arc<Trie>,
+    ) -> Result<(StoreUpdate, CryptoHash), Box<std::error::Error>> {
+        let mut store_update =
+            StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
+        self.insertions_into(trie.clone(), &mut store_update)?;
+        self.deletions_into(trie.clone(), &mut store_update)?;
+        Ok((store_update, self.new_root))
+    }
+}
+
+pub struct WrappedTrieChanges {
+    trie: Arc<Trie>,
+    trie_changes: TrieChanges,
+}
+
+impl WrappedTrieChanges {
+    pub fn new(trie: Arc<Trie>, trie_changes: TrieChanges) -> Self {
+        WrappedTrieChanges { trie, trie_changes }
+    }
+
+    pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), Box<std::error::Error>> {
+        self.trie_changes.insertions_into(self.trie.clone(), store_update)
+    }
+
+    pub fn deletions_into(&self, store_update: &mut StoreUpdate) -> Result<(), Box<std::error::Error>> {
+        self.trie_changes.deletions_into(self.trie.clone(), store_update)
+    }
 }
 
 enum FlattenNodesCrumb {
     Entering,
     AtChild(Box<[Option<CryptoHash>; 16]>, usize),
     Exiting,
-}
-
-pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreUpdate, CryptoHash) {
-    let mut store_update =
-        StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
-    let TrieChanges { new_root, insertions, deletions, .. } = changes;
-    for (key, value, rc) in insertions {
-        let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
-        let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
-        store_update.set(COL_STATE, key.as_ref(), &bytes);
-    }
-    for (key, value, rc) in deletions {
-        let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
-        assert!(rc <= storage_rc);
-        if rc < storage_rc {
-            let bytes = RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
-            store_update.set(COL_STATE, key.as_ref(), &bytes);
-        } else {
-            store_update.delete(COL_STATE, key.as_ref());
-        }
-    }
-    (store_update, new_root)
 }
 
 impl Trie {
@@ -434,7 +485,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
-    ) -> Result<StorageHandle, String> {
+    ) -> Result<StorageHandle, Box<std::error::Error>> {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
@@ -457,10 +508,10 @@ impl Trie {
                             .1 -= 1;
                         Ok(result)
                     }
-                    Err(_) => Err(format!("Failed to decode node {}", hash)),
+                    Err(_) => Err(format!("Failed to decode node {}", hash).into()),
                 }
             } else {
-                Err(format!("Node {} not found in storage", hash))
+                Err(format!("Node {} not found in storage", hash).into())
             }
         }
     }
@@ -539,7 +590,7 @@ impl Trie {
         node: StorageHandle,
         partial: NibbleSlice,
         value: Vec<u8>,
-    ) -> Result<StorageHandle, String> {
+    ) -> Result<StorageHandle, Box<std::error::Error>> {
         let root_handle = node;
         let mut handle = node;
         let mut value = Some(value);
@@ -692,7 +743,7 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice,
-    ) -> Result<(StorageHandle, bool), String> {
+    ) -> Result<(StorageHandle, bool), Box<std::error::Error>> {
         let mut handle = node;
         let mut partial = partial;
         let root_node = handle;
@@ -776,7 +827,11 @@ impl Trie {
         Ok((root_node, deleted))
     }
 
-    fn fix_nodes(&self, memory: &mut NodesStorage, path: Vec<StorageHandle>) -> Result<(), String> {
+    fn fix_nodes(
+        &self,
+        memory: &mut NodesStorage,
+        path: Vec<StorageHandle>,
+    ) -> Result<(), Box<std::error::Error>> {
         for handle in path.into_iter().rev() {
             match memory.destroy(handle) {
                 TrieNode::Empty => {
@@ -834,7 +889,7 @@ impl Trie {
         handle: StorageHandle,
         key: Vec<u8>,
         child: NodeHandle,
-    ) -> Result<(), String> {
+    ) -> Result<(), Box<std::error::Error>> {
         let child = match child {
             NodeHandle::Hash(hash) => self.move_node_to_mutable(memory, &hash)?,
             NodeHandle::InMemory(h) => h,
@@ -869,14 +924,13 @@ impl Trie {
         old_root: &CryptoHash,
         memory: NodesStorage,
         node: StorageHandle,
-    ) -> TrieChanges {
+    ) -> Result<TrieChanges, Box<std::error::Error>> {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
         let mut buffer: Vec<u8> = Vec::new();
         let mut memory = memory;
-        while !stack.is_empty() {
-            let (node, position) = stack.pop().unwrap();
+        while let Some((node, position)) = stack.pop() {
             let raw_node = match memory.node_ref(node) {
                 TrieNode::Empty => {
                     last_hash = Trie::empty_root();
@@ -935,7 +989,7 @@ impl Trie {
                 },
                 TrieNode::Leaf(key, value) => RawTrieNode::Leaf(key.clone(), value.clone()),
             };
-            raw_node.encode_into(&mut buffer).expect("Failed to serialize");
+            raw_node.encode_into(&mut buffer)?;
             let key = hash(&buffer);
 
             let (_value, rc) =
@@ -946,7 +1000,7 @@ impl Trie {
         }
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
-        TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions }
+        Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
     }
 
     fn convert_to_insertions_and_deletions(
@@ -967,24 +1021,24 @@ impl Trie {
         (insertions, deletions)
     }
 
-    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> TrieChanges
+    pub fn update<I>(
+        &self,
+        root: &CryptoHash,
+        changes: I,
+    ) -> Result<TrieChanges, Box<std::error::Error>>
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         let mut memory = NodesStorage::new();
-        let mut root_node = self.move_node_to_mutable(&mut memory, root).expect("Root not found");
+        let mut root_node = self.move_node_to_mutable(&mut memory, root)?;
         for (key, value) in changes {
             let key = NibbleSlice::new(&key);
             match value {
                 Some(arr) => {
-                    root_node =
-                        self.insert(&mut memory, root_node, key, arr).expect("Failed to insert");
+                    root_node = self.insert(&mut memory, root_node, key, arr)?;
                 }
                 None => {
-                    root_node = match self
-                        .delete(&mut memory, root_node, key)
-                        .expect("Failed to remove element")
-                    {
+                    root_node = match self.delete(&mut memory, root_node, key)? {
                         (value, _) => value,
                     };
                 }
@@ -993,7 +1047,10 @@ impl Trie {
         Trie::flatten_nodes(root, memory, root_node)
     }
 
-    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
+    pub fn iter<'a>(
+        &'a self,
+        root: &CryptoHash,
+    ) -> Result<TrieIterator<'a>, Box<std::error::Error>> {
         TrieIterator::new(self, root)
     }
 
@@ -1062,7 +1119,7 @@ pub struct TrieIterator<'a> {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, String> {
+    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, Box<std::error::Error>> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
@@ -1073,7 +1130,7 @@ impl<'a> TrieIterator<'a> {
             r.descend_into_node(&node);
             return Ok(r);
         }
-        Err(format!("Root hash {} not found", root))
+        Err(format!("Root hash {} not found", root).into())
     }
 
     /// Position the iterator on the first element with key => `key`.
@@ -1257,7 +1314,7 @@ mod tests {
     fn test_populate_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let mut other_changes = changes.clone();
         let (store_update, root) =
-            convert_to_store_update(trie.clone(), trie.update(root, other_changes.drain(..)));
+            trie.update(root, other_changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
@@ -1269,10 +1326,8 @@ mod tests {
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let (store_update, root) = convert_to_store_update(
-            trie.clone(),
-            trie.update(root, other_delete_changes.drain(..)),
-        );
+        let (store_update, root) =
+            trie.update(root, other_delete_changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
@@ -1417,10 +1472,11 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
-        let (store_update, root) = convert_to_store_update(
-            trie.clone(),
-            trie.update(&Trie::empty_root(), initial.drain(..)),
-        );
+        let (store_update, root) = trie
+            .update(&Trie::empty_root(), initial.drain(..))
+            .unwrap()
+            .into(trie.clone())
+            .unwrap();
         store_update.commit().unwrap();
 
         let mut changes = vec![
@@ -1428,7 +1484,7 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
         let (store_update, root) =
-            convert_to_store_update(trie.clone(), trie.update(&root, changes.drain(..)));
+            trie.update(&root, changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
@@ -1443,10 +1499,11 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let (store_update, root) = convert_to_store_update(
-            trie.clone(),
-            trie.update(&Trie::empty_root(), initial.drain(..)),
-        );
+        let (store_update, root) = trie
+            .update(&Trie::empty_root(), initial.drain(..))
+            .unwrap()
+            .into(trie.clone())
+            .unwrap();
         store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
@@ -1454,7 +1511,7 @@ mod tests {
 
         let mut changes = vec![(vec![1, 2, 3], None)];
         let (store_update, root) =
-            convert_to_store_update(trie.clone(), trie.update(&root, changes.drain(..)));
+            trie.update(&root, changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
@@ -1516,14 +1573,16 @@ mod tests {
             let trie_changes = gen_changes(&mut rng);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let (_store_update1, root1) = convert_to_store_update(
-                trie.clone(),
-                trie.update(&Trie::empty_root(), trie_changes.iter().cloned()),
-            );
-            let (_store_update2, root2) = convert_to_store_update(
-                trie.clone(),
-                trie.update(&Trie::empty_root(), simplified_changes.iter().cloned()),
-            );
+            let (_store_update1, root1) = trie
+                .update(&Trie::empty_root(), trie_changes.iter().cloned())
+                .unwrap()
+                .into(trie.clone())
+                .unwrap();
+            let (_store_update2, root2) = trie
+                .update(&Trie::empty_root(), simplified_changes.iter().cloned())
+                .unwrap()
+                .into(trie.clone())
+                .unwrap();
             if root1 != root2 {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);

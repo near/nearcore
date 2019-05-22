@@ -89,7 +89,7 @@ impl Handler<Query> for ViewClientActor {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let state_root =
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
-        self.runtime_adapter.query(*state_root, head.height, &msg.path, &msg.data)
+        self.runtime_adapter.query(*state_root, head.height, &msg.path, &msg.data).map_err(|err| err.to_string())
     }
 }
 
@@ -103,11 +103,10 @@ impl Handler<GetBlock> for ViewClientActor {
                 Ok(head) => self.chain.get_block(&head.last_block_hash).map(Clone::clone),
                 Err(err) => Err(err),
             },
-            GetBlock::Height(height) => {
-                self.chain.get_block_by_height(height).map(Clone::clone)
-            }
+            GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
-        }.map_err(|err| err.to_string())
+        }
+        .map_err(|err| err.to_string())
     }
 }
 

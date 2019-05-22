@@ -6,16 +6,17 @@ use cached::SizedCache;
 use log::debug;
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
 use near_primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::utils::index_to_bytes;
 use near_store::{
-    read_with_cache, Store, StoreUpdate, COL_BLOCK, COL_BLOCK_HEADER, COL_BLOCK_INDEX,
-    COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
+    read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK,
+    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF,
+    COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, Tip};
-use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::utils::index_to_bytes;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -218,6 +219,7 @@ pub struct ChainStoreUpdate<'a, T> {
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    trie_changes: Option<WrappedTrieChanges>,
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
@@ -236,6 +238,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             tail: None,
             header_head: None,
             sync_head: None,
+            trie_changes: None,
         }
     }
 }
@@ -450,6 +453,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         }
     }
 
+    pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
+        self.trie_changes = Some(trie_changes);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -505,6 +512,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         }
         for (hash, tx_result) in self.transaction_results.drain() {
             store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
+        }
+        if let Some(trie_changes) = self.trie_changes {
+            trie_changes.insertions_into(&mut store_update).map_err(|err| ErrorKind::Other(err.to_string()))?;
+            // TODO: save deletions separately for garbage collection.
         }
         for other in self.store_updates {
             store_update.merge(other);

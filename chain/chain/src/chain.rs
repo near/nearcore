@@ -7,13 +7,13 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{BlockIndex, MerkleHash};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
-use near_primitives::transaction::TransactionResult;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -123,7 +123,12 @@ impl Chain {
                 // Check that genesis in the store is the same as genesis given in the config.
                 let genesis_hash = store_update.get_block_hash_by_height(0)?;
                 if genesis_hash != genesis.hash() {
-                    return Err(ErrorKind::Other(format!("Genesis mismatch between storage and config: {:?} vs {:?}", genesis_hash, genesis.hash())).into());
+                    return Err(ErrorKind::Other(format!(
+                        "Genesis mismatch between storage and config: {:?} vs {:?}",
+                        genesis_hash,
+                        genesis.hash()
+                    ))
+                    .into());
                 }
 
                 // Check we have the header corresponding to the header_head.
@@ -477,7 +482,10 @@ impl Chain {
 
     /// Get transaction result for given hash of transaction.
     #[inline]
-    pub fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+    pub fn get_transaction_result(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&TransactionResult, Error> {
         self.store.get_transaction_result(hash)
     }
 
@@ -599,7 +607,7 @@ impl<'a> ChainUpdate<'a> {
         let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
 
         // Apply block to runtime.
-        let (state_store_update, state_root, tx_results, receipts) = self
+        let (trie_changes, state_root, tx_results, receipts) = self
             .runtime_adapter
             .apply_transactions(
                 0,
@@ -609,8 +617,8 @@ impl<'a> ChainUpdate<'a> {
                 &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
             )
-            .map_err(|e| ErrorKind::Other(e))?;
-        self.chain_store_update.merge(state_store_update);
+            .map_err(|e| ErrorKind::Other(e.to_string()))?;
+        self.chain_store_update.save_trie_changes(trie_changes);
         // Save state root after applying transactions.
         self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
         // Save resulting receipts.

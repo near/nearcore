@@ -13,8 +13,7 @@ use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::prefix_for_access_key;
-use near_store::{Store, StoreUpdate};
-use near_store::{Trie, TrieUpdate};
+use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -139,7 +138,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String> {
+    ) -> Result<
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        Box<std::error::Error>,
+    > {
         let apply_state = ApplyState {
             root: state_root.clone(),
             shard_id,
@@ -147,9 +149,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             parent_block_hash: *prev_block_hash,
         };
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
-        let apply_result = self.runtime.apply(state_update, &apply_state, &receipts, &transactions);
+        let apply_result =
+            self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
         Ok((
-            apply_result.state_update,
+            WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             apply_result.root,
             apply_result.tx_result,
             apply_result.new_receipts,
@@ -162,7 +165,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, String> {
+    ) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
         query_client(self, state_root, height, path, data)
     }
 }
@@ -172,7 +175,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String> {
+    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -185,7 +188,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
     }
@@ -194,16 +197,16 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &String,
-    ) -> Result<Vec<PublicKey>, String> {
+    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e).into())
                 })
-                .collect::<Result<Vec<_>, String>>(),
+                .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),
         }
     }

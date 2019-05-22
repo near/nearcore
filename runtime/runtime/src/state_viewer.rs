@@ -47,9 +47,9 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String> {
+    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
         match get::<Account>(state_update, &key_for_account(account_id)) {
@@ -61,7 +61,7 @@ impl TrieViewer {
                 public_keys: account.public_keys,
                 code_hash: account.code_hash,
             }),
-            _ => Err(format!("account {} does not exist while viewing", account_id)),
+            _ => Err(format!("account {} does not exist while viewing", account_id).into()),
         }
     }
 
@@ -70,9 +70,9 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
         Ok(get(state_update, &key_for_access_key(account_id, public_key)))
@@ -82,7 +82,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, String> {
+    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
         self.view_account(state_update, account_id).map(|account| account.public_keys)
     }
 
@@ -90,9 +90,9 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<ViewStateResult, String> {
+    ) -> Result<ViewStateResult, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = HashMap::default();
         let mut prefix = key_for_account(account_id);
@@ -113,10 +113,10 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, Box<std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID '{}' is not valid", contract_id));
+            return Err(format!("Contract ID '{}' is not valid", contract_id).into());
         }
         let root = state_update.get_root();
         let code = Runtime::get_code(&state_update, contract_id)?;
@@ -149,7 +149,7 @@ impl TrieViewer {
                     ),
                 )
             }
-            None => return Err(format!("contract {} does not exist", contract_id)),
+            None => return Err(format!("contract {} does not exist", contract_id).into()),
         };
         let elapsed = now.elapsed();
         let time_ms =
@@ -161,10 +161,10 @@ impl TrieViewer {
                 logs.extend(res.logs);
                 match res.return_data {
                     Ok(return_data) => {
-                        let (_, root_after) = state_update.finalize();
-                        if root_after != root {
+                        let trie_update = state_update.finalize()?;
+                        if trie_update.new_root != root {
                             return Err(
-                                "function call for viewing tried to change storage".to_string()
+                                "function call for viewing tried to change storage".into()
                             );
                         }
                         let mut result = vec![];
@@ -177,14 +177,14 @@ impl TrieViewer {
                         let message =
                             format!("wasm view call execution failed with error: {:?}", e);
                         debug!(target: "runtime", "{}", message);
-                        Err(message)
+                        Err(message.into())
                     }
                 }
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);
                 debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-                Err(message)
+                Err(message.into())
             }
         }
     }
@@ -269,7 +269,7 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
-        let (db_changes, new_root) = state_update.finalize();
+        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);

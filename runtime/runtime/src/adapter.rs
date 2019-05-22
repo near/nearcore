@@ -10,7 +10,7 @@ pub trait RuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String>;
+    ) -> Result<AccountViewCallResult, Box<std::error::Error>>;
 
     fn call_function(
         &self,
@@ -20,13 +20,13 @@ pub trait RuntimeAdapter {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, String>;
+    ) -> Result<Vec<u8>, Box<std::error::Error>>;
 
     fn view_access_key(
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, String>;
+    ) -> Result<Vec<PublicKey>, Box<std::error::Error>>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
@@ -37,10 +37,10 @@ pub fn query_client(
     height: BlockIndex,
     path: &str,
     data: &[u8],
-) -> Result<ABCIQueryResponse, String> {
+) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
     let path_parts: Vec<&str> = path.split('/').collect();
     if path_parts.is_empty() {
-        return Err("Path must contain at least single token".to_string());
+        return Err("Path must contain at least single token".into());
     }
     match path_parts[0] {
         "account" => match adapter.view_account(state_root, &AccountId::from(path_parts[1])) {
@@ -58,7 +58,7 @@ pub fn query_client(
                 &mut logs,
             ) {
                 Ok(result) => Ok(ABCIQueryResponse::result(path, result, logs)),
-                Err(e) => Ok(ABCIQueryResponse::result_err(path, e, logs)),
+                Err(e) => Ok(ABCIQueryResponse::result_err(path, e.to_string(), logs)),
             }
         }
         "access_key" => {
@@ -68,9 +68,9 @@ pub fn query_client(
                     serde_json::to_string(&keys).map_err(|e| format!("{}", e))?.as_bytes().to_vec(),
                     vec![],
                 )),
-                Err(e) => Ok(ABCIQueryResponse::result_err(path, e, vec![])),
+                Err(e) => Ok(ABCIQueryResponse::result_err(path, e.to_string(), vec![])),
             }
         }
-        _ => Err(format!("Unknown path {}", path)),
+        _ => Err(format!("Unknown path {}", path).into()),
     }
 }

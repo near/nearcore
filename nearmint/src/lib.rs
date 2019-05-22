@@ -151,7 +151,7 @@ impl RuntimeAdapter for NearMint {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String> {
+    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -164,7 +164,7 @@ impl RuntimeAdapter for NearMint {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.call_function(
             state_update,
@@ -180,16 +180,16 @@ impl RuntimeAdapter for NearMint {
         &self,
         state_root: MerkleHash,
         account_id: &String,
-    ) -> Result<Vec<PublicKey>, String> {
+    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e).into())
                 })
-                .collect::<Result<Vec<_>, String>>(),
+                .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),
         }
     }
@@ -220,7 +220,7 @@ impl Application for NearMint {
             }
             Err(e) => {
                 resp.code = 1;
-                resp.log = e;
+                resp.log = e.to_string();
             }
         }
         resp
@@ -341,7 +341,7 @@ impl Application for NearMint {
         if let Some(state_update) = self.state_update.take() {
             info!("Commit: {:?}", req);
             if let Some(apply_state) = &self.apply_state {
-                let (mut db_changes, new_root) = state_update.finalize();
+                let (mut db_changes, new_root) = state_update.finalize().unwrap().into(self.trie.clone()).unwrap();
                 db_changes
                     .set_ser(
                         COL_BLOCK_MISC,

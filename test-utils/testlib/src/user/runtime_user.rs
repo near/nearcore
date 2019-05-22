@@ -77,7 +77,7 @@ impl RuntimeUser {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let state_update = TrieUpdate::new(client.trie.clone(), cur_apply_state.root);
             let mut apply_result =
-                client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs);
+                client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
             let mut counter = 0;
             for (i, receipt) in receipts.iter().flatten().enumerate() {
                 counter += 1;
@@ -88,7 +88,7 @@ impl RuntimeUser {
                 let transaction_result = apply_result.tx_result[i + counter].clone();
                 self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
             }
-            apply_result.state_update.commit().unwrap();
+            apply_result.trie_changes.into(self.client.write().expect(POISONED_LOCK_ERR).trie.clone()).unwrap().0.commit().unwrap();
             if apply_result.new_receipts.is_empty() {
                 client.state_root = apply_result.root;
                 return;
@@ -141,12 +141,12 @@ impl RuntimeUser {
 impl User for RuntimeUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_account(&state_update, account_id)
+        self.trie_viewer.view_account(&state_update, account_id).map_err(|err| err.to_string())
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_state(&state_update, account_id)
+        self.trie_viewer.view_state(&state_update, account_id).map_err(|err| err.to_string())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -211,6 +211,6 @@ impl User for RuntimeUser {
 
     fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_access_key(&state_update, &self.account_id, public_key)
+        self.trie_viewer.view_access_key(&state_update, &self.account_id, public_key).map_err(|err| err.to_string())
     }
 }

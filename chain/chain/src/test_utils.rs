@@ -8,10 +8,12 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus};
+use near_primitives::transaction::{
+    ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
+};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate};
+use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::error::{Error, ErrorKind};
@@ -34,6 +36,7 @@ impl Block {
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Arc<Store>,
+    trie: Arc<Trie>,
     root: MerkleHash,
     authorities: Vec<(AccountId, PublicKey)>,
 }
@@ -44,8 +47,10 @@ impl KeyValueRuntime {
     }
 
     pub fn new_with_authorities(store: Arc<Store>, authorities: Vec<AccountId>) -> Self {
+        let trie = Arc::new(Trie::new(store.clone()));
         KeyValueRuntime {
             store,
+            trie,
             root: MerkleHash::default(),
             authorities: authorities
                 .iter()
@@ -101,7 +106,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         0
     }
 
-    fn validate_tx(&self, _shard_id: ShardId, _state_root: MerkleHash, transaction: SignedTransaction) -> Result<ValidTransaction, Error> {
+    fn validate_tx(
+        &self,
+        _shard_id: ShardId,
+        _state_root: MerkleHash,
+        transaction: SignedTransaction,
+    ) -> Result<ValidTransaction, Error> {
         Ok(ValidTransaction { transaction })
     }
 
@@ -113,17 +123,25 @@ impl RuntimeAdapter for KeyValueRuntime {
         _prev_block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String> {
+    ) -> Result<
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        Box<std::error::Error>,
+    > {
         let mut tx_results = vec![];
         for _ in transactions {
             tx_results.push(TransactionResult {
                 status: TransactionStatus::Completed,
                 logs: vec![],
                 receipts: vec![],
-                result: None
+                result: None,
             });
         }
-        Ok((self.store.store_update(), *state_root, tx_results, HashMap::default()))
+        Ok((
+            WrappedTrieChanges::new(self.trie.clone(), TrieChanges::empty(state_root.clone())),
+            *state_root,
+            tx_results,
+            HashMap::default(),
+        ))
     }
 
     fn query(
@@ -132,7 +150,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _height: BlockIndex,
         path: &str,
         _data: &[u8],
-    ) -> Result<ABCIQueryResponse, String> {
+    ) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
         let path = path.split("/").collect::<Vec<_>>();
         Ok(ABCIQueryResponse::account(
             path[1],

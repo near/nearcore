@@ -16,7 +16,7 @@ use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, Transa
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
 use near_primitives::utils::proto_to_type;
 use near_protos::chain as chain_proto;
-use near_store::StoreUpdate;
+use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -332,7 +332,12 @@ pub trait RuntimeAdapter {
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(&self, shard_id: ShardId, state_root: MerkleHash, transaction: SignedTransaction) -> Result<ValidTransaction, Error>;
+    fn validate_tx(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        transaction: SignedTransaction,
+    ) -> Result<ValidTransaction, Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -344,7 +349,10 @@ pub trait RuntimeAdapter {
         prev_block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<(StoreUpdate, MerkleHash, Vec<TransactionResult>, ReceiptResult), String>;
+    ) -> Result<
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        Box<std::error::Error>,
+    >;
 
     /// Query runtime with given `path` and `data`.
     fn query(
@@ -353,7 +361,7 @@ pub trait RuntimeAdapter {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, String>;
+    ) -> Result<ABCIQueryResponse, Box<std::error::Error>>;
 }
 
 /// The weight is defined as the number of unique authorities approving this fork.
