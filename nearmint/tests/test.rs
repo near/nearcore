@@ -8,6 +8,7 @@ use serde_derive::{Deserialize, Serialize};
 use near_primitives::crypto::signature::PublicKey;
 use node_runtime::state_viewer::AccountViewCallResult;
 use testlib::test_helpers::wait;
+use near_primitives::serialize::from_base64;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRpcResponse {
@@ -94,7 +95,7 @@ fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
         .as_object()
         .and_then(|m| m.get("value"))
         .and_then(|v| {
-            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            let bytes = from_base64(v.as_str().unwrap()).unwrap();
             serde_json::from_str::<AccountViewCallResult>(std::str::from_utf8(&bytes).unwrap()).ok()
         })
 }
@@ -116,7 +117,7 @@ fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
         .as_object()
         .and_then(|m| m.get("value"))
         .and_then(|v| {
-            let bytes = base64::decode(v.as_str().unwrap()).unwrap();
+            let bytes = from_base64(v.as_str().unwrap()).unwrap();
             serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
         })
 }
@@ -149,7 +150,7 @@ mod test {
     #[test]
     fn test_send_tx() {
         heavy_test(|| {
-            let storage_path = "tmp/test_send_tx";
+            let storage_path = "/tmp/test_send_tx";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
             let money_to_send = 1_000_000;
@@ -160,7 +161,7 @@ mod test {
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
+            assert_eq!(alice_account.amount, TESTING_INIT_BALANCE - money_to_send);
             let bob_account = view_account_request("bob.near").unwrap();
             assert_eq!(bob_account.amount, TESTING_INIT_BALANCE + money_to_send);
         });
@@ -169,7 +170,7 @@ mod test {
     #[test]
     fn test_create_account() {
         heavy_test(|| {
-            let storage_path = "tmp/test_create_account";
+            let storage_path = "/tmp/test_create_account";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
             let money_to_send = 1_000_000;
@@ -186,7 +187,7 @@ mod test {
             submit_tx(tx);
 
             let alice_account = view_account_request("alice.near").unwrap();
-            assert!(alice_account.amount < TESTING_INIT_BALANCE - money_to_send);
+            assert!(alice_account.amount <= TESTING_INIT_BALANCE - money_to_send);
             let eve_account = view_account_request("test.near").unwrap();
             assert_eq!(eve_account.amount, money_to_send);
         });
@@ -195,7 +196,7 @@ mod test {
     #[test]
     fn test_deploy_contract() {
         heavy_test(|| {
-            let storage_path = "tmp/test_deploy_account";
+            let storage_path = "tmp/test_deploy_contract";
             let _test_node = start_nearmint(storage_path);
             let signer = InMemorySigner::from_seed("alice.near", "alice.near");
             let money_to_send = 1_000_000;
@@ -222,8 +223,7 @@ mod test {
                 .into();
             submit_tx(tx);
             let eve_account = view_account_request("test.near").unwrap();
-            assert!(eve_account.amount > 0);
-            assert!(eve_account.amount < money_to_send);
+            assert_eq!(eve_account.amount, money_to_send);
             assert_eq!(eve_account.code_hash, hash(wasm_binary));
         });
     }

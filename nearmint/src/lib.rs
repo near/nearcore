@@ -57,14 +57,13 @@ fn best_hash_key(genesis_hash: &CryptoHash) -> Vec<u8> {
 pub struct NearMint {
     genesis_config: GenesisConfig,
     runtime: Runtime,
-    trie: Arc<Trie>,
+    pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
-    store: Arc<Store>,
-    root: MerkleHash,
+    pub root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
     authority_proposals: Vec<AuthorityStake>,
-    height: u64,
+    pub height: u64,
     genesis_hash: CryptoHash,
 }
 
@@ -120,7 +119,6 @@ impl NearMint {
             runtime,
             trie,
             trie_viewer,
-            store,
             root,
             apply_state: None,
             state_update: None,
@@ -142,9 +140,9 @@ impl NearMint {
     }
 }
 
-fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
+fn convert_tx(data: &[u8]) -> Result<SignedTransaction, Box<std::error::Error>> {
     parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
-        .map_err(|e| format!("Protobuf error: {}", e))
+        .map_err(|e| format!("Protobuf error: {}", e).into())
         .and_then(TryInto::try_into)
 }
 
@@ -178,7 +176,11 @@ impl RuntimeAdapter for NearMint {
         )
     }
 
-    fn view_access_key(&self, state_root: MerkleHash, account_id: &String) -> Result<Vec<PublicKey>, String> {
+    fn view_access_key(
+        &self,
+        state_root: MerkleHash,
+        account_id: &String,
+    ) -> Result<Vec<PublicKey>, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
@@ -280,8 +282,7 @@ impl Application for NearMint {
                 (&mut self.state_update, &self.apply_state)
             {
                 let mut incoming_receipts = HashMap::default();
-                let tx_result = Runtime::process_transaction(
-                    &self.runtime,
+                let tx_result = self.runtime.process_transaction(
                     state_update,
                     apply_state.block_index,
                     &tx,
@@ -302,8 +303,7 @@ impl Application for NearMint {
                     while !receipts.is_empty() {
                         let mut new_receipts = HashMap::default();
                         for receipt in receipts.iter() {
-                            let receipt_result = Runtime::process_receipt(
-                                &mut self.runtime,
+                            let receipt_result = self.runtime.process_receipt(
                                 state_update,
                                 0,
                                 apply_state.block_index,
@@ -367,12 +367,12 @@ impl Application for NearMint {
 mod tests {
     use protobuf::Message;
 
+    use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::CryptoHash;
     use near_primitives::transaction::TransactionBody;
     use near_primitives::types::StructSignature;
     use node_runtime::adapter::RuntimeAdapter;
-    use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
 
     use super::*;
 
@@ -409,8 +409,7 @@ mod tests {
         nearmint.commit(&req_commit);
 
         let alice_info = nearmint.view_account(nearmint.root, &"near.0".to_string()).unwrap();
-        // Should be strictly less, because the rent was applied too.
-        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        assert_eq!(alice_info.amount, TESTING_INIT_BALANCE - money_to_send);
         let bob_info = nearmint.view_account(nearmint.root, &"near.1".to_string()).unwrap();
         // The balance was applied but the rent was not subtracted because we have not performed
         // interactions from that account.

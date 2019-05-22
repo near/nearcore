@@ -7,7 +7,7 @@ use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
-use near_client::{GetBlock, Query};
+use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};

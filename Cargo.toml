@@ -19,11 +19,12 @@ members = [
     "chain/client",
     "chain/network",
     "chain/jsonrpc",
-    "near",
-    "nearmint/",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/state-viewer",
+    "near/",
+    "nearmint/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
@@ -41,12 +42,15 @@ futures = "0.1.25"
 near-protos = { path = "./core/protos" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
-
-keystore = { path = "./test-utils/keystore" }
-testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
 near-jsonrpc = { path = "./chain/jsonrpc" }
+wasm = { path = "./runtime/wasm" }
+
 near = { path = "./near"}
+nearmint = { path = "./nearmint" }
+
+testlib = { path = "./test-utils/testlib" }
+keystore = { path = "./test-utils/keystore" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

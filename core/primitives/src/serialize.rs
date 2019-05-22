@@ -31,3 +31,15 @@ where
             .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to deserialize"))
     }
 }
+
+pub fn to_base64<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
+    base64::encode(input)
+}
+
+pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
+    base64::decode(s).map_err(|err| err.into())
+}
+
+pub fn from_base64_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
+    base64::decode_config_buf(s, base64::STANDARD, buffer).map_err(|err| err.into())
+}

@@ -137,7 +137,7 @@ impl BlockHeader {
 }
 
 impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
         let body = proto.body.into_option().ok_or("Missing Header body")?;
@@ -252,7 +252,7 @@ impl Block {
 }
 
 impl TryFrom<chain_proto::Block> for Block {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: chain_proto::Block) -> Result<Self, Self::Error> {
         let transactions =

@@ -2,28 +2,27 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use base64;
 use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 
 use crate::logging::pretty_hash;
-use crate::serialize::Encode;
+use crate::serialize::{from_base64, to_base64, Encode};
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
-        base64::encode(&h.0)
+        to_base64(&h.0)
     }
 }
 
 impl TryFrom<String> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = base64::decode(&s).map_err(|e| format!("{}", e))?;
+        let bytes = from_base64(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
         Self::try_from(bytes)
     }
 }
@@ -47,11 +46,11 @@ impl AsMut<[u8]> for CryptoHash {
 }
 
 impl TryFrom<&[u8]> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 32 {
-            return Err("incorrect length for hash".to_string());
+            return Err("incorrect length for hash".into());
         }
         let mut buf = [0; 32];
         buf.copy_from_slice(bytes);
@@ -60,7 +59,7 @@ impl TryFrom<&[u8]> for CryptoHash {
 }
 
 impl TryFrom<Vec<u8>> for CryptoHash {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(v.as_ref())
@@ -100,11 +99,14 @@ impl PartialEq for CryptoHash {
 impl Eq for CryptoHash {}
 
 pub mod base64_format {
+    use std::convert::TryFrom;
+
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use super::{base64, CryptoHash};
-    use std::convert::TryFrom;
+    use crate::serialize::from_base64_buf;
+
+    use super::CryptoHash;
 
     pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -119,7 +121,7 @@ pub mod base64_format {
     {
         let s = String::deserialize(deserializer)?;
         let mut array = Vec::with_capacity(32);
-        match base64::decode_config_buf(&s, base64::STANDARD, &mut array) {
+        match from_base64_buf(&s, &mut array) {
             Ok(_) => CryptoHash::try_from(array.as_ref()).map_err(de::Error::custom),
             Err(e) => Err(de::Error::custom(e.to_string())),
         }

@@ -1,6 +1,3 @@
-use crate::hash::CryptoHash;
-use crate::types::{AccountId, PeerId};
-use crate::utils::to_string_value;
 use near_protos::network as network_proto;
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
@@ -12,6 +9,10 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::net::SocketAddr;
 
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, PeerId};
+use crate::utils::to_string_value;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
     pub id: PeerId,
@@ -19,7 +20,7 @@ pub struct PeerAddr {
 }
 
 impl PeerAddr {
-    pub fn parse(addr_id: &str) -> Result<Self, String> {
+    pub fn parse(addr_id: &str) -> Result<Self, Box<std::error::Error>> {
         let addr_id: Vec<_> = addr_id.split('/').collect();
         let (addr, id) = (addr_id[0], addr_id[1]);
         Ok(PeerAddr {
@@ -38,12 +39,12 @@ impl Display for PeerAddr {
 }
 
 impl TryFrom<PeerInfo> for PeerAddr {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(peer_info: PeerInfo) -> Result<Self, Self::Error> {
         match peer_info.addr {
             Some(addr) => Ok(PeerAddr { id: peer_info.id, addr }),
-            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info)),
+            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info).into()),
         }
     }
 }
@@ -99,7 +100,7 @@ impl From<PeerAddr> for PeerInfo {
 }
 
 impl TryFrom<network_proto::PeerInfo> for PeerInfo {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
         let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
@@ -115,12 +116,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo {
-            id: id.into(),
-            addr,
-            account_id,
-            ..Default::default()
-        }
+        network_proto::PeerInfo { id: id.into(), addr, account_id, ..Default::default() }
     }
 }
 
@@ -141,7 +137,7 @@ pub struct Handshake {
 }
 
 impl TryFrom<network_proto::Handshake> for Handshake {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);

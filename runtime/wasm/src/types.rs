@@ -2,9 +2,11 @@ use std::fmt;
 
 use wasmer_runtime::error as WasmerError;
 
-use near_primitives::types::{AccountId, Balance, BlockIndex, Mana, PromiseId, StorageUsage};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging;
+use near_primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
+
+use crate::types::Error::Runtime;
 
 #[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -73,10 +75,8 @@ pub enum RuntimeError {
     BalanceExceeded,
     /// WASM-side assert failed
     AssertFailed,
-    /// Mana limit exceeded
-    ManaLimit,
     /// Gas limit reached
-    GasLimit,
+    UsageLimit,
     /// Unknown runtime function
     Unknown,
     /// Passed string had invalid utf-8 encoding
@@ -136,8 +136,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::AssertFailed => write!(f, "WASM-side assert failed"),
             RuntimeError::BadUtf8 => write!(f, "String encoding is bad utf-8 sequence"),
             RuntimeError::BadUtf16 => write!(f, "String encoding is bad utf-16 sequence"),
-            RuntimeError::ManaLimit => write!(f, "Mana limit exceeded"),
-            RuntimeError::GasLimit => write!(f, "Invocation resulted in gas limit violated"),
+            RuntimeError::UsageLimit => write!(f, "Invocation resulted in usage limit violated"),
             RuntimeError::Log => write!(f, "Error occured while logging an event"),
             RuntimeError::InvalidSyscall => {
                 write!(f, "Invalid syscall signature encountered at runtime")
@@ -182,9 +181,36 @@ pub enum Error {
     Cache(String),
 }
 
+impl From<WasmerError::RuntimeError> for Error {
+    fn from(e: WasmerError::RuntimeError) -> Self {
+        let default_msg = Error::Wasmer(format!("{}", e));
+        match e {
+            WasmerError::RuntimeError::Trap { msg: _ } => default_msg,
+            WasmerError::RuntimeError::Error { data } => {
+                if let Some(err) = data.downcast_ref::<RuntimeError>() {
+                    Runtime(err.clone())
+                } else {
+                    default_msg
+                }
+            }
+        }
+    }
+}
+
 impl From<WasmerError::Error> for Error {
     fn from(e: WasmerError::Error) -> Self {
-        Error::Wasmer(format!("{}", e))
+        let default_msg = Error::Wasmer(format!("{}", e));
+        match e {
+            WasmerError::Error::CallError(ce) => match ce {
+                WasmerError::CallError::Resolve(_) => default_msg,
+                WasmerError::CallError::Runtime(re) => re.into(),
+            },
+            WasmerError::Error::RuntimeError(re) => re.into(),
+            WasmerError::Error::CompileError(_)
+            | WasmerError::Error::LinkError(_)
+            | WasmerError::Error::ResolveError(_)
+            | WasmerError::Error::CreationError(_) => default_msg,
+        }
     }
 }
 
@@ -229,7 +255,7 @@ impl fmt::Debug for ReturnData {
 }
 
 // TODO: Extract it to the root of the crate
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
@@ -239,6 +265,9 @@ pub struct Config {
 
     /// Gas cost per one byte returned.
     pub return_data_per_byte_cost: u32,
+
+    /// Gas cost of the contract call.
+    pub contract_call_cost: u64,
 
     /// How tall the stack is allowed to grow?
     ///
@@ -254,7 +283,7 @@ pub struct Config {
     pub max_memory_pages: u32,
 
     /// Gas limit of the one contract call
-    pub gas_limit: u64,
+    pub usage_limit: u64,
 }
 
 impl Default for Config {
@@ -263,10 +292,11 @@ impl Default for Config {
             grow_mem_cost: 1,
             regular_op_cost: 1,
             return_data_per_byte_cost: 1,
+            contract_call_cost: 0,
             max_stack_height: 64 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,
-            gas_limit: 10 * 1024 * 1024,
+            usage_limit: 1024 * 1024 * 1024,
         }
     }
 }
@@ -283,14 +313,14 @@ pub struct RuntimeContext {
     pub originator_id: AccountId,
     /// Current Account ID.
     pub account_id: AccountId,
-    /// Available mana for the execution by this contract.
-    pub mana: Mana,
     /// Storage that the account is already using.
     pub storage_usage: StorageUsage,
     /// Currently produced block index
     pub block_index: BlockIndex,
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
+    /// Whether the execution should not charge any costs.
+    pub free_of_charge: bool,
 }
 
 impl RuntimeContext {
@@ -299,20 +329,20 @@ impl RuntimeContext {
         received_amount: Balance,
         sender_id: &AccountId,
         account_id: &AccountId,
-        mana: Mana,
         storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
+        free_of_charge: bool,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
             received_amount,
             originator_id: sender_id.clone(),
             account_id: account_id.clone(),
-            mana,
             storage_usage,
             block_index,
             random_seed,
+            free_of_charge,
         }
     }
 }

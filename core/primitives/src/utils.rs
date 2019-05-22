@@ -1,4 +1,4 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -14,9 +14,7 @@ pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
     pub const CALLBACK: &[u8] = &[1];
     pub const CODE: &[u8] = &[2];
-    pub const TX_STAKE: &[u8] = &[3];
-    pub const TX_STAKE_SEPARATOR: &[u8] = &[4];
-    pub const ACCESS_KEY: &[u8] = &[5];
+    pub const ACCESS_KEY: &[u8] = &[3];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
@@ -52,14 +50,6 @@ pub fn key_for_callback(id: &[u8]) -> Vec<u8> {
     key
 }
 
-pub fn key_for_tx_stake(account_id: &AccountId, contract_id: &Option<AccountId>) -> Vec<u8> {
-    let mut key = key_for_column_account_id(col::TX_STAKE, &account_id);
-    if let Some(ref contract_id) = contract_id {
-        key.append(&mut key_for_column_account_id(col::TX_STAKE_SEPARATOR, contract_id));
-    }
-    key
-}
-
 pub fn create_nonce_with_nonce(base: &CryptoHash, salt: u64) -> CryptoHash {
     let mut nonce: Vec<u8> = base.as_ref().to_owned();
     nonce.append(&mut index_to_bytes(salt));
@@ -78,10 +68,6 @@ pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
     0
 }
 
-pub fn base64_vec2str(buf: &[u8]) -> String {
-    base64::encode(buf)
-}
-
 lazy_static! {
     static ref VALID_ACCOUNT_ID: Regex = Regex::new(r"^[a-z0-9@._\-]{5,32}$").unwrap();
 }
@@ -96,17 +82,19 @@ pub fn to_string_value(s: String) -> StringValue {
     res
 }
 
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, String> {
-    proto.into_option().ok_or_else(|| "Bad Proto".to_string())
+pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<std::error::Error>> {
+    proto.into_option().ok_or_else(|| "Bad Proto".into())
 }
 
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, String>
+pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<std::error::Error>>
 where
-    U: TryFrom<T, Error = String>,
+    U: TryFrom<T, Error = Box<std::error::Error>>,
 {
     proto_to_result(proto).and_then(TryInto::try_into)
 }
 
+/// A wrapper around Option<T> that provides native Display trait.
+/// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);
 
 impl<T: fmt::Display> fmt::Display for DisplayOption<T> {
@@ -122,8 +110,10 @@ impl<T> DisplayOption<T> {
     pub fn into(self) -> Option<T> {
         self.0
     }
+}
 
-    pub fn as_ref(&self) -> &Option<T> {
+impl<T> AsRef<Option<T>> for DisplayOption<T> {
+    fn as_ref(&self) -> &Option<T> {
         &self.0
     }
 }

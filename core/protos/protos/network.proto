@@ -22,7 +22,7 @@ message Handshake {
     bytes peer_id = 2;
     google.protobuf.StringValue account_id = 3;
     google.protobuf.UInt32Value listen_port = 4;
-    PeerChainInfo chain_info = 6;
+    PeerChainInfo chain_info = 5;
 }
 
 message PeersResponse {

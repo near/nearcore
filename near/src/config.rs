@@ -15,13 +15,15 @@ use serde_derive::{Deserialize, Serialize};
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_jsonrpc::RpcConfig;
+use near_network::test_utils::open_port;
 use near_network::NetworkConfig;
 use near_primitives::crypto::signer::{InMemorySigner, KeyFile};
+use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
-use near_network::test_utils::open_port;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+
 /// Stake used by authorities to validate used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
@@ -223,9 +225,8 @@ impl GenesisConfig {
         let mut authorities = vec![];
         let mut accounts = vec![];
         let mut contracts = vec![];
-        let default_test_contract = base64::encode(
-            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
-        );
+        let default_test_contract =
+            to_base64(include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
             if i < num_validators {
@@ -434,12 +435,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
     let signer = Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
     let block_producer = BlockProducer::from(signer);
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(
-        config,
-        &genesis_config,
-        network_signer.into(),
-        Some(&block_producer),
-    )
+    NearConfig::new(config, &genesis_config, network_signer.into(), Some(&block_producer))
 }
 
 pub fn load_test_config(seed: &str, port: u64, genesis_config: &GenesisConfig) -> NearConfig {
@@ -448,12 +444,7 @@ pub fn load_test_config(seed: &str, port: u64, genesis_config: &GenesisConfig) -
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
     let block_producer = BlockProducer::from(signer.clone());
-    NearConfig::new(
-        config,
-        &genesis_config,
-        signer.into(),
-        Some(&block_producer),
-    )
+    NearConfig::new(config, &genesis_config, signer.into(), Some(&block_producer))
 }
 
 #[cfg(test)]

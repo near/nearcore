@@ -2,16 +2,16 @@ use std::sync::Arc;
 use std::{fmt, io};
 
 use cached::{Cached, SizedCache};
-use kvdb::{DBOp, DBTransaction, DBValue, KeyValueDB};
+pub use kvdb::DBValue;
+use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-use log::debug;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use near_primitives::serialize::{Decode, Encode};
+use near_primitives::serialize::{to_base64, Decode, Encode};
 
 pub use crate::trie::{
-    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie,
+    convert_to_store_update, update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator,
 };
 
 pub mod test_utils;
@@ -41,7 +41,7 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Decode + DeserializeOwned + std::fmt::Debug>(
+    pub fn get_ser<T: Decode + DeserializeOwned>(
         &self,
         column: Option<u32>,
         key: &[u8],
@@ -57,18 +57,17 @@ impl Store {
     }
 
     pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, io::Error> {
-        match self.storage.get(column, key) {
-            Ok(Some(_)) => Ok(true),
-            Ok(None) => Ok(false),
-            Err(e) => Err(e),
-        }
+        self.storage.get(column, key).map(|value| value.is_some())
     }
 
     pub fn store_update(&self) -> StoreUpdate {
         StoreUpdate::new(self.storage.clone())
     }
 
-    pub fn iter<'a>(&'a self, column: Option<u32>) -> Box<Iterator<Item=(Box<[u8]>, Box<[u8]>)> + 'a> {
+    pub fn iter<'a>(
+        &'a self,
+        column: Option<u32>,
+    ) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
     }
 }
@@ -133,7 +132,7 @@ impl StoreUpdate {
 
     pub fn commit(self) -> Result<(), io::Error> {
         if let Some(trie) = self.trie {
-            trie.clear_cache();
+            trie.update_cache(&self.transaction)?;
         }
         self.storage.write(self.transaction)
     }
@@ -145,16 +144,16 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, base64::encode(key))?
+                    write!(f, "  + {:?} {}\n", col, to_base64(key))?
                 }
-                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, base64::encode(key))?,
+                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base64(key))?,
             }
         }
         write!(f, "}}\n")
     }
 }
 
-pub fn read_with_cache<'a, T: Decode + DeserializeOwned + std::fmt::Debug + 'a>(
+pub fn read_with_cache<'a, T: Decode + DeserializeOwned + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,
@@ -184,8 +183,5 @@ pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option
 
 /// Writes an object into Trie.
 pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| {
-        debug!("set value failed");
-        None
-    });
+    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
 }

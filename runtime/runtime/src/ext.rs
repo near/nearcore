@@ -10,7 +10,7 @@ use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
 };
 use near_primitives::types::{
-    AccountId, AccountingInfo, Balance, CallbackId, Mana, Nonce, PromiseId, ReceiptId,
+    AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId,
 };
 use near_primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
 use near_store::set;
@@ -28,7 +28,7 @@ pub struct RuntimeExt<'a> {
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
     account_id: AccountId,
-    accounting_info: AccountingInfo,
+    refund_account_id: AccountId,
     nonce: Nonce,
     transaction_hash: &'a CryptoHash,
     iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
@@ -40,7 +40,7 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &AccountId,
-        accounting_info: &AccountingInfo,
+        refund_account_id: &AccountId,
         transaction_hash: &'a CryptoHash,
         ethash_provider: Arc<Mutex<EthashProvider>>,
     ) -> Self {
@@ -52,7 +52,7 @@ impl<'a> RuntimeExt<'a> {
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
             account_id: account_id.clone(),
-            accounting_info: accounting_info.clone(),
+            refund_account_id: refund_account_id.clone(),
             nonce: 0,
             transaction_hash,
             iters: HashMap::new(),
@@ -74,7 +74,9 @@ impl<'a> RuntimeExt<'a> {
     }
 
     pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
-        self.receipts.drain().map(|(_, v)| v).collect()
+        let mut vec: Vec<ReceiptTransaction> = self.receipts.drain().map(|(_, v)| v).collect();
+        vec.sort_by_key(|a| a.nonce);
+        vec
     }
 
     /// write callbacks to stateUpdate
@@ -157,7 +159,6 @@ impl<'a> External for RuntimeExt<'a> {
         account_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
         amount: Balance,
     ) -> ExtResult<PromiseId> {
         let nonce = self.create_nonce();
@@ -169,8 +170,7 @@ impl<'a> External for RuntimeExt<'a> {
                 method_name,
                 arguments,
                 amount,
-                mana,
-                self.accounting_info.clone(),
+                self.refund_account_id.clone(),
             )),
         );
         let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
@@ -183,7 +183,7 @@ impl<'a> External for RuntimeExt<'a> {
         promise_id: PromiseId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        mana: Mana,
+        amount: Balance,
     ) -> ExtResult<PromiseId> {
         let callback_id = self.create_nonce();
         let receipt_ids = match promise_id {
@@ -192,7 +192,7 @@ impl<'a> External for RuntimeExt<'a> {
             PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
         };
         let mut callback =
-            Callback::new(method_name, arguments, mana, self.accounting_info.clone());
+            Callback::new(method_name, arguments, amount, self.refund_account_id.clone());
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {

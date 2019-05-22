@@ -15,6 +15,8 @@ fn runtime_send_money(bench: &mut Bencher) {
     });
 }
 
+const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000;
+
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
     let account_id = node.account_id().unwrap();
@@ -45,49 +47,74 @@ fn runtime_wasm_bad_code(bench: &mut Bencher) {
     let code = wasm::prepare::prepare_contract(&code, &wasm::types::Config::default()).unwrap();
     let node = setup_test_contract(&code);
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark", b"{}".to_vec(), 0);
+        node.call_function("test_contract", "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
     });
 }
 
 fn runtime_wasm_set_value(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "setValue", b"{\"value\":\"123\"}".to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "setValue",
+            b"{\"value\":\"123\"}".to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }
 
 fn runtime_wasm_benchmark_10_reads_legacy(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark", b"{}".to_vec(), 0);
+        node.call_function("test_contract", "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
     });
 }
 
 fn runtime_wasm_benchmark_storage_100(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark_storage", b"{\"n\":100}".to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "benchmark_storage",
+            b"{\"n\":100}".to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }
 
 fn runtime_wasm_benchmark_storage_1000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark_storage", b"{\"n\":1000}".to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "benchmark_storage",
+            b"{\"n\":1000}".to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }
 
 fn runtime_wasm_benchmark_sum_1000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark_sum_n", b"{\"n\":1000}".to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "benchmark_sum_n",
+            b"{\"n\":1000}".to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }
 
 fn runtime_wasm_benchmark_sum_1000000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark_sum_n", b"{\"n\":1000000}".to_vec(), 0);
+        node.call_function(
+            "test_contract",
+            "benchmark_sum_n",
+            b"{\"n\":1000000}".to_vec(),
+            FUNCTION_CALL_AMOUNT,
+        );
     });
 }
 

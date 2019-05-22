@@ -4,7 +4,7 @@ use std::sync::RwLock;
 
 use near::config::{create_testnet_configs, GenesisConfig};
 use near::NearConfig;
-use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::state_viewer::AccountViewCallResult;

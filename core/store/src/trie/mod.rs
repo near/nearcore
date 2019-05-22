@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
+use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::hash::{hash, CryptoHash};
 
@@ -86,7 +87,7 @@ impl TrieNode {
                             child.print(f, memory, spaces)?;
                         }
                     }
-                    writeln!(f, "")?;
+                    writeln!(f)?;
                 }
                 spaces.remove(spaces.len() - 1);
                 write!(f, "{}}}", spaces)?;
@@ -104,7 +105,7 @@ impl TrieNode {
                         child.print(f, memory, spaces)?;
                     }
                 }
-                writeln!(f, "")?;
+                writeln!(f)?;
                 spaces.remove(spaces.len() - 1);
             }
         }
@@ -129,13 +130,12 @@ enum RawTrieNode {
 
 struct NodesStorage {
     nodes: Vec<Option<TrieNode>>,
-    refcount_changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
+    refcount_changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
 }
 
 const INVALID_STORAGE_HANDLE: &str = "invalid storage handle";
 
 /// Local mutable storage that owns node objects.
-///
 impl NodesStorage {
     fn new() -> NodesStorage {
         NodesStorage { nodes: Vec::new(), refcount_changes: HashMap::new() }
@@ -185,9 +185,9 @@ fn decode_children(cursor: &mut Cursor<&[u8]>) -> Result<[Option<CryptoHash>; 16
     let mut pos = 1;
     for child in &mut children {
         if bitmap & pos != 0 {
-            let mut arr = vec![0; 32];
+            let mut arr = [0; 32];
             cursor.read_exact(&mut arr)?;
-            *child = Some(CryptoHash::try_from(arr).unwrap());
+            *child = Some(CryptoHash::try_from(&arr[..]).unwrap());
         }
         pos <<= 1;
     }
@@ -283,16 +283,16 @@ impl RawTrieNode {
 
 impl RcTrieNode {
     fn encode(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
-        let mut cursor = Cursor::new(Vec::new());
+        let mut cursor = Cursor::new(Vec::with_capacity(data.len() + 4));
         cursor.write_all(data)?;
         cursor.write_u32::<LittleEndian>(rc)?;
         Ok(cursor.into_inner())
     }
 
-    fn decode_raw(bytes: &[u8]) -> Result<(Vec<u8>, u32), std::io::Error> {
+    fn decode_raw(bytes: &[u8]) -> Result<(&[u8], u32), std::io::Error> {
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;
-        Ok((bytes[..bytes.len() - 4].to_vec(), rc))
+        Ok((&bytes[..bytes.len() - 4], rc))
     }
 
     fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
@@ -315,35 +315,38 @@ impl TrieCachingStorage {
     }
 
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)> {
-        let mut _guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = (*_guard).cache_get(hash) {
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        if let Some(val) = (*guard).cache_get(hash) {
             val.clone()
         } else {
-            let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
+            let result = if let Ok(Some(bytes)) = self.store.get_ser(COL_STATE, hash.as_ref()) {
                 Some(bytes)
             } else {
                 None
             };
-            (*_guard).cache_set(*hash, result.clone());
+            (*guard).cache_set(*hash, result.clone());
             result
         }
     }
 
-    fn retrieve_raw_node(&self, hash: &CryptoHash) -> Option<(Vec<u8>, u32)> {
-        if let Some(bytes) = self.retrieve_raw_bytes(hash) {
-            match RcTrieNode::decode_raw(&bytes) {
-                Ok((bytes, rc)) => Some((bytes, rc)),
-                Err(_) => None,
-            }
+    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        if let Some(val) = (*guard).cache_get(hash) {
+            val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1)
         } else {
-            None
+            let val = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
+                Some(bytes)
+            } else {
+                None
+            };
+            let rc =
+                val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1);
+            (*guard).cache_set(*hash, val);
+            rc
         }
     }
 
     fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, String> {
-        if *hash == Trie::empty_root() {
-            return Ok(TrieNode::Empty);
-        }
         if let Some(bytes) = self.retrieve_raw_bytes(hash) {
             match RcTrieNode::decode(&bytes) {
                 Ok((value, _)) => Ok(TrieNode::new(value)),
@@ -366,23 +369,28 @@ pub struct Trie {
 /// state0 /
 ///        \__changes2___state2
 ///
-/// To store state1, state2 and state3, apply insertions from changes1 and changes2
+/// To store state0, state1 and state2, apply insertions from changes1 and changes2
 ///
 /// Then, to discard state2, apply insertions from changes2 as deletions
 ///
-/// Then, to discard state0, apply deletions from changes1
+/// Then, to discard state0, apply deletions from changes1.
+/// deleting state0 while both state1 and state2 exist is not possible.
+/// Applying deletions from changes1 while state2 exists makes accessing state2 invalid.
 ///
 ///
 /// create a fork -> apply insertions
 /// resolve a fork -> apply opposite of insertions
 /// discard old parent which has no forks from it -> apply deletions
 ///
+/// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
-/// DBChanges are the changes from current state refcount to refcount + delta.
+/// StoreUpdate are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
+    #[allow(dead_code)]
+    old_root: CryptoHash,
     new_root: CryptoHash,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
-    deletions: Vec<(CryptoHash, u32)>,           // key, rc
+    deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 enum FlattenNodesCrumb {
@@ -394,15 +402,14 @@ enum FlattenNodesCrumb {
 pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreUpdate, CryptoHash) {
     let mut store_update =
         StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
-    let TrieChanges { new_root, insertions, deletions } = changes;
-    for (key, value, rc) in insertions.into_iter() {
-        let storage_rc = trie.storage.retrieve_raw_node(&key).map_or_else(|| 0, |(_val, rc)| rc);
+    let TrieChanges { new_root, insertions, deletions, .. } = changes;
+    for (key, value, rc) in insertions {
+        let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
         let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
         store_update.set(COL_STATE, key.as_ref(), &bytes);
     }
-    for (key, rc) in deletions.into_iter() {
-        let (value, storage_rc) =
-            trie.storage.retrieve_raw_node(&key).expect("Node to delete does not exist");
+    for (key, value, rc) in deletions {
+        let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
         assert!(rc <= storage_rc);
         if rc < storage_rc {
             let bytes = RcTrieNode::encode(&value, storage_rc - rc).expect("Failed to serialize");
@@ -431,9 +438,30 @@ impl Trie {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
-            let result = memory.store(self.retrieve_node(hash)?);
-            memory.refcount_changes.entry(*hash).or_default().1 -= 1;
-            Ok(result)
+            if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
+                match RcTrieNode::decode(&bytes) {
+                    Ok((value, _)) => {
+                        let result = memory.store(TrieNode::new(value));
+                        memory
+                            .refcount_changes
+                            .entry(*hash)
+                            .or_insert_with(|| {
+                                (
+                                    RcTrieNode::decode_raw(&bytes)
+                                        .expect("calling after decode()")
+                                        .0
+                                        .to_vec(),
+                                    0,
+                                )
+                            })
+                            .1 -= 1;
+                        Ok(result)
+                    }
+                    Err(_) => Err(format!("Failed to decode node {}", hash)),
+                }
+            } else {
+                Err(format!("Node {} not found in storage", hash))
+            }
         }
     }
 
@@ -837,7 +865,11 @@ impl Trie {
         Ok(())
     }
 
-    fn flatten_nodes(memory: NodesStorage, node: StorageHandle) -> TrieChanges {
+    fn flatten_nodes(
+        old_root: &CryptoHash,
+        memory: NodesStorage,
+        node: StorageHandle,
+    ) -> TrieChanges {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
@@ -906,28 +938,27 @@ impl Trie {
             raw_node.encode_into(&mut buffer).expect("Failed to serialize");
             let key = hash(&buffer);
 
-            let (value, rc) = memory.refcount_changes.entry(key).or_insert_with(|| (None, 0));
+            let (_value, rc) =
+                memory.refcount_changes.entry(key).or_insert_with(|| (buffer.clone(), 0));
             *rc += 1;
-            if *rc > 0 && value.is_none() {
-                *value = Some(buffer.clone());
-            }
             buffer.clear();
             last_hash = key;
         }
-        let (insertions, deletions) = Trie::to_insertions_and_deletions(memory.refcount_changes);
-        TrieChanges { new_root: last_hash, insertions, deletions }
+        let (insertions, deletions) =
+            Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
+        TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions }
     }
 
-    fn to_insertions_and_deletions(
-        changes: HashMap<CryptoHash, (Option<Vec<u8>>, i32)>,
-    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, u32)>)) {
+    fn convert_to_insertions_and_deletions(
+        changes: HashMap<CryptoHash, (Vec<u8>, i32)>,
+    ) -> ((Vec<(CryptoHash, Vec<u8>, u32)>, Vec<(CryptoHash, Vec<u8>, u32)>)) {
         let mut deletions = Vec::new();
         let mut insertions = Vec::new();
         for (key, (value, rc)) in changes.into_iter() {
             if rc > 0 {
-                insertions.push((key, value.unwrap(), rc as u32));
+                insertions.push((key, value, rc as u32));
             } else if rc < 0 {
-                deletions.push((key, (-rc) as u32));
+                deletions.push((key, value, (-rc) as u32));
             }
         }
         // Sort so that trie changes have unique representation
@@ -959,16 +990,35 @@ impl Trie {
                 }
             }
         }
-        Trie::flatten_nodes(memory, root_node)
+        Trie::flatten_nodes(root, memory, root_node)
     }
 
     pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, String> {
         TrieIterator::new(self, root)
     }
 
-    /// Clears cache. Must be done after changes made to underlying storage.
-    pub fn clear_cache(&self) {
-        self.storage.cache.lock().expect(POISONED_LOCK_ERR).cache_clear();
+    #[inline]
+    pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
+        let mut guard = self.storage.cache.lock().expect(POISONED_LOCK_ERR);
+        for op in &transaction.ops {
+            match op {
+                DBOp::Insert { col, ref key, ref value } if *col == COL_STATE => (*guard)
+                    .cache_set(
+                        CryptoHash::try_from(&key[..]).map_err(|_| {
+                            std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                        })?,
+                        Some(value.to_vec()),
+                    ),
+                DBOp::Delete { col, ref key } if *col == COL_STATE => (*guard).cache_set(
+                    CryptoHash::try_from(&key[..]).map_err(|_| {
+                        std::io::Error::new(ErrorKind::Other, "Key is always a hash")
+                    })?,
+                    None,
+                ),
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1137,9 +1187,8 @@ impl<'a> Iterator for TrieIterator<'a> {
                         IterStep::PopTrail
                     }
                     (CrumbStatus::At, TrieNode::Branch(_, value)) => {
-                        if value.is_some() {
-                            let value = value.clone().expect("is_some() called");
-                            return Some(Ok((self.key(), DBValue::from_slice(&value))));
+                        if let Some(value) = value {
+                            return Some(Ok((self.key(), DBValue::from_slice(value))));
                         } else {
                             IterStep::Continue
                         }
@@ -1207,9 +1256,9 @@ mod tests {
 
     fn test_populate_trie(trie: Arc<Trie>, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let mut other_changes = changes.clone();
-        let trie_changes = trie.update(root, other_changes.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
+        let (store_update, root) =
+            convert_to_store_update(trie.clone(), trie.update(root, other_changes.drain(..)));
+        store_update.commit().unwrap();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
         }
@@ -1220,10 +1269,11 @@ mod tests {
         let delete_changes: TrieChanges =
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
-        let trie_changes = trie.update(root, other_delete_changes.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
-        trie.clear_cache();
+        let (store_update, root) = convert_to_store_update(
+            trie.clone(),
+            trie.update(root, other_delete_changes.drain(..)),
+        );
+        store_update.commit().unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
         }
@@ -1367,17 +1417,19 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
-        let trie_changes = trie.update(&Trie::empty_root(), initial.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
+        let (store_update, root) = convert_to_store_update(
+            trie.clone(),
+            trie.update(&Trie::empty_root(), initial.drain(..)),
+        );
+        store_update.commit().unwrap();
 
         let mut changes = vec![
             (vec![99, 44, 100, 58, 58, 45, 49], None),
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
-        let trie_changes = trie.update(&root, changes.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
+        let (store_update, root) =
+            convert_to_store_update(trie.clone(), trie.update(&root, changes.drain(..)));
+        store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1391,18 +1443,19 @@ mod tests {
             (vec![2, 2, 3], Some(vec![1])),
             (vec![3, 2, 3], Some(vec![1])),
         ];
-        let trie_changes = trie.update(&Trie::empty_root(), initial.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
-
+        let (store_update, root) = convert_to_store_update(
+            trie.clone(),
+            trie.update(&Trie::empty_root(), initial.drain(..)),
+        );
+        store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
 
         let mut changes = vec![(vec![1, 2, 3], None)];
-        let trie_changes = trie.update(&root, changes.drain(..));
-        let (db_changes, root) = convert_to_store_update(trie.clone(), trie_changes);
-        db_changes.commit().unwrap();
+        let (store_update, root) =
+            convert_to_store_update(trie.clone(), trie.update(&root, changes.drain(..)));
+        store_update.commit().unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1463,18 +1516,22 @@ mod tests {
             let trie_changes = gen_changes(&mut rng);
             let simplified_changes = simplify_changes(&trie_changes);
 
-            let trie_changes1 = trie.update(&Trie::empty_root(), trie_changes.iter().cloned());
-            let trie_changes2 =
-                trie.update(&Trie::empty_root(), simplified_changes.iter().cloned());
-            if trie_changes1.new_root != trie_changes2.new_root {
+            let (_store_update1, root1) = convert_to_store_update(
+                trie.clone(),
+                trie.update(&Trie::empty_root(), trie_changes.iter().cloned()),
+            );
+            let (_store_update2, root2) = convert_to_store_update(
+                trie.clone(),
+                trie.update(&Trie::empty_root(), simplified_changes.iter().cloned()),
+            );
+            if root1 != root2 {
                 eprintln!("{:?}", trie_changes);
                 eprintln!("{:?}", simplified_changes);
-                eprintln!("root1: {}", trie_changes1.new_root);
-                eprintln!("root2: {}", trie_changes2.new_root);
+                eprintln!("root1: {}", root1);
+                eprintln!("root2: {}", root2);
                 panic!("MISMATCH!");
             }
             // TODO: compare state updates?
-            // assert_eq!(db_changes1, db_changes2);
         }
     }
 }

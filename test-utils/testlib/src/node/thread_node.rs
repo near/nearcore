@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use near::{start_with_config, NearConfig};
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::types::AccountId;
 
 use crate::actix_utils::ShutdownableThread;

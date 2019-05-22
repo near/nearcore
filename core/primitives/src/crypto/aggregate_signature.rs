@@ -1,15 +1,19 @@
-use crate::traits::{Base64Encoded, ToBytes};
-use crate::types::ReadableBlsPublicKey;
+use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
+use std::io::Cursor;
+
+use pairing::bls12_381::Bls12;
 use pairing::{
     CurveAffine, CurveProjective, EncodedPoint, Engine, Field, GroupDecodingError, PrimeField,
     PrimeFieldRepr, Rand,
 };
 use rand::rngs::OsRng;
 use rand::Rng;
-use std::convert::TryFrom;
-use std::error::Error;
-use std::fmt;
-use std::io::Cursor;
+
+use crate::serialize::to_base64;
+use crate::traits::{Base64Encoded, ToBytes};
+use crate::types::ReadableBlsPublicKey;
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
 const DOMAIN_PROOF_OF_POSSESSION: &[u8] = b"_p";
@@ -140,13 +144,13 @@ impl<E: Engine> PublicKey<E> {
 
 impl<E: Engine> fmt::Debug for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", base64::encode(self.compress().as_ref()))
+        write!(f, "{}", to_base64(self.compress().as_ref()))
     }
 }
 
 impl<E: Engine> fmt::Display for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", base64::encode(self.compress().as_ref()))
+        write!(f, "{}", to_base64(self.compress().as_ref()))
     }
 }
 
@@ -212,7 +216,7 @@ impl<E: Engine> ToBytes for SecretKey<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let mut repr: <E::Fr as PrimeField>::Repr = Default::default();
@@ -261,7 +265,7 @@ impl fmt::Display for LengthError {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for PublicKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(CompressedPublicKey::try_from(v)?.decompress().map_err(|err| err.to_string())?)
@@ -275,7 +279,7 @@ impl<E: Engine> ToBytes for Signature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(CompressedSignature::try_from(v)?.decode().map_err(|err| err.to_string())?)
@@ -321,12 +325,12 @@ impl<E: Engine> ToBytes for CompressedPublicKey<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedPublicKey<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G1Affine as CurveAffine>::Compressed::empty();
         encoded.as_mut().copy_from_slice(v);
@@ -360,12 +364,12 @@ impl<E: Engine> ToBytes for CompressedSignature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedSignature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Compressed::empty();
         encoded.as_mut().copy_from_slice(v);
@@ -399,12 +403,12 @@ impl<E: Engine> ToBytes for UncompressedSignature<E> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for UncompressedSignature<E> {
-    type Error = String;
+    type Error = Box<std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Uncompressed as EncodedPoint>::size();
         if v.len() != expected {
-            return Err(LengthError(expected, v.len()).to_string());
+            return Err(LengthError(expected, v.len()).into());
         }
         let mut encoded = <E::G2Affine as CurveAffine>::Uncompressed::empty();
         encoded.as_mut().copy_from_slice(v);
@@ -465,8 +469,6 @@ impl<E: Engine> Default for AggregateSignature<E> {
     }
 }
 
-use pairing::bls12_381::Bls12;
-
 pub type BlsSecretKey = SecretKey<Bls12>;
 pub type BlsPublicKey = PublicKey<Bls12>;
 pub type BlsSignature = Signature<Bls12>;
@@ -474,9 +476,10 @@ pub type BlsAggregatePublicKey = AggregatePublicKey<Bls12>;
 pub type BlsAggregateSignature = AggregateSignature<Bls12>;
 
 pub mod uncompressed_bs64_signature_serializer {
+    use serde::{Deserialize, Deserializer, Serializer};
+
     use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
     use crate::traits::Base64Encoded;
-    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -497,10 +500,10 @@ pub mod uncompressed_bs64_signature_serializer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use rand::SeedableRng;
     use rand_xorshift::XorShiftRng;
+
+    use super::*;
 
     #[test]
     fn sign_verify() {

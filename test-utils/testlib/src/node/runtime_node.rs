@@ -1,13 +1,13 @@
-use crate::node::Node;
-use crate::runtime_utils::get_runtime_and_trie;
-use crate::user::runtime_user::MockClient;
-use crate::user::{RuntimeUser, User};
+use std::sync::{Arc, RwLock};
 
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
 use near_primitives::types::{AccountId, Balance};
 
-use std::sync::{Arc, RwLock};
+use crate::node::Node;
+use crate::runtime_utils::get_runtime_and_trie;
+use crate::user::runtime_user::MockClient;
+use crate::user::{RuntimeUser, User};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
