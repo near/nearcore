@@ -1,5 +1,6 @@
 use std::fmt;
 
+use crate::types::Error::Runtime;
 use primitives::hash::{hash, CryptoHash};
 use primitives::logging;
 use primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
@@ -178,9 +179,36 @@ pub enum Error {
     Cache(String),
 }
 
+impl From<WasmerError::RuntimeError> for Error {
+    fn from(e: WasmerError::RuntimeError) -> Self {
+        let default_msg = Error::Wasmer(format!("{}", e));
+        match e {
+            WasmerError::RuntimeError::Trap { msg: _ } => default_msg,
+            WasmerError::RuntimeError::Error { data } => {
+                if let Some(err) = data.downcast_ref::<RuntimeError>() {
+                    Runtime(err.clone())
+                } else {
+                    default_msg
+                }
+            }
+        }
+    }
+}
+
 impl From<WasmerError::Error> for Error {
     fn from(e: WasmerError::Error) -> Self {
-        Error::Wasmer(format!("{}", e))
+        let default_msg = Error::Wasmer(format!("{}", e));
+        match e {
+            WasmerError::Error::CallError(ce) => match ce {
+                WasmerError::CallError::Resolve(_) => default_msg,
+                WasmerError::CallError::Runtime(re) => re.into(),
+            },
+            WasmerError::Error::RuntimeError(re) => re.into(),
+            WasmerError::Error::CompileError(_)
+            | WasmerError::Error::LinkError(_)
+            | WasmerError::Error::ResolveError(_)
+            | WasmerError::Error::CreationError(_) => default_msg,
+        }
     }
 }
 

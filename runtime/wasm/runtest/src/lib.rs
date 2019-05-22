@@ -122,7 +122,7 @@ mod tests {
     use primitives::hash::hash;
     use std::fs;
     use wasm::executor::{self, ExecutionOutcome};
-    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
+    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
     use primitives::types::StorageUsage;
@@ -192,6 +192,19 @@ mod tests {
             b"yolo".to_vec(),
             false,
         )
+    }
+
+    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u64) -> ExecutionOutcome {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/hello.wasm");
+        run_with_filename(
+            method_name,
+            input_data,
+            &[],
+            &runtime_context(0, amount, 0),
+            path.to_str().unwrap(),
+        )
+        .expect("ok")
     }
 
     #[test]
@@ -364,6 +377,83 @@ mod tests {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"\"hello Alice\""),
             _ => assert!(false, "Expected returned value"),
         };
+    }
+
+    #[test]
+    fn test_gas_error() {
+        let outcome = run_hello_wasm(b"hello", b"{\"name\": \"Alice\"}", 0);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_stack_overflow() {
+        let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Wasmer(msg)) => {
+                assert_eq!(msg, "WebAssembly trap occured during runtime: unknown")
+            }
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_argument_type() {
+        let outcome = run_hello_wasm(b"hello", b"{\"name\": 1}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_argument_none_string() {
+        let outcome = run_hello_wasm(b"hello", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"\"hello null\""),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_invalid_argument_none_int() {
+        let outcome = run_hello_wasm(b"recurse", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"0"),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_invalid_argument_extra() {
+        let outcome =
+            run_hello_wasm(b"hello", b"{\"name\": \"Alice\", \"name2\": \"Bob\"}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_trigger_assert() {
+        let outcome = run_hello_wasm(b"triggerAssert", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        let ExecutionOutcome { return_data, logs, .. } = outcome;
+        match return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0], "LOG: log before assert");
+        assert!(logs[1].starts_with("ABORT: \"expected to fail\" filename:"));
     }
 
     #[test]
