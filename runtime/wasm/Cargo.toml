@@ -8,7 +8,7 @@ edition = "2018"
 wasmi = { version = "0.4.1" }
 pwasm-utils = "0.6.2"
 parity-wasm = "0.31"
-wasmer-runtime = "0.3.0"
+wasmer-runtime = "0.4.2"
 byteorder = "1.2"
 hex = "0.3"
 log = "0.4"
