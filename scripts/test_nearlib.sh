@@ -9,7 +9,7 @@ set -ex
 rm -rf nearlib
 git clone https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
-export NEARCORE_DIR="../"
+export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
 npm install
 npm test

@@ -57,7 +57,7 @@ impl Store {
     }
 
     pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, io::Error> {
-        self.storage.get(column, key).map(|value| Option::is_some(&value))
+        self.storage.get(column, key).map(|value| value.is_some())
     }
 
     pub fn store_update(&self) -> StoreUpdate {

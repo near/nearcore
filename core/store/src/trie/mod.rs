@@ -403,12 +403,12 @@ pub fn convert_to_store_update(trie: Arc<Trie>, changes: TrieChanges) -> (StoreU
     let mut store_update =
         StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
     let TrieChanges { new_root, insertions, deletions, .. } = changes;
-    for (key, value, rc) in insertions.into_iter() {
+    for (key, value, rc) in insertions {
         let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
         let bytes = RcTrieNode::encode(&value, storage_rc + rc).expect("Failed to serialize");
         store_update.set(COL_STATE, key.as_ref(), &bytes);
     }
-    for (key, value, rc) in deletions.into_iter() {
+    for (key, value, rc) in deletions {
         let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
         assert!(rc <= storage_rc);
         if rc < storage_rc {

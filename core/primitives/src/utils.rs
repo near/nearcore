@@ -1,4 +1,4 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -110,8 +110,10 @@ impl<T> DisplayOption<T> {
     pub fn into(self) -> Option<T> {
         self.0
     }
+}
 
-    pub fn as_ref(&self) -> &Option<T> {
+impl<T> AsRef<Option<T>> for DisplayOption<T> {
+    fn as_ref(&self) -> &Option<T> {
         &self.0
     }
 }
