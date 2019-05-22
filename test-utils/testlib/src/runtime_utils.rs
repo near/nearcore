@@ -4,11 +4,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use tempdir::TempDir;
 
 use near::GenesisConfig;
-use near_primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use near_primitives::crypto::group_signature::GroupSignature;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::merklize;
-use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, MerkleHash};
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
@@ -66,20 +62,4 @@ pub fn encode_int(val: i32) -> [u8; 4] {
     let mut tmp = [0u8; 4];
     LittleEndian::write_i32(&mut tmp, val);
     tmp
-}
-
-pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
-    let (receipt_merkle_root, path) = merklize(&[&receipts]);
-    let header = SignedShardBlockHeader {
-        body: ShardBlockHeader {
-            parent_hash: CryptoHash::default(),
-            shard_id: 0,
-            index: 0,
-            merkle_root_state: CryptoHash::default(),
-            receipt_merkle_root,
-        },
-        hash: CryptoHash::default(),
-        signature: GroupSignature::default(),
-    };
-    ReceiptBlock::new(header, path[0].clone(), receipts, 0)
 }

@@ -16,7 +16,7 @@ use near_primitives::types::{AccountId, MerkleHash};
 use near_protos::signed_transaction as transaction_proto;
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
-use crate::user::{AsyncUser, User};
+use crate::user::User;
 
 pub struct RpcUser {
     client: RwLock<JsonRpcClient>,

@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
 use near_primitives::types::{AccountId, Balance};
 
