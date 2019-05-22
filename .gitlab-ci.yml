@@ -8,6 +8,7 @@ variables:
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
     APT_CACHE_DIR: apt-cache
+    NEAR_PROTOS_DIR: runtime/protos/protos
 
 .setup_rust: &setup_rust
     rustup default nightly

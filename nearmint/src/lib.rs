@@ -275,7 +275,7 @@ impl Application for NearMint {
                     resp.data = result;
                 }
                 if tx_result.status != TransactionStatus::Completed {
-                    resp.code = 2;
+                    resp.code = 1;
                 } else {
                     let mut receipts = incoming_receipts.remove(&0).unwrap_or_else(|| vec![]);
                     while !receipts.is_empty() {
@@ -344,7 +344,7 @@ mod tests {
     use node_runtime::chain_spec::{ChainSpec, TESTING_INIT_BALANCE};
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;
-    use primitives::transaction::TransactionBody;
+    use primitives::transaction::{CreateAccountTransaction, TransactionBody};
     use primitives::types::StructSignature;
 
     use super::*;
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_transaction() {
+    fn test_check_tx_invalid_transaction() {
         let chain_spec = ChainSpec::default_devnet();
         let mut nearmint = NearMint::new_for_test(chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
@@ -410,6 +410,40 @@ mod tests {
         let mut req_tx = RequestCheckTx::new();
         req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
         let resp_tx = nearmint.check_tx(&req_tx);
+        assert_eq!(resp_tx.code, 1);
+    }
+
+    #[test]
+    fn test_deliver_tx_invalid_transaction() {
+        let chain_spec = ChainSpec::default_devnet();
+        let mut nearmint = NearMint::new_for_test(chain_spec);
+        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        let tx = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: 1,
+            originator: "alice.near".to_string(),
+            new_account_id: "test.near".to_string(),
+            amount: TESTING_INIT_BALANCE + 1,
+            public_key: vec![],
+        })
+        .sign(&signer);
+        let invalid_tx: near_protos::signed_transaction::SignedTransaction = tx.into();
+
+        let mut req_begin_block = RequestBeginBlock::new();
+        let mut h = Header::new();
+        h.height = 1;
+        let mut last_block_id = BlockID::new();
+        last_block_id.hash = CryptoHash::default().as_ref().to_vec();
+        h.set_last_block_id(last_block_id);
+        req_begin_block.set_header(h);
+        nearmint.begin_block(&req_begin_block);
+
+        let mut req_tx = RequestCheckTx::new();
+        req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
+        let resp_tx = nearmint.check_tx(&req_tx);
+        assert_eq!(resp_tx.code, 0);
+        let mut deliver_tx = RequestDeliverTx::new();
+        deliver_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
+        let resp_tx = nearmint.deliver_tx(&deliver_tx);
         assert_eq!(resp_tx.code, 1);
     }
 }
