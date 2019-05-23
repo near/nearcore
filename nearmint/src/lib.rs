@@ -217,11 +217,14 @@ impl Application for NearMint {
                 if let Err(e) = verifier.verify_transaction(&tx) {
                     error!("Failed check tx: {:?}, error: {}", req.tx, e);
                     resp.code = 1;
+                    resp.log = e;
                 }
             }
             Err(err) => {
                 info!("Failed check tx: {:?}, error: {:?}", req.tx, err);
                 resp.code = 1;
+                resp.log = "Unable to decode transaction from proto. Might be a version mismatch"
+                    .to_string();
             }
         };
         resp
@@ -303,6 +306,8 @@ impl Application for NearMint {
             }
         } else {
             resp.code = 1;
+            resp.log =
+                "Unable to decode transaction from proto. Might be a version mismatch".to_string();
         }
         resp
     }

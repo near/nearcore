@@ -1,5 +1,6 @@
 use node_runtime::state_viewer::AccountViewCallResult;
 use primitives::crypto::signature::PublicKey;
+use primitives::hash::CryptoHash;
 use primitives::rpc::JsonRpcResponse;
 use protobuf::Message;
 use std::process::{Child, Command};
@@ -100,6 +101,17 @@ fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
             let bytes = base64::decode(v.as_str().unwrap()).unwrap();
             serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
         })
+}
+
+fn view_tx(tx_hash: CryptoHash) -> JsonRpcResponse {
+    let client = reqwest::Client::new();
+    let mut response = client
+        .post("http://127.0.0.1:3030/tx")
+        .form(&[("hash", format!("0x{}", hex::encode(&tx_hash)))])
+        .send()
+        .unwrap();
+    let response: JsonRpcResponse = response.json().expect("cannot decode response");
+    response
 }
 
 fn submit_tx(tx: near_protos::signed_transaction::SignedTransaction) -> JsonRpcResponse {
@@ -228,6 +240,82 @@ mod test {
             submit_tx(tx);
             let keys = view_access_key_request("alice.near").unwrap();
             assert_eq!(keys, vec![signer1.public_key]);
+        });
+    }
+
+    #[test]
+    fn test_check_tx_error_log() {
+        heavy_test(|| {
+            let storage_path = "/tmp/test_check_tx_error_log";
+            let _test_node = start_nearmint(storage_path);
+            let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let money_to_send = 1_000_000;
+            let tx: near_protos::signed_transaction::SignedTransaction =
+                TransactionBody::CreateAccount(CreateAccountTransaction {
+                    nonce: 1,
+                    originator: "bob.near".to_string(),
+                    new_account_id: "test.near".to_string(),
+                    amount: money_to_send,
+                    public_key: signer.public_key.0[..].to_vec(),
+                })
+                .sign(&signer)
+                .into();
+            let response = submit_tx(tx);
+            let log = response
+                .result
+                .unwrap()
+                .as_object()
+                .and_then(|m| m.get("check_tx"))
+                .unwrap()
+                .as_object()
+                .and_then(|m| m.get("log"))
+                .and_then(|v| v.as_str())
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                log,
+                "Transaction is not signed with a public key of the originator \"bob.near\""
+                    .to_string()
+            );
+        });
+    }
+
+    #[test]
+    fn test_deliver_tx_error_log() {
+        heavy_test(|| {
+            let storage_path = "/tmp/test_deliver_tx_error_log";
+            let _test_node = start_nearmint(storage_path);
+            let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+            let tx: near_protos::signed_transaction::SignedTransaction =
+                TransactionBody::CreateAccount(CreateAccountTransaction {
+                    nonce: 1,
+                    originator: "alice.near".to_string(),
+                    new_account_id: "test.near".to_string(),
+                    amount: TESTING_INIT_BALANCE + 1,
+                    public_key: signer.public_key.0[..].to_vec(),
+                })
+                .sign(&signer)
+                .into();
+            let tx_bytes = tx.write_to_bytes().unwrap();
+            submit_tx(tx);
+
+            let view_tx_response = view_tx(hash(&tx_bytes));
+            let log = view_tx_response
+                .result
+                .unwrap()
+                .as_object()
+                .and_then(|m| m.get("tx_result"))
+                .unwrap()
+                .as_object()
+                .and_then(|m| m.get("log"))
+                .and_then(|v| v.as_str())
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                log,
+                "Runtime error: Account alice.near tries to create new account with 1000000000000001, but only has 1000000000000000"
+                    .to_string()
+            );
         });
     }
 }
