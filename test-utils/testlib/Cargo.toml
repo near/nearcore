@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2018"
 
 [[bin]]
-name = "generate-test-spec"
-path = "src/generate_test_spec.rs"
+name = "run-nodes"
+path = "src/run_nodes.rs"
 
 [dependencies]
 actix = "0.8.2"

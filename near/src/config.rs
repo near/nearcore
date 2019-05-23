@@ -1,10 +1,10 @@
 use std::convert::TryInto;
-use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
@@ -394,7 +394,8 @@ pub fn create_testnet_configs(
     for i in 0..(num_validators + num_non_validators) {
         let mut config = Config::default();
         if local_ports {
-            config.network.addr = format!("0.0.0.0:{}", if i == 0 { first_node_port } else { open_port() });
+            config.network.addr =
+                format!("0.0.0.0:{}", if i == 0 { first_node_port } else { open_port() });
             config.rpc.addr = format!("0.0.0.0:{}", open_port());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
@@ -402,6 +403,8 @@ pub fn create_testnet_configs(
                 format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
             };
             config.network.skip_sync_wait = num_validators == 1;
+            config.consensus.min_num_peers =
+                cmp::min(num_validators, config.consensus.min_num_peers);
         }
         configs.push(config);
     }
