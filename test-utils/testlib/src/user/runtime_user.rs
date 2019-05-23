@@ -88,7 +88,7 @@ impl RuntimeUser {
                 let transaction_result = apply_result.tx_result[i + counter].clone();
                 self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
             }
-            apply_result.trie_changes.into(self.client.write().expect(POISONED_LOCK_ERR).trie.clone()).unwrap().0.commit().unwrap();
+            apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             if apply_result.new_receipts.is_empty() {
                 client.state_root = apply_result.root;
                 return;
