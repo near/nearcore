@@ -390,16 +390,16 @@ pub fn create_testnet_configs(
         contracts: vec![],
     };
     let mut configs = vec![];
+    let first_node_port = open_port();
     for i in 0..(num_validators + num_non_validators) {
         let mut config = Config::default();
         if local_ports {
-            config.network.addr = format!("0.0.0.0:{}", if i == 0 { 26567 } else { open_port() });
-            config.consensus.min_num_peers = 3;
-            config.rpc.addr = format!("0.0.0.0:{}", 3030 + i);
+            config.network.addr = format!("0.0.0.0:{}", if i == 0 { first_node_port } else { open_port() });
+            config.rpc.addr = format!("0.0.0.0:{}", open_port());
             config.network.boot_nodes = if i == 0 {
                 "".to_string()
             } else {
-                format!("{}@127.0.0.1:26567", network_signers[0].public_key)
+                format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
             };
             config.network.skip_sync_wait = num_validators == 1;
         }
