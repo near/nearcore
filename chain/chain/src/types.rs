@@ -230,6 +230,7 @@ impl Block {
         } else {
             (vec![], vec![])
         };
+        let total_weight = (prev.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
         Block {
             header: BlockHeader::new(
                 height,
@@ -239,7 +240,7 @@ impl Block {
                 Utc::now(),
                 approval_mask,
                 approval_sigs,
-                (prev.total_weight.to_num() + 1).into(),
+                total_weight,
                 signer,
             ),
             transactions,
@@ -431,5 +432,25 @@ impl BlockApproval {
     pub fn new(hash: CryptoHash, signer: &EDSigner, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use near_primitives::crypto::signer::InMemorySigner;
+
+    #[test]
+    fn test_block_produce() {
+        let genesis = Block::genesis(MerkleHash::default(), Utc::now());
+        let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+        let b1 = Block::produce(&genesis.header, 1, MerkleHash::default(), vec![], HashMap::default(), signer.clone());
+        assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
+        assert_eq!(b1.header.total_weight.to_num(), 1);
+        let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
+        let approvals: HashMap<usize, Signature> = vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
+        let b2 = Block::produce(&b1.header, 2, MerkleHash::default(), vec![], approvals, signer.clone());
+        assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
+        assert_eq!(b2.header.total_weight.to_num(), 3);
     }
 }

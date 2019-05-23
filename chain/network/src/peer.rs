@@ -204,7 +204,9 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                 }
                 let peer_info = PeerInfo {
                     id: handshake.peer_id,
-                    addr: handshake.listen_port.map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
+                    addr: handshake
+                        .listen_port
+                        .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: handshake.account_id.clone(),
                 };
                 self.peer_manager_addr

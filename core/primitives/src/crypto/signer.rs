@@ -10,10 +10,7 @@ use rand::rngs::OsRng;
 use rand::Rng;
 
 use crate::crypto::aggregate_signature::BlsPublicKey;
-use crate::crypto::signature::{
-    bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey,
-    SecretKey, Signature,
-};
+use crate::crypto::signature::{bs64_pub_key_format, bs64_secret_key_format, bs64_serializer, get_key_pair, sign, PublicKey, SecretKey, Signature, verify};
 use crate::types::{AccountId, PartialSignature};
 
 /// Trait to abstract the signer account.
@@ -26,6 +23,7 @@ pub trait AccountSigner: Sync + Send {
 pub trait EDSigner: Sync + Send {
     fn public_key(&self) -> PublicKey;
     fn sign(&self, data: &[u8]) -> Signature;
+    fn verify(&self, data: &[u8], signature: &Signature) -> bool;
 }
 
 /// Trait to abstract the way signing with bls.
@@ -242,5 +240,9 @@ impl EDSigner for InMemorySigner {
 
     fn sign(&self, data: &[u8]) -> Signature {
         sign(data, &self.secret_key)
+    }
+
+    fn verify(&self, data: &[u8], signature: &Signature) -> bool {
+        verify(data, signature, &self.public_key)
     }
 }

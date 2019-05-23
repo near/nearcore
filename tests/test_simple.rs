@@ -3,16 +3,14 @@
 #[cfg(feature = "expensive_tests")]
 mod test {
     use std::thread;
-    use std::time::Duration;
 
-    use near_primitives::test_utils::{init_integration_logger, init_test_logger};
+    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::TransactionBody;
     use testlib::node::{create_nodes, sample_two_nodes, Node};
     use testlib::test_helpers::{heavy_test, wait};
 
     fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
-        // init_integration_logger();
-        init_test_logger();
+        init_integration_logger();
 
         let mut nodes = create_nodes(num_nodes, test_prefix);
         let nodes: Vec<_> = nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
@@ -48,10 +46,9 @@ mod test {
                     account_j.amount
                         < nodes[r].read().unwrap().view_balance(&account_names[j]).unwrap()
                 },
-                1000,
+                100,
                 trial_duration,
             );
-            thread::sleep(Duration::from_millis(500));
         }
     }
 

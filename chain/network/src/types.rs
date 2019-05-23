@@ -494,7 +494,7 @@ pub struct OutboundTcpConnect {
     pub peer_info: PeerInfo,
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 pub struct SendMessage {
     pub message: PeerMessage,
 }

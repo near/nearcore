@@ -672,6 +672,7 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_block_header(header.clone());
             }
             // Then validate all headers (splitting into two, makes sure if they are out of order).
+            // If validation fails, the saved block headers will not be committed to database as we revert store update.
             for header in headers.iter() {
                 self.validate_header(header, &Provenance::SYNC)?;
             }
@@ -681,8 +682,7 @@ impl<'a> ChainUpdate<'a> {
             // Update sync_head regardless of the total weight.
             self.update_sync_head(header)?;
             // Update header_head if total weight changed.
-            let head = self.update_header_head(header)?;
-            Ok(head)
+            self.update_header_head(header)
         } else {
             Ok(None)
         }
@@ -696,11 +696,6 @@ impl<'a> ChainUpdate<'a> {
         // Refuse blocks from the too distant future.
         if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
-        }
-
-        // Quick check if head is already known.
-        if self.is_header_known(header)? {
-            return Ok(());
         }
 
         // First I/O cost, delayed as late as possible.
@@ -821,6 +816,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Check if header is known: head, orphan or in store.
+    #[allow(dead_code)]
     fn is_header_known(&self, header: &BlockHeader) -> Result<bool, Error> {
         let check = || {
             self.check_known_head(header)?;

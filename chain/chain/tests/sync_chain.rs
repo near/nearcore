@@ -11,6 +11,6 @@ fn chain_sync_headers() {
     for i in 0..4 {
         headers.push(Block::empty(&headers[i], signer.clone()).header);
     }
-    chain.sync_block_headers(headers).unwrap();
+    chain.sync_block_headers(headers.drain(1..).collect()).unwrap();
     assert_eq!(chain.sync_head().unwrap().height, 4);
 }

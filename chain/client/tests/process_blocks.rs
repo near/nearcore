@@ -307,8 +307,9 @@ fn client_sync() {
                         chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
                     }],
                 },
-                NetworkRequests::BlockHeadersRequest { hashes: _, peer_id } => {
+                NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
+                    assert_eq!(hashes.len(), 1);
                     // TODO: check it requests correct hashes.
                     System::current().stop();
                     NetworkResponses::NoResponse

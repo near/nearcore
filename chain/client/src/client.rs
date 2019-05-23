@@ -485,10 +485,10 @@ impl ClientActor {
             Ok(_) => true,
             Err(err) => {
                 if err.is_bad_data() {
-                    debug!(target: "client", "Block headers refused by chain: {:?}", err);
+                    error!(target: "client", "Error processing sync blocks: {}", err);
                     false
                 } else {
-                    error!(target: "client", "Error processing sync blocks: {:?}", err);
+                    debug!(target: "client", "Block headers refused by chain: {}", err);
                     true
                 }
             }
@@ -517,8 +517,8 @@ impl ClientActor {
 
         let mut headers = vec![];
         let max_height = self.chain.header_head()?.height;
-        // TODO: this may be inefficient if there is a lot of skipped blocks.
-        for h in header.height + 1..max_height {
+        // TODO: this may be inefficient if there are a lot of skipped blocks.
+        for h in header.height + 1..=max_height {
             if let Ok(header) = self.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -692,9 +692,17 @@ impl ClientActor {
             // Block#, Block Hash, is authority/# authorities, active/max peers.
             let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
             let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
-            info!(target: "info", "{} {} {} {} {}",
-                  Yellow.bold().paint(format!("#{:>8}", head.height)),
-                  Yellow.bold().paint(format!("{}", head.last_block_hash)),
+            info!(target: "info", "{} {} {} {}",
+                match act.sync_status {
+                    SyncStatus::NoSync => Yellow.bold().paint(format!("#{:>8} {}", head.height, head.last_block_hash)),
+                    _ => {
+                        if let Some(full_peer_info) = most_weight_peer(&act.network_info.most_weight_peers) {
+                            Yellow.bold().paint(format!("Syncing {}..{}", head.height, full_peer_info.chain_info.height))
+                        } else {
+                            Yellow.bold().paint(format!("Syncing {}..???", head.height))
+                        }
+                    }
+                },
                   White.bold().paint(format!("{}/{}", if is_authority { "V" } else { "-" }, num_authorities)),
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
