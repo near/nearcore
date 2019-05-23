@@ -620,4 +620,55 @@ mod tests {
         };
         assert_eq!(output_data, encode_i32(0));
     }
+
+    #[test]
+    fn test_export_not_found() {
+        let outcome = run(b"hello", &[], &[], &runtime_context(0, 1_000_000, 0)).expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Wasmer(msg)) => {
+                assert_eq!(msg, "call error: Call error: Export not found: hello");
+            }
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_infinite_initializer() {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("res/infinite_initializer.wasm");
+        let outcome = run_with_filename(
+            b"hello",
+            &[],
+            &[],
+            &runtime_context(0, 1_000_000, 0),
+            path.to_str().unwrap(),
+        )
+        .expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    // Current behavior is to run the initializer even if the method doesn't exist
+    fn test_infinite_initializer_export_not_found() {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("res/infinite_initializer.wasm");
+        let outcome = run_with_filename(
+            b"hello2",
+            &[],
+            &[],
+            &runtime_context(0, 1_000_000, 0),
+            path.to_str().unwrap(),
+        )
+        .expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
 }
