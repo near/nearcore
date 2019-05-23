@@ -8,6 +8,7 @@ use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, Balance, MerkleHash};
+use near_chain::Block;
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
 pub use crate::user::runtime_user::RuntimeUser;
@@ -33,6 +34,8 @@ pub trait User {
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
 
     fn get_best_block_index(&self) -> Option<u64>;
+
+    fn get_block(&self, index: u64) -> Option<Block>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
 

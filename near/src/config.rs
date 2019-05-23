@@ -404,7 +404,7 @@ pub fn create_testnet_configs(
             };
             config.network.skip_sync_wait = num_validators == 1;
             config.consensus.min_num_peers =
-                cmp::min(num_validators, config.consensus.min_num_peers);
+                cmp::min(num_validators - 1, config.consensus.min_num_peers);
         }
         configs.push(config);
     }

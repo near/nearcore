@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use actix::System;
 use protobuf::Message;
 
+use near_chain::Block;
 use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::account::AccessKey;
@@ -64,6 +65,10 @@ impl User for RpcUser {
 
     fn get_best_block_index(&self) -> Option<u64> {
         self.get_status().map(|status| status.sync_info.latest_block_height)
+    }
+
+    fn get_block(&self, index: u64) -> Option<Block> {
+        System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {

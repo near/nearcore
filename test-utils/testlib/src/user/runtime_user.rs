@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use lazy_static::lazy_static;
 use tempdir::TempDir;
 
+use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
@@ -179,6 +180,10 @@ impl User for RuntimeUser {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
+    fn get_block(&self, index: u64) -> Option<Block> {
+        unimplemented!("get_block should not be implemented for RuntimeUser");
+    }
+
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
         self.transaction_results.borrow().get(hash).cloned().unwrap()
     }
@@ -211,6 +216,8 @@ impl User for RuntimeUser {
 
     fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_access_key(&state_update, &self.account_id, public_key).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_access_key(&state_update, &self.account_id, public_key)
+            .map_err(|err| err.to_string())
     }
 }
