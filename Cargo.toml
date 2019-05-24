@@ -44,6 +44,10 @@ wasm = { path = "./runtime/wasm" }
 lto = true        # Enable full link-time optimization.
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
+[profile.bench]
+lto = true
+codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+
 [profile.dev.overrides.pairing]
 opt-level = 3 # pairing library is too slow to use in debug
 
