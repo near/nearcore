@@ -8,3 +8,6 @@ byteorder = { version = "1", default-features = false }
 
 wasm = { path = "../" }
 primitives = { path = "../../primitives" }
+
+[dev-dependencies]
+wabt = "0.7.4"
