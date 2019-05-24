@@ -128,14 +128,25 @@ mod tests {
     use primitives::types::StorageUsage;
     use std::path::PathBuf;
 
-    fn run_with_filename(
+    fn infinite_initializer_contract() -> Vec<u8> {
+        wabt::wat2wasm(
+            r#" (module
+                       (type (;0;) (func))
+                       (func (;0;) (type 0) (loop (br 0)))
+                       (func (;1;) (type 0))
+                       (start 0)
+                       (export "hello" (func 1)))"#,
+        )
+        .unwrap()
+    }
+
+    fn run_wasm_binary(
+        wasm_binary: Vec<u8>,
         method_name: &[u8],
         input_data: &[u8],
         result_data: &[Option<Vec<u8>>],
         context: &RuntimeContext,
-        filename: &str,
     ) -> Result<ExecutionOutcome, Error> {
-        let wasm_binary = fs::read(filename).expect("Unable to read file");
         let code = ContractCode::new(wasm_binary);
 
         let mut ext = MyExt::default();
@@ -150,6 +161,17 @@ mod tests {
             &config,
             &context,
         )
+    }
+
+    fn run_with_filename(
+        method_name: &[u8],
+        input_data: &[u8],
+        result_data: &[Option<Vec<u8>>],
+        context: &RuntimeContext,
+        filename: &str,
+    ) -> Result<ExecutionOutcome, Error> {
+        let wasm_binary = fs::read(filename).expect("Unable to read file");
+        run_wasm_binary(wasm_binary, method_name, input_data, result_data, context)
     }
 
     fn run(
@@ -635,14 +657,12 @@ mod tests {
 
     #[test]
     fn test_infinite_initializer() {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("res/infinite_initializer.wasm");
-        let outcome = run_with_filename(
+        let outcome = run_wasm_binary(
+            infinite_initializer_contract(),
             b"hello",
             &[],
             &[],
             &runtime_context(0, 1_000_000, 0),
-            path.to_str().unwrap(),
         )
         .expect("expect");
         println!("{:?}", outcome);
@@ -655,14 +675,12 @@ mod tests {
     #[test]
     // Current behavior is to run the initializer even if the method doesn't exist
     fn test_infinite_initializer_export_not_found() {
-        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        path.push("res/infinite_initializer.wasm");
-        let outcome = run_with_filename(
+        let outcome = run_wasm_binary(
+            infinite_initializer_contract(),
             b"hello2",
             &[],
             &[],
             &runtime_context(0, 1_000_000, 0),
-            path.to_str().unwrap(),
         )
         .expect("expect");
         println!("{:?}", outcome);

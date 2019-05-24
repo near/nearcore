@@ -20,4 +20,4 @@ primitives = { path = "../primitives" }
 
 [dev-dependencies]
 assert_matches = "1.3.0"
-wabt = "0.7.1"
+wabt = "0.7.4"
