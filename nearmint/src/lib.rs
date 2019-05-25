@@ -16,13 +16,13 @@ use near_primitives::traits::ToBytes;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
 use near_primitives::utils::prefix_for_access_key;
+use near_store::{COL_BLOCK_MISC, create_store, Store, Trie, TrieUpdate};
 use near_store::test_utils::create_test_store;
-use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
 use near_verifier::TransactionVerifier;
+use node_runtime::{ApplyState, ETHASH_CACHE_PATH, Runtime};
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
-use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 const STORAGE_PATH: &str = "storage";
 
@@ -236,11 +236,14 @@ impl Application for NearMint {
                 if let Err(e) = verifier.verify_transaction(&tx) {
                     error!("Failed check tx: {:?}, error: {}", req.tx, e);
                     resp.code = 1;
+                    resp.log = e;
                 }
             }
             Err(err) => {
                 info!("Failed check tx: {:?}, error: {:?}", req.tx, err);
                 resp.code = 1;
+                resp.log = "Unable to decode transaction from proto. Might be a version mismatch"
+                    .to_string();
             }
         };
         resp
@@ -297,7 +300,7 @@ impl Application for NearMint {
                     resp.data = result;
                 }
                 if tx_result.status != TransactionStatus::Completed {
-                    resp.code = 2;
+                    resp.code = 1;
                 } else {
                     let mut receipts = incoming_receipts.remove(&0).unwrap_or_else(|| vec![]);
                     while !receipts.is_empty() {
@@ -326,6 +329,8 @@ impl Application for NearMint {
             }
         } else {
             resp.code = 1;
+            resp.log =
+                "Unable to decode transaction from proto. Might be a version mismatch".to_string();
         }
         resp
     }
@@ -370,7 +375,7 @@ mod tests {
     use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::TransactionBody;
+    use near_primitives::transaction::{TransactionBody, CreateAccountTransaction};
     use near_primitives::types::StructSignature;
     use node_runtime::adapter::RuntimeAdapter;
 
@@ -425,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_transaction() {
+    fn test_check_tx_invalid_transaction() {
         let chain_spec = GenesisConfig::test(vec!["alice.near", "bob.near"]);
         let mut nearmint = NearMint::new_for_test(chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
@@ -435,6 +440,40 @@ mod tests {
         let mut req_tx = RequestCheckTx::new();
         req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
         let resp_tx = nearmint.check_tx(&req_tx);
+        assert_eq!(resp_tx.code, 1);
+    }
+
+    #[test]
+    fn test_deliver_tx_invalid_transaction() {
+        let chain_spec = GenesisConfig::test(vec!["alice.near", "bob.near"]);
+        let mut nearmint = NearMint::new_for_test(chain_spec);
+        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        let tx = TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: 1,
+            originator: "alice.near".to_string(),
+            new_account_id: "test.near".to_string(),
+            amount: TESTING_INIT_BALANCE + 1,
+            public_key: vec![],
+        })
+        .sign(&signer);
+        let invalid_tx: near_protos::signed_transaction::SignedTransaction = tx.into();
+
+        let mut req_begin_block = RequestBeginBlock::new();
+        let mut h = Header::new();
+        h.height = 1;
+        let mut last_block_id = BlockID::new();
+        last_block_id.hash = CryptoHash::default().as_ref().to_vec();
+        h.set_last_block_id(last_block_id);
+        req_begin_block.set_header(h);
+        nearmint.begin_block(&req_begin_block);
+
+        let mut req_tx = RequestCheckTx::new();
+        req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
+        let resp_tx = nearmint.check_tx(&req_tx);
+        assert_eq!(resp_tx.code, 0);
+        let mut deliver_tx = RequestDeliverTx::new();
+        deliver_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
+        let resp_tx = nearmint.deliver_tx(&deliver_tx);
         assert_eq!(resp_tx.code, 1);
     }
 }
