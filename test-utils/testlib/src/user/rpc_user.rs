@@ -43,6 +43,7 @@ impl User for RpcUser {
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
         // TDDO: implement
+        unimplemented!();
         Err("".to_string())
     }
 
@@ -56,6 +57,7 @@ impl User for RpcUser {
 
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
         // TDDO: implement
+        unimplemented!();
         Err("".to_string())
     }
 
@@ -72,13 +74,11 @@ impl User for RpcUser {
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
-        // TDDO: implement
-        TransactionResult::default()
+        System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        // TDDO: implement
-        FinalTransactionResult::default()
+        System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
     fn get_state_root(&self) -> MerkleHash {
@@ -87,11 +87,13 @@ impl User for RpcUser {
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
         // TDDO: implement
+        unimplemented!();
         None
     }
 
     fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
         // TDDO: implement
+        unimplemented!();
         Err("".to_string())
     }
 }

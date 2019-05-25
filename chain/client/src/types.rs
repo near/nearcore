@@ -9,7 +9,7 @@ use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::transaction::FinalTransactionResult;
+use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use serde_derive::{Deserialize, Serialize};
 
@@ -216,10 +216,20 @@ impl Message for Status {
     type Result = Result<StatusResponse, String>;
 }
 
+/// Status of given transaction including all the subsequent receipts.
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
 }
 
 impl Message for TxStatus {
     type Result = Result<FinalTransactionResult, String>;
+}
+
+/// Details about given transaction.
+pub struct TxDetails {
+    pub tx_hash: CryptoHash,
+}
+
+impl Message for TxDetails {
+    type Result = Result<TransactionResult, String>;
 }

@@ -180,7 +180,7 @@ impl User for RuntimeUser {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
-    fn get_block(&self, index: u64) -> Option<Block> {
+    fn get_block(&self, _index: u64) -> Option<Block> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 

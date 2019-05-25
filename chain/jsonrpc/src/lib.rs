@@ -12,7 +12,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use message::Message;
-use near_client::{ClientActor, GetBlock, Query, Status, TxStatus, ViewClientActor};
+use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
@@ -80,6 +80,13 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     })?)
 }
 
+fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
+    let (bs64,) = parse_params::<(String,)>(params)?;
+    base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string())).and_then(|bytes| {
+        CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
+    })
+}
+
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
@@ -104,6 +111,7 @@ impl JsonRpcHandler {
             "health" => self.health(),
             "status" => self.status(),
             "tx" => self.tx_status(request.params),
+            "tx_details" => self.tx_details(request.params),
             "block" => self.block(request.params),
             _ => Box::new(future::err(RpcError::method_not_found(request.method))),
         }
@@ -159,12 +167,13 @@ impl JsonRpcHandler {
     }
 
     fn tx_status(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let (bs64,) = ok_or_rpc_error!(parse_params::<(String,)>(params));
-        let tx_hash = ok_or_rpc_error!(base64::decode(&bs64)
-            .map_err(|err| RpcError::parse_error(err.to_string()))
-            .and_then(|bytes| CryptoHash::try_from(bytes)
-                .map_err(|err| RpcError::parse_error(err.to_string()))));
+        let tx_hash = ok_or_rpc_error!(parse_hash(params));
         Box::new(self.view_client_addr.send(TxStatus { tx_hash }).then(jsonify))
+    }
+
+    fn tx_details(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        let tx_hash = ok_or_rpc_error!(parse_hash(params));
+        Box::new(self.view_client_addr.send(TxDetails { tx_hash }).then(jsonify))
     }
 
     fn block(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {

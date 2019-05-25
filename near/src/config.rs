@@ -1,22 +1,22 @@
+use std::{cmp, fs};
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
+use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_jsonrpc::RpcConfig;
-use near_network::test_utils::open_port;
 use near_network::NetworkConfig;
+use near_network::test_utils::open_port;
 use near_primitives::crypto::signer::{InMemorySigner, KeyFile};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
@@ -357,6 +357,58 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
     }
 }
 
+pub fn create_testnet_configs_from_seeds(
+    seeds: Vec<String>,
+    num_non_validators: usize,
+    local_ports: bool,
+) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
+        let num_validators = seeds.len() - num_non_validators;
+        let signers = seeds.iter()
+            .map(|seed| InMemorySigner::new(seed.to_string()))
+            .collect::<Vec<_>>();
+        let network_signers = (0..seeds.len())
+            .map(|_| InMemorySigner::from_random())
+            .collect::<Vec<_>>();
+        let accounts = seeds.iter().enumerate()
+            .map(|(i, seed)| {
+                (seed.to_string(), signers[i].public_key.to_readable(), TESTING_INIT_BALANCE)
+            })
+            .collect::<Vec<_>>();
+        let authorities = seeds.iter().enumerate().take(seeds.len() - num_non_validators)
+            .map(|(i, seed)| {
+                (seed.to_string(), signers[i].public_key.to_readable(), TESTING_INIT_STAKE)
+            })
+            .collect::<Vec<_>>();
+        let genesis_config = GenesisConfig {
+            genesis_time: Utc::now(),
+            chain_id: random_chain_id(),
+            num_shards: 1,
+            authorities,
+            accounts,
+            contracts: vec![],
+        };
+        let mut configs = vec![];
+        let first_node_port = open_port();
+        for i in 0..seeds.len() {
+            let mut config = Config::default();
+            if local_ports {
+                config.network.addr =
+                    format!("0.0.0.0:{}", if i == 0 { first_node_port } else { open_port() });
+                config.rpc.addr = format!("0.0.0.0:{}", open_port());
+                config.network.boot_nodes = if i == 0 {
+                    "".to_string()
+                } else {
+                    format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
+                };
+                config.network.skip_sync_wait = num_validators == 1;
+                config.consensus.min_num_peers =
+                    cmp::min(num_validators - 1, config.consensus.min_num_peers);
+            }
+            configs.push(config);
+        }
+        (configs, signers, network_signers, genesis_config)
+}
+
 /// Create testnet configuration. If `local_ports` is true,
 /// sets up new ports for all nodes except the first one and sets boot node to it.
 pub fn create_testnet_configs(
@@ -365,50 +417,11 @@ pub fn create_testnet_configs(
     prefix: &str,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
-    let signers = (0..(num_validators + num_non_validators))
-        .map(|i| InMemorySigner::new(format!("{}{}", prefix, i)))
-        .collect::<Vec<_>>();
-    let network_signers = (0..(num_validators + num_non_validators))
-        .map(|_| InMemorySigner::from_random())
-        .collect::<Vec<_>>();
-    let accounts = (0..(num_validators + num_non_validators))
-        .map(|i| {
-            (format!("{}{}", prefix, i), signers[i].public_key.to_readable(), TESTING_INIT_BALANCE)
-        })
-        .collect::<Vec<_>>();
-    let authorities = (0..(num_validators))
-        .map(|i| {
-            (format!("{}{}", prefix, i), signers[i].public_key.to_readable(), TESTING_INIT_STAKE)
-        })
-        .collect::<Vec<_>>();
-    let genesis_config = GenesisConfig {
-        genesis_time: Utc::now(),
-        chain_id: random_chain_id(),
-        num_shards: 1,
-        authorities,
-        accounts,
-        contracts: vec![],
-    };
-    let mut configs = vec![];
-    let first_node_port = open_port();
-    for i in 0..(num_validators + num_non_validators) {
-        let mut config = Config::default();
-        if local_ports {
-            config.network.addr =
-                format!("0.0.0.0:{}", if i == 0 { first_node_port } else { open_port() });
-            config.rpc.addr = format!("0.0.0.0:{}", open_port());
-            config.network.boot_nodes = if i == 0 {
-                "".to_string()
-            } else {
-                format!("{}@127.0.0.1:{}", network_signers[0].public_key, first_node_port)
-            };
-            config.network.skip_sync_wait = num_validators == 1;
-            config.consensus.min_num_peers =
-                cmp::min(num_validators - 1, config.consensus.min_num_peers);
-        }
-        configs.push(config);
-    }
-    (configs, signers, network_signers, genesis_config)
+    create_testnet_configs_from_seeds(
+        (0..(num_validators + num_non_validators)).map(|i| format!("{}{}", prefix, i)).collect::<Vec<_>>(),
+        num_non_validators,
+        local_ports
+    )
 }
 
 pub fn init_testnet_configs(

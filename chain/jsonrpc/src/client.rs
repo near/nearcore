@@ -7,7 +7,7 @@ use serde::Serialize;
 use near_chain::Block;
 use near_client::StatusResponse;
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::transaction::FinalTransactionResult;
+use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::BlockIndex;
 
 use crate::message::{from_slice, Message};
@@ -105,6 +105,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
+    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResult>;
     pub fn block(&mut self, height: BlockIndex) -> RpcRequest<Block>;
 });
 

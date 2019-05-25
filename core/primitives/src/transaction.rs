@@ -881,6 +881,10 @@ impl ReceiptTransaction {
     pub fn shard_id(&self) -> ShardId {
         account_to_shard_id(&self.receiver)
     }
+
+    pub fn get_hash(&self) -> CryptoHash {
+        self.nonce
+    }
 }
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

@@ -2,9 +2,12 @@ use std::panic;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use near::config::{create_testnet_configs, GenesisConfig};
+use near::config::{
+    create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
+};
 use near::NearConfig;
-use near_primitives::crypto::signer::EDSigner;
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -94,11 +97,14 @@ impl Node {
     }
 }
 
-pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(num_nodes, 0, prefix, true);
+fn near_configs_to_node_configs(
+    configs: Vec<Config>,
+    signers: Vec<InMemorySigner>,
+    network_signers: Vec<InMemorySigner>,
+    genesis_config: GenesisConfig,
+) -> Vec<NodeConfig> {
     let mut result = vec![];
-    for i in 0..num_nodes {
+    for i in 0..configs.len() {
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
             &genesis_config,
@@ -107,6 +113,23 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
         )))
     }
     result
+}
+
+pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
+    let (configs, signers, network_signers, genesis_config) =
+        create_testnet_configs(num_nodes, 0, prefix, true);
+    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
+}
+
+pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
+    let code = to_base64(
+        include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
+    );
+    let contracts = seeds.iter().map(|seed| (seed.clone(), code.clone())).collect::<Vec<_>>();
+    let (configs, signers, network_signers, mut genesis_config) =
+        create_testnet_configs_from_seeds(seeds, 0, true);
+    genesis_config.contracts = contracts;
+    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {

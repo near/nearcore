@@ -605,9 +605,10 @@ impl<'a> ChainUpdate<'a> {
 
         // Retrieve receipts from the previous block.
         let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
+        let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
 
         // Apply block to runtime.
-        let (trie_changes, state_root, tx_results, receipts) = self
+        let (trie_changes, state_root, mut tx_results, new_receipts) = self
             .runtime_adapter
             .apply_transactions(
                 0,
@@ -624,10 +625,14 @@ impl<'a> ChainUpdate<'a> {
         // Save resulting receipts.
         // TODO: currently only taking into account one shard.
         self.chain_store_update
-            .save_receipt(&block.hash(), receipts.get(&0).unwrap_or(&vec![]).to_vec());
-        // Save transaction results.
-        for (tx, tx_result) in block.transactions.iter().zip(tx_results) {
-            self.chain_store_update.save_transaction_result(&tx.get_hash(), tx_result);
+            .save_receipt(&block.hash(), new_receipts.get(&0).unwrap_or(&vec![]).to_vec());
+        // Save receipt and transaction results.
+        for (i, tx_result) in tx_results.drain(..).enumerate() {
+            if i < receipt_hashes.len() {
+                self.chain_store_update.save_transaction_result(&receipt_hashes[i], tx_result);
+            } else {
+                self.chain_store_update.save_transaction_result(&block.transactions[i - receipt_hashes.len()].get_hash(), tx_result);
+            }
         }
 
         // Add validated block to the db, even if it's not the selected fork.

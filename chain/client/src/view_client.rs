@@ -16,6 +16,7 @@ use near_primitives::transaction::{
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
+use crate::TxDetails;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -29,6 +30,7 @@ impl ViewClientActor {
         genesis_time: DateTime<Utc>,
         runtime_adapter: Arc<RuntimeAdapter>,
     ) -> Result<Self, Error> {
+        // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         Ok(ViewClientActor { chain, runtime_adapter })
     }
@@ -127,5 +129,13 @@ impl Handler<TxStatus> for ViewClientActor {
         result.status =
             self.collect_transaction_final_result(&transaction_result, &mut result.logs)?;
         Ok(result)
+    }
+}
+
+impl Handler<TxDetails> for ViewClientActor {
+    type Result = Result<TransactionResult, String>;
+
+    fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
+        self.get_transaction_result(&msg.tx_hash)
     }
 }

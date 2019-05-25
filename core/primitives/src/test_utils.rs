@@ -20,6 +20,17 @@ pub fn init_test_logger() {
         .try_init();
 }
 
+pub fn init_test_module_logger(module: &str) {
+    let _ = env_logger::Builder::new()
+        .filter_module("tokio_reactor", LevelFilter::Info)
+        .filter_module("tokio_core", LevelFilter::Info)
+        .filter_module("hyper", LevelFilter::Info)
+        .filter_module("cranelift_wasm", LevelFilter::Warn)
+        .filter_module(module, LevelFilter::Debug)
+        .filter(None, LevelFilter::Info)
+        .try_init();
+}
+
 pub fn init_integration_logger() {
     let _ = env_logger::Builder::new().filter(None, LevelFilter::Info).filter(Some("actix_web"), LevelFilter::Warn).try_init();
 }
