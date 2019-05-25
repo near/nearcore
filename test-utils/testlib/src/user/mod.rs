@@ -45,7 +45,7 @@ pub trait User {
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 
-    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
+    fn get_access_key(&self, account_id: &AccountId, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
@@ -103,6 +103,7 @@ pub trait AsyncUser: Send + Sync {
 
     fn get_access_key(
         &self,
+        account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
 }

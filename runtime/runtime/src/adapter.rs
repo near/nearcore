@@ -1,5 +1,7 @@
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::traits::Base64Encoded;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 
 use crate::state_viewer::AccountViewCallResult;
@@ -23,6 +25,13 @@ pub trait RuntimeAdapter {
     ) -> Result<Vec<u8>, Box<std::error::Error>>;
 
     fn view_access_key(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, Box<std::error::Error>>;
+
+    fn view_access_keys(
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
@@ -62,12 +71,23 @@ pub fn query_client(
             }
         }
         "access_key" => {
-            match adapter.view_access_key(state_root, &AccountId::from(path_parts[1])) {
-                Ok(keys) => Ok(ABCIQueryResponse::result(
-                    path,
-                    serde_json::to_string(&keys).map_err(|e| format!("{}", e))?.as_bytes().to_vec(),
-                    vec![],
-                )),
+            let result = if path_parts.len() == 2 {
+                adapter
+                    .view_access_keys(state_root, &AccountId::from(path_parts[1]))
+                    .and_then(|r| serde_json::to_string(&r).map_err(|err| err.into()))
+            } else {
+                adapter
+                    .view_access_key(
+                        state_root,
+                        &AccountId::from(path_parts[1]),
+                        &PublicKey::from_base64(path_parts[2])?,
+                    )
+                    .and_then(|r| serde_json::to_string(&r).map_err(|err| err.into()))
+            };
+            match result {
+                Ok(result) => {
+                    Ok(ABCIQueryResponse::result(path, result.as_bytes().to_vec(), vec![]))
+                }
                 Err(e) => Ok(ABCIQueryResponse::result_err(path, e.to_string(), vec![])),
             }
         }

@@ -14,6 +14,7 @@ use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, MerkleHash};
+use near_primitives::traits::Base64Encoded;
 use near_protos::signed_transaction as transaction_proto;
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
@@ -91,9 +92,8 @@ impl User for RpcUser {
         None
     }
 
-    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
-        // TDDO: implement
-        unimplemented!();
-        Err("".to_string())
+    fn get_access_key(&self, account_id: &AccountId, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
+        let response = System::new("actix").block_on(self.client.write().unwrap().query(format!("access_key/{}/{}", account_id, public_key.to_base64()), vec![]))?;
+        serde_json::from_slice(&response.value).map_err(|err| err.to_string())
     }
 }

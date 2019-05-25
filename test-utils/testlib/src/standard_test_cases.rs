@@ -1126,7 +1126,7 @@ pub fn test_add_access_key(node: impl Node) {
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key));
 }
 
@@ -1159,7 +1159,7 @@ pub fn test_delete_access_key(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
     assert_eq!(account.public_keys[0], node.signer().public_key());
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 }
 
@@ -1177,7 +1177,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
     assert_eq!(account.amount, initial_balance - 10);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key));
 }
 
@@ -1213,7 +1213,7 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
     assert_eq!(account.public_keys[0], node.signer().public_key());
     assert_eq!(account.amount, initial_balance);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 }
 
@@ -1253,7 +1253,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     assert_eq!(account.public_keys[0], node.signer().public_key());
     assert_eq!(account.amount, initial_balance - 10);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 
     wait_for_transaction(&node_user, &transaction_result.receipts[0]);

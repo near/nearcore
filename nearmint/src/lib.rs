@@ -10,19 +10,20 @@ use log::{error, info};
 use protobuf::parse_from_bytes;
 
 use near::GenesisConfig;
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::traits::ToBytes;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
 use near_primitives::utils::prefix_for_access_key;
-use near_store::{COL_BLOCK_MISC, create_store, Store, Trie, TrieUpdate};
 use near_store::test_utils::create_test_store;
+use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
 use near_verifier::TransactionVerifier;
-use node_runtime::{ApplyState, ETHASH_CACHE_PATH, Runtime};
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
+use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 const STORAGE_PATH: &str = "storage";
 
@@ -177,6 +178,16 @@ impl RuntimeAdapter for NearMint {
     }
 
     fn view_access_key(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.view_access_key(&state_update, account_id, public_key)
+    }
+
+    fn view_access_keys(
         &self,
         state_root: MerkleHash,
         account_id: &String,
@@ -346,7 +357,8 @@ impl Application for NearMint {
         if let Some(state_update) = self.state_update.take() {
             info!("Commit: {:?}", req);
             if let Some(apply_state) = &self.apply_state {
-                let (mut db_changes, new_root) = state_update.finalize().unwrap().into(self.trie.clone()).unwrap();
+                let (mut db_changes, new_root) =
+                    state_update.finalize().unwrap().into(self.trie.clone()).unwrap();
                 db_changes
                     .set_ser(
                         COL_BLOCK_MISC,
@@ -375,7 +387,7 @@ mod tests {
     use near::config::{GenesisConfig, TESTING_INIT_BALANCE};
     use near_primitives::crypto::signer::InMemorySigner;
     use near_primitives::hash::CryptoHash;
-    use near_primitives::transaction::{TransactionBody, CreateAccountTransaction};
+    use near_primitives::transaction::{CreateAccountTransaction, TransactionBody};
     use near_primitives::types::StructSignature;
     use node_runtime::adapter::RuntimeAdapter;
 

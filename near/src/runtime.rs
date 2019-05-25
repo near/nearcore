@@ -7,18 +7,19 @@ use log::debug;
 use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::{PublicKey, Signature};
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
-use node_runtime::{ApplyState, ETHASH_CACHE_PATH, Runtime};
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
+use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 
@@ -196,7 +197,17 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
     fn view_access_key(
         &self,
         state_root: MerkleHash,
-        account_id: &String,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.view_access_key(&state_update, account_id, public_key)
+    }
+
+    fn view_access_keys(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);

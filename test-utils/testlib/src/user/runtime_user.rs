@@ -214,10 +214,14 @@ impl User for RuntimeUser {
         Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
     }
 
-    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
+    fn get_access_key(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
-            .view_access_key(&state_update, &self.account_id, public_key)
+            .view_access_key(&state_update, account_id, public_key)
             .map_err(|err| err.to_string())
     }
 }
