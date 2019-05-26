@@ -59,15 +59,15 @@ pub fn execute(
     let mut runtime =
         Runtime::new(ext, input_data, result_data, context, config.clone(), memory.clone());
 
-    let import_object = runtime::imports::build(memory);
-
-    let mut instance = module.instantiate(&import_object)?;
-
-    instance.context_mut().data = &mut runtime as *mut _ as *mut c_void;
+    let raw_ptr = &mut runtime as *mut _ as *mut c_void;
+    let import_object = runtime::imports::build(memory, raw_ptr);
 
     let method_name = std::str::from_utf8(method_name).map_err(|_| Error::BadUtf8)?;
 
-    match instance.call(&method_name, &[]) {
+    match module
+        .instantiate(&import_object)
+        .and_then(|instance| instance.call(&method_name, &[]).map_err(|e| e.into()))
+    {
         Ok(_) => {
             let e = ExecutionOutcome {
                 storage_usage: (context.storage_usage as StorageUsageChange

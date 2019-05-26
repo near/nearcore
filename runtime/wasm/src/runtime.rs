@@ -625,6 +625,8 @@ impl<'a> Runtime<'a> {
 }
 
 pub mod imports {
+    use std::ffi::c_void;
+
     use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
     use super::{Memory, Result, Runtime};
@@ -633,20 +635,15 @@ pub mod imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
                 fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
-                    // TODO(542): Currently we need to check that the ctx.data is initialized and return to default
-                    // when it's not initialized. It's because wasmer is currently calls start_func before
-                    // the ctx.data is assigned to the runtime.
-                    if ctx.data as usize > 0 {
-                        let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
-                        runtime.$func( $( $arg_name, )* )
-                    } else {
-                        Ok(Default::default())
-                    }
+                    let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
+                    runtime.$func( $( $arg_name, )* )
                 }
             )*
 
-            pub(crate) fn build(memory: Memory) -> ImportObject {
+            pub(crate) fn build(memory: Memory, raw_ptr: *mut c_void) -> ImportObject {
+                let dtor = (|_: *mut c_void| {}) as fn(*mut c_void);
                 imports! {
+                    move || { (raw_ptr, dtor) },
                     "env" => {
                         "memory" => memory,
                         $(
