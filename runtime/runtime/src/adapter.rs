@@ -4,7 +4,7 @@ use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::traits::Base64Encoded;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 
-use crate::state_viewer::AccountViewCallResult;
+use crate::state_viewer::{AccountViewCallResult, ViewStateResult};
 
 /// Adapter for querying runtime.
 pub trait RuntimeAdapter {
@@ -36,6 +36,12 @@ pub trait RuntimeAdapter {
         state_root: MerkleHash,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, Box<std::error::Error>>;
+
+    fn view_state(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ViewStateResult, Box<std::error::Error>>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
@@ -67,9 +73,16 @@ pub fn query_client(
                 &mut logs,
             ) {
                 Ok(result) => Ok(ABCIQueryResponse::result(path, result, logs)),
-                Err(e) => Ok(ABCIQueryResponse::result_err(path, e.to_string(), logs)),
+                Err(err) => Ok(ABCIQueryResponse::result_err(path, err.to_string(), logs)),
             }
         }
+        "contract" => match adapter
+            .view_state(state_root, &AccountId::from(path_parts[1]))
+            .and_then(|r| serde_json::to_string(&r).map_err(|err| err.into()))
+        {
+            Ok(result) => Ok(ABCIQueryResponse::result(path, result.as_bytes().to_vec(), vec![])),
+            Err(err) => Ok(ABCIQueryResponse::result_err(path, err.to_string(), vec![])),
+        },
         "access_key" => {
             let result = if path_parts.len() == 2 {
                 adapter
@@ -88,7 +101,7 @@ pub fn query_client(
                 Ok(result) => {
                     Ok(ABCIQueryResponse::result(path, result.as_bytes().to_vec(), vec![]))
                 }
-                Err(e) => Ok(ABCIQueryResponse::result_err(path, e.to_string(), vec![])),
+                Err(err) => Ok(ABCIQueryResponse::result_err(path, err.to_string(), vec![])),
             }
         }
         _ => Err(format!("Unknown path {}", path).into()),

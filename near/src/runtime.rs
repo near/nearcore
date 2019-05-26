@@ -18,7 +18,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
+use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
@@ -220,5 +220,14 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
                 .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),
         }
+    }
+
+    fn view_state(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ViewStateResult, Box<std::error::Error>> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.view_state(&state_update, account_id)
     }
 }

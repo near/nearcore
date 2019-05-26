@@ -5,7 +5,8 @@ use std::time::Instant;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::hash::{base64_format, CryptoHash};
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::base64_format;
 use near_primitives::types::{AccountId, Balance, Nonce};
 use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
 use near_store::{get, TrieUpdate};
@@ -163,9 +164,7 @@ impl TrieViewer {
                     Ok(return_data) => {
                         let trie_update = state_update.finalize()?;
                         if trie_update.new_root != root {
-                            return Err(
-                                "function call for viewing tried to change storage".into()
-                            );
+                            return Err("function call for viewing tried to change storage".into());
                         }
                         let mut result = vec![];
                         if let ReturnData::Value(buf) = return_data {

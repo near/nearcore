@@ -98,36 +98,6 @@ impl PartialEq for CryptoHash {
 
 impl Eq for CryptoHash {}
 
-pub mod base64_format {
-    use std::convert::TryFrom;
-
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use crate::serialize::from_base64_buf;
-
-    use super::CryptoHash;
-
-    pub fn serialize<S>(crypto_hash: &CryptoHash, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(String::from(crypto_hash).as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<CryptoHash, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let mut array = Vec::with_capacity(32);
-        match from_base64_buf(&s, &mut array) {
-            Ok(_) => CryptoHash::try_from(array.as_ref()).map_err(de::Error::custom),
-            Err(e) => Err(de::Error::custom(e.to_string())),
-        }
-    }
-}
-
 /// Calculates a hash of a bytes slice.
 ///
 /// # Examples
@@ -154,7 +124,7 @@ impl heapsize::HeapSizeOf for CryptoHash {
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
+    use crate::serialize::base64_format;
 
     use super::*;
 

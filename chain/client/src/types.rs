@@ -3,15 +3,16 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::serialize::base64_format;
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
-use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum Error {
@@ -194,8 +195,10 @@ impl Message for Query {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
+    #[serde(with = "base64_format")]
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockIndex,
+    #[serde(with = "base64_format")]
     pub latest_state_root: MerkleHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,

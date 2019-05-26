@@ -43,3 +43,34 @@ pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
 pub fn from_base64_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
     base64::decode_config_buf(s, base64::STANDARD, buffer).map_err(|err| err.into())
 }
+
+pub mod base64_format {
+    use std::convert::TryFrom;
+
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base64_buf, to_base64};
+
+    pub fn serialize<T, S>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: AsRef<[u8]>,
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base64(data))
+    }
+
+    pub fn deserialize<'de, T, D, E>(deserializer: D) -> Result<T, D::Error>
+    where
+        T: TryFrom<Vec<u8>, Error=E>,
+        E: ToString,
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let mut array = Vec::with_capacity(32);
+        match from_base64_buf(&s, &mut array) {
+            Ok(_) => T::try_from(array).map_err(|err| de::Error::custom(err.to_string())),
+            Err(err) => Err(de::Error::custom(err.to_string())),
+        }
+    }
+}

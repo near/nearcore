@@ -8,11 +8,11 @@ mod test {
     use testlib::runtime_utils::alice_account;
     use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
-    use near_primitives::test_utils::{init_test_module_logger, init_integration_logger};
+    use near_primitives::test_utils::{init_test_module_logger};
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");
-        let mut nodes = create_nodes_from_seeds(vec!["alice.near".to_string(), "bob.near".to_string(), "eve.near".to_string(), "charlie.near".to_string()]);
+        let mut nodes = create_nodes_from_seeds(vec!["alice.near".to_string(), "bob.near".to_string(), "carol.near".to_string(), "dan.near".to_string()]);
         let mut nodes: Vec<_> = nodes.drain(..).map(|cfg| match cfg {
             NodeConfig::Thread(config) => ThreadNode::new(config),
             _ => unreachable!(),
@@ -176,20 +176,5 @@ mod test {
     #[test]
     fn test_access_key_smart_contract_testnet() {
         run_testnet_test!(test_access_key_smart_contract);
-    }
-
-    #[test]
-    fn test_access_key_smart_contract_reject_method_name_testnet() {
-        run_testnet_test!(test_access_key_smart_contract_reject_method_name);
-    }
-
-    #[test]
-    fn test_access_key_smart_contract_reject_contract_id_testnet() {
-        run_testnet_test!(test_access_key_smart_contract_reject_contract_id);
-    }
-
-    #[test]
-    fn test_access_key_reject_non_function_call_testnet() {
-        run_testnet_test!(test_access_key_reject_non_function_call);
     }
 }

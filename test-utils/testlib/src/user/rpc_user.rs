@@ -10,11 +10,11 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
+use near_primitives::traits::Base64Encoded;
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, MerkleHash};
-use near_primitives::traits::Base64Encoded;
 use near_protos::signed_transaction as transaction_proto;
 use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
@@ -32,20 +32,25 @@ impl RpcUser {
     pub fn get_status(&self) -> Option<StatusResponse> {
         System::new("actix").block_on(self.client.write().unwrap().status()).ok()
     }
+
+    pub fn query<T: serde::de::DeserializeOwned>(
+        &self,
+        path: String,
+        data: Vec<u8>,
+    ) -> Result<T, String> {
+        let response =
+            System::new("actix").block_on(self.client.write().unwrap().query(path, data))?;
+        serde_json::from_slice(&response.value).map_err(|err| err.to_string())
+    }
 }
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let response = System::new("actix").block_on(
-            self.client.write().unwrap().query(format!("account/{}", account_id), vec![]),
-        )?;
-        serde_json::from_slice(&response.value).map_err(|err| err.to_string())
+        self.query(format!("account/{}", account_id), vec![])
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        // TDDO: implement
-        unimplemented!();
-        Err("".to_string())
+        self.query(format!("contract/{}", account_id), vec![])
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -54,12 +59,6 @@ impl User for RpcUser {
         let _ = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_async(bytes))?;
         Ok(())
-    }
-
-    fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
-        // TDDO: implement
-        unimplemented!();
-        Err("".to_string())
     }
 
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
@@ -86,14 +85,21 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 
-    fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
-        // TDDO: implement
-        unimplemented!();
-        None
+    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
+        // TDDO: figure out if rpc will support this
+        unimplemented!()
     }
 
-    fn get_access_key(&self, account_id: &AccountId, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
-        let response = System::new("actix").block_on(self.client.write().unwrap().query(format!("access_key/{}/{}", account_id, public_key.to_base64()), vec![]))?;
-        serde_json::from_slice(&response.value).map_err(|err| err.to_string())
+    fn get_receipt_info(&self, _hash: &CryptoHash) -> Option<ReceiptInfo> {
+        // TDDO: figure out if rpc will support this
+        unimplemented!()
+    }
+
+    fn get_access_key(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, String> {
+        self.query(format!("access_key/{}/{}", account_id, public_key.to_base64()), vec![])
     }
 }

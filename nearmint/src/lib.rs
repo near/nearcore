@@ -22,7 +22,7 @@ use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
+use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 const STORAGE_PATH: &str = "storage";
@@ -203,6 +203,15 @@ impl RuntimeAdapter for NearMint {
                 .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),
         }
+    }
+
+    fn view_state(
+        &self,
+        state_root: MerkleHash,
+        account_id: &AccountId,
+    ) -> Result<ViewStateResult, Box<std::error::Error>> {
+        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        self.trie_viewer.view_state(&state_update, account_id)
     }
 }
 
