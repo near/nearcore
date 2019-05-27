@@ -7,7 +7,7 @@ use near::config::{
 };
 use near::NearConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::to_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -122,7 +122,7 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code = to_base64(
+    let code = to_base(
         include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
     );
     let contracts = seeds.iter().map(|seed| (seed.clone(), code.clone())).collect::<Vec<_>>();

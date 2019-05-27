@@ -1,7 +1,7 @@
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::rpc::ABCIQueryResponse;
-use near_primitives::traits::Base64Encoded;
+use near_primitives::serialize::BaseDecode;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 
 use crate::state_viewer::{AccountViewCallResult, ViewStateResult};
@@ -93,7 +93,7 @@ pub fn query_client(
                     .view_access_key(
                         state_root,
                         &AccountId::from(path_parts[1]),
-                        &PublicKey::from_base64(path_parts[2])?,
+                        &PublicKey::from_base(path_parts[2])?,
                     )
                     .and_then(|r| serde_json::to_string(&r).map_err(|err| err.into()))
             };

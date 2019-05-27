@@ -7,8 +7,7 @@ use std::hash::{Hash, Hasher};
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base64, to_base64};
-use crate::traits::{Base64Encoded, ToBytes};
+use crate::serialize::{from_base, to_base, BaseDecode};
 use crate::types::ReadablePublicKey;
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
@@ -33,17 +32,15 @@ pub fn get_key_pair() -> (PublicKey, SecretKey) {
     (PublicKey(public_key), SecretKey(secret_key))
 }
 
-impl Base64Encoded for PublicKey {}
-impl Base64Encoded for SecretKey {}
-impl ToBytes for PublicKey {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_vec()
+impl From<&PublicKey> for Vec<u8> {
+    fn from(public_key: &PublicKey) -> Self {
+        public_key.as_ref().to_vec()
     }
 }
 
-impl ToBytes for SecretKey {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_vec()
+impl From<&SecretKey> for Vec<u8> {
+    fn from(secret_key: &SecretKey) -> Self {
+        secret_key.as_ref().to_vec()
     }
 }
 
@@ -52,6 +49,9 @@ const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
 
 pub const DEFAULT_SIGNATURE: Signature =
     Signature(sodiumoxide::crypto::sign::ed25519::Signature(SIG));
+
+impl BaseDecode for PublicKey {}
+impl BaseDecode for SecretKey {}
 
 impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
@@ -93,7 +93,7 @@ impl TryFrom<&str> for PublicKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
-        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+        let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
             format!("Failed to convert public key from base64: {}", e).into()
         })?;
         if bytes.len() != array.len() {
@@ -125,7 +125,7 @@ impl TryFrom<&str> for SecretKey {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
-        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+        let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
             format!("Failed to convert secret key from base64: {}", e).into()
         })?;
         if bytes.len() != array.len() {
@@ -166,7 +166,7 @@ impl TryFrom<&str> for Signature {
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
-        let bytes = from_base64(s).map_err::<Self::Error, _>(|e| {
+        let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
             format!("Failed to convert signature from base58: {}", e).into()
         })?;
         if bytes.len() != array.len() {
@@ -185,15 +185,9 @@ impl std::convert::AsRef<[u8]> for PublicKey {
     }
 }
 
-impl From<PublicKey> for Vec<u8> {
-    fn from(public_key: PublicKey) -> Vec<u8> {
-        public_key.as_ref().to_vec()
-    }
-}
-
 impl<'a> From<&'a PublicKey> for String {
     fn from(h: &'a PublicKey) -> Self {
-        to_base64(&h.0)
+        to_base(&h.0)
     }
 }
 
@@ -217,7 +211,7 @@ impl std::convert::AsRef<[u8]> for SecretKey {
 
 impl<'a> From<&'a SecretKey> for String {
     fn from(h: &'a SecretKey) -> Self {
-        to_base64(h)
+        to_base(h)
     }
 }
 
@@ -241,7 +235,7 @@ impl fmt::Display for SecretKey {
 
 impl<'a> From<&'a Signature> for String {
     fn from(h: &'a Signature) -> Self {
-        to_base64(h)
+        to_base(h)
     }
 }
 
@@ -268,95 +262,95 @@ impl fmt::Display for Signature {
         write!(f, "{}", String::from(self))
     }
 }
-
-pub mod bs64_pub_key_format {
-    use std::convert::TryInto;
-
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-
-    use super::PublicKey;
-
-    pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(String::from(public_key).as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-    }
-}
-
-pub mod bs64_secret_key_format {
-    use std::convert::TryInto;
-
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-
-    use super::SecretKey;
-
-    pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(String::from(secret_key).as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-    }
-}
-
-pub mod bs64_signature_format {
-    use std::convert::TryInto;
-
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-
-    use super::Signature;
-
-    pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(String::from(signature).as_str())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-    }
-}
-
-pub mod bs64_serializer {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use crate::traits::Base64Encoded;
-
-    pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        T: Base64Encoded,
-        S: Serializer,
-    {
-        serializer.serialize_str(&t.to_base64())
-    }
-
-    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
-    where
-        T: Base64Encoded,
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(T::from_base64(&s).unwrap())
-    }
-}
+//
+//pub mod bs64_pub_key_format {
+//    use std::convert::TryInto;
+//
+//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+//
+//    use super::PublicKey;
+//
+//    pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        serializer.serialize_str(String::from(public_key).as_str())
+//    }
+//
+//    pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+//    where
+//        D: Deserializer<'de>,
+//    {
+//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
+//    }
+//}
+//
+//pub mod bs64_secret_key_format {
+//    use std::convert::TryInto;
+//
+//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+//
+//    use super::SecretKey;
+//
+//    pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        serializer.serialize_str(String::from(secret_key).as_str())
+//    }
+//
+//    pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
+//    where
+//        D: Deserializer<'de>,
+//    {
+//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
+//    }
+//}
+//
+//pub mod bs64_signature_format {
+//    use std::convert::TryInto;
+//
+//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+//
+//    use super::Signature;
+//
+//    pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        S: Serializer,
+//    {
+//        serializer.serialize_str(String::from(signature).as_str())
+//    }
+//
+//    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
+//    where
+//        D: Deserializer<'de>,
+//    {
+//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
+//    }
+//}
+//
+//pub mod bs64_serializer {
+//    use serde::{Deserialize, Deserializer, Serializer};
+//
+//    use crate::serialize::BaseEncoded;
+//
+//    pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
+//    where
+//        T: BaseEncoded,
+//        S: Serializer,
+//    {
+//        serializer.serialize_str(&t.to_base())
+//    }
+//
+//    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+//    where
+//        T: BaseEncoded,
+//        D: Deserializer<'de>,
+//    {
+//        let s = String::deserialize(deserializer)?;
+//        Ok(T::from_base(&s).unwrap())
+//    }
+//}
 
 #[cfg(test)]
 mod tests {

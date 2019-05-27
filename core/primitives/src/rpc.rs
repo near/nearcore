@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::serialize::base64_format;
+use crate::serialize::base_vec_format;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ABCIQueryResponse {
@@ -7,9 +7,9 @@ pub struct ABCIQueryResponse {
     pub log: String,
     pub info: String,
     pub index: i64,
-    #[serde(with = "base64_format")]
+    #[serde(with = "base_vec_format")]
     pub key: Vec<u8>,
-    #[serde(with = "base64_format")]
+    #[serde(with = "base_vec_format")]
     pub value: Vec<u8>,
     pub proof: Vec<ProofOp>,
     pub height: i64,

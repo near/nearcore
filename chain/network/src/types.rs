@@ -18,8 +18,7 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
-use near_primitives::serialize::Decode;
-use near_primitives::traits::Base64Encoded;
+use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
@@ -36,7 +35,7 @@ pub struct PeerId(PublicKey);
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.into()
+        (&peer_id.0).into()
     }
 }
 
@@ -74,7 +73,7 @@ impl fmt::Display for PeerId {
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", pretty_str(&self.0.to_base64(), 4))
+        write!(f, "{}", pretty_str(&self.0.to_base(), 4))
     }
 }
 
@@ -145,7 +144,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: id.0.into(), addr, account_id, ..Default::default() }
+        network_proto::PeerInfo { id: (&id.0).into(), addr, account_id, ..Default::default() }
     }
 }
 

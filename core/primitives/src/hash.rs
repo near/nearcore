@@ -7,14 +7,14 @@ use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base64, to_base64, Encode};
+use crate::serialize::{from_base, to_base, Encode, BaseDecode};
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
     fn from(h: &'a CryptoHash) -> Self {
-        to_base64(&h.0)
+        to_base(&h.0)
     }
 }
 
@@ -22,7 +22,7 @@ impl TryFrom<String> for CryptoHash {
     type Error = Box<std::error::Error>;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = from_base64(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
+        let bytes = from_base(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
         Self::try_from(bytes)
     }
 }
@@ -44,6 +44,8 @@ impl AsMut<[u8]> for CryptoHash {
         (self.0).0.as_mut()
     }
 }
+
+impl BaseDecode for CryptoHash {}
 
 impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<std::error::Error>;
@@ -68,6 +70,12 @@ impl TryFrom<Vec<u8>> for CryptoHash {
 
 impl From<CryptoHash> for Vec<u8> {
     fn from(hash: CryptoHash) -> Vec<u8> {
+        (hash.0).0.to_vec()
+    }
+}
+
+impl From<&CryptoHash> for Vec<u8> {
+    fn from(hash: &CryptoHash) -> Vec<u8> {
         (hash.0).0.to_vec()
     }
 }
@@ -124,13 +132,13 @@ impl heapsize::HeapSizeOf for CryptoHash {
 
 #[cfg(test)]
 mod tests {
-    use crate::serialize::base64_format;
+    use crate::serialize::base_format;
 
     use super::*;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        #[serde(with = "base64_format")]
+        #[serde(with = "base_format")]
         hash: CryptoHash,
     }
 

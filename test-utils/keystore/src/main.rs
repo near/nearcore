@@ -12,8 +12,7 @@ use near_primitives::crypto::signer::{
     get_key_file, write_block_producer_key_file, InMemorySigner,
 };
 use near_primitives::hash::hash;
-use near_primitives::serialize::{from_base64, to_base64};
-use near_primitives::traits::{Base64Encoded, ToBytes};
+use near_primitives::serialize::{from_base, to_base, BaseEncode};
 
 #[derive(Serialize)]
 struct TypeValue {
@@ -34,17 +33,17 @@ fn write_tendermint_key_file(key_store_path: &Path, public_key: PublicKey, secre
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let address_bytes = hash(&public_key.to_bytes()).as_ref()[..20].to_vec();
+    let address_bytes = hash(public_key.as_ref()).as_ref()[..20].to_vec();
     let address = hex::encode(&address_bytes);
     let key_file = TendermintKeyFile {
         address,
         pub_key: TypeValue {
             type_field: "tendermint/PubKeyEd25519".to_string(),
-            value: public_key.to_base64(),
+            value: public_key.to_base(),
         },
         priv_key: TypeValue {
             type_field: "tendermint/PrivKeyEd25519".to_string(),
-            value: secret_key.to_base64(),
+            value: secret_key.to_base(),
         },
     };
     let key_file_path = key_store_path.join(Path::new("priv_validator_key.json"));
@@ -63,9 +62,9 @@ fn sign_data(matches: &ArgMatches) {
     let key_file = get_key_file(&key_store_path, public_key);
 
     let data = matches.value_of("data").unwrap();
-    let bytes = from_base64(data).unwrap();
+    let bytes = from_base(data).unwrap();
     let signature = sign(&bytes, &key_file.secret_key);
-    let encoded = to_base64(&signature);
+    let encoded = to_base(&signature);
     print!("{}", encoded);
 }
 

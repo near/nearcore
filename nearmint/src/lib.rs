@@ -13,7 +13,6 @@ use near::GenesisConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::traits::ToBytes;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
 use near_primitives::utils::prefix_for_access_key;
@@ -276,9 +275,9 @@ impl Application for NearMint {
             let mut validator = ValidatorUpdate::new();
             let mut pub_key = PubKey::new();
             pub_key.set_field_type("ed25519".to_string());
-            pub_key.data = PublicKey::try_from(public_key.0.as_str())
-                .expect("Failed to parse public key in chain spec")
-                .to_bytes();
+            pub_key.data = (&PublicKey::try_from(public_key.0.as_str())
+                .expect("Failed to parse public key in chain spec"))
+                .into();
             validator.set_pub_key(pub_key);
             validator.power = *amount as i64;
             resp.validators.push(validator);

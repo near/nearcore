@@ -9,7 +9,7 @@ use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::serialize::from_base64;
+use near_primitives::serialize::from_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -148,7 +148,7 @@ impl RemoteNode {
             .form(&[("path", format!("\"account/{}\"", account_id))])
             .send()?
             .json()?;
-        let bytes = from_base64(
+        let bytes = from_base(
             response["result"]["response"]["value"].as_str().ok_or(VALUE_NOT_STR_ERR)?,
         )?;
         let s = std::str::from_utf8(&bytes)?;

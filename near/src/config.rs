@@ -18,7 +18,7 @@ use near_jsonrpc::RpcConfig;
 use near_network::NetworkConfig;
 use near_network::test_utils::open_port;
 use near_primitives::crypto::signer::{InMemorySigner, KeyFile};
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
 
 /// Initial balance used in tests.
@@ -226,7 +226,7 @@ impl GenesisConfig {
         let mut accounts = vec![];
         let mut contracts = vec![];
         let default_test_contract =
-            to_base64(include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
+            to_base(include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
             if i < num_validators {

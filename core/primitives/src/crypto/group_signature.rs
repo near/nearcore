@@ -6,15 +6,13 @@ use near_protos::types as types_proto;
 use crate::crypto::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
-use crate::crypto::signature::bs64_serializer;
 use crate::logging::pretty_hash;
-use crate::serialize::to_base64;
-use crate::traits::{Base64Encoded, ToBytes};
+use crate::serialize::{BaseEncode, BaseDecode, base_format};
 use crate::types::{AuthorityMask, PartialSignature};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
-    #[serde(with = "bs64_serializer")]
+    #[serde(with = "base_format")]
     pub signature: BlsSignature,
     pub authority_mask: AuthorityMask,
 }
@@ -23,7 +21,7 @@ impl TryFrom<types_proto::GroupSignature> for GroupSignature {
     type Error = Box<std::error::Error>;
 
     fn try_from(proto: types_proto::GroupSignature) -> Result<Self, Self::Error> {
-        Base64Encoded::from_base64(&proto.signature)
+        BaseDecode::from_base(&proto.signature)
             .map(|signature| GroupSignature { signature, authority_mask: proto.authority_mask })
             .map_err(|e| format!("cannot decode signature {:?}", e).into())
     }
@@ -32,7 +30,7 @@ impl TryFrom<types_proto::GroupSignature> for GroupSignature {
 impl From<GroupSignature> for types_proto::GroupSignature {
     fn from(signature: GroupSignature) -> Self {
         types_proto::GroupSignature {
-            signature: Base64Encoded::to_base64(&signature.signature),
+            signature: BaseEncode::to_base(&signature.signature),
             authority_mask: signature.authority_mask,
             ..Default::default()
         }
@@ -41,12 +39,7 @@ impl From<GroupSignature> for types_proto::GroupSignature {
 
 impl fmt::Debug for GroupSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:?} {:?}",
-            self.authority_mask,
-            pretty_hash(&to_base64(&self.signature.to_bytes()))
-        )
+        write!(f, "{:?} {:?}", self.authority_mask, pretty_hash(&self.signature.clone().to_base()))
     }
 }
 

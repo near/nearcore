@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io;
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -32,45 +33,80 @@ where
     }
 }
 
-pub fn to_base64<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
+pub fn to_base<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
     base64::encode(input)
 }
 
-pub fn from_base64(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
+pub fn from_base(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
     base64::decode(s).map_err(|err| err.into())
 }
 
-pub fn from_base64_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
+pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
     base64::decode_config_buf(s, base64::STANDARD, buffer).map_err(|err| err.into())
 }
 
-pub mod base64_format {
-    use std::convert::TryFrom;
+pub trait BaseEncode {
+    fn to_base(&self) -> String;
+}
 
+impl<T> BaseEncode for T
+where
+    for<'a> &'a T: Into<Vec<u8>>,
+{
+    fn to_base(&self) -> String {
+        to_base(&self.into())
+    }
+}
+
+pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<std::error::Error>> {
+    fn from_base(s: &str) -> Result<Self, Box<std::error::Error>> {
+        let bytes = from_base(s)?;
+        Self::try_from(&bytes).map_err(|err| err.into())
+    }
+}
+
+pub mod base_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use super::{from_base64_buf, to_base64};
+    use super::{BaseDecode, BaseEncode};
 
     pub fn serialize<T, S>(data: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
-        T: AsRef<[u8]>,
+        T: BaseEncode,
         S: Serializer,
     {
-        serializer.serialize_str(&to_base64(data))
+        serializer.serialize_str(&data.to_base())
     }
 
-    pub fn deserialize<'de, T, D, E>(deserializer: D) -> Result<T, D::Error>
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
     where
-        T: TryFrom<Vec<u8>, Error=E>,
-        E: ToString,
+        T: BaseDecode,
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let mut array = Vec::with_capacity(32);
-        match from_base64_buf(&s, &mut array) {
-            Ok(_) => T::try_from(array).map_err(|err| de::Error::custom(err.to_string())),
-            Err(err) => Err(de::Error::custom(err.to_string())),
-        }
+        T::from_base(&s).map_err(|err| de::Error::custom(err.to_string()))
+    }
+}
+
+pub mod base_vec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base, to_base};
+
+    pub fn serialize<S>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(data))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s).map_err(|err| de::Error::custom(err.to_string()))
     }
 }

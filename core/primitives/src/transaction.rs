@@ -14,7 +14,6 @@ use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::traits::ToBytes;
 use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
@@ -585,7 +584,7 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
             signature: tx.signature.as_ref().to_vec(),
             public_key: SingularPtrField::from_option(tx.public_key.map(|v| {
                 let mut res = BytesValue::new();
-                res.set_value(v.to_bytes());
+                res.set_value((&v).into());
                 res
             })),
             ..Default::default()

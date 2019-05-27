@@ -11,8 +11,7 @@ use pairing::{
 use rand::rngs::OsRng;
 use rand::Rng;
 
-use crate::serialize::to_base64;
-use crate::traits::{Base64Encoded, ToBytes};
+use crate::serialize::{to_base, BaseDecode};
 use crate::types::ReadableBlsPublicKey;
 
 const DOMAIN_SIGNATURE: &[u8] = b"_s";
@@ -144,13 +143,13 @@ impl<E: Engine> PublicKey<E> {
 
 impl<E: Engine> fmt::Debug for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", to_base64(self.compress().as_ref()))
+        write!(f, "{}", to_base(self.compress().as_ref()))
     }
 }
 
 impl<E: Engine> fmt::Display for PublicKey<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", to_base64(self.compress().as_ref()))
+        write!(f, "{}", to_base(self.compress().as_ref()))
     }
 }
 
@@ -165,7 +164,8 @@ impl<E: Engine> Eq for PublicKey<E> {}
 
 impl<E: Engine> std::hash::Hash for PublicKey<E> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.to_bytes());
+        let bytes: Vec<u8> = self.into();
+        state.write(&bytes);
     }
 }
 
@@ -204,9 +204,9 @@ impl<E: Engine> Default for Signature<E> {
     }
 }
 
-impl<E: Engine> ToBytes for SecretKey<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        let repr = self.scalar.into_repr();
+impl<E: Engine> From<SecretKey<E>> for Vec<u8> {
+    fn from(secret_key: SecretKey<E>) -> Vec<u8> {
+        let repr = secret_key.scalar.into_repr();
         let mut res = Vec::new();
         res.resize(repr.num_bits() as usize / 8, 0);
         let buf = Cursor::new(&mut res);
@@ -227,6 +227,14 @@ impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
     }
 }
 
+impl<E: Engine> TryFrom<Vec<u8>> for SecretKey<E> {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(v.as_ref())
+    }
+}
+
 // `Eq`, `PartialEq`, and `Hash` traits allow us to use `SecretKey<E>` in standard std containers
 // and macros.
 impl<E: Engine> Eq for SecretKey<E> {}
@@ -239,13 +247,14 @@ impl<E: Engine> PartialEq for SecretKey<E> {
 
 impl<E: Engine> std::hash::Hash for SecretKey<E> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.to_bytes());
+        let bytes: Vec<u8> = self.clone().into();
+        state.write(&bytes);
     }
 }
 
-impl<E: Engine> ToBytes for PublicKey<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.compress().as_ref().to_vec()
+impl<E: Engine> From<&PublicKey<E>> for Vec<u8> {
+    fn from(public_key: &PublicKey<E>) -> Vec<u8> {
+        public_key.compress().as_ref().to_vec()
     }
 }
 
@@ -272,9 +281,9 @@ impl<E: Engine> TryFrom<&[u8]> for PublicKey<E> {
     }
 }
 
-impl<E: Engine> ToBytes for Signature<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.compress().to_bytes()
+impl<E: Engine> From<&Signature<E>> for Vec<u8> {
+    fn from(signature: &Signature<E>) -> Vec<u8> {
+        signature.compress().into()
     }
 }
 
@@ -286,12 +295,13 @@ impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
     }
 }
 
-impl<E: Engine> Base64Encoded for SecretKey<E> {}
-impl<E: Engine> Base64Encoded for PublicKey<E> {}
-impl<E: Engine> Base64Encoded for Signature<E> {}
-impl<E: Engine> Base64Encoded for CompressedPublicKey<E> {}
-impl<E: Engine> Base64Encoded for CompressedSignature<E> {}
-impl<E: Engine> Base64Encoded for UncompressedSignature<E> {}
+impl<E: Engine> TryFrom<Vec<u8>> for Signature<E> {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(v.as_ref())
+    }
+}
 
 impl<E: Engine> CompressedPublicKey<E> {
     pub fn decompress(&self) -> Result<PublicKey<E>, GroupDecodingError> {
@@ -303,6 +313,12 @@ impl<E: Engine> CompressedPublicKey<E> {
     /// from disk a previously validated block), we can skip point verification.  Use with caution.
     pub fn decompress_unchecked(&self) -> PublicKey<E> {
         PublicKey { point: self.0.into_affine_unchecked().unwrap() }
+    }
+}
+
+impl<E: Engine> From<&CompressedPublicKey<E>> for Vec<u8> {
+    fn from(public_key: &CompressedPublicKey<E>) -> Vec<u8> {
+        public_key.as_ref().to_vec()
     }
 }
 
@@ -318,9 +334,9 @@ impl<E: Engine> AsMut<[u8]> for CompressedPublicKey<E> {
     }
 }
 
-impl<E: Engine> ToBytes for CompressedPublicKey<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_vec()
+impl<E: Engine> From<CompressedPublicKey<E>> for Vec<u8> {
+    fn from(public_key: CompressedPublicKey<E>) -> Vec<u8> {
+        public_key.as_ref().to_vec()
     }
 }
 
@@ -345,6 +361,12 @@ impl<E: Engine> CompressedSignature<E> {
     }
 }
 
+impl<E: Engine> From<&CompressedSignature<E>> for Vec<u8> {
+    fn from(signature: &CompressedSignature<E>) -> Vec<u8> {
+        signature.as_ref().to_vec()
+    }
+}
+
 impl<E: Engine> AsRef<[u8]> for CompressedSignature<E> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -357,9 +379,9 @@ impl<E: Engine> AsMut<[u8]> for CompressedSignature<E> {
     }
 }
 
-impl<E: Engine> ToBytes for CompressedSignature<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_vec()
+impl<E: Engine> From<CompressedSignature<E>> for Vec<u8> {
+    fn from(signature: CompressedSignature<E>) -> Vec<u8> {
+        signature.as_ref().to_vec()
     }
 }
 
@@ -384,6 +406,12 @@ impl<E: Engine> UncompressedSignature<E> {
     }
 }
 
+impl<E: Engine> From<&UncompressedSignature<E>> for Vec<u8> {
+    fn from(signature: &UncompressedSignature<E>) -> Vec<u8> {
+        signature.as_ref().to_vec()
+    }
+}
+
 impl<E: Engine> AsRef<[u8]> for UncompressedSignature<E> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
@@ -396,9 +424,9 @@ impl<E: Engine> AsMut<[u8]> for UncompressedSignature<E> {
     }
 }
 
-impl<E: Engine> ToBytes for UncompressedSignature<E> {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_ref().to_vec()
+impl<E: Engine> From<UncompressedSignature<E>> for Vec<u8> {
+    fn from(signature: UncompressedSignature<E>) -> Vec<u8> {
+        signature.as_ref().to_vec()
     }
 }
 
@@ -469,6 +497,11 @@ impl<E: Engine> Default for AggregateSignature<E> {
     }
 }
 
+impl<E: Engine> BaseDecode for PublicKey<E> {}
+impl<E: Engine> BaseDecode for SecretKey<E> {}
+impl<E: Engine> BaseDecode for UncompressedSignature<E> {}
+impl<E: Engine> BaseDecode for Signature<E> {}
+
 pub type BlsSecretKey = SecretKey<Bls12>;
 pub type BlsPublicKey = PublicKey<Bls12>;
 pub type BlsSignature = Signature<Bls12>;
@@ -479,13 +512,13 @@ pub mod uncompressed_bs64_signature_serializer {
     use serde::{Deserialize, Deserializer, Serializer};
 
     use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
-    use crate::traits::Base64Encoded;
+    use crate::serialize::{BaseEncode, BaseDecode};
 
     pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&sig.encode_uncompressed().to_base64())
+        serializer.serialize_str(&sig.encode_uncompressed().to_base())
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<BlsSignature, D::Error>
@@ -493,7 +526,7 @@ pub mod uncompressed_bs64_signature_serializer {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let uncompressed = UncompressedSignature::<Bls12>::from_base64(&s).unwrap();
+        let uncompressed = UncompressedSignature::<Bls12>::from_base(&s).unwrap();
         Ok(uncompressed.decode().unwrap())
     }
 }

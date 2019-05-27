@@ -24,7 +24,6 @@ pub mod rpc;
 pub mod serialize;
 pub mod sharding;
 pub mod test_utils;
-pub mod traits;
 pub mod transaction;
 pub mod types;
 pub mod utils;

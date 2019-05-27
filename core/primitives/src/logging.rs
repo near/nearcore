@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use serde::Serialize;
 
-use crate::serialize::to_base64;
+use crate::serialize::to_base;
 
 const VECTOR_MAX_LENGTH: usize = 5;
 const STRING_PRINT_LEN: usize = 128;
@@ -39,7 +39,7 @@ pub fn pretty_utf8(buf: &[u8]) -> String {
         Ok(s) => pretty_hash(s),
         Err(_) => {
             if buf.len() <= STRING_PRINT_LEN {
-                pretty_hash(&to_base64(buf))
+                pretty_hash(&to_base(buf))
             } else {
                 pretty_vec(buf)
             }
@@ -61,7 +61,7 @@ pub fn pretty_results(results: &[Option<Vec<u8>>]) -> String {
 
 pub fn pretty_serializable<T: Serialize>(s: &T) -> String {
     match bincode::serialize(&s) {
-        Ok(buf) => pretty_hash(&to_base64(&buf)),
+        Ok(buf) => pretty_hash(&to_base(&buf)),
         Err(e) => format!("[failed to serialize: {}]", e),
     }
 }

@@ -8,7 +8,7 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use near_primitives::serialize::{to_base64, Decode, Encode};
+use near_primitives::serialize::{to_base, Decode, Encode};
 
 pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator, TrieChanges, WrappedTrieChanges
@@ -144,9 +144,9 @@ impl fmt::Debug for StoreUpdate {
         for op in self.transaction.ops.iter() {
             match op {
                 DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, to_base64(key))?
+                    write!(f, "  + {:?} {}\n", col, to_base(key))?
                 }
-                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base64(key))?,
+                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base(key))?,
             }
         }
         write!(f, "}}\n")

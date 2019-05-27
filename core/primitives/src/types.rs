@@ -3,9 +3,9 @@ use std::convert::TryFrom;
 use near_protos::types as types_proto;
 
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSignature};
-use crate::crypto::signature::{bs64_serializer, PublicKey, Signature};
+use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
-use crate::traits::Base64Encoded;
+use crate::serialize::{base_format, BaseDecode, BaseEncode};
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -69,7 +69,7 @@ pub struct AuthorityStake {
     /// ED25591 Public key of the proposed authority.
     pub public_key: PublicKey,
     /// BLS Public key of the proposed authority.
-    #[serde(with = "bs64_serializer")]
+    #[serde(with = "base_format")]
     pub bls_public_key: BlsPublicKey,
     /// Stake / weight of the authority.
     pub amount: u64,
@@ -79,7 +79,7 @@ impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
     type Error = Box<std::error::Error>;
 
     fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
-        let bls_key = BlsPublicKey::from_base64(&proto.bls_public_key)
+        let bls_key = BlsPublicKey::from_base(&proto.bls_public_key)
             .map_err::<Self::Error, _>(|e| format!("cannot decode signature {:?}", e).into())?;
         Ok(AuthorityStake {
             account_id: proto.account_id,
@@ -95,7 +95,7 @@ impl From<AuthorityStake> for types_proto::AuthorityStake {
         types_proto::AuthorityStake {
             account_id: authority.account_id,
             public_key: authority.public_key.to_string(),
-            bls_public_key: authority.bls_public_key.to_base64(),
+            bls_public_key: authority.bls_public_key.to_base(),
             amount: authority.amount,
             ..Default::default()
         }
