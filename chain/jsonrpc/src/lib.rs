@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
-use base64;
 use futures::future;
 use futures::future::Future;
 use futures::stream::Stream;
@@ -20,6 +19,7 @@ use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
@@ -95,8 +95,8 @@ fn jsonify<T: serde::Serialize>(
 }
 
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
-    let (bs64,) = parse_params::<(String,)>(params)?;
-    let bytes = base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string()))?;
+    let (encoded,) = parse_params::<(String,)>(params)?;
+    let bytes = from_base64(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))?;
     let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
         RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
     })?;
@@ -106,8 +106,8 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
-    let (bs64,) = parse_params::<(String,)>(params)?;
-    base64::decode(&bs64).map_err(|err| RpcError::parse_error(err.to_string())).and_then(|bytes| {
+    let (encoded,) = parse_params::<(String,)>(params)?;
+    from_base64(&encoded).map_err(|err| RpcError::parse_error(err.to_string())).and_then(|bytes| {
         CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
     })
 }
@@ -195,6 +195,7 @@ impl JsonRpcHandler {
     }
 
     fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
+        println!("{:?}", params);
         let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
         Box::new(self.view_client_addr.send(Query { path, data }).then(jsonify))
     }

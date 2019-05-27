@@ -10,6 +10,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
+use near_primitives::serialize::to_base64;
 use near_primitives::traits::Base64Encoded;
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
@@ -55,7 +56,7 @@ impl User for RpcUser {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         let proto: transaction_proto::SignedTransaction = transaction.into();
-        let bytes = base64::encode(&proto.write_to_bytes().unwrap());
+        let bytes = to_base64(&proto.write_to_bytes().unwrap());
         let _ = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_async(bytes))?;
         Ok(())

@@ -1,5 +1,4 @@
 use actix::{Actor, Addr, System};
-use base64;
 use futures::future;
 use futures::future::Future;
 use protobuf::Message;
@@ -10,6 +9,7 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc::{start_http, RpcConfig};
 use near_network::test_utils::{open_port, wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{FinalTransactionStatus, TransactionBody};
 use near_protos::signed_transaction as transaction_proto;
@@ -40,7 +40,7 @@ fn test_send_tx_async() {
         let proto: transaction_proto::SignedTransaction = tx.into();
         actix::spawn(
             client
-                .broadcast_tx_async(base64::encode(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_async(to_base64(&proto.write_to_bytes().unwrap()))
                 .map_err(|_| ())
                 .map(move |result| assert_eq!(tx_hash, result)),
         );
@@ -64,8 +64,7 @@ fn test_send_tx_async() {
     .unwrap();
 }
 
-/// Test sending trasaction and waiting for it to be committed to a block.
-/// TODO: doesn't work yet
+/// Test sending transaction and waiting for it to be committed to a block.
 #[test]
 fn test_send_tx_commit() {
     init_test_logger();
@@ -79,7 +78,7 @@ fn test_send_tx_commit() {
         let proto: transaction_proto::SignedTransaction = tx.into();
         actix::spawn(
             client
-                .broadcast_tx_commit(base64::encode(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_commit(to_base(&proto.write_to_bytes().unwrap()))
                 .map_err(|why| {
                     System::current().stop();
                     panic!(why);
