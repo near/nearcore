@@ -1,21 +1,24 @@
 use std::convert::TryFrom;
 use std::convert::TryInto;
+use std::sync::Arc;
 
 use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use base64;
 use futures::future;
 use futures::future::Future;
+use futures::stream::Stream;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::timer::Interval;
 
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, FinalTransactionStatus};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
@@ -89,7 +92,7 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
-    view_client_addr: Addr<ViewClientActor>,
+    view_client_addr: Arc<Addr<ViewClientActor>>,
 }
 
 impl JsonRpcHandler {
@@ -131,25 +134,33 @@ impl JsonRpcHandler {
 
     fn send_tx_commit(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
         let tx = ok_or_rpc_error!(parse_tx(params));
-        let _hash = tx.get_hash();
+        let tx_hash = tx.get_hash();
+        let view_client_addr = self.view_client_addr.clone();
         Box::new(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))
-                .and_then(|_result| {
-                    // TODO: implement waiting for transaction hash to appear in client or some timeout without blocking.
-                    unimplemented!();
-                    Ok(Value::Null)
-                    //                let check_result = Interval::new(Instant::now(), Duration::from_secs(1)).take(5).for_each(|()| {
-                    //                    self.client_addr.send()
-                    //                }).wait();
-                    //                match check_result {
-                    //                    Ok(result) => {
-                    //                        Ok(Value::Null)
-                    //                    },
-                    //                    Err(result) => Err(RpcError::server_error(Some(format!("Waiting for {} timed out.", hash))))
-                    //                }
+                .map_err(|err| RpcError::server_error(Some(err.to_string())))
+                .and_then(move |_result| {
+                    Interval::new_interval(std::time::Duration::from_millis(100))
+                        .map(move |_| {
+                            view_client_addr.send(TxStatus { tx_hash }).wait()
+                        })
+                        .filter(|tx_status| {
+                            match tx_status {
+                                Ok(Ok(tx_status)) => {
+                                    match tx_status.status {
+                                        | FinalTransactionStatus::Started
+                                        | FinalTransactionStatus::Unknown => false,
+                                        _ => true,
+                                    }
+                                }
+                                _ => false,
+                            }
+                        })
+                        .map_err(|err| RpcError::server_error(Some(err.to_string())))
+                        .take(1)
+                        .fold(Value::Null, |_, tx_status| jsonify(tx_status))
                 })
-                .map_err(|err| RpcError::server_error(Some(err.to_string()))),
         )
     }
 
@@ -198,7 +209,7 @@ pub fn start_http(
         App::new()
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
-                view_client_addr: view_client_addr.clone(),
+                view_client_addr: Arc::new(view_client_addr.clone()),
             })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
