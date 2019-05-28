@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
@@ -13,12 +14,13 @@ use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::timer::Interval;
+use tokio::util::FutureExt;
 
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{SignedTransaction, FinalTransactionStatus};
+use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
@@ -27,21 +29,41 @@ use crate::message::{Request, RpcError};
 pub mod client;
 mod message;
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct RpcPollingConfig {
+    pub polling_interval: Duration,
+    pub polling_timeout: Duration,
+}
+
+impl Default for RpcPollingConfig {
+    fn default() -> Self {
+        Self {
+            polling_interval: Duration::from_millis(100),
+            polling_timeout: Duration::from_secs(5),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
     pub cors_allowed_origins: Vec<String>,
+    pub polling_config: RpcPollingConfig,
 }
 
 impl Default for RpcConfig {
     fn default() -> Self {
-        RpcConfig { addr: "0.0.0.0:3030".to_string(), cors_allowed_origins: vec!["*".to_string()] }
+        RpcConfig {
+            addr: "0.0.0.0:3030".to_owned(),
+            cors_allowed_origins: vec!["*".to_owned()],
+            polling_config: Default::default(),
+        }
     }
 }
 
 impl RpcConfig {
     pub fn new(addr: &str) -> Self {
-        RpcConfig { addr: addr.to_string(), cors_allowed_origins: vec!["*".to_string()] }
+        RpcConfig { addr: addr.to_owned(), ..Default::default() }
     }
 }
 
@@ -93,6 +115,7 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
     view_client_addr: Arc<Addr<ViewClientActor>>,
+    polling_config: RpcPollingConfig,
 }
 
 impl JsonRpcHandler {
@@ -136,31 +159,30 @@ impl JsonRpcHandler {
         let tx = ok_or_rpc_error!(parse_tx(params));
         let tx_hash = tx.get_hash();
         let view_client_addr = self.view_client_addr.clone();
+        let RpcPollingConfig { polling_interval, polling_timeout, .. } = self.polling_config;
         Box::new(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))
                 .map_err(|err| RpcError::server_error(Some(err.to_string())))
                 .and_then(move |_result| {
-                    Interval::new_interval(std::time::Duration::from_millis(100))
-                        .map(move |_| {
-                            view_client_addr.send(TxStatus { tx_hash }).wait()
-                        })
-                        .filter(|tx_status| {
-                            match tx_status {
-                                Ok(Ok(tx_status)) => {
-                                    match tx_status.status {
-                                        | FinalTransactionStatus::Started
-                                        | FinalTransactionStatus::Unknown => false,
-                                        _ => true,
-                                    }
-                                }
-                                _ => false,
-                            }
+                    Interval::new_interval(polling_interval)
+                        .map(move |_| view_client_addr.send(TxStatus { tx_hash }).wait())
+                        .filter(|tx_status| match tx_status {
+                            Ok(Ok(tx_status)) => match tx_status.status {
+                                FinalTransactionStatus::Started
+                                | FinalTransactionStatus::Unknown => false,
+                                _ => true,
+                            },
+                            _ => false,
                         })
                         .map_err(|err| RpcError::server_error(Some(err.to_string())))
                         .take(1)
                         .fold(Value::Null, |_, tx_status| jsonify(tx_status))
                 })
+                .timeout(polling_timeout)
+                .map_err(|_| {
+                    RpcError::server_error(Some("send_tx_commit has timed out.".to_owned()))
+                }),
         )
     }
 
@@ -205,16 +227,18 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
+    let RpcConfig { addr, polling_config, .. } = config;
     HttpServer::new(move || {
         App::new()
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: Arc::new(view_client_addr.clone()),
+                polling_config,
             })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
     })
-    .bind(config.addr)
+    .bind(addr)
     .unwrap()
     .workers(4)
     .shutdown_timeout(5)
