@@ -1,7 +1,9 @@
 use crate::state_viewer::AccountViewCallResult;
+use primitives::account::AccessKey;
 use primitives::crypto::signature::PublicKey;
 use primitives::rpc::ABCIQueryResponse;
 use primitives::types::AccountId;
+use std::convert::TryFrom;
 
 /// Adapter for querying runtime.
 pub trait RuntimeAdapter {
@@ -13,7 +15,18 @@ pub trait RuntimeAdapter {
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, String>;
-    fn view_access_key(&self, account_id: &AccountId) -> Result<Vec<PublicKey>, String>;
+    fn view_access_key(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, String>;
+
+    fn view_access_keys(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<Vec<(PublicKey, AccessKey)>, String>;
+
+    //    fn view_access_key(&self, account_id: &AccountId) -> Result<Vec<PublicKey>, String>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
@@ -46,14 +59,26 @@ pub fn query_client(
                 Err(e) => Ok(ABCIQueryResponse::result_err(path, e, logs)),
             }
         }
-        "access_key" => match adapter.view_access_key(&AccountId::from(path_parts[1])) {
-            Ok(keys) => Ok(ABCIQueryResponse::result(
-                path,
-                serde_json::to_string(&keys).map_err(|e| format!("{}", e))?.as_bytes().to_vec(),
-                vec![],
-            )),
-            Err(e) => Ok(ABCIQueryResponse::result_err(path, e, vec![])),
-        },
+        "access_key" => {
+            let result = if path_parts.len() == 2 {
+                adapter
+                    .view_access_keys(&AccountId::from(path_parts[1]))
+                    .and_then(|r| serde_json::to_string(&r).map_err(|e| format!("{}", e)))
+            } else {
+                adapter
+                    .view_access_key(
+                        &AccountId::from(path_parts[1]),
+                        &PublicKey::try_from(path_parts[2])?,
+                    )
+                    .and_then(|r| serde_json::to_string(&r).map_err(|e| format!("{}", e)))
+            };
+            match result {
+                Ok(result) => {
+                    Ok(ABCIQueryResponse::result(path, result.as_bytes().to_vec(), vec![]))
+                }
+                Err(e) => Ok(ABCIQueryResponse::result_err(path, e, vec![])),
+            }
+        }
         _ => Err(format!("Unknown path {}", path)),
     }
 }
