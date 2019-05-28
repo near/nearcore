@@ -79,14 +79,10 @@ fn test_send_tx_commit() {
         actix::spawn(
             client
                 .broadcast_tx_commit(to_base(&proto.write_to_bytes().unwrap()))
-<<<<<<< HEAD
                 .map_err(|why| {
                     System::current().stop();
                     panic!(why);
                 })
-=======
-                .map_err(|_| ())
->>>>>>> Ref #833: Removed ToBytes trait, cleaned up usage of BaseEncoder/From/Into traits.
                 .map(move |result| {
                     assert_eq!(result.status, FinalTransactionStatus::Completed);
                     System::current().stop();

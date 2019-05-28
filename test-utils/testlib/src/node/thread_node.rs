@@ -1,6 +1,4 @@
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use near::{start_with_config, NearConfig};
 use near_primitives::crypto::signer::EDSigner;
@@ -39,7 +37,6 @@ impl Node for ThreadNode {
     fn start(&mut self) {
         let handle = start_thread(self.config.clone());
         self.state = ThreadNodeState::Running(handle);
-        thread::sleep(Duration::from_secs(1));
     }
 
     fn kill(&mut self) {

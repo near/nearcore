@@ -8,6 +8,7 @@ use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServ
 use futures::future;
 use futures::future::Future;
 use futures::stream::Stream;
+use log::error;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::from_base;
+use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
@@ -70,6 +71,7 @@ impl RpcConfig {
 macro_rules! ok_or_rpc_error(($obj: expr) => (match $obj {
     Ok(value) => value,
     Err(err) => {
+        error!(target: "rpc", "RPC error: {:?}", err);
         return Box::new(future::err(err))
     }
 }));
@@ -145,7 +147,7 @@ impl JsonRpcHandler {
 
     fn send_tx_async(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
         let tx = ok_or_rpc_error!(parse_tx(params));
-        let hash = (&tx.get_hash()).into();
+        let hash = (&tx.get_hash()).to_base();
         actix::spawn(
             self.client_addr
                 .send(NetworkClientMessages::Transaction(tx))
@@ -195,7 +197,6 @@ impl JsonRpcHandler {
     }
 
     fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        println!("{:?}", params);
         let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
         Box::new(self.view_client_addr.send(Query { path, data }).then(jsonify))
     }

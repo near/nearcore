@@ -1,6 +1,6 @@
 //! Runs standard test cases against TestNet with several nodes running in separate threads.
 //! The communication is performed through `RPCUser` that uses the standard RPC API to communicate.
-//#[cfg(feature = "expensive_tests")]
+#[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
     use testlib::node::thread_node::ThreadNode;
@@ -9,6 +9,8 @@ mod test {
     use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
     use near_primitives::test_utils::{init_test_module_logger};
+    use std::thread;
+    use std::time::Duration;
 
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");
@@ -24,17 +26,27 @@ mod test {
         for i in 0..nodes.len() {
             nodes[i].start();
         }
+        // Let the nodes boot up a bit.
+        for _ in 0..100 {
+            let block_index = nodes[0].user().get_best_block_index();
+            if block_index.is_some() && block_index.unwrap() > 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
 
         nodes
     }
 
-    /// Macro for running testnet test but use RPC. Increment the atomic global counter for port,
-    /// and get the test_prefix from the test name.
+    /// Macro for running testnet tests using ThreadNode and RPCUser.
+    /// Guard each test with heavy_test mutex.
     macro_rules! run_testnet_test {
         ($f:expr) => {
-            let mut nodes = create_thread_nodes_rpc();
-            let node = nodes.pop().unwrap();
-            heavy_test(|| $f(node));
+            heavy_test(|| {
+                let mut nodes = create_thread_nodes_rpc();
+                let node = nodes.pop().unwrap();
+                $f(node)
+            });
         };
     }
 

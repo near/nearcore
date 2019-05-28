@@ -34,6 +34,15 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 
+/// Macro to either return value if the result is Ok, or exit function logging error.
+macro_rules! unwrap_or_return(($obj: expr) => (match $obj {
+    Ok(value) => value,
+    Err(err) => {
+        error!(target: "client", "Error: {:?}", err);
+        return
+    }
+}));
+
 pub struct ClientActor {
     config: ClientConfig,
     sync_status: SyncStatus,
@@ -74,7 +83,7 @@ impl ClientActor {
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone());
         if let Some(bp) = &block_producer {
-            info!("Starting validator node: {}", bp.account_id);
+            info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
         Ok(ClientActor {
             config,
@@ -244,7 +253,7 @@ impl ClientActor {
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
-            self.handle_scheduling_block_production(ctx, block.header.height);
+            self.handle_scheduling_block_production(ctx, block.header.height, block.header.height);
         }
 
         // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
@@ -285,45 +294,45 @@ impl ClientActor {
         &mut self,
         ctx: &mut Context<ClientActor>,
         last_height: BlockIndex,
+        check_height: BlockIndex,
     ) {
         // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
-        let next_block_producer_account = self.runtime_adapter.get_block_proposer(last_height + 1);
+        let next_block_producer_account = self.runtime_adapter.get_block_proposer(check_height + 1);
         if let Some(block_producer) = &self.block_producer {
             if Ok(block_producer.account_id.clone()) == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
-                    act.produce_block(ctx, last_height + 1);
+                    act.produce_block(ctx, last_height, check_height + 1);
                 });
             } else {
                 // Otherwise, schedule timeout to check if the next block was produced.
                 ctx.run_later(self.config.max_block_production_delay, move |act, ctx| {
-                    act.check_block_timeout(ctx, last_height);
+                    act.check_block_timeout(ctx, last_height, check_height);
                 });
             }
         }
     }
 
     /// Checks if next block was produced within timeout, if not check if we should produce next block.
-    /// TODO: should we send approvals for given block to next block producer?
-    fn check_block_timeout(&mut self, ctx: &mut Context<ClientActor>, last_height: u64) {
-        let head = match self.chain.head() {
-            Ok(head) => head,
-            Err(_) => return,
-        };
-        // If height increased, exit.
-        if head.height > last_height {
+    /// `last_height` is the height of the `head` at the point of scheduling,
+    /// `check_height` is the height at which to call `handle_scheduling_block_production` to skip non received blocks.
+    /// TODO: should we send approvals for `last_height` block to next block producer?
+    fn check_block_timeout(&mut self, ctx: &mut Context<ClientActor>, last_height: BlockIndex, check_height: BlockIndex) {
+        let head = unwrap_or_return!(self.chain.head());
+        // If height changed since we scheduled this, exit.
+        if head.height != last_height {
             return;
         }
-        debug!("Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
+        debug!(target: "client", "Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
-        self.handle_scheduling_block_production(ctx, last_height + 1);
+        self.handle_scheduling_block_production(ctx, last_height, check_height + 1);
     }
 
     /// Produce block if we are block producer for given block. If error happens, retry.
-    fn produce_block(&mut self, ctx: &mut Context<ClientActor>, next_height: BlockIndex) {
-        if let Err(err) = self.produce_block_err(ctx, next_height) {
+    fn produce_block(&mut self, ctx: &mut Context<ClientActor>, last_height: BlockIndex, next_height: BlockIndex) {
+        if let Err(err) = self.produce_block_err(ctx, last_height, next_height) {
             error!(target: "client", "Block production failed: {:?}", err);
-            self.handle_scheduling_block_production(ctx, next_height - 1);
+            self.handle_scheduling_block_production(ctx, last_height, next_height - 1);
         }
     }
 
@@ -332,13 +341,18 @@ impl ClientActor {
     fn produce_block_err(
         &mut self,
         ctx: &mut Context<ClientActor>,
+        last_height: BlockIndex,
         next_height: BlockIndex,
     ) -> Result<(), Error> {
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
         let head = self.chain.head()?;
-        // Check that we are still at the block that we are producer for.
+        // If last height changed, this process should stop as we spun up another one.
+        if head.height != last_height {
+            return Ok(());
+        }
+        // Check that we are were called at the block that we are producer for.
         if block_producer.account_id != self.runtime_adapter.get_block_proposer(next_height)? {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -358,7 +372,7 @@ impl ClientActor {
             ctx.run_later(
                 self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
                 move |act, ctx| {
-                    act.produce_block(ctx, next_height);
+                    act.produce_block(ctx, last_height, next_height);
                 },
             );
             return Ok(());
@@ -366,7 +380,7 @@ impl ClientActor {
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 {
-            self.handle_scheduling_block_production(ctx, next_height);
+            self.handle_scheduling_block_production(ctx, head.height, next_height);
             return Ok(());
         }
 
@@ -501,8 +515,8 @@ impl ClientActor {
                 // TODO: ?? should we add a wait for response here?
                 let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
-            Ok(true) => debug!("send_block_request_to_peer: block {} already known", hash),
-            Err(e) => error!("send_block_request_to_peer: failed to check block exists: {:?}", e),
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
@@ -616,12 +630,13 @@ impl ClientActor {
         if !needs_syncing {
             if currently_syncing {
                 self.started = Instant::now();
+                self.last_block_processed = Instant::now();
                 self.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
-                self.handle_scheduling_block_production(ctx, head.height);
+                self.handle_scheduling_block_production(ctx, head.height, head.height);
             }
             wait_period = self.config.sync_check_period;
         } else {
@@ -678,10 +693,7 @@ impl ClientActor {
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
-            let head = match act.chain.head() {
-                Ok(head) => head,
-                Err(_) => {return; }
-            };
+            let head = unwrap_or_return!(act.chain.head());
             let authorities = act.runtime_adapter.get_epoch_block_proposers(head.height);
             let num_authorities = authorities.len();
             let is_authority = if let Some(block_producer) = &act.block_producer {

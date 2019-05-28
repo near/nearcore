@@ -34,15 +34,18 @@ where
 }
 
 pub fn to_base<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
-    base64::encode(input)
+    bs58::encode(input).into_string()
 }
 
 pub fn from_base(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
-    base64::decode(s).map_err(|err| err.into())
+    bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
 pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
-    base64::decode_config_buf(s, base64::STANDARD, buffer).map_err(|err| err.into())
+    match bs58::decode(s).into(buffer) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(err.into()),
+    }
 }
 
 pub trait BaseEncode {
@@ -81,7 +84,7 @@ pub mod base_format {
 
     pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
     where
-        T: BaseDecode,
+        T: BaseDecode + std::fmt::Debug,
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;

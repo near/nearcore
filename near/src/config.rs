@@ -454,7 +454,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
     NearConfig::new(config, &genesis_config, network_signer.into(), Some(&block_producer))
 }
 
-pub fn load_test_config(seed: &str, port: u64, genesis_config: &GenesisConfig) -> NearConfig {
+pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
     let mut config = Config::default();
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);

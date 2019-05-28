@@ -147,26 +147,26 @@ mod tests {
         let hash = hash(&[0, 1, 2]);
         let s = Struct { hash };
         let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"rksygOVuL6+D9BSm49q+nV++GJdlRMBf7RIazLhbU/w=\"}");
+        assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
     }
 
     #[test]
     fn test_serialize_default() {
         let s = Struct { hash: CryptoHash::default() };
         let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}");
+        assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
     }
 
     #[test]
     fn test_deserialize_default() {
-        let encoded = "{\"hash\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"}";
+        let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.hash, CryptoHash::default());
     }
 
     #[test]
     fn test_deserialize_success() {
-        let encoded = "{\"hash\":\"rksygOVuL6+D9BSm49q+nV++GJdlRMBf7RIazLhbU/w=\"}";
+        let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.hash, hash(&[0, 1, 2]));
     }

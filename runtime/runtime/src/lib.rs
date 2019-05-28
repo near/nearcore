@@ -727,7 +727,7 @@ impl Runtime {
         let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
         for (account_id, wasm) in contracts {
             let code =
-                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base64"));
+                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
             code_hash.insert(account_id.clone(), code.get_hash());
             // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
             set(&mut state_update, key_for_code(&account_id), &code);
