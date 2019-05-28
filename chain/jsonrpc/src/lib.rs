@@ -42,6 +42,18 @@ async fn delay(duration: Duration) -> Result<(), tokio::timer::Error> {
     tokio::timer::Delay::new(std::time::Instant::now() + duration).compat().await
 }
 
+async fn timeout<T, Fut>(timeout: Duration, f: Fut) -> Result<T, RpcError>
+where
+    Fut: futures03::Future<Output = Result<T, RpcError>> + Send,
+{
+    select! {
+        result = f.boxed().fuse() => result,
+        _ = delay(timeout).boxed().fuse() => {
+            Err(RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
@@ -164,13 +176,12 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
-        let RpcPollingConfig { polling_interval, polling_timeout, .. } = self.polling_config;
         self.client_addr
             .send(NetworkClientMessages::Transaction(tx))
             .map_err(|err| RpcError::server_error(Some(err.to_string())))
             .compat()
             .await?;
-        let final_tx_async = async {
+        timeout(self.polling_config.polling_timeout, async {
             loop {
                 let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                 if let Ok(Ok(ref tx)) = final_tx {
@@ -181,15 +192,10 @@ impl JsonRpcHandler {
                         }
                     }
                 }
-                let _ = delay(polling_interval).await;
+                let _ = delay(self.polling_config.polling_interval).await;
             }
-        };
-        select! {
-            final_tx = final_tx_async.boxed().fuse() => final_tx,
-            _ = delay(polling_timeout).boxed().fuse() => {
-                Err(RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))
-            }
-        }
+        })
+        .await
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
