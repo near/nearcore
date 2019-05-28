@@ -67,7 +67,6 @@ fn test_send_tx_async() {
 /// Test sending trasaction and waiting for it to be committed to a block.
 /// TODO: doesn't work yet
 #[test]
-#[ignore]
 fn test_send_tx_commit() {
     init_test_logger();
 
@@ -77,13 +76,14 @@ fn test_send_tx_commit() {
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
         let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
-        let tx_hash: String = (&tx.get_hash()).into();
-        let tx_hash2 = tx_hash.clone();
         let proto: transaction_proto::SignedTransaction = tx.into();
         actix::spawn(
             client
                 .broadcast_tx_commit(base64::encode(&proto.write_to_bytes().unwrap()))
-                .map_err(|_| ())
+                .map_err(|why| {
+                    System::current().stop();
+                    panic!(why);
+                })
                 .map(move |result| {
                     assert_eq!(result.status, FinalTransactionStatus::Completed);
                     System::current().stop();
