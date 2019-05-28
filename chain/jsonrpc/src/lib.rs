@@ -1,20 +1,19 @@
+#![feature(await_macro, async_await)]
+
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::sync::Arc;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
-use futures::future;
+use base64;
 use futures::future::Future;
-use futures::stream::Stream;
+use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use log::error;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::timer::Interval;
-use tokio::util::FutureExt;
 
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
@@ -29,6 +28,19 @@ use crate::message::{Request, RpcError};
 
 pub mod client;
 mod message;
+
+macro_rules! select { // replace `::futures_util` with `::futures03` as the crate path
+    ($($tokens:tt)*) => {
+        futures03::inner_select::select! {
+            futures_crate_path ( ::futures03 )
+            $( $tokens )*
+        }
+    }
+}
+
+async fn delay(duration: Duration) -> Result<(), tokio::timer::Error> {
+    tokio::timer::Delay::new(std::time::Instant::now() + duration).compat().await
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -68,20 +80,12 @@ impl RpcConfig {
     }
 }
 
-macro_rules! ok_or_rpc_error(($obj: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "rpc", "RPC error: {:?}", err);
-        return Box::new(future::err(err))
-    }
-}));
-
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
             .map_err(|err| RpcError::invalid_params(Some(format!("Failed parsing args: {}", err))))
     } else {
-        Err(RpcError::invalid_params(Some("Require at least one parameter".to_string())))
+        Err(RpcError::invalid_params(Some("Require at least one parameter".to_owned())))
     }
 }
 
@@ -116,37 +120,37 @@ fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
 
 struct JsonRpcHandler {
     client_addr: Addr<ClientActor>,
-    view_client_addr: Arc<Addr<ViewClientActor>>,
+    view_client_addr: Addr<ViewClientActor>,
     polling_config: RpcPollingConfig,
 }
 
 impl JsonRpcHandler {
-    pub fn process(&self, message: Message) -> Box<Future<Item = Message, Error = HttpError>> {
+    pub async fn process(&self, message: Message) -> Result<Message, HttpError> {
         let id = message.id();
         match message {
-            Message::Request(request) => Box::new(
-                self.process_request(request).then(|result| Ok(Message::response(id, result))),
-            ),
-            _ => Box::new(future::ok::<_, HttpError>(Message::error(RpcError::invalid_request()))),
+            Message::Request(request) => {
+                Ok(Message::response(id, self.process_request(request).await))
+            }
+            _ => Ok(Message::error(RpcError::invalid_request())),
         }
     }
 
-    fn process_request(&self, request: Request) -> Box<Future<Item = Value, Error = RpcError>> {
+    async fn process_request(&self, request: Request) -> Result<Value, RpcError> {
         match request.method.as_ref() {
-            "broadcast_tx_async" => self.send_tx_async(request.params),
-            "broadcast_tx_commit" => self.send_tx_commit(request.params),
-            "query" => self.query(request.params),
-            "health" => self.health(),
-            "status" => self.status(),
-            "tx" => self.tx_status(request.params),
-            "tx_details" => self.tx_details(request.params),
-            "block" => self.block(request.params),
-            _ => Box::new(future::err(RpcError::method_not_found(request.method))),
+            "broadcast_tx_async" => self.send_tx_async(request.params).await,
+            "broadcast_tx_commit" => self.send_tx_commit(request.params).await,
+            "query" => self.query(request.params).await,
+            "health" => self.health().await,
+            "status" => self.status().await,
+            "tx" => self.tx_status(request.params).await,
+            "tx_details" => self.tx_details(request.params).await,
+            "block" => self.block(request.params).await,
+            _ => Err(RpcError::method_not_found(request.method)),
         }
     }
 
-    fn send_tx_async(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let tx = ok_or_rpc_error!(parse_tx(params));
+    async fn send_tx_async(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let tx = parse_tx(params)?;
         let hash = (&tx.get_hash()).to_base();
         actix::spawn(
             self.client_addr
@@ -154,66 +158,66 @@ impl JsonRpcHandler {
                 .map(|_| ())
                 .map_err(|_| ()),
         );
-        Box::new(future::ok(Value::String(hash)))
+        Ok(Value::String(hash))
     }
 
-    fn send_tx_commit(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let tx = ok_or_rpc_error!(parse_tx(params));
+    async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
-        let view_client_addr = self.view_client_addr.clone();
         let RpcPollingConfig { polling_interval, polling_timeout, .. } = self.polling_config;
-        Box::new(
-            self.client_addr
-                .send(NetworkClientMessages::Transaction(tx))
-                .map_err(|err| RpcError::server_error(Some(err.to_string())))
-                .and_then(move |_result| {
-                    Interval::new_interval(polling_interval)
-                        .map(move |_| view_client_addr.send(TxStatus { tx_hash }).wait())
-                        .filter(|tx_status| match tx_status {
-                            Ok(Ok(tx_status)) => match tx_status.status {
-                                FinalTransactionStatus::Started
-                                | FinalTransactionStatus::Unknown => false,
-                                _ => true,
-                            },
-                            _ => false,
-                        })
-                        .map_err(|err| RpcError::server_error(Some(err.to_string())))
-                        .take(1)
-                        .fold(Value::Null, |_, tx_status| jsonify(tx_status))
-                })
-                .timeout(polling_timeout)
-                .map_err(|_| {
-                    RpcError::server_error(Some("send_tx_commit has timed out.".to_owned()))
-                }),
-        )
+        self.client_addr
+            .send(NetworkClientMessages::Transaction(tx))
+            .map_err(|err| RpcError::server_error(Some(err.to_string())))
+            .compat()
+            .await?;
+        let final_tx_async = async {
+            loop {
+                let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                if let Ok(Ok(ref tx)) = final_tx {
+                    match tx.status {
+                        FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
+                        _ => {
+                            break jsonify(final_tx);
+                        }
+                    }
+                }
+                let _ = delay(polling_interval).await;
+            }
+        };
+        select! {
+            final_tx = final_tx_async.boxed().fuse() => final_tx,
+            _ = delay(polling_timeout).boxed().fuse() => {
+                Err(RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))
+            }
+        }
     }
 
-    fn health(&self) -> Box<Future<Item = Value, Error = RpcError>> {
-        Box::new(future::ok(Value::Null))
+    async fn health(&self) -> Result<Value, RpcError> {
+        Ok(Value::Null)
     }
 
-    fn status(&self) -> Box<Future<Item = Value, Error = RpcError>> {
-        Box::new(self.client_addr.send(Status {}).then(jsonify))
+    async fn status(&self) -> Result<Value, RpcError> {
+        jsonify(self.client_addr.send(Status {}).compat().await)
     }
 
-    fn query(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let (path, data) = ok_or_rpc_error!(parse_params::<(String, Vec<u8>)>(params));
-        Box::new(self.view_client_addr.send(Query { path, data }).then(jsonify))
+    async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (path, data) = parse_params::<(String, Vec<u8>)>(params)?;
+        jsonify(self.view_client_addr.send(Query { path, data }).compat().await)
     }
 
-    fn tx_status(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let tx_hash = ok_or_rpc_error!(parse_hash(params));
-        Box::new(self.view_client_addr.send(TxStatus { tx_hash }).then(jsonify))
+    async fn tx_status(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let tx_hash = parse_hash(params)?;
+        jsonify(self.view_client_addr.send(TxStatus { tx_hash }).compat().await)
     }
 
-    fn tx_details(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let tx_hash = ok_or_rpc_error!(parse_hash(params));
-        Box::new(self.view_client_addr.send(TxDetails { tx_hash }).then(jsonify))
+    async fn tx_details(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let tx_hash = parse_hash(params)?;
+        jsonify(self.view_client_addr.send(TxDetails { tx_hash }).compat().await)
     }
 
-    fn block(&self, params: Option<Value>) -> Box<Future<Item = Value, Error = RpcError>> {
-        let (height,) = ok_or_rpc_error!(parse_params::<(BlockIndex,)>(params));
-        Box::new(self.view_client_addr.send(GetBlock::Height(height)).then(jsonify))
+    async fn block(&self, params: Option<Value>) -> Result<Value, RpcError> {
+        let (height,) = parse_params::<(BlockIndex,)>(params)?;
+        jsonify(self.view_client_addr.send(GetBlock::Height(height)).compat().await)
     }
 }
 
@@ -221,7 +225,11 @@ fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Item = HttpResponse, Error = HttpError> {
-    handler.process(message.0).and_then(|message| Ok(HttpResponse::Ok().json(message)))
+    let response = async move {
+        let message = handler.process(message.0).await?;
+        Ok(HttpResponse::Ok().json(message))
+    };
+    response.boxed().compat()
 }
 
 pub fn start_http(
@@ -234,7 +242,7 @@ pub fn start_http(
         App::new()
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
-                view_client_addr: Arc::new(view_client_addr.clone()),
+                view_client_addr: view_client_addr.clone(),
                 polling_config,
             })
             .wrap(middleware::Logger::default())

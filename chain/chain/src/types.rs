@@ -305,7 +305,7 @@ pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles authorities and block weight computation.
-pub trait RuntimeAdapter {
+pub trait RuntimeAdapter : Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate and state root.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash);
