@@ -21,14 +21,14 @@ use crate::TxDetails;
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
     chain: Chain,
-    runtime_adapter: Arc<RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
 }
 
 impl ViewClientActor {
     pub fn new(
         store: Arc<Store>,
         genesis_time: DateTime<Utc>,
-        runtime_adapter: Arc<RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;

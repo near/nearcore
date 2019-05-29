@@ -47,7 +47,7 @@ pub struct ClientActor {
     config: ClientConfig,
     sync_status: SyncStatus,
     chain: Chain,
-    runtime_adapter: Arc<RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     tx_pool: TransactionPool,
     network_actor: Recipient<NetworkRequests>,
     block_producer: Option<BlockProducer>,
@@ -72,7 +72,7 @@ impl ClientActor {
         config: ClientConfig,
         store: Arc<Store>,
         genesis_time: DateTime<Utc>,
-        runtime_adapter: Arc<RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
