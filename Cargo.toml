@@ -8,6 +8,7 @@ edition = "2018"
 
 [workspace]
 members = [
+    "async-utils/",
     "protos/builder",
     "core/primitives",
     "core/store",

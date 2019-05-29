@@ -1,0 +1,9 @@
+[package]
+name = "async-utils"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+futures03 = { package = "futures-preview", version = "0.3.0-alpha.16", features = ["compat", "async-await", "nightly"] }
+tokio = "0.1.15"

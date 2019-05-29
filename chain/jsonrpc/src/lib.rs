@@ -6,15 +6,14 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
-use base64;
 use futures::future::Future;
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
-use log::error;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
+use async_utils::{delay, timeout};
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::NetworkClientMessages;
@@ -28,31 +27,6 @@ use crate::message::{Request, RpcError};
 
 pub mod client;
 mod message;
-
-macro_rules! select { // replace `::futures_util` with `::futures03` as the crate path
-    ($($tokens:tt)*) => {
-        futures03::inner_select::select! {
-            futures_crate_path ( ::futures03 )
-            $( $tokens )*
-        }
-    }
-}
-
-async fn delay(duration: Duration) -> Result<(), tokio::timer::Error> {
-    tokio::timer::Delay::new(std::time::Instant::now() + duration).compat().await
-}
-
-async fn timeout<T, Fut>(timeout: Duration, f: Fut) -> Result<T, RpcError>
-where
-    Fut: futures03::Future<Output = Result<T, RpcError>> + Send,
-{
-    select! {
-        result = f.boxed().fuse() => result,
-        _ = delay(timeout).boxed().fuse() => {
-            Err(RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -196,6 +170,7 @@ impl JsonRpcHandler {
             }
         })
         .await
+        .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
     }
 
     async fn health(&self) -> Result<Value, RpcError> {
