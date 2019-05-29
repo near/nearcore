@@ -61,6 +61,11 @@ impl User for RpcUser {
         Ok(())
     }
 
+    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
+        // TDDO: figure out if rpc will support this
+        unimplemented!()
+    }
+
     fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
         self.view_account(account_id).ok().map(|acc| acc.nonce)
     }
@@ -83,11 +88,6 @@ impl User for RpcUser {
 
     fn get_state_root(&self) -> MerkleHash {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
-    }
-
-    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
-        // TDDO: figure out if rpc will support this
-        unimplemented!()
     }
 
     fn get_receipt_info(&self, _hash: &CryptoHash) -> Option<ReceiptInfo> {

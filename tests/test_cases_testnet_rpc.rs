@@ -3,24 +3,31 @@
 #[cfg(feature = "expensive_tests")]
 #[cfg(test)]
 mod test {
-    use testlib::node::thread_node::ThreadNode;
-    use testlib::node::{Node, create_nodes_from_seeds, NodeConfig};
-    use testlib::runtime_utils::alice_account;
-    use testlib::standard_test_cases::*;
-    use testlib::test_helpers::heavy_test;
-    use near_primitives::test_utils::{init_test_module_logger};
     use std::thread;
     use std::time::Duration;
 
+    use near_primitives::test_utils::init_test_module_logger;
+    use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
+    use testlib::runtime_utils::alice_account;
+    use testlib::standard_test_cases::*;
+    use testlib::test_helpers::heavy_test;
+
     fn create_thread_nodes_rpc() -> Vec<ThreadNode> {
         init_test_module_logger("runtime");
-        let mut nodes = create_nodes_from_seeds(vec!["alice.near".to_string(), "bob.near".to_string(), "carol.near".to_string(), "dan.near".to_string()]);
-        let mut nodes: Vec<_> = nodes.drain(..).map(|cfg| match cfg {
-            NodeConfig::Thread(config) => ThreadNode::new(config),
-            _ => unreachable!(),
-        }).collect();
-        let account_names: Vec<_> =
-            nodes.iter().map(|node| node.account_id().unwrap()).collect();
+        let mut nodes = create_nodes_from_seeds(vec![
+            "alice.near".to_string(),
+            "bob.near".to_string(),
+            "carol.near".to_string(),
+            "dan.near".to_string(),
+        ]);
+        let mut nodes: Vec<_> = nodes
+            .drain(..)
+            .map(|cfg| match cfg {
+                NodeConfig::Thread(config) => ThreadNode::new(config),
+                _ => unreachable!(),
+            })
+            .collect();
+        let account_names: Vec<_> = nodes.iter().map(|node| node.account_id().unwrap()).collect();
 
         assert_eq!(account_names[0], alice_account());
         for i in 0..nodes.len() {

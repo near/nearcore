@@ -25,6 +25,10 @@ pub trait EDSigner: Sync + Send {
     fn public_key(&self) -> PublicKey;
     fn sign(&self, data: &[u8]) -> Signature;
     fn verify(&self, data: &[u8], signature: &Signature) -> bool;
+
+    fn write_to_file(&self, _path: &Path) {
+        unimplemented!();
+    }
 }
 
 /// Trait to abstract the way signing with bls.
@@ -180,21 +184,16 @@ impl InMemorySigner {
         Self { account_id, public_key, secret_key }
     }
 
+    pub fn from_secret_key(account_id: String, public_key: PublicKey, secret_key: SecretKey) -> Self {
+        Self { account_id, public_key, secret_key }
+    }
+
     /// Read key file into signer.
     pub fn from_file(path: &Path) -> Self {
         let mut file = File::open(path).expect("Could not open key file.");
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from key file.");
         InMemorySigner::from(content.as_str())
-    }
-
-    /// Save signer into key file.
-    pub fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a key file.");
-        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
-            panic!("Failed to write a key file {}", err);
-        }
     }
 
     /// Initialize `InMemorySigner` with a random ED25519 and BLS keys, and random account id. Used
@@ -245,5 +244,14 @@ impl EDSigner for InMemorySigner {
 
     fn verify(&self, data: &[u8], signature: &Signature) -> bool {
         verify(data, signature, &self.public_key)
+    }
+
+    /// Save signer into key file.
+    fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
+        }
     }
 }

@@ -12,12 +12,14 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::state_viewer::AccountViewCallResult;
 
+pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
-use crate::node::thread_node::ThreadNode;
+pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
 
-pub mod runtime_node;
-pub mod thread_node;
+mod process_node;
+mod runtime_node;
+mod thread_node;
 
 pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
@@ -35,6 +37,9 @@ pub enum NodeConfig {
     /// Should be the default choice for the tests, since it provides the most control through the
     /// internal access.
     Thread(NearConfig),
+    /// A complete noe running in a subprocess. Can be started and stopped, but besides that all
+    /// interactions are limited to what is exposed through RPC.
+    Process(NearConfig),
 }
 
 pub trait Node: Send + Sync {
@@ -77,6 +82,14 @@ pub trait Node: Send + Sync {
     fn as_thread_mut(&mut self) -> &mut ThreadNode {
         unimplemented!()
     }
+
+    fn as_process_ref(&self) -> &ProcessNode {
+        unimplemented!()
+    }
+
+    fn as_process_mut(&mut self) -> &mut ProcessNode {
+        unimplemented!()
+    }
 }
 
 impl Node {
@@ -86,6 +99,7 @@ impl Node {
                 Arc::new(RwLock::new(RuntimeNode::new(&account_id)))
             }
             NodeConfig::Thread(config) => Arc::new(RwLock::new(ThreadNode::new(config))),
+            NodeConfig::Process(config) => Arc::new(RwLock::new(ProcessNode::new(config))),
         }
     }
 
@@ -93,6 +107,7 @@ impl Node {
         match config {
             NodeConfig::Runtime { account_id } => Box::new(RuntimeNode::new(&account_id)),
             NodeConfig::Thread(config) => Box::new(ThreadNode::new(config)),
+            NodeConfig::Process(config) => Box::new(ProcessNode::new(config)),
         }
     }
 }
@@ -122,9 +137,8 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code = to_base(
-        include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
-    );
+    let code =
+        to_base(include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
     let contracts = seeds.iter().map(|seed| (seed.clone(), code.clone())).collect::<Vec<_>>();
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds, 0, true);

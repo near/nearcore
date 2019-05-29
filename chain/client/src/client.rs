@@ -2,6 +2,7 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -316,7 +317,12 @@ impl ClientActor {
     /// `last_height` is the height of the `head` at the point of scheduling,
     /// `check_height` is the height at which to call `handle_scheduling_block_production` to skip non received blocks.
     /// TODO: should we send approvals for `last_height` block to next block producer?
-    fn check_block_timeout(&mut self, ctx: &mut Context<ClientActor>, last_height: BlockIndex, check_height: BlockIndex) {
+    fn check_block_timeout(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        last_height: BlockIndex,
+        check_height: BlockIndex,
+    ) {
         let head = unwrap_or_return!(self.chain.head());
         // If height changed since we scheduled this, exit.
         if head.height != last_height {
@@ -329,7 +335,12 @@ impl ClientActor {
     }
 
     /// Produce block if we are block producer for given block. If error happens, retry.
-    fn produce_block(&mut self, ctx: &mut Context<ClientActor>, last_height: BlockIndex, next_height: BlockIndex) {
+    fn produce_block(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        last_height: BlockIndex,
+        next_height: BlockIndex,
+    ) {
         if let Err(err) = self.produce_block_err(ctx, last_height, next_height) {
             error!(target: "client", "Block production failed: {:?}", err);
             self.handle_scheduling_block_production(ctx, last_height, next_height - 1);
@@ -439,7 +450,7 @@ impl ClientActor {
                 NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
             }
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of block: {}", e);
+                error!(target: "client", "Error on receival of block: {}", e.description());
                 NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {
@@ -515,8 +526,12 @@ impl ClientActor {
                 // TODO: ?? should we add a wait for response here?
                 let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
-            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
-            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
+            Ok(true) => {
+                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
+            }
+            Err(e) => {
+                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
+            }
         }
     }
 

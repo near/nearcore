@@ -53,14 +53,6 @@ impl Node for ThreadNode {
         self.config.block_producer.clone().unwrap().signer.clone()
     }
 
-    fn as_thread_ref(&self) -> &ThreadNode {
-        self
-    }
-
-    fn as_thread_mut(&mut self) -> &mut ThreadNode {
-        self
-    }
-
     fn is_running(&self) -> bool {
         match self.state {
             ThreadNodeState::Stopped => false,
@@ -70,6 +62,14 @@ impl Node for ThreadNode {
 
     fn user(&self) -> Box<dyn User> {
         Box::new(RpcUser::new(&self.config.rpc_config.addr))
+    }
+
+    fn as_thread_ref(&self) -> &ThreadNode {
+        self
+    }
+
+    fn as_thread_mut(&mut self) -> &mut ThreadNode {
+        self
     }
 }
 
