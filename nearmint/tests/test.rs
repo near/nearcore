@@ -1,4 +1,5 @@
 use node_runtime::state_viewer::AccountViewCallResult;
+use primitives::account::AccessKey;
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::CryptoHash;
 use primitives::rpc::JsonRpcResponse;
@@ -81,7 +82,7 @@ fn view_account_request(account_id: &str) -> Option<AccountViewCallResult> {
         })
 }
 
-fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
+fn view_access_key_request(account_id: &str) -> Option<Vec<(PublicKey, AccessKey)>> {
     let client = reqwest::Client::new();
     let mut response = client
         .post("http://127.0.0.1:3030/abci_query")
@@ -99,7 +100,10 @@ fn view_access_key_request(account_id: &str) -> Option<Vec<PublicKey>> {
         .and_then(|m| m.get("value"))
         .and_then(|v| {
             let bytes = base64::decode(v.as_str().unwrap()).unwrap();
-            serde_json::from_str::<Vec<PublicKey>>(std::str::from_utf8(&bytes).unwrap()).ok()
+            serde_json::from_str::<Vec<(PublicKey, AccessKey)>>(
+                std::str::from_utf8(&bytes).unwrap(),
+            )
+            .ok()
         })
 }
 
@@ -233,13 +237,13 @@ mod test {
                     nonce: 1,
                     originator: "alice.near".to_string(),
                     new_key: signer1.public_key.0[..].to_vec(),
-                    access_key: Some(access_key),
+                    access_key: Some(access_key.clone()),
                 })
                 .sign(&signer)
                 .into();
             submit_tx(tx);
             let keys = view_access_key_request("alice.near").unwrap();
-            assert_eq!(keys, vec![signer1.public_key]);
+            assert_eq!(keys, vec![(signer1.public_key, access_key)]);
         });
     }
 
