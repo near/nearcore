@@ -95,7 +95,7 @@ impl NearMint {
         let (db_changes, genesis_root) = runtime.apply_genesis_state(
             state_update,
             &genesis_config.accounts,
-            &genesis_config.authorities,
+            &genesis_config.validators,
             &genesis_config.contracts,
         );
 
@@ -271,7 +271,7 @@ impl Application for NearMint {
     fn init_chain(&mut self, req: &RequestInitChain) -> ResponseInitChain {
         info!("Init chain: {:?}", req);
         let mut resp = ResponseInitChain::new();
-        for (_, public_key, amount) in self.genesis_config.authorities.iter() {
+        for (_, public_key, amount) in self.genesis_config.validators.iter() {
             let mut validator = ValidatorUpdate::new();
             let mut pub_key = PubKey::new();
             pub_key.set_field_type("ed25519".to_string());

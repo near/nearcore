@@ -37,7 +37,7 @@ pub fn get_runtime_and_trie_from_genesis(
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         trie_update,
         &genesis_config.accounts,
-        &genesis_config.authorities,
+        &genesis_config.validators,
         &genesis_config.contracts,
     );
     store_update.commit().unwrap();
