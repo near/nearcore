@@ -33,6 +33,7 @@ fn runtime_hanldle_fork() {
         state_root,
         vec![tx1],
         HashMap::default(),
+        vec![],
         signer.clone(),
     );
     chain.process_block(b1.clone(), Provenance::NONE, |_, _, _| {}).unwrap();
@@ -42,11 +43,19 @@ fn runtime_hanldle_fork() {
         state_root,
         vec![tx2],
         HashMap::default(),
+        vec![],
         signer.clone(),
     );
     chain.process_block(b2, Provenance::NONE, |_, _, _| {}).unwrap();
     let state_root3 = chain.get_post_state_root(&b1.hash()).unwrap().clone();
-    let b3 =
-        Block::produce(&b1.header, 3, state_root3, vec![tx3], HashMap::default(), signer.clone());
+    let b3 = Block::produce(
+        &b1.header,
+        3,
+        state_root3,
+        vec![tx3],
+        HashMap::default(),
+        vec![],
+        signer.clone(),
+    );
     chain.process_block(b3, Provenance::NONE, |_, _, _| {}).unwrap();
 }

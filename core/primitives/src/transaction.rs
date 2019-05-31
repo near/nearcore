@@ -216,7 +216,6 @@ pub struct StakeTransaction {
     pub originator: AccountId,
     pub amount: Balance,
     pub public_key: String,
-    pub bls_public_key: String,
 }
 
 impl From<transaction_proto::StakeTransaction> for StakeTransaction {
@@ -226,7 +225,6 @@ impl From<transaction_proto::StakeTransaction> for StakeTransaction {
             originator: t.originator,
             amount: t.amount,
             public_key: t.public_key,
-            bls_public_key: t.bls_public_key,
         }
     }
 }
@@ -238,7 +236,6 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
             originator: t.originator,
             amount: t.amount,
             public_key: t.public_key,
-            bls_public_key: t.bls_public_key,
             ..Default::default()
         }
     }

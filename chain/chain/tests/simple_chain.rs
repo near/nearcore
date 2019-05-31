@@ -70,6 +70,7 @@ fn build_chain_with_skips_and_forks() {
         MerkleHash::default(),
         vec![],
         HashMap::default(),
+        vec![],
         signer.clone(),
     );
     let b3 = Block::empty(&b1.header, signer.clone());
@@ -79,6 +80,7 @@ fn build_chain_with_skips_and_forks() {
         MerkleHash::default(),
         vec![],
         HashMap::default(),
+        vec![],
         signer.clone(),
     );
     let b5 = Block::empty(&b4.header, signer);

@@ -13,7 +13,7 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, ValidatorStake, BlockIndex, Epoch, MerkleHash, ShardId};
 use near_primitives::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_store::{StoreUpdate, WrappedTrieChanges};
@@ -42,6 +42,8 @@ pub struct BlockHeader {
     pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
+    /// Validator proposals.
+    pub validator_proposal: Vec<ValidatorStake>,
 
     /// Signature of the block producer.
     pub signature: Signature,
@@ -60,6 +62,7 @@ impl BlockHeader {
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
+        mut validator_proposal: Vec<ValidatorStake>,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -72,6 +75,9 @@ impl BlockHeader {
                 approval_sigs.iter().map(std::convert::Into::into),
             ),
             total_weight: total_weight.to_num(),
+            validator_proposal: RepeatedField::from_iter(
+                validator_proposal.drain(..).map(std::convert::Into::into),
+            ),
             ..Default::default()
         }
     }
@@ -85,6 +91,7 @@ impl BlockHeader {
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
+        validator_proposal: Vec<ValidatorStake>,
         signer: Arc<EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -96,6 +103,7 @@ impl BlockHeader {
             approval_mask,
             approval_sigs,
             total_weight,
+            validator_proposal,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -118,6 +126,7 @@ impl BlockHeader {
                 vec![],
                 vec![],
                 0.into(),
+                vec![],
             )),
             signature: DEFAULT_SIGNATURE.into(),
             ..Default::default()
@@ -159,6 +168,11 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             body.approval_sigs.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
         let total_weight = body.total_weight.into();
         let signature = proto.signature.try_into()?;
+        let validator_proposal = body
+            .validator_proposal
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -168,6 +182,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_mask,
             approval_sigs,
             total_weight,
+            validator_proposal,
             signature,
             hash,
         })
@@ -175,7 +190,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
 }
 
 impl From<BlockHeader> for chain_proto::BlockHeader {
-    fn from(header: BlockHeader) -> Self {
+    fn from(mut header: BlockHeader) -> Self {
         chain_proto::BlockHeader {
             body: SingularPtrField::some(chain_proto::BlockHeaderBody {
                 height: header.height,
@@ -188,6 +203,9 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                     header.approval_sigs.iter().map(std::convert::Into::into),
                 ),
                 total_weight: header.total_weight.to_num(),
+                validator_proposal: RepeatedField::from_iter(
+                    header.validator_proposal.drain(..).map(std::convert::Into::into),
+                ),
                 ..Default::default()
             }),
             signature: header.signature.into(),
@@ -218,6 +236,7 @@ impl Block {
         state_root: MerkleHash,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
+        validator_proposal: Vec<ValidatorStake>,
         signer: Arc<EDSigner>,
     ) -> Self {
         // TODO: merkelize transactions.
@@ -241,6 +260,7 @@ impl Block {
                 approval_mask,
                 approval_sigs,
                 total_weight,
+                validator_proposal,
                 signer,
             ),
             transactions,
@@ -304,7 +324,7 @@ pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
-/// Additionally handles authorities and block weight computation.
+/// Additionally handles validators and block weight computation.
 pub trait RuntimeAdapter : Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate and state root.
     /// StoreUpdate can be discarded if the chain past the genesis.
@@ -323,8 +343,8 @@ pub trait RuntimeAdapter : Send + Sync {
     /// Block proposer for given height. Return error if outside of known boundaries.
     fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String>;
 
-    /// Validates authority's signature.
-    fn validate_authority_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
+    /// Validates validator's signature.
+    fn validate_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -365,7 +385,7 @@ pub trait RuntimeAdapter : Send + Sync {
     ) -> Result<ABCIQueryResponse, Box<std::error::Error>>;
 }
 
-/// The weight is defined as the number of unique authorities approving this fork.
+/// The weight is defined as the number of unique validators approving this fork.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Weight {
     num: u64,
@@ -437,19 +457,30 @@ impl BlockApproval {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use near_primitives::crypto::signer::InMemorySigner;
+
+    use super::*;
 
     #[test]
     fn test_block_produce() {
         let genesis = Block::genesis(MerkleHash::default(), Utc::now());
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-        let b1 = Block::produce(&genesis.header, 1, MerkleHash::default(), vec![], HashMap::default(), signer.clone());
+        let b1 = Block::produce(
+            &genesis.header,
+            1,
+            MerkleHash::default(),
+            vec![],
+            HashMap::default(),
+            vec![],
+            signer.clone(),
+        );
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.total_weight.to_num(), 1);
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
-        let approvals: HashMap<usize, Signature> = vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::produce(&b1.header, 2, MerkleHash::default(), vec![], approvals, signer.clone());
+        let approvals: HashMap<usize, Signature> =
+            vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
+        let b2 =
+            Block::produce(&b1.header, 2, MerkleHash::default(), vec![], approvals, vec![], signer.clone());
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

@@ -11,9 +11,8 @@ message MerkleNode {
     bool direction = 2;
 }
 
-message AuthorityStake {
+message ValidatorStake {
     string account_id = 1;
     string public_key = 2;
-    string bls_public_key = 3;
     uint64 amount = 4;
 }

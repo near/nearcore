@@ -23,7 +23,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 
-/// Defines Nightshade state transition, authority rotation and block weight for fork choice rule.
+/// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconsiled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
@@ -54,9 +54,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
             .cloned()
             .collect::<Vec<_>>();
-        let authorities = self
+        let validators = self
             .genesis_config
-            .authorities
+            .validators
             .iter()
             .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
             .cloned()
@@ -70,7 +70,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .collect::<Vec<_>>();
         let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
         let (store_update, state_root) =
-            self.runtime.apply_genesis_state(state_update, &accounts, &authorities, &contracts);
+            self.runtime.apply_genesis_state(state_update, &accounts, &validators, &contracts);
         (store_update, state_root)
     }
 
@@ -79,8 +79,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let (_account_id, public_key, _) = &self.genesis_config.authorities
-            [(header.height as usize) % self.genesis_config.authorities.len()];
+        let (_account_id, public_key, _) = &self.genesis_config.validators
+            [(header.height as usize) % self.genesis_config.validators.len()];
         if !header.verify_block_producer(&PublicKey::try_from(public_key.0.as_str()).unwrap()) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -88,17 +88,17 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Vec<AccountId> {
-        self.genesis_config.authorities.iter().map(|x| x.0.clone()).collect()
+        self.genesis_config.validators.iter().map(|x| x.0.clone()).collect()
     }
 
     fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String> {
-        Ok(self.genesis_config.authorities
-            [(height as usize) % self.genesis_config.authorities.len()]
+        Ok(self.genesis_config.validators
+            [(height as usize) % self.genesis_config.validators.len()]
         .0
         .clone())
     }
 
-    fn validate_authority_signature(
+    fn validate_validator_signature(
         &self,
         _account_id: &AccountId,
         _signature: &Signature,
@@ -152,6 +152,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
+        println!("validators: {:?}", apply_result.validator_proposals);
         Ok((
             WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             apply_result.root,

@@ -2,10 +2,9 @@ use std::convert::TryFrom;
 
 use near_protos::types as types_proto;
 
-use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSignature};
+use crate::crypto::aggregate_signature::BlsSignature;
 use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
-use crate::serialize::{base_format, BaseDecode, BaseEncode};
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -61,56 +60,50 @@ pub enum BlockId {
     Hash(CryptoHash),
 }
 
-/// Stores authority and its stake.
+/// Stores validator and its stake.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AuthorityStake {
+pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
-    /// ED25591 Public key of the proposed authority.
+    /// ED25591 Public key of the proposed validator.
     pub public_key: PublicKey,
-    /// BLS Public key of the proposed authority.
-    #[serde(with = "base_format")]
-    pub bls_public_key: BlsPublicKey,
     /// Stake / weight of the authority.
-    pub amount: u64,
+    pub amount: Balance,
 }
 
-impl TryFrom<types_proto::AuthorityStake> for AuthorityStake {
+impl ValidatorStake {
+    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
+        ValidatorStake { account_id, public_key, amount }
+    }
+}
+
+impl TryFrom<types_proto::ValidatorStake> for ValidatorStake {
     type Error = Box<std::error::Error>;
 
-    fn try_from(proto: types_proto::AuthorityStake) -> Result<Self, Self::Error> {
-        let bls_key = BlsPublicKey::from_base(&proto.bls_public_key)
-            .map_err::<Self::Error, _>(|e| format!("cannot decode signature {:?}", e).into())?;
-        Ok(AuthorityStake {
+    fn try_from(proto: types_proto::ValidatorStake) -> Result<Self, Self::Error> {
+        Ok(ValidatorStake {
             account_id: proto.account_id,
             public_key: PublicKey::try_from(proto.public_key.as_str())?,
-            bls_public_key: bls_key,
             amount: proto.amount,
         })
     }
 }
 
-impl From<AuthorityStake> for types_proto::AuthorityStake {
-    fn from(authority: AuthorityStake) -> Self {
-        types_proto::AuthorityStake {
+impl From<ValidatorStake> for types_proto::ValidatorStake {
+    fn from(authority: ValidatorStake) -> Self {
+        types_proto::ValidatorStake {
             account_id: authority.account_id,
             public_key: authority.public_key.to_string(),
-            bls_public_key: authority.bls_public_key.to_base(),
             amount: authority.amount,
             ..Default::default()
         }
     }
 }
 
-impl PartialEq for AuthorityStake {
+impl PartialEq for ValidatorStake {
     fn eq(&self, other: &Self) -> bool {
         self.account_id == other.account_id && self.public_key == other.public_key
     }
 }
 
-impl Eq for AuthorityStake {}
-
-// network types (put here to avoid cyclic dependency)
-/// unique identifier for nodes on the network
-// Use hash for now
-pub type PeerId = CryptoHash;
+impl Eq for ValidatorStake {}

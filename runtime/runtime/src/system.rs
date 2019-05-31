@@ -1,16 +1,14 @@
 use std::convert::TryFrom;
 
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::aggregate_signature::BlsPublicKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::BaseDecode;
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use near_primitives::types::{AccountId, AuthorityStake};
+use near_primitives::types::{AccountId, ValidatorStake};
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
@@ -63,15 +61,13 @@ pub fn staking(
     body: &StakeTransaction,
     sender_account_id: &AccountId,
     sender: &mut Account,
-    authority_proposals: &mut Vec<AuthorityStake>,
+    authority_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if sender.amount >= body.amount {
-        authority_proposals.push(AuthorityStake {
+        authority_proposals.push(ValidatorStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::try_from(body.public_key.as_str())
                 .map_err(|err| err.to_string())?,
-            bls_public_key: BlsPublicKey::from_base(&body.bls_public_key)
-                .map_err(|e| format!("{}", e))?,
             amount: body.amount,
         });
         sender.amount -= body.amount;

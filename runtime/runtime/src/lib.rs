@@ -18,7 +18,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::StorageUsage;
 use near_primitives::types::{
-    AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey,
+    AccountId, ValidatorStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey,
     ShardId,
 };
 use near_primitives::utils::{
@@ -56,7 +56,7 @@ pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
     pub trie_changes: TrieChanges,
-    pub authority_proposals: Vec<AuthorityStake>,
+    pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
     pub largest_tx_nonce: HashMap<AccountId, u64>,
@@ -142,7 +142,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
-        authority_proposals: &mut Vec<AuthorityStake>,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let VerificationData { originator_id, mut originator, .. } = {
             let verifier = TransactionVerifier::new(state_update);
@@ -169,7 +169,7 @@ impl Runtime {
                 &t,
                 &originator_id,
                 &mut originator,
-                authority_proposals,
+                validator_proposals,
             ),
             TransactionBody::FunctionCall(ref t) => self.call_function(
                 state_update,
@@ -589,14 +589,14 @@ impl Runtime {
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
-        authority_proposals: &mut Vec<AuthorityStake>,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
         match self.apply_signed_transaction(
             state_update,
             block_index,
             transaction,
-            authority_proposals,
+            validator_proposals,
         ) {
             Ok(receipts) => {
                 for receipt in receipts {
@@ -667,7 +667,7 @@ impl Runtime {
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, Box<std::error::Error>> {
         let mut new_receipts = HashMap::new();
-        let mut authority_proposals = vec![];
+        let mut validator_proposals = vec![];
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
@@ -701,14 +701,14 @@ impl Runtime {
                 block_index,
                 transaction,
                 &mut new_receipts,
-                &mut authority_proposals,
+                &mut validator_proposals,
             ));
         }
         let trie_changes = state_update.finalize()?;
         Ok(ApplyResult {
             root: trie_changes.new_root,
             trie_changes,
-            authority_proposals,
+            validator_proposals: validator_proposals,
             shard_id,
             new_receipts,
             tx_result,
@@ -721,7 +721,7 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance)],
-        authorities: &[(AccountId, ReadablePublicKey, Balance)],
+        validators: &[(AccountId, ReadablePublicKey, Balance)],
         contracts: &[(AccountId, String)],
     ) -> (StoreUpdate, MerkleHash) {
         let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
@@ -747,7 +747,7 @@ impl Runtime {
                 },
             );
         }
-        for (account_id, _, amount) in authorities {
+        for (account_id, _, amount) in validators {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");

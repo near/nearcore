@@ -237,8 +237,8 @@ pub struct GenesisConfig {
     pub chain_id: String,
     /// Number of shards at genesis.
     pub num_shards: u32,
-    /// List of initial authorities / validators.
-    pub authorities: Vec<(AccountId, ReadablePublicKey, Balance)>,
+    /// List of initial validators.
+    pub validators: Vec<(AccountId, ReadablePublicKey, Balance)>,
     /// List of accounts / balances at genesis.
     pub accounts: Vec<(AccountId, ReadablePublicKey, Balance)>,
     /// List of contract code per accounts. Contract code encoded in base64.
@@ -247,7 +247,7 @@ pub struct GenesisConfig {
 
 impl GenesisConfig {
     pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
-        let mut authorities = vec![];
+        let mut validators = vec![];
         let mut accounts = vec![];
         let mut contracts = vec![];
         let default_test_contract =
@@ -255,7 +255,7 @@ impl GenesisConfig {
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
             if i < num_validators {
-                authorities.push((
+                validators.push((
                     account.to_string(),
                     signer.public_key.to_readable(),
                     TESTING_INIT_STAKE,
@@ -272,7 +272,7 @@ impl GenesisConfig {
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_shards: 1,
-            authorities,
+            validators,
             accounts,
             contracts,
         }
@@ -285,12 +285,12 @@ impl GenesisConfig {
 
     pub fn testing_spec(num_accounts: usize, num_authorities: usize) -> Self {
         let mut accounts = vec![];
-        let mut authorities = vec![];
+        let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
             let signer = InMemorySigner::from_seed(&account_id, &account_id);
             if i < num_authorities {
-                authorities.push((
+                validators.push((
                     account_id.clone(),
                     signer.public_key.to_readable(),
                     TESTING_INIT_STAKE,
@@ -302,7 +302,7 @@ impl GenesisConfig {
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_shards: 1,
-            authorities,
+            validators,
             accounts,
             contracts: vec![],
         }
@@ -368,7 +368,7 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
                 genesis_time: Utc::now(),
                 chain_id,
                 num_shards: 1,
-                authorities: vec![(
+                validators: vec![(
                     account_id.clone(),
                     signer.public_key.to_readable(),
                     TESTING_INIT_STAKE,
@@ -399,7 +399,7 @@ pub fn create_testnet_configs_from_seeds(
             (seed.to_string(), signers[i].public_key.to_readable(), TESTING_INIT_BALANCE)
         })
         .collect::<Vec<_>>();
-    let authorities = seeds
+    let validators = seeds
         .iter()
         .enumerate()
         .take(seeds.len() - num_non_validators)
@@ -411,7 +411,7 @@ pub fn create_testnet_configs_from_seeds(
         genesis_time: Utc::now(),
         chain_id: random_chain_id(),
         num_shards: 1,
-        authorities,
+        validators,
         accounts,
         contracts: vec![],
     };
@@ -513,7 +513,7 @@ mod tests {
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(
-            spec.authorities[0],
+            spec.validators[0],
             (
                 "alice.near".to_string(),
                 ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),

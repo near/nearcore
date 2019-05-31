@@ -14,7 +14,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
-use near_primitives::types::{AccountId, AuthorityStake, BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, ValidatorStake, BlockIndex, MerkleHash};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::test_utils::create_test_store;
 use near_store::{create_store, Store, Trie, TrieUpdate, COL_BLOCK_MISC};
@@ -62,7 +62,7 @@ pub struct NearMint {
     pub root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
-    authority_proposals: Vec<AuthorityStake>,
+    authority_proposals: Vec<ValidatorStake>,
     pub height: u64,
     genesis_hash: CryptoHash,
 }

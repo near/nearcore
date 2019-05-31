@@ -93,6 +93,7 @@ fn receive_network_block() {
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -140,6 +141,7 @@ fn receive_network_block_header() {
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -180,6 +182,7 @@ fn produce_block_with_approvals() {
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer1,
             );
             let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
@@ -227,6 +230,7 @@ fn invalid_blocks() {
                 hash(&[0]),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(
@@ -241,6 +245,7 @@ fn invalid_blocks() {
                 hash(&[1]),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -251,6 +256,7 @@ fn invalid_blocks() {
                 MerkleHash::default(),
                 vec![],
                 HashMap::default(),
+                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
@@ -261,8 +267,8 @@ fn invalid_blocks() {
     .unwrap();
 }
 
-/// Runs two authority runtime with only one authority online.
-/// Present authority produces blocks on it's height after deadline.
+/// Runs two validators runtime with only one validator online.
+/// Present validator produces blocks on it's height after deadline.
 #[test]
 fn skip_block_production() {
     init_test_logger();

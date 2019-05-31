@@ -28,6 +28,7 @@ impl Block {
             prev.prev_state_root,
             vec![],
             HashMap::default(),
+            vec![],
             signer,
         )
     }
@@ -90,7 +91,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
     }
 
-    fn validate_authority_signature(
+    fn validate_validator_signature(
         &self,
         _account_id: &AccountId,
         _signature: &Signature,

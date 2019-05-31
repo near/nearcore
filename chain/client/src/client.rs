@@ -403,6 +403,7 @@ impl ClientActor {
             state_root,
             transactions,
             self.approvals.drain().collect(),
+            vec![],
             block_producer.signer.clone(),
         );
 
@@ -767,7 +768,7 @@ impl ClientActor {
             return false;
         }
         // Check signature is correct for given authority.
-        if !self.runtime_adapter.validate_authority_signature(account_id, signature) {
+        if !self.runtime_adapter.validate_validator_signature(account_id, signature) {
             return false;
         }
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
