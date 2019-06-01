@@ -27,6 +27,7 @@ use crate::message::{Request, RpcError};
 
 pub mod client;
 mod message;
+pub mod test_utils;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -185,7 +186,7 @@ impl JsonRpcHandler {
         Ok(Value::Null)
     }
 
-    async fn status(&self) -> Result<Value, RpcError> {
+    pub async fn status(&self) -> Result<Value, RpcError> {
         jsonify(self.client_addr.send(Status {}).compat().await)
     }
 
@@ -221,6 +222,16 @@ fn rpc_handler(
     response.boxed().compat()
 }
 
+fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    let response = async move {
+        match handler.status().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed().compat()
+}
+
 pub fn start_http(
     config: RpcConfig,
     client_addr: Addr<ClientActor>,
@@ -236,6 +247,7 @@ pub fn start_http(
             })
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
+            .service(web::resource("/status").route(web::get().to_async(status_handler)))
     })
     .bind(addr)
     .unwrap()

@@ -15,6 +15,7 @@ use crate::message::{from_slice, Message};
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+type HttpRequest<T> = Box<dyn Future<Item = T, Error = String>>;
 type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
@@ -50,19 +51,81 @@ where
     )
 }
 
+/// Prepare a `HttpRequest` with a given client, server address and parameters.
+fn call_http_get<R, P>(
+    client: &Client,
+    server_addr: &str,
+    method: &str,
+    _params: P,
+) -> HttpRequest<R>
+where
+    P: Serialize,
+    R: serde::de::DeserializeOwned + 'static,
+{
+    // TODO: url encode params.
+    let response = client
+        .get(format!("{}/{}", server_addr, method))
+        .send()
+        .map_err(|err| err.to_string())
+        .and_then(|mut response| {
+            response.body().then(|body| match body {
+                Ok(bytes) => String::from_utf8(bytes.to_vec())
+                    .map_err(|err| format!("Error {:?} in {:?}", err, bytes))
+                    .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),
+                Err(_) => Err("Payload error: {:?}".to_string()),
+            })
+        });
+    Box::new(response)
+}
+
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params
 /// of a nullary method equal to `[]` instead of `()` and thus make sure it serializes to `[]`
 /// instead of `null`.
 #[doc(hidden)]
-#[macro_export]
 macro_rules! expand_params {
     () => ([] as [(); 0]);
     ($($arg_name:ident,)+) => (($($arg_name,)+))
 }
 
+/// Generates a simple HTTP client with automatic serialization and deserialization.
+/// Method calls get correct types automatically.
+macro_rules! http_client {
+    (
+        $(#[$struct_attr:meta])*
+        pub struct $struct_name:ident {$(
+            $(#[$attr:meta])*
+            pub fn $method:ident(&mut $selff:ident $(, $arg_name:ident: $arg_ty:ty)*)
+                -> HttpRequest<$return_ty:ty>;
+        )*}
+    ) => (
+        $(#[$struct_attr])*
+        pub struct $struct_name {
+            server_addr: String,
+            client: Client,
+        }
+
+        impl $struct_name {
+            /// Creates a new HTTP client backed by the given transport implementation.
+            pub fn new(server_addr: &str, client: Client) -> Self {
+                $struct_name { server_addr: server_addr.to_string(), client }
+            }
+
+            $(
+                $(#[$attr])*
+                pub fn $method(&mut $selff $(, $arg_name: $arg_ty)*)
+                    -> HttpRequest<$return_ty>
+                {
+                    let method = String::from(stringify!($method));
+                    let params = expand_params!($($arg_name,)*);
+                    call_http_get(&mut $selff.client, &$selff.server_addr, &method, params)
+                }
+            )*
+        }
+    )
+}
+
 /// Generates JSON-RPC 2.0 client structs with automatic serialization
 /// and deserialization. Method calls get correct types automatically.
-#[macro_export]
 macro_rules! jsonrpc_client {
     (
         $(#[$struct_attr:meta])*
@@ -113,4 +176,14 @@ jsonrpc_client!(pub struct JsonRpcClient {
 pub fn new_client(server_addr: &str) -> JsonRpcClient {
     let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
     JsonRpcClient::new(server_addr, client)
+}
+
+http_client!(pub struct HttpClient {
+    pub fn status(&mut self) -> HttpRequest<StatusResponse>;
+});
+
+/// Create new HTTP client that connects to the given address.
+pub fn new_http_client(server_addr: &str) -> HttpClient {
+    let client = Client::build().timeout(CONNECT_TIMEOUT).finish();
+    HttpClient::new(server_addr, client)
 }
