@@ -738,7 +738,7 @@ impl ClientActor {
             } else {
                 false
             };
-            // Block#, Block Hash, is authority/# authorities, active/max peers.
+            // Block#, Block Hash, is validator/# validators, active/max peers.
             let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
             let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
             info!(target: "info", "{} {} {} {}",
@@ -771,7 +771,7 @@ impl ClientActor {
         hash: &CryptoHash,
         signature: &Signature,
     ) -> bool {
-        // TODO: figure out how to validate better before hitting the disk? For example authority and account cache to validate signature first.
+        // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         let header = match self.chain.get_block_header(&hash) {
             Ok(header) => header,
             Err(_) => {
@@ -790,8 +790,8 @@ impl ClientActor {
         if position.is_none() {
             return false;
         }
-        // Check signature is correct for given authority.
-        if !self.runtime_adapter.validate_validator_signature(account_id, signature) {
+        // Check signature is correct for given validator.
+        if !self.runtime_adapter.check_validator_signature(account_id, signature) {
             return false;
         }
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);

@@ -347,8 +347,8 @@ pub trait RuntimeAdapter : Send + Sync {
     /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_proposer(&self, shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>>;
 
-    /// Validates validator's signature.
-    fn validate_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
+    /// Check validator's signature.
+    fn check_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;

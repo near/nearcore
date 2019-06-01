@@ -8,13 +8,13 @@ use crate::crypto::aggregate_signature::{
 };
 use crate::logging::pretty_hash;
 use crate::serialize::{BaseEncode, BaseDecode, base_format};
-use crate::types::{AuthorityMask, PartialSignature};
+use crate::types::{ValidatorMask, PartialSignature};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {
     #[serde(with = "base_format")]
     pub signature: BlsSignature,
-    pub authority_mask: AuthorityMask,
+    pub authority_mask: ValidatorMask,
 }
 
 impl TryFrom<types_proto::GroupSignature> for GroupSignature {
@@ -89,7 +89,7 @@ impl Default for GroupSignature {
     fn default() -> Self {
         GroupSignature {
             signature: BlsSignature::empty(),
-            authority_mask: AuthorityMask::default(),
+            authority_mask: ValidatorMask::default(),
         }
     }
 }

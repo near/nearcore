@@ -27,7 +27,7 @@ fn test_stake_nodes() {
     let dir1 = TempDir::new("sync_nodes_1").unwrap();
     let (client1, _view_client1) = start_with_config(dir1.path(), near1);
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
-    let (client2, view_client2) = start_with_config(dir2.path(), near2.clone());
+    let (client2, _view_client2) = start_with_config(dir2.path(), near2.clone());
 
     let tx = TransactionBody::Stake(StakeTransaction {
         nonce: 1,

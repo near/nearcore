@@ -175,7 +175,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         unreachable!()
     }
 
-    fn validate_validator_signature(
+    fn check_validator_signature(
         &self,
         _account_id: &AccountId,
         _signature: &Signature,

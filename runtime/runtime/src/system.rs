@@ -61,10 +61,10 @@ pub fn staking(
     body: &StakeTransaction,
     sender_account_id: &AccountId,
     sender: &mut Account,
-    authority_proposals: &mut Vec<ValidatorStake>,
+    validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if sender.amount >= body.amount {
-        authority_proposals.push(ValidatorStake {
+        validator_proposals.push(ValidatorStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::try_from(body.public_key.as_str())
                 .map_err(|err| err.to_string())?,

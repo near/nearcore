@@ -19,10 +19,10 @@ pub type AccountId = String;
 pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
-/// Authority identifier in current group.
-pub type AuthorityId = usize;
-/// Mask which authorities participated in multi sign.
-pub type AuthorityMask = Vec<bool>;
+/// Validator identifier in current group.
+pub type ValidatorId = usize;
+/// Mask which validators participated in multi sign.
+pub type ValidatorMask = Vec<bool>;
 /// Part of the signature.
 pub type PartialSignature = BlsSignature;
 /// Monetary balance of an account or an amount for transfer.
@@ -41,10 +41,8 @@ pub type ShardId = u32;
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
 
-/// epoch for authority
+/// Epoch for rotating validators.
 pub type Epoch = u64;
-/// slot for authority
-pub type Slot = u64;
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum PromiseId {
@@ -67,7 +65,7 @@ pub struct ValidatorStake {
     pub account_id: AccountId,
     /// ED25591 Public key of the proposed validator.
     pub public_key: PublicKey,
-    /// Stake / weight of the authority.
+    /// Stake / weight of the validator.
     pub amount: Balance,
 }
 
@@ -90,11 +88,11 @@ impl TryFrom<types_proto::ValidatorStake> for ValidatorStake {
 }
 
 impl From<ValidatorStake> for types_proto::ValidatorStake {
-    fn from(authority: ValidatorStake) -> Self {
+    fn from(validator: ValidatorStake) -> Self {
         types_proto::ValidatorStake {
-            account_id: authority.account_id,
-            public_key: authority.public_key.to_string(),
-            amount: authority.amount,
+            account_id: validator.account_id,
+            public_key: validator.public_key.to_string(),
+            amount: validator.amount,
             ..Default::default()
         }
     }

@@ -15,15 +15,15 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
-    authorities: Vec<&str>,
+    validators: Vec<&str>,
     account_id: &str,
     skip_sync_wait: bool,
     recipient: Recipient<NetworkRequests>,
 ) -> (ClientActor, ViewClientActor) {
     let store = create_test_store();
-    let runtime = Arc::new(KeyValueRuntime::new_with_authorities(
+    let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
-        authorities.into_iter().map(Into::into).collect(),
+        validators.into_iter().map(Into::into).collect(),
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let genesis_time = Utc::now();
@@ -43,7 +43,7 @@ pub fn setup(
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock(
-    authorities: Vec<&'static str>,
+    validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
     mut network_mock: Box<
@@ -60,7 +60,7 @@ pub fn setup_mock(
             Box::new(Some(resp))
         }))
         .start();
-        let (client, view_client) = setup(authorities, account_id, skip_sync_wait, pm.recipient());
+        let (client, view_client) = setup(validators, account_id, skip_sync_wait, pm.recipient());
         *view_client_addr1.write().unwrap() = Some(view_client.start());
         client
     });
@@ -69,12 +69,12 @@ pub fn setup_mock(
 
 /// Sets up ClientActor and ViewClientActor without network.
 pub fn setup_no_network(
-    authorities: Vec<&'static str>,
+    validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     setup_mock(
-        authorities,
+        validators,
         account_id,
         skip_sync_wait,
         Box::new(|_, _, _| NetworkResponses::NoResponse),

@@ -39,21 +39,21 @@ pub struct KeyValueRuntime {
     store: Arc<Store>,
     trie: Arc<Trie>,
     root: MerkleHash,
-    authorities: Vec<(AccountId, PublicKey)>,
+    validators: Vec<(AccountId, PublicKey)>,
 }
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_authorities(store, vec!["test".to_string()])
+        Self::new_with_validators(store, vec!["test".to_string()])
     }
 
-    pub fn new_with_authorities(store: Arc<Store>, authorities: Vec<AccountId>) -> Self {
+    pub fn new_with_validators(store: Arc<Store>, validators: Vec<AccountId>) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         KeyValueRuntime {
             store,
             trie,
             root: MerkleHash::default(),
-            authorities: authorities
+            validators: validators
                 .iter()
                 .map(|account_id| (account_id.clone(), get_public_key_from_seed(account_id)))
                 .collect(),
@@ -76,7 +76,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let (_account_id, public_key) =
-            &self.authorities[(header.height as usize) % self.authorities.len()];
+            &self.validators[(header.height as usize) % self.validators.len()];
         if !header.verify_block_producer(public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -84,18 +84,18 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
-        Ok(self.authorities.iter().map(|x| (x.0.clone(), 1)).collect())
+        Ok(self.validators.iter().map(|x| (x.0.clone(), 1)).collect())
     }
 
     fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
-        Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
+        Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
     fn get_chunk_proposer(&self, _shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
-        Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
+        Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
-    fn validate_validator_signature(
+    fn check_validator_signature(
         &self,
         _account_id: &AccountId,
         _signature: &Signature,

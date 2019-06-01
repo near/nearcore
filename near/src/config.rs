@@ -19,12 +19,12 @@ use near_network::NetworkConfig;
 use near_network::test_utils::open_port;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, AuthorityId, Balance, BlockIndex, ReadablePublicKey};
+use near_primitives::types::{AccountId, ValidatorId, Balance, BlockIndex, ReadablePublicKey};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 
-/// Stake used by authorities to validate used in tests.
+/// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
 pub const CONFIG_FILENAME: &str = "config.json";
@@ -238,11 +238,11 @@ pub struct GenesisConfig {
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
     /// Number of block producer seats at genesis.
-    pub num_block_producers: AuthorityId,
+    pub num_block_producers: ValidatorId,
     /// Defines number of shards and number of validators per each shard at genesis.
-    pub block_producers_per_shard: Vec<AuthorityId>,
+    pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per shard.
-    pub avg_fisherman_per_shard: Vec<AuthorityId>,
+    pub avg_fisherman_per_shard: Vec<ValidatorId>,
     /// Enable dynamic re-sharding.
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
@@ -534,7 +534,7 @@ mod tests {
             "chain_id": "test-chain-XYQAS",
             "num_shards": 1,
             "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
-            "authorities": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+            "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
             "contracts": [],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());

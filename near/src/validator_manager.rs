@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AuthorityId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{ValidatorId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{Store, COL_VALIDATORS};
 
@@ -21,7 +21,7 @@ pub enum ValidatorError {
     /// Requesting validators for an epoch that wasn't computed yet.
     EpochOutOfBounds,
     /// Number of selected seats doesn't match requested.
-    SelectedSeatsMismatch(u64, AuthorityId),
+    SelectedSeatsMismatch(u64, ValidatorId),
     /// Other error.
     Other(String),
 }
@@ -88,11 +88,11 @@ pub struct ValidatorEpochConfig {
     /// Number of shards currently.
     pub num_shards: ShardId,
     /// Number of block producers.
-    pub num_block_producers: AuthorityId,
+    pub num_block_producers: ValidatorId,
     /// Number of block producers per each shard.
-    pub block_producers_per_shard: Vec<AuthorityId>,
+    pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per each shard.
-    pub avg_fisherman_per_shard: Vec<AuthorityId>,
+    pub avg_fisherman_per_shard: Vec<ValidatorId>,
 }
 
 /// Information about validator seat assignments.
@@ -103,9 +103,9 @@ pub struct ValidatorAssignment {
     /// Weights for each of the validators responsible for block production.
     pub block_producers: Vec<u64>,
     /// Per each shard, ids and seats of validators that are responsible.
-    pub chunk_producers: Vec<Vec<(AuthorityId, u64)>>,
+    pub chunk_producers: Vec<Vec<(ValidatorId, u64)>>,
     /// Weight of given validator used to determine how many shards they will validate.
-    pub fishermen: Vec<(AuthorityId, u64)>,
+    pub fishermen: Vec<(ValidatorId, u64)>,
 }
 
 /// Manages current validators and validator proposals in the current epoch across different forks.
@@ -171,11 +171,11 @@ fn proposals_to_assignments(
     }
 
     // Collect proposals into block producer assignments.
-    let mut chunk_producers: Vec<Vec<(AuthorityId, u64)>> = vec![];
+    let mut chunk_producers: Vec<Vec<(ValidatorId, u64)>> = vec![];
     let mut last_index: usize = 0;
     for num_seats in epoch_config.block_producers_per_shard.iter() {
-        let mut cp_to_index: HashMap<AuthorityId, usize> = HashMap::default();
-        let mut cp: Vec<(AuthorityId, u64)> = vec![];
+        let mut cp_to_index: HashMap<ValidatorId, usize> = HashMap::default();
+        let mut cp: Vec<(ValidatorId, u64)> = vec![];
         for i in 0..*num_seats {
             let proposal_index = dup_proposals[(i + last_index) % epoch_config.num_block_producers];
             if let Some(j) = cp_to_index.get(&proposal_index) {
