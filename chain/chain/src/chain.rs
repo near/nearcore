@@ -7,7 +7,7 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::TransactionResult;
+use near_primitives::transaction::{TransactionResult, ReceiptTransaction};
 use near_primitives::types::{BlockIndex, MerkleHash};
 use near_store::Store;
 
@@ -478,6 +478,12 @@ impl Chain {
     #[inline]
     pub fn get_post_state_root(&mut self, hash: &CryptoHash) -> Result<&MerkleHash, Error> {
         self.store.get_post_state_root(hash)
+    }
+
+    /// Get receipts stored for the given hash.
+    #[inline]
+    pub fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+        self.store.get_receipts(hash)
     }
 
     /// Get transaction result for given hash of transaction.

@@ -135,9 +135,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     self.tx_pool.insert_transaction(valid_transaction);
                     NetworkClientResponses::ValidTx
                 }
-                Err(err) => {
-                    NetworkClientResponses::InvalidTx(err)
-                }
+                Err(err) => NetworkClientResponses::InvalidTx(err),
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
@@ -381,6 +379,8 @@ impl ClientActor {
             return Ok(());
         }
         let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
+        let has_receipts =
+            self.chain.get_receipts(&head.last_block_hash).map(|r| r.len() > 0).unwrap_or(false);
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block production delay.
@@ -409,7 +409,7 @@ impl ClientActor {
         }
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
-        if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 {
+        if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 && !has_receipts {
             self.handle_scheduling_block_production(ctx, head.height, next_height);
             return Ok(());
         }
@@ -579,12 +579,13 @@ impl ClientActor {
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(
-        &mut self,
-        tx: SignedTransaction,
-    ) -> Result<ValidTransaction, String> {
+    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, String> {
         let head = self.chain.head().map_err(|err| err.to_string())?;
-        let state_root = self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?.clone();
+        let state_root = self
+            .chain
+            .get_post_state_root(&head.last_block_hash)
+            .map_err(|err| err.to_string())?
+            .clone();
         self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 

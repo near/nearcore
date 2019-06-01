@@ -117,6 +117,7 @@ pub struct ValidatorAssignment {
 /// Manages current validators and validator proposals in the current epoch across different forks.
 pub struct ValidatorManager {
     store: Arc<Store>,
+    last_epoch: Epoch,
     proposals: HashMap<CryptoHash, Vec<ValidatorStake>>,
     epoch_validators: HashMap<Epoch, ValidatorAssignment>,
 }
@@ -212,7 +213,7 @@ impl ValidatorManager {
     ) -> Result<Self, ValidatorError> {
         let proposals = HashMap::default();
         let mut epoch_validators = HashMap::default();
-        match store.get_ser(COL_VALIDATORS, LAST_EPOCH_KEY) {
+        let last_epoch = match store.get_ser(COL_VALIDATORS, LAST_EPOCH_KEY) {
             // TODO: check consistency of the db by querying it here?
             Ok(Some(value)) => value,
             Ok(None) => {
@@ -227,7 +228,12 @@ impl ValidatorManager {
             }
             Err(err) => return Err(ValidatorError::Other(err.to_string())),
         };
-        Ok(ValidatorManager { store, proposals, epoch_validators })
+        Ok(ValidatorManager { store, last_epoch, proposals, epoch_validators })
+    }
+
+    #[inline]
+    pub fn last_epoch(&self) -> Epoch {
+        self.last_epoch
     }
 
     pub fn get_validators(&mut self, epoch: Epoch) -> Result<&ValidatorAssignment, ValidatorError> {
@@ -279,6 +285,7 @@ impl ValidatorManager {
                 .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
             store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
+            self.last_epoch = epoch;
         }
         self.proposals.clear();
         Ok(())

@@ -39,7 +39,7 @@ impl RpcUser {
         data: Vec<u8>,
     ) -> Result<T, String> {
         let response =
-            System::new("actix").block_on(self.client.write().unwrap().query(path, data))?;
+            System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(&data)))?;
         serde_json::from_slice(&response.value).map_err(|err| err.to_string())
     }
 }

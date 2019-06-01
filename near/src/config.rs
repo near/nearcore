@@ -1,25 +1,25 @@
-use std::{cmp, fs};
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
-use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_jsonrpc::RpcConfig;
-use near_network::NetworkConfig;
 use near_network::test_utils::open_port;
+use near_network::NetworkConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, ValidatorId, Balance, BlockIndex, ReadablePublicKey};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -356,7 +356,12 @@ fn random_chain_id() -> String {
 }
 
 /// Initializes genesis and client configs and stores in the given folder
-pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>) {
+pub fn init_configs(
+    dir: &Path,
+    chain_id: Option<&str>,
+    account_id: Option<&str>,
+    test_seed: Option<&str>,
+) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     let chain_id = chain_id.map(|c| c.to_string()).unwrap_or(random_chain_id());
     match chain_id.as_ref() {
@@ -376,7 +381,11 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
 
             let account_id = account_id.unwrap_or("test.near").to_string();
 
-            let signer = InMemorySigner::new(account_id.clone());
+            let signer = if let Some(test_seed) = test_seed {
+                InMemorySigner::from_seed(&account_id, test_seed)
+            } else {
+                InMemorySigner::new(account_id.clone())
+            };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
             let network_signer = InMemorySigner::new("".to_string());

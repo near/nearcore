@@ -35,7 +35,7 @@ pub trait RuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, Box<std::error::Error>>;
+    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<std::error::Error>>;
 
     fn view_state(
         &self,

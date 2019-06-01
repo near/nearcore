@@ -16,7 +16,7 @@ use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
-use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
+use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges, get};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -238,8 +238,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             apply_result.root.clone(),
             apply_result.validator_proposals,
         );
-        let (epoch, index) = self.height_to_epoch(block_index);
-        if index == 0 && epoch > 0 {
+        // If epoch changed, finalize previous epoch.
+        // TODO: right now at least one block per epoch is required.
+        let (epoch, _) = self.height_to_epoch(block_index);
+        if vm.last_epoch() != epoch {
             // TODO(779): provide source of randomness here.
             let mut rng_seed = [0; 32];
             rng_seed.copy_from_slice(prev_block_hash.as_ref());
@@ -310,14 +312,15 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
+    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e).into())
+                    let access_key = get::<AccessKey>(&state_update, &key).ok_or("Missing key from iterator")?;
+                    PublicKey::try_from(public_key).map_err(|err| format!("{}", err).into()).map(|key| (key, access_key))
                 })
                 .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),

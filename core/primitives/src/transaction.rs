@@ -14,6 +14,7 @@ use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
+use crate::serialize::base_format;
 use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
@@ -947,6 +948,7 @@ impl fmt::Debug for TransactionResult {
 /// Logs for transaction or receipt with given hash.
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub struct TransactionLogs {
+    #[serde(with = "base_format")]
     pub hash: CryptoHash,
     pub lines: Vec<LogEntry>,
     pub receipts: Vec<CryptoHash>,

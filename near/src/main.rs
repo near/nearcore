@@ -12,6 +12,8 @@ fn init_logging(verbose: bool) {
     if verbose {
         env_logger::Builder::new()
             .filter_module("tokio_reactor", LevelFilter::Info)
+            .filter_module("cranelift_codegen", LevelFilter::Warn)
+            .filter_module("cranelift_wasm", LevelFilter::Warn)
             .filter(None, LevelFilter::Debug)
             .init();
     } else {
@@ -51,6 +53,7 @@ fn main() {
         .subcommand(SubCommand::with_name("init").about("Initializes NEAR configuration")
             .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
             .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for initial validator"))
+            .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
@@ -58,7 +61,7 @@ fn main() {
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
-            .arg(Arg::with_name("produce_empty_blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
+            .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .get_matches();
@@ -72,7 +75,8 @@ fn main() {
             // TODO: Check if `home` exists. If exists check what networks we already have there.
             let chain_id = args.value_of("chain-id");
             let account_id = args.value_of("account-id");
-            init_configs(home_dir, chain_id, account_id);
+            let test_seed = args.value_of("test-seed");
+            init_configs(home_dir, chain_id, account_id, test_seed);
         }
         ("testnet", Some(args)) => {
             let num_validators = args
@@ -91,7 +95,7 @@ fn main() {
             let mut near_config = load_config(home_dir);
             // Override some parameters from command line.
             if let Some(produce_empty_blocks) = args
-                .value_of("produce_empty_blocks")
+                .value_of("produce-empty-blocks")
                 .map(|x| x.parse().expect("Failed to parse boolean"))
             {
                 near_config.client_config.produce_empty_blocks = produce_empty_blocks;

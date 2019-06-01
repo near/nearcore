@@ -29,6 +29,9 @@ pub mod client;
 mod message;
 pub mod test_utils;
 
+/// Maximum byte size of the json payload.
+const JSON_PAYLOAD_MAX_SIZE: usize = 256 * 1024;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
     pub polling_interval: Duration,
@@ -67,6 +70,10 @@ impl RpcConfig {
     }
 }
 
+fn from_base_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
+    from_base(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))
+}
+
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -89,7 +96,7 @@ fn jsonify<T: serde::Serialize>(
 
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
-    let bytes = from_base(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))?;
+    let bytes = from_base_or_parse_err(encoded)?;
     let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
         RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
     })?;
@@ -100,7 +107,7 @@ fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
-    from_base(&encoded).map_err(|err| RpcError::parse_error(err.to_string())).and_then(|bytes| {
+    from_base_or_parse_err(encoded).and_then(|bytes| {
         CryptoHash::try_from(bytes).map_err(|err| RpcError::parse_error(err.to_string()))
     })
 }
@@ -191,7 +198,8 @@ impl JsonRpcHandler {
     }
 
     async fn query(&self, params: Option<Value>) -> Result<Value, RpcError> {
-        let (path, data) = parse_params::<(String, Vec<u8>)>(params)?;
+        let (path, data) = parse_params::<(String, String)>(params)?;
+        let data = from_base_or_parse_err(data)?;
         jsonify(self.view_client_addr.send(Query { path, data }).compat().await)
     }
 
@@ -245,6 +253,7 @@ pub fn start_http(
                 view_client_addr: view_client_addr.clone(),
                 polling_config,
             })
+            .data(web::JsonConfig::default().limit(JSON_PAYLOAD_MAX_SIZE))
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
             .service(web::resource("/status").route(web::get().to_async(status_handler)))

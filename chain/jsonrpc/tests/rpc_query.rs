@@ -33,7 +33,7 @@ fn test_query() {
         let (_view_client_addr, addr) = start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
-        actix::spawn(client.query("account/test".to_string(), vec![]).then(|res| {
+        actix::spawn(client.query("account/test".to_string(), "".to_string()).then(|res| {
             assert!(res.is_ok());
             System::current().stop();
             future::result(Ok(()))
