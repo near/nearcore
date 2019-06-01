@@ -57,7 +57,9 @@ fn main() {
             .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
-        .subcommand(SubCommand::with_name("run").about("Runs NEAR node"))
+        .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
+            .arg(Arg::with_name("produce_empty_blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
+        )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .get_matches();
 
@@ -84,10 +86,18 @@ fn main() {
             let prefix = args.value_of("prefix").unwrap_or("node");
             init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
         }
-        ("run", Some(_args)) => {
+        ("run", Some(args)) => {
             // Load configs from home.
+            let mut near_config = load_config(home_dir);
+            // Override some parameters from command line.
+            if let Some(produce_empty_blocks) = args
+                .value_of("produce_empty_blocks")
+                .map(|x| x.parse().expect("Failed to parse boolean"))
+            {
+                near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+            }
+
             let system = System::new("NEAR");
-            let near_config = load_config(home_dir);
             start_with_config(home_dir, near_config);
             system.run().unwrap();
         }

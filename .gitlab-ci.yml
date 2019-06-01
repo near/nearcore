@@ -127,7 +127,7 @@ test_cases_testnet_rpc:
 #    dependencies:
 #    - release_build
 #    script:
-#    - ./scripts/start_nearmint.sh &
+#    - ./scripts/start_near.sh &
 #    - ./scripts/test_nearlib.sh
 
 #test_pynear:
