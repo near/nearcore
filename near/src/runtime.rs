@@ -1,7 +1,9 @@
 use std::convert::TryFrom;
+use std::io::Cursor;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
+use byteorder::{LittleEndian, ReadBytesExt};
 use log::debug;
 
 use near_chain::{
@@ -12,7 +14,7 @@ use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
@@ -22,6 +24,9 @@ use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateRes
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
+use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
+
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconsiled on the interfaces.
@@ -31,6 +36,7 @@ pub struct NightshadeRuntime {
     trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     runtime: Runtime,
+    validator_manager: RwLock<ValidatorManager>,
 }
 
 impl NightshadeRuntime {
@@ -41,7 +47,35 @@ impl NightshadeRuntime {
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
         let runtime = Runtime::new(ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
-        NightshadeRuntime { genesis_config, trie, runtime, trie_viewer }
+        let initial_epoch_config = ValidatorEpochConfig {
+            rng_seed: [0; 32],
+            num_shards: genesis_config.block_producers_per_shard.len() as ShardId,
+            num_block_producers: genesis_config.num_block_producers,
+            block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
+            avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
+        };
+        let validator_manager = RwLock::new(
+            ValidatorManager::new(
+                initial_epoch_config,
+                genesis_config
+                    .validators
+                    .iter()
+                    .map(|(account_id, readable_key, amount)| ValidatorStake {
+                        account_id: account_id.clone(),
+                        public_key: PublicKey::try_from(readable_key.0.as_str()).unwrap(),
+                        amount: *amount,
+                    })
+                    .collect(),
+                store,
+            )
+            .expect("Failed to start Validator Manager"),
+        );
+        NightshadeRuntime { genesis_config, trie, runtime, trie_viewer, validator_manager }
+    }
+
+    /// Returns current epoch and position in the epoch for given height.
+    fn height_to_epoch(&self, height: BlockIndex) -> (Epoch, BlockIndex) {
+        (height / self.genesis_config.epoch_length, height % self.genesis_config.epoch_length)
     }
 }
 
@@ -87,15 +121,58 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Vec<AccountId> {
-        self.genesis_config.validators.iter().map(|x| x.0.clone()).collect()
+    fn get_epoch_block_proposers(
+        &self,
+        height: BlockIndex,
+    ) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
+        let (epoch, _) = self.height_to_epoch(height);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validator_assignemnt = vm.get_validators(epoch)?;
+        Ok(validator_assignemnt
+            .block_producers
+            .iter()
+            .enumerate()
+            .map(|(index, seats)| {
+                (validator_assignemnt.validators[index].account_id.clone(), *seats)
+            })
+            .collect())
     }
 
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String> {
-        Ok(self.genesis_config.validators
-            [(height as usize) % self.genesis_config.validators.len()]
-        .0
-        .clone())
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+        let (epoch, idx) = self.height_to_epoch(height);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validator_assignemnt = vm.get_validators(epoch)?;
+        let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
+        let mut cur_seats = 0;
+        for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
+            if cur_seats + seats > idx % total_seats {
+                return Ok(validator_assignemnt.validators[i].account_id.clone());
+            }
+            cur_seats += seats;
+        }
+        unreachable!()
+    }
+
+    fn get_chunk_proposer(
+        &self,
+        shard_id: ShardId,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<std::error::Error>> {
+        let (epoch, idx) = self.height_to_epoch(height);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validator_assignemnt = vm.get_validators(epoch)?;
+        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
+            .iter()
+            .map(|(_, seats)| seats)
+            .sum();
+        let mut cur_seats = 0;
+        for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
+            if cur_seats + seats > idx % total_seats {
+                return Ok(validator_assignemnt.validators[*index].account_id.clone());
+            }
+            cur_seats += seats;
+        }
+        unreachable!()
     }
 
     fn validate_validator_signature(
@@ -108,12 +185,13 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn num_shards(&self) -> ShardId {
         // TODO: should be dynamic.
-        self.genesis_config.num_shards
+        self.genesis_config.block_producers_per_shard.len() as ShardId
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        // TODO: a better way to do this.
-        ((hash(&account_id.clone().into_bytes()).0).0[0] % (self.num_shards() as u8)) as u32
+        let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+        cursor.read_u32::<LittleEndian>().expect("Must not happened")
+            % (self.genesis_config.block_producers_per_shard.len() as ShardId)
     }
 
     fn validate_tx(
@@ -152,7 +230,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
-        println!("validators: {:?}", apply_result.validator_proposals);
+
+        // Deal with validator proposals and epoch finishing.
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        vm.add_proposals(
+            state_root.clone(),
+            apply_result.root.clone(),
+            apply_result.validator_proposals,
+        );
+        let (epoch, index) = self.height_to_epoch(block_index);
+        if index == 0 && epoch > 0 {
+            // TODO(779): provide source of randomness here.
+            let mut rng_seed = [0; 32];
+            rng_seed.copy_from_slice(prev_block_hash.as_ref());
+            // TODO(973): calculate number of shards for dynamic resharding.
+            let epoch_config = ValidatorEpochConfig {
+                rng_seed,
+                num_shards: self.genesis_config.block_producers_per_shard.len() as ShardId,
+                num_block_producers: self.genesis_config.num_block_producers,
+                block_producers_per_shard: self.genesis_config.block_producers_per_shard.clone(),
+                avg_fisherman_per_shard: self.genesis_config.avg_fisherman_per_shard.clone(),
+            };
+            vm.finalize_epoch(epoch - 1, epoch_config, apply_result.root.clone())?;
+        }
+
         Ok((
             WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             apply_result.root,

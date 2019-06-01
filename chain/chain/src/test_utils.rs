@@ -12,13 +12,13 @@ use near_primitives::transaction::{
     ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
-use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
+use near_store::test_utils::create_test_store;
 use node_runtime::state_viewer::AccountViewCallResult;
 
+use crate::{Block, Chain, ValidTransaction};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Block, Chain, ValidTransaction};
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -83,11 +83,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Vec<AccountId> {
-        self.authorities.iter().map(|x| x.0.clone()).collect()
+    fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
+        Ok(self.authorities.iter().map(|x| (x.0.clone(), 1)).collect())
     }
 
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String> {
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+        Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
+    }
+
+    fn get_chunk_proposer(&self, _shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
         Ok(self.authorities[(height as usize) % self.authorities.len()].0.clone())
     }
 

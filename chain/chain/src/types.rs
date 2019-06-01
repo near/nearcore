@@ -13,7 +13,7 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, ValidatorStake, BlockIndex, Epoch, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, ValidatorStake, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_store::{StoreUpdate, WrappedTrieChanges};
@@ -337,11 +337,15 @@ pub trait RuntimeAdapter : Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Epoch block proposers.
-    fn get_epoch_block_proposers(&self, epoch: Epoch) -> Vec<AccountId>;
+    /// Epoch block proposers with number of seats they have for given shard.
+    /// Returns error if height is outside of known boundaries.
+    fn get_epoch_block_proposers(&self, height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>>;
 
-    /// Block proposer for given height. Return error if outside of known boundaries.
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, String>;
+    /// Block proposer for given height for the main block. Return error if outside of known boundaries.
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>>;
+
+    /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
+    fn get_chunk_proposer(&self, shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>>;
 
     /// Validates validator's signature.
     fn validate_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;

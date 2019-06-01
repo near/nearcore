@@ -201,10 +201,17 @@ impl Handler<Status> for ClientActor {
         let latest_block_time = last_header.timestamp.clone();
         let state_root =
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
+        let validators = self
+            .runtime_adapter
+            .get_epoch_block_proposers(head.height)
+            .map_err(|err| err.to_string())?
+            .drain(..)
+            .map(|(account_id, _)| account_id)
+            .collect();
         Ok(StatusResponse {
-            // TODO: fill in this info.
             chain_id: self.config.chain_id.clone(),
             rpc_addr: self.config.rpc_addr.clone(),
+            validators,
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
@@ -266,23 +273,25 @@ impl ClientActor {
     }
 
     /// Create approval for given block or return none if not a block producer.
-    fn get_block_approval(&self, block: &Block) -> Option<BlockApproval> {
+    fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
         let next_block_producer_account =
             self.runtime_adapter.get_block_proposer(block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                if self
+                if let Ok(validators) = self
                     .runtime_adapter
                     .get_epoch_block_proposers(block.header.height)
-                    .contains(&block_producer.account_id)
+                    .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
                 {
-                    return Some(BlockApproval::new(
-                        block.hash(),
-                        &*block_producer.signer,
-                        next_block_producer_account.clone(),
-                    ));
+                    if validators.contains(&block_producer.account_id) {
+                        return Some(BlockApproval::new(
+                            block.hash(),
+                            &*block_producer.signer,
+                            next_block_producer_account.clone(),
+                        ));
+                    }
                 }
             }
         }
@@ -298,9 +307,10 @@ impl ClientActor {
         check_height: BlockIndex,
     ) {
         // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
-        let next_block_producer_account = self.runtime_adapter.get_block_proposer(check_height + 1);
+        let next_block_producer_account =
+            unwrap_or_return!(self.runtime_adapter.get_block_proposer(check_height + 1));
         if let Some(block_producer) = &self.block_producer {
-            if Ok(block_producer.account_id.clone()) == next_block_producer_account {
+            if block_producer.account_id.clone() == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
                     act.produce_block(ctx, last_height, check_height + 1);
                 });
@@ -364,7 +374,11 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        if block_producer.account_id != self.runtime_adapter.get_block_proposer(next_height)? {
+        let next_block_proposer = self
+            .runtime_adapter
+            .get_block_proposer(next_height)
+            .map_err(|err| Error::Other(err.to_string()))?;
+        if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
         }
@@ -372,10 +386,17 @@ impl ClientActor {
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block production delay.
-        let total_authorities = self.runtime_adapter.get_epoch_block_proposers(next_height).len();
-        let prev_same_bp = self.runtime_adapter.get_block_proposer(next_height - 1)?
+        let validators = self
+            .runtime_adapter
+            .get_epoch_block_proposers(next_height)
+            .map_err(|err| Error::Other(err.to_string()))?;
+        let total_validators = validators.len();
+        let prev_same_bp = self
+            .runtime_adapter
+            .get_block_proposer(next_height - 1)
+            .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
-        let total_approvals = total_authorities - if prev_same_bp { 1 } else { 2 };
+        let total_approvals = total_validators - if prev_same_bp { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
@@ -710,10 +731,10 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head());
-            let authorities = act.runtime_adapter.get_epoch_block_proposers(head.height);
-            let num_authorities = authorities.len();
-            let is_authority = if let Some(block_producer) = &act.block_producer {
-                authorities.contains(&block_producer.account_id)
+            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(head.height)).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let num_validators = validators.len();
+            let is_validator = if let Some(block_producer) = &act.block_producer {
+                validators.contains(&block_producer.account_id)
             } else {
                 false
             };
@@ -731,7 +752,7 @@ impl ClientActor {
                         }
                     }
                 },
-                  White.bold().paint(format!("{}/{}", if is_authority { "V" } else { "-" }, num_authorities)),
+                  White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
                   Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
             );
@@ -759,11 +780,13 @@ impl ClientActor {
             }
         };
         // If given account is not current block proposer.
-        let position = self
-            .runtime_adapter
-            .get_epoch_block_proposers(header.height)
-            .iter()
-            .position(|x| x == account_id);
+        let position = match self.runtime_adapter.get_epoch_block_proposers(header.height) {
+            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+            Err(err) => {
+                error!(target: "client", "Error: {}", err);
+                return false;
+            }
+        };
         if position.is_none() {
             return false;
         }

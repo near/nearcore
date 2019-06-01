@@ -23,6 +23,19 @@ pub enum Error {
     Other(String),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::Chain(err) => write!(f, "Chain: {}", err),
+            Error::Pool(err) => write!(f, "Pool: {}", err),
+            Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
+            Error::Other(err) => write!(f, "Other: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl From<near_chain::Error> for Error {
     fn from(e: near_chain::Error) -> Self {
         Error::Chain(e)
@@ -205,12 +218,16 @@ pub struct StatusSyncInfo {
     pub syncing: bool,
 }
 
+// TODO: add more information to status.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
     /// Unique chain id.
     pub chain_id: String,
     /// Address for RPC server.
     pub rpc_addr: String,
+    /// Current epoch validators.
+    pub validators: Vec<AccountId>,
+    /// Sync status of the node.
     pub sync_info: StatusSyncInfo,
 }
 

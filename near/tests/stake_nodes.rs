@@ -3,13 +3,15 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_client::GetBlock;
+use near_client::Status;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 
+/// Runs one validator network, sends staking transaction for the second node and
+/// waits until it becomes a validator.
 #[test]
 fn test_stake_nodes() {
     init_test_logger();
@@ -25,7 +27,7 @@ fn test_stake_nodes() {
     let dir1 = TempDir::new("sync_nodes_1").unwrap();
     let (client1, _view_client1) = start_with_config(dir1.path(), near1);
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
-    let (_client2, view_client2) = start_with_config(dir2.path(), near2.clone());
+    let (client2, view_client2) = start_with_config(dir2.path(), near2.clone());
 
     let tx = TransactionBody::Stake(StakeTransaction {
         nonce: 1,
@@ -38,14 +40,10 @@ fn test_stake_nodes() {
 
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
-                match &res {
-                    Ok(Ok(b)) if b.header.height > 4 && b.header.total_weight.to_num() > 6 => {
-                        System::current().stop()
-                    }
-                    Err(_) => return futures::future::err(()),
-                    _ => {}
-                };
+            actix::spawn(client2.send(Status {}).then(|res| {
+                if res.unwrap().unwrap().validators.len() == 2 {
+                    System::current().stop()
+                }
                 futures::future::ok(())
             }));
         }),

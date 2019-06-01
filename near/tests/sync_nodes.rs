@@ -45,13 +45,14 @@ fn sync_nodes() {
     let mut prev = &genesis_header;
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
     for _ in 0..=10 {
-        blocks.push(Block::empty(prev, signer.clone()));
-        prev = &blocks[blocks.len() - 1].header;
+        let block = Block::empty(prev, signer.clone());
         let _ = client1.do_send(NetworkClientMessages::Block(
-            blocks[blocks.len() - 1].clone(),
+            block.clone(),
             PeerInfo::random().id,
             true,
         ));
+        blocks.push(block);
+        prev = &blocks[blocks.len() - 1].header;
     }
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();

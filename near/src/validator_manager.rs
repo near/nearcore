@@ -9,9 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{
-    AuthorityId, Balance, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AuthorityId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{Store, COL_VALIDATORS};
 
@@ -86,26 +84,28 @@ const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 #[derive(Clone)]
 pub struct ValidatorEpochConfig {
     /// Source of randomnes.
-    rng_seed: [u8; 32],
+    pub rng_seed: [u8; 32],
     /// Number of shards currently.
-    num_shards: ShardId,
+    pub num_shards: ShardId,
     /// Number of block producers.
-    num_block_producers: AuthorityId,
+    pub num_block_producers: AuthorityId,
     /// Number of block producers per each shard.
-    block_producers_per_shard: Vec<AuthorityId>,
+    pub block_producers_per_shard: Vec<AuthorityId>,
     /// Expected number of fisherman per each shard.
-    avg_fisherman_per_shard: Vec<AuthorityId>,
+    pub avg_fisherman_per_shard: Vec<AuthorityId>,
 }
 
 /// Information about validator seat assignments.
 #[derive(Default, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct ValidatorAssignment {
     /// List of current validators.
-    validators: Vec<ValidatorStake>,
-    /// Shards this validator is responsible for.
-    block_producers: Vec<Vec<(AuthorityId, u64)>>,
+    pub validators: Vec<ValidatorStake>,
+    /// Weights for each of the validators responsible for block production.
+    pub block_producers: Vec<u64>,
+    /// Per each shard, ids and seats of validators that are responsible.
+    pub chunk_producers: Vec<Vec<(AuthorityId, u64)>>,
     /// Weight of given validator used to determine how many shards they will validate.
-    fishermen: Vec<(AuthorityId, u64)>,
+    pub fishermen: Vec<(AuthorityId, u64)>,
 }
 
 /// Manages current validators and validator proposals in the current epoch across different forks.
@@ -163,28 +163,40 @@ fn proposals_to_assignments(
     let mut rng: StdRng = SeedableRng::from_seed(epoch_config.rng_seed);
     dup_proposals.shuffle(&mut rng);
 
+    // Block producers are aggregated group of first `num_block_producers` proposals.
+    let mut block_producers = Vec::new();
+    block_producers.resize(ordered_proposals.len(), 0);
+    for i in 0..epoch_config.num_block_producers {
+        block_producers[dup_proposals[i]] += 1;
+    }
+
     // Collect proposals into block producer assignments.
-    let mut block_producers: Vec<Vec<(AuthorityId, u64)>> = vec![];
+    let mut chunk_producers: Vec<Vec<(AuthorityId, u64)>> = vec![];
     let mut last_index: usize = 0;
-    for (shard_id, num_seats) in epoch_config.block_producers_per_shard.iter().enumerate() {
-        let mut bp_to_index: HashMap<AuthorityId, usize> = HashMap::default();
-        let mut bp: Vec<(AuthorityId, u64)> = vec![];
+    for num_seats in epoch_config.block_producers_per_shard.iter() {
+        let mut cp_to_index: HashMap<AuthorityId, usize> = HashMap::default();
+        let mut cp: Vec<(AuthorityId, u64)> = vec![];
         for i in 0..*num_seats {
             let proposal_index = dup_proposals[(i + last_index) % epoch_config.num_block_producers];
-            if let Some(j) = bp_to_index.get(&proposal_index) {
-                bp[*j as usize].1 += 1;
+            if let Some(j) = cp_to_index.get(&proposal_index) {
+                cp[*j as usize].1 += 1;
             } else {
-                bp_to_index.insert(proposal_index, bp.len());
-                bp.push((proposal_index, 1));
+                cp_to_index.insert(proposal_index, cp.len());
+                cp.push((proposal_index, 1));
             }
         }
-        block_producers.push(bp);
+        chunk_producers.push(cp);
         last_index = (last_index + num_seats) % epoch_config.num_block_producers;
     }
 
     // TODO: implement fishermen allocation.
 
-    Ok(ValidatorAssignment { validators: ordered_proposals, block_producers, fishermen: vec![] })
+    Ok(ValidatorAssignment {
+        validators: ordered_proposals,
+        block_producers,
+        chunk_producers,
+        fishermen: vec![],
+    })
 }
 
 impl ValidatorManager {
@@ -196,7 +208,7 @@ impl ValidatorManager {
         let proposals = HashMap::default();
         let mut epoch_validators = HashMap::default();
         let last_epoch = match store.get_ser(COL_VALIDATORS, LAST_EPOCH_KEY) {
-            // TODO: check consistancy of the db by querying it here?
+            // TODO: check consistency of the db by querying it here?
             Ok(Some(value)) => value,
             Ok(None) => {
                 let initial_assigment = proposals_to_assignments(
@@ -283,7 +295,8 @@ mod test {
 
     fn assignment(
         mut accounts: Vec<(&str, Balance)>,
-        block_producers: Vec<Vec<(usize, u64)>>,
+        block_producers: Vec<u64>,
+        chunk_producers: Vec<Vec<(usize, u64)>>,
         fishermen: Vec<(usize, u64)>,
     ) -> ValidatorAssignment {
         ValidatorAssignment {
@@ -296,6 +309,7 @@ mod test {
                 })
                 .collect(),
             block_producers,
+            chunk_producers,
             fishermen,
         }
     }
@@ -332,7 +346,12 @@ mod test {
                 vec![stake("test1", 1_000_000)]
             )
             .unwrap(),
-            assignment(vec![("test1", 1_000_000)], vec![vec![(0, 1)], vec![(0, 1)]], vec![])
+            assignment(
+                vec![("test1", 1_000_000)],
+                vec![1],
+                vec![vec![(0, 1)], vec![(0, 1)]],
+                vec![]
+            )
         );
         assert_eq!(
             proposals_to_assignments(
@@ -353,6 +372,7 @@ mod test {
             .unwrap(),
             assignment(
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
+                vec![3, 2, 1],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
                     vec![(0, 3), (1, 2), (2, 1)],
@@ -375,7 +395,7 @@ mod test {
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (sr1, sr2) = (hash(&vec![1]), hash(&vec![2]));
         am.add_proposals(sr1, sr2, vec![stake("test2", 1_000_000)]);
-        let expected0 = assignment(vec![("test1", 1_000_000)], vec![vec![(0, 2)]], vec![]);
+        let expected0 = assignment(vec![("test1", 1_000_000)], vec![1], vec![vec![(0, 2)]], vec![]);
         assert_eq!(am.get_validators(0).unwrap(), &expected0);
         assert_eq!(am.get_validators(1).unwrap(), &expected0);
         assert_eq!(am.get_validators(2), Err(ValidatorError::EpochOutOfBounds));
@@ -384,6 +404,7 @@ mod test {
             am.get_validators(2).unwrap(),
             &assignment(
                 vec![("test2", 1_000_000), ("test1", 1_000_000)],
+                vec![1, 1],
                 vec![vec![(0, 1), (1, 1)]],
                 vec![]
             )
@@ -395,6 +416,7 @@ mod test {
             am2.get_validators(2).unwrap(),
             &assignment(
                 vec![("test2", 1_000_000), ("test1", 1_000_000)],
+                vec![1, 1],
                 vec![vec![(0, 1), (1, 1)]],
                 vec![]
             )

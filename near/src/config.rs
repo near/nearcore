@@ -1,25 +1,25 @@
+use std::{cmp, fs};
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{cmp, fs};
 
 use chrono::{DateTime, Utc};
 use log::info;
+use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_jsonrpc::RpcConfig;
-use near_network::test_utils::open_port;
 use near_network::NetworkConfig;
+use near_network::test_utils::open_port;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::serialize::to_base;
-use near_primitives::types::{AccountId, Balance, ReadablePublicKey};
+use near_primitives::types::{AccountId, AuthorityId, Balance, BlockIndex, ReadablePublicKey};
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -49,6 +49,8 @@ pub struct Network {
     pub reconnect_delay: Duration,
     /// Skip waiting for peers before starting node.
     pub skip_sync_wait: bool,
+    /// Ban window for peers who misbehave.
+    pub ban_window: Duration,
 }
 
 impl Default for Network {
@@ -61,6 +63,7 @@ impl Default for Network {
             handshake_timeout: Duration::from_secs(20),
             reconnect_delay: Duration::from_secs(60),
             skip_sync_wait: false,
+            ban_window: Duration::from_secs(3 * 60 * 60),
         }
     }
 }
@@ -192,8 +195,7 @@ impl NearConfig {
                 reconnect_delay: config.network.reconnect_delay,
                 bootstrap_peers_period: Duration::from_secs(60),
                 peer_max_count: config.network.max_peers,
-                // TODO: push this into config.
-                ban_window: Duration::from_secs(3 * 60 * 60),
+                ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
             },
@@ -235,8 +237,16 @@ pub struct GenesisConfig {
     /// ID of the blockchain. This must be unique for every blockchain.
     /// If your testnet blockchains do not have unique chain IDs, you will have a bad time.
     pub chain_id: String,
-    /// Number of shards at genesis.
-    pub num_shards: u32,
+    /// Number of block producer seats at genesis.
+    pub num_block_producers: AuthorityId,
+    /// Defines number of shards and number of validators per each shard at genesis.
+    pub block_producers_per_shard: Vec<AuthorityId>,
+    /// Expected number of fisherman per shard.
+    pub avg_fisherman_per_shard: Vec<AuthorityId>,
+    /// Enable dynamic re-sharding.
+    pub dynamic_resharding: bool,
+    /// Epoch length counted in blocks.
+    pub epoch_length: BlockIndex,
     /// List of initial validators.
     pub validators: Vec<(AccountId, ReadablePublicKey, Balance)>,
     /// List of accounts / balances at genesis.
@@ -271,7 +281,11 @@ impl GenesisConfig {
         GenesisConfig {
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
-            num_shards: 1,
+            num_block_producers: num_validators,
+            block_producers_per_shard: vec![num_validators],
+            avg_fisherman_per_shard: vec![0],
+            dynamic_resharding: false,
+            epoch_length: 10,
             validators,
             accounts,
             contracts,
@@ -283,13 +297,13 @@ impl GenesisConfig {
         Self::legacy_test(seeds, num_validators)
     }
 
-    pub fn testing_spec(num_accounts: usize, num_authorities: usize) -> Self {
+    pub fn testing_spec(num_accounts: usize, num_validators: usize) -> Self {
         let mut accounts = vec![];
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
             let signer = InMemorySigner::from_seed(&account_id, &account_id);
-            if i < num_authorities {
+            if i < num_validators {
                 validators.push((
                     account_id.clone(),
                     signer.public_key.to_readable(),
@@ -301,7 +315,11 @@ impl GenesisConfig {
         GenesisConfig {
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
-            num_shards: 1,
+            num_block_producers: num_validators,
+            block_producers_per_shard: vec![num_validators],
+            avg_fisherman_per_shard: vec![0],
+            dynamic_resharding: false,
+            epoch_length: 10,
             validators,
             accounts,
             contracts: vec![],
@@ -367,7 +385,11 @@ pub fn init_configs(dir: &Path, chain_id: Option<&str>, account_id: Option<&str>
             let genesis_config = GenesisConfig {
                 genesis_time: Utc::now(),
                 chain_id,
-                num_shards: 1,
+                num_block_producers: 1,
+                block_producers_per_shard: vec![1],
+                avg_fisherman_per_shard: vec![0],
+                dynamic_resharding: false,
+                epoch_length: 1000,
                 validators: vec![(
                     account_id.clone(),
                     signer.public_key.to_readable(),
@@ -410,7 +432,11 @@ pub fn create_testnet_configs_from_seeds(
     let genesis_config = GenesisConfig {
         genesis_time: Utc::now(),
         chain_id: random_chain_id(),
-        num_shards: 1,
+        num_block_producers: num_validators,
+        block_producers_per_shard: vec![num_validators],
+        avg_fisherman_per_shard: vec![0],
+        dynamic_resharding: false,
+        epoch_length: 10,
         validators,
         accounts,
         contracts: vec![],
