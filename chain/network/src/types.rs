@@ -649,6 +649,10 @@ pub enum NetworkClientMessages {
 pub enum NetworkClientResponses {
     /// No response.
     NoResponse,
+    /// Valid transaction inserted into mempool as response to Transaction.
+    ValidTx,
+    /// Invalid transaction inserted into mempool as response to Transaction.
+    InvalidTx(String),
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.

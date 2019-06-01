@@ -13,7 +13,7 @@ use near_primitives::types::BlockIndex;
 use crate::message::{from_slice, Message};
 
 /// Timeout for establishing connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
 

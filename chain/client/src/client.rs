@@ -133,12 +133,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
                 Ok(valid_transaction) => {
                     self.tx_pool.insert_transaction(valid_transaction);
-                    NetworkClientResponses::NoResponse
+                    NetworkClientResponses::ValidTx
                 }
                 Err(err) => {
-                    warn!(target: "client", "Invalid Tx: {}", err);
-                    // TODO: should we ban for invalid tx?
-                    NetworkClientResponses::NoResponse
+                    NetworkClientResponses::InvalidTx(err)
                 }
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
@@ -357,7 +355,7 @@ impl ClientActor {
         }
     }
 
-    /// Produce block if we are block producer for given block.
+    /// Produce block if we are block producer for given `next_height` index.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block_err(
         &mut self,
@@ -584,9 +582,9 @@ impl ClientActor {
     fn validate_tx(
         &mut self,
         tx: SignedTransaction,
-    ) -> Result<ValidTransaction, near_chain::Error> {
-        let head = self.chain.head()?;
-        let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
+    ) -> Result<ValidTransaction, String> {
+        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let state_root = self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?.clone();
         self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 

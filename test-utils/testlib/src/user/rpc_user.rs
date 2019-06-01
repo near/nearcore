@@ -61,6 +61,13 @@ impl User for RpcUser {
         Ok(())
     }
 
+    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String> {
+        let proto: transaction_proto::SignedTransaction = transaction.into();
+        let bytes = to_base(&proto.write_to_bytes().unwrap());
+        System::new("actix")
+            .block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
+    }
+
     fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
         // TDDO: figure out if rpc will support this
         unimplemented!()

@@ -116,7 +116,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _state_root: MerkleHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Error> {
+    ) -> Result<ValidTransaction, String> {
         Ok(ValidTransaction { transaction })
     }
 

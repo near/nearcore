@@ -133,6 +133,10 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
+                    Ok(NetworkClientResponses::InvalidTx(err)) => {
+                        warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
+                        // TODO: count as malicious behaviour?
+                    }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
                         act.peer_status = PeerStatus::Banned(ban_reason);
                         ctx.stop();

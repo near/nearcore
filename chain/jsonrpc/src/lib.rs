@@ -5,9 +5,9 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
-use actix_web::{middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
-use futures::future::Future;
+use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, middleware, web};
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
+use futures::future::Future;
 use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -16,9 +16,9 @@ use serde_json::Value;
 use async_utils::{delay, timeout};
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
-use near_network::NetworkClientMessages;
+use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, BaseEncode};
+use near_primitives::serialize::{BaseEncode, from_base};
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
@@ -150,27 +150,35 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
-        self.client_addr
+        let result = self.client_addr
             .send(NetworkClientMessages::Transaction(tx))
             .map_err(|err| RpcError::server_error(Some(err.to_string())))
             .compat()
             .await?;
-        timeout(self.polling_config.polling_timeout, async {
-            loop {
-                let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
-                if let Ok(Ok(ref tx)) = final_tx {
-                    match tx.status {
-                        FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
-                        _ => {
-                            break jsonify(final_tx);
+        match result {
+            NetworkClientResponses::ValidTx => {
+                timeout(self.polling_config.polling_timeout, async {
+                    loop {
+                        let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                        if let Ok(Ok(ref tx)) = final_tx {
+                            match tx.status {
+                                FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
+                                _ => {
+                                    break jsonify(final_tx);
+                                }
+                            }
                         }
+                        let _ = delay(self.polling_config.polling_interval).await;
                     }
-                }
-                let _ = delay(self.polling_config.polling_interval).await;
+                })
+                    .await
+                    .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
+            },
+            NetworkClientResponses::InvalidTx(err) => {
+                Err(RpcError::server_error(Some(err)))
             }
-        })
-        .await
-        .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
+            _ => unreachable!(),
+        }
     }
 
     async fn health(&self) -> Result<Value, RpcError> {

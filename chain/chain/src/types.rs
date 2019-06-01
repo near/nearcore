@@ -362,7 +362,7 @@ pub trait RuntimeAdapter : Send + Sync {
         shard_id: ShardId,
         state_root: MerkleHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Error>;
+    ) -> Result<ValidTransaction, String>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.

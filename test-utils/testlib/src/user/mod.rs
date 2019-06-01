@@ -29,6 +29,8 @@ pub trait User {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
 
+    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String>;
+
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String>;
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;

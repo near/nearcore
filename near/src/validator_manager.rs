@@ -53,6 +53,12 @@ impl fmt::Display for ValidatorError {
     }
 }
 
+impl From<std::io::Error> for ValidatorError {
+    fn from(error: std::io::Error) -> ValidatorError {
+        ValidatorError::Other(error.to_string())
+    }
+}
+
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, ValidatorError> {
     let stakes_sum: Balance = stakes.iter().sum();
@@ -111,7 +117,6 @@ pub struct ValidatorAssignment {
 /// Manages current validators and validator proposals in the current epoch across different forks.
 pub struct ValidatorManager {
     store: Arc<Store>,
-    last_epoch: Epoch,
     proposals: HashMap<CryptoHash, Vec<ValidatorStake>>,
     epoch_validators: HashMap<Epoch, ValidatorAssignment>,
 }
@@ -207,7 +212,7 @@ impl ValidatorManager {
     ) -> Result<Self, ValidatorError> {
         let proposals = HashMap::default();
         let mut epoch_validators = HashMap::default();
-        let last_epoch = match store.get_ser(COL_VALIDATORS, LAST_EPOCH_KEY) {
+        match store.get_ser(COL_VALIDATORS, LAST_EPOCH_KEY) {
             // TODO: check consistency of the db by querying it here?
             Ok(Some(value)) => value,
             Ok(None) => {
@@ -222,7 +227,7 @@ impl ValidatorManager {
             }
             Err(err) => return Err(ValidatorError::Other(err.to_string())),
         };
-        Ok(ValidatorManager { store, last_epoch, proposals, epoch_validators })
+        Ok(ValidatorManager { store, proposals, epoch_validators })
     }
 
     pub fn get_validators(&mut self, epoch: Epoch) -> Result<&ValidatorAssignment, ValidatorError> {
@@ -271,8 +276,8 @@ impl ValidatorManager {
                 proposals,
             )?;
             store_update
-                .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)
-                .map_err(|err| ValidatorError::Other(err.to_string()))?;
+                .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
+            store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
         }
         self.proposals.clear();

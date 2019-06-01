@@ -199,12 +199,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         _shard_id: ShardId,
         state_root: MerkleHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, near_chain::Error> {
+    ) -> Result<ValidTransaction, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let verifier = TransactionVerifier::new(&state_update);
         if let Err(err) = verifier.verify_transaction(&transaction) {
             debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
-            return Err(err.into());
+            return Err(err);
         }
         Ok(ValidTransaction { transaction })
     }

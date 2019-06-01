@@ -161,6 +161,17 @@ impl User for RuntimeUser {
         Ok(())
     }
 
+    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String> {
+        let apply_state = ApplyState {
+            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+        };
+        self.apply_all(apply_state, vec![], vec![transaction.clone()]);
+        Ok(self.get_transaction_final_result(&transaction.get_hash()))
+    }
+
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
         let apply_state = ApplyState {
             root: self.client.read().expect(POISONED_LOCK_ERR).state_root,

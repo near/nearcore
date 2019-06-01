@@ -43,9 +43,12 @@ futures = "0.1.25"
 near-protos = { path = "./core/protos" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
+
 node-runtime = { path = "./runtime/runtime" }
-near-jsonrpc = { path = "./chain/jsonrpc" }
 wasm = { path = "./runtime/wasm" }
+
+near-jsonrpc = { path = "./chain/jsonrpc" }
+near-network = { path = "./chain/network" }
 
 near = { path = "./near"}
 nearmint = { path = "./nearmint" }
