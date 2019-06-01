@@ -24,4 +24,4 @@ npm install
 npm test
 cd ..
 
-./scripts/kill_devnet.sh
+./scripts/kill_near.sh

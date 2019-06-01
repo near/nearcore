@@ -4,14 +4,16 @@ use std::path::PathBuf;
 use clap::{App, Arg};
 
 use near::config::GenesisConfig;
+use near::{get_store_path, NightshadeRuntime};
+use near_chain::{ChainStore, ChainStoreAccess};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::hash;
 use near_primitives::serialize::Decode;
+use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::Callback;
 use near_primitives::utils::col;
-use near_store::{DBValue, TrieIterator};
-use nearmint::NearMint;
+use near_store::{create_store, DBValue, TrieIterator};
 use node_runtime::ext::ACCOUNT_DATA_SEPARATOR;
 
 const DEFAULT_BASE_PATH: &str = "";
@@ -79,6 +81,7 @@ fn print_state_entry(key: Vec<u8>, value: DBValue) {
 }
 
 fn main() {
+    init_integration_logger();
     let matches = App::new("state-viewer")
         .args(&[
             Arg::with_name("base_path")
@@ -88,7 +91,7 @@ fn main() {
                 .help("Specify a base path for persisted files.")
                 .default_value(DEFAULT_BASE_PATH)
                 .takes_value(true),
-            Arg::with_name("chain_spec_file")
+            Arg::with_name("genesis")
                 .short("c")
                 .long("chain-spec-file")
                 .value_name("CHAIN_SPEC")
@@ -101,7 +104,7 @@ fn main() {
         ])
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
-    let chain_spec = if matches.is_present("devnet") {
+    let genesis_config = if matches.is_present("devnet") {
         GenesisConfig::legacy_test(vec!["alice.near", "bob.near", "carol.near"], 1)
     } else {
         let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
@@ -112,9 +115,16 @@ fn main() {
         }
     };
 
-    let nearmint = NearMint::new(&base_path, chain_spec);
-    let trie = TrieIterator::new(&nearmint.trie, &nearmint.root).unwrap();
-    println!("Storage root is {}, block height is {}", nearmint.root, nearmint.height);
+    let store = create_store(&get_store_path(&base_path));
+    let mut chain_store = ChainStore::new(store.clone());
+
+    let runtime = NightshadeRuntime::new(&base_path, store, genesis_config);
+    let head = chain_store.head().unwrap();
+    let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
+    let state_root = chain_store.get_post_state_root(&head.last_block_hash).unwrap();
+    let trie = TrieIterator::new(&runtime.trie, state_root).unwrap();
+
+    println!("Storage root is {}, block height is {}", state_root, last_header.height);
     for item in trie {
         let (key, value) = item.unwrap();
         print_state_entry(key, value);

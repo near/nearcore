@@ -25,7 +25,6 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "near/",
-    "nearmint/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
@@ -51,7 +50,6 @@ near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }
 
 near = { path = "./near"}
-nearmint = { path = "./nearmint" }
 
 testlib = { path = "./test-utils/testlib" }
 keystore = { path = "./test-utils/keystore" }

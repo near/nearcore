@@ -11,5 +11,5 @@ hex = "0.3"
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
-nearmint = { path = "../../nearmint" }
+near-chain = { path = "../../chain/chain" }
 near = { path = "../../near" }

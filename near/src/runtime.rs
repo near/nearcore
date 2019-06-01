@@ -33,7 +33,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
 
-    trie: Arc<Trie>,
+    pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     runtime: Runtime,
     validator_manager: RwLock<ValidatorManager>,

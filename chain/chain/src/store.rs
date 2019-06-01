@@ -10,9 +10,8 @@ use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
 use near_primitives::types::{BlockIndex, MerkleHash};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
-    read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK,
-    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF,
-    COL_TRANSACTION_RESULT,
+    read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCK_HEADER,
+    COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
@@ -514,7 +513,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
         }
         if let Some(trie_changes) = self.trie_changes {
-            trie_changes.insertions_into(&mut store_update).map_err(|err| ErrorKind::Other(err.to_string()))?;
+            trie_changes
+                .insertions_into(&mut store_update)
+                .map_err(|err| ErrorKind::Other(err.to_string()))?;
             // TODO: save deletions separately for garbage collection.
         }
         for other in self.store_updates {
