@@ -532,7 +532,11 @@ mod tests {
         let data = json!({
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
-            "num_shards": 1,
+            "num_block_producers": 1,
+            "block_producers_per_shard": [1],
+            "avg_fisherman_per_shard": [1],
+            "dynamic_resharding": false,
+            "epoch_length": 100,
             "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
             "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
             "contracts": [],

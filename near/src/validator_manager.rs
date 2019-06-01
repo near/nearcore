@@ -395,7 +395,7 @@ mod test {
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (sr1, sr2) = (hash(&vec![1]), hash(&vec![2]));
         am.add_proposals(sr1, sr2, vec![stake("test2", 1_000_000)]);
-        let expected0 = assignment(vec![("test1", 1_000_000)], vec![1], vec![vec![(0, 2)]], vec![]);
+        let expected0 = assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![]);
         assert_eq!(am.get_validators(0).unwrap(), &expected0);
         assert_eq!(am.get_validators(1).unwrap(), &expected0);
         assert_eq!(am.get_validators(2), Err(ValidatorError::EpochOutOfBounds));

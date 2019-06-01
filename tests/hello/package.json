@@ -3,13 +3,14 @@
     "version": "0.0.1",
     "dependencies": {
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts",
+        "nearlib": "^0.7.3"
     },
     "scripts": {
         "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"
     },
     "devDependencies": {
-        "near-shell": "github:nearprotocol/near-shell",
-        "gulp": "^3.0.0"
+        "gulp": "^3.0.0",
+        "near-shell": "github:nearprotocol/near-shell"
     }
 }
