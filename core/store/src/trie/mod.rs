@@ -8,6 +8,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
+use log::error;
 
 use near_primitives::hash::{hash, CryptoHash};
 
@@ -319,7 +320,7 @@ impl TrieCachingStorage {
         if let Some(val) = (*guard).cache_get(hash) {
             val.clone()
         } else {
-            let result = if let Ok(Some(bytes)) = self.store.get_ser(COL_STATE, hash.as_ref()) {
+            let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
                 Some(bytes)
             } else {
                 None
@@ -395,12 +396,7 @@ pub struct TrieChanges {
 
 impl TrieChanges {
     pub fn empty(old_root: CryptoHash) -> Self {
-        TrieChanges {
-            old_root,
-            new_root: old_root,
-            insertions: vec![],
-            deletions: vec![],
-        }
+        TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
     pub fn insertions_into(
         &self,
@@ -457,11 +453,17 @@ impl WrappedTrieChanges {
         WrappedTrieChanges { trie, trie_changes }
     }
 
-    pub fn insertions_into(&self, store_update: &mut StoreUpdate) -> Result<(), Box<std::error::Error>> {
+    pub fn insertions_into(
+        &self,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<std::error::Error>> {
         self.trie_changes.insertions_into(self.trie.clone(), store_update)
     }
 
-    pub fn deletions_into(&self, store_update: &mut StoreUpdate) -> Result<(), Box<std::error::Error>> {
+    pub fn deletions_into(
+        &self,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<std::error::Error>> {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
     }
 }
@@ -576,7 +578,7 @@ impl Trie {
         match self.lookup(root, key) {
             Ok(value) => value,
             Err(err) => {
-                println!("Failed to lookup key={:?} for root={:?}: {}", key, root, err);
+                error!(target: "store", "Failed to lookup key={:?} for root={:?}: {}", key, root, err);
                 None
             }
         }
@@ -1305,7 +1307,7 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::{rngs::ThreadRng, Rng};
 
-    use crate::test_utils::create_trie;
+    use crate::test_utils::{create_test_store, create_trie};
 
     use super::*;
 
@@ -1332,7 +1334,6 @@ mod tests {
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
         }
-        println!("nice trie has no keys");
         root
     }
 
@@ -1592,5 +1593,24 @@ mod tests {
             }
             // TODO: compare state updates?
         }
+    }
+
+    #[test]
+    fn test_trie_restart() {
+        let store = create_test_store();
+        let trie1 = Arc::new(Trie::new(store.clone()));
+        let empty_root = Trie::empty_root();
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+            (b"do".to_vec(), Some(b"verb".to_vec())),
+            (b"horse".to_vec(), Some(b"stallion".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"h".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+
+        let trie2 = Arc::new(Trie::new(store));
+        assert_eq!(trie2.get(&root, b"doge"), Some(b"coin".to_vec()));
     }
 }
