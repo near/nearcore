@@ -33,7 +33,7 @@ pub enum TransactionBody {
 }
 
 impl TransactionBody {
-    pub fn send_money(nonce: Nonce, originator: &str, receiver: &str, amount: u64) -> Self {
+    pub fn send_money(nonce: Nonce, originator: &str, receiver: &str, amount: Balance) -> Self {
         TransactionBody::SendMoney(SendMoneyTransaction {
             nonce,
             originator: originator.to_string(),
@@ -48,19 +48,21 @@ pub struct CreateAccountTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
     pub new_account_id: AccountId,
-    pub amount: u64,
+    pub amount: Balance,
     pub public_key: Vec<u8>,
 }
 
-impl From<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
-    fn from(t: transaction_proto::CreateAccountTransaction) -> Self {
-        CreateAccountTransaction {
+impl TryFrom<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(t: transaction_proto::CreateAccountTransaction) -> Result<Self, Self::Error> {
+        Ok(CreateAccountTransaction {
             nonce: t.nonce,
             originator: t.originator,
             new_account_id: t.new_account_id,
-            amount: t.amount,
+            amount: t.amount.try_into()?,
             public_key: t.public_key,
-        }
+        })
     }
 }
 
@@ -70,7 +72,7 @@ impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransact
             nonce: t.nonce,
             originator: t.originator,
             new_account_id: t.new_account_id,
-            amount: t.amount,
+            amount: t.amount.into(),
             public_key: t.public_key,
             ..Default::default()
         }
@@ -140,28 +142,30 @@ pub struct FunctionCallTransaction {
     pub amount: Balance,
 }
 
-impl From<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
-    fn from(t: transaction_proto::FunctionCallTransaction) -> Self {
-        FunctionCallTransaction {
+impl TryFrom<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(t: transaction_proto::FunctionCallTransaction) -> Result<Self, Self::Error> {
+        Ok(FunctionCallTransaction {
             nonce: t.nonce,
             originator: t.originator,
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
-            amount: t.amount,
-        }
+            amount: t.amount.try_into()?,
+        })
     }
 }
 
 impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransaction {
-    fn from(t: FunctionCallTransaction) -> transaction_proto::FunctionCallTransaction {
+    fn from(t: FunctionCallTransaction) -> Self {
         transaction_proto::FunctionCallTransaction {
             nonce: t.nonce,
             originator: t.originator,
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
-            amount: t.amount,
+            amount: t.amount.into(),
             ..Default::default()
         }
     }
@@ -188,24 +192,26 @@ pub struct SendMoneyTransaction {
     pub amount: Balance,
 }
 
-impl From<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
-    fn from(t: transaction_proto::SendMoneyTransaction) -> Self {
-        SendMoneyTransaction {
+impl TryFrom<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(t: transaction_proto::SendMoneyTransaction) -> Result<Self, Self::Error> {
+        Ok(SendMoneyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             receiver: t.receiver,
-            amount: t.amount,
-        }
+            amount: t.amount.try_into()?,
+        })
     }
 }
 
 impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
-    fn from(t: SendMoneyTransaction) -> transaction_proto::SendMoneyTransaction {
+    fn from(t: SendMoneyTransaction) -> Self {
         transaction_proto::SendMoneyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             receiver: t.receiver,
-            amount: t.amount,
+            amount: t.amount.into(),
             ..Default::default()
         }
     }
@@ -219,14 +225,16 @@ pub struct StakeTransaction {
     pub public_key: String,
 }
 
-impl From<transaction_proto::StakeTransaction> for StakeTransaction {
-    fn from(t: transaction_proto::StakeTransaction) -> Self {
-        StakeTransaction {
+impl TryFrom<transaction_proto::StakeTransaction> for StakeTransaction {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(t: transaction_proto::StakeTransaction) -> Result<Self, Self::Error> {
+        Ok(StakeTransaction {
             nonce: t.nonce,
             originator: t.originator,
-            amount: t.amount,
+            amount: t.amount.try_into()?,
             public_key: t.public_key,
-        }
+        })
     }
 }
 
@@ -235,7 +243,7 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
         transaction_proto::StakeTransaction {
             nonce: t.nonce,
             originator: t.originator,
-            amount: t.amount,
+            amount: t.amount.into(),
             public_key: t.public_key,
             ..Default::default()
         }
@@ -293,14 +301,16 @@ pub struct AddKeyTransaction {
     pub access_key: Option<AccessKey>,
 }
 
-impl From<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
-    fn from(t: transaction_proto::AddKeyTransaction) -> Self {
-        AddKeyTransaction {
+impl TryFrom<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(t: transaction_proto::AddKeyTransaction) -> Result<Self, Self::Error> {
+        Ok(AddKeyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             new_key: t.new_key,
-            access_key: t.access_key.into_option().map(AccessKey::from),
-        }
+            access_key: t.access_key.into_option().map_or(Ok(None), |x| AccessKey::try_from(x).map(Some))?,
+        })
     }
 }
 
@@ -470,7 +480,7 @@ impl SignedTransaction {
             nonce: 0,
             originator: AccountId::default(),
             receiver: AccountId::default(),
-            amount: 0,
+            amount: Balance::default(),
         });
         SignedTransaction {
             signature: DEFAULT_SIGNATURE,
@@ -503,7 +513,7 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
         let body = match t.body {
             Some(transaction_proto::SignedTransaction_oneof_body::create_account(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::CreateAccount(CreateAccountTransaction::from(t))
+                TransactionBody::CreateAccount(CreateAccountTransaction::try_from(t)?)
             }
             Some(transaction_proto::SignedTransaction_oneof_body::deploy_contract(t)) => {
                 bytes = t.write_to_bytes();
@@ -511,15 +521,15 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
             }
             Some(transaction_proto::SignedTransaction_oneof_body::function_call(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::FunctionCall(FunctionCallTransaction::from(t))
+                TransactionBody::FunctionCall(FunctionCallTransaction::try_from(t)?)
             }
             Some(transaction_proto::SignedTransaction_oneof_body::send_money(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::SendMoney(SendMoneyTransaction::from(t))
+                TransactionBody::SendMoney(SendMoneyTransaction::try_from(t)?)
             }
             Some(transaction_proto::SignedTransaction_oneof_body::stake(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::Stake(StakeTransaction::from(t))
+                TransactionBody::Stake(StakeTransaction::try_from(t)?)
             }
             Some(transaction_proto::SignedTransaction_oneof_body::swap_key(t)) => {
                 bytes = t.write_to_bytes();
@@ -527,11 +537,11 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
             }
             Some(transaction_proto::SignedTransaction_oneof_body::add_key(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::AddKey(AddKeyTransaction::from(t))
+                TransactionBody::AddKey(AddKeyTransaction::try_from(t)?)
             }
             Some(transaction_proto::SignedTransaction_oneof_body::delete_key(t)) => {
                 bytes = t.write_to_bytes();
-                TransactionBody::DeleteKey(DeleteKeyTransaction::from(t))
+                TransactionBody::DeleteKey(DeleteKeyTransaction::try_from(t)?)
             }
             None => return Err("No such transaction body type".into()),
         };
@@ -594,7 +604,7 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
 pub enum ReceiptBody {
     NewCall(AsyncCall),
     Callback(CallbackResult),
-    Refund(u64),
+    Refund(Balance),
 }
 
 #[derive(Hash, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -611,7 +621,7 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
         Ok(AsyncCall {
-            amount: proto.amount,
+            amount: proto.amount.try_into()?,
             method_name: proto.method_name,
             args: proto.args,
             callback: proto.callback.into_option().map(std::convert::Into::into),
@@ -623,7 +633,7 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
 impl From<AsyncCall> for receipt_proto::AsyncCall {
     fn from(call: AsyncCall) -> Self {
         receipt_proto::AsyncCall {
-            amount: call.amount,
+            amount: call.amount.into(),
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
@@ -820,7 +830,7 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
                 callback.try_into().map(ReceiptBody::Callback)
             }
             Some(receipt_proto::ReceiptTransaction_oneof_body::refund(refund)) => {
-                Ok(ReceiptBody::Refund(refund))
+                Ok(ReceiptBody::Refund(refund.try_into()?))
             }
             None => Err("No such receipt body type".into()),
         };
@@ -846,7 +856,7 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
                 receipt_proto::ReceiptTransaction_oneof_body::callback(callback.into())
             }
             ReceiptBody::Refund(refund) => {
-                receipt_proto::ReceiptTransaction_oneof_body::refund(refund)
+                receipt_proto::ReceiptTransaction_oneof_body::refund(refund.into())
             }
         };
         receipt_proto::ReceiptTransaction {

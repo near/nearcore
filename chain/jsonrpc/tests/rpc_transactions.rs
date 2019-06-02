@@ -9,6 +9,7 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::serialize::to_base;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{FinalTransactionStatus, TransactionBody};
+use near_primitives::types::Balance;
 use near_protos::signed_transaction as transaction_proto;
 
 /// Test sending transaction via json rpc without waiting.
@@ -21,7 +22,7 @@ fn test_send_tx_async() {
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
-        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
+        let tx = TransactionBody::send_money(1, "test1", "test2", Balance(100)).sign(&signer);
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
         let proto: transaction_proto::SignedTransaction = tx.into();
@@ -61,7 +62,7 @@ fn test_send_tx_commit() {
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
-        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
+        let tx = TransactionBody::send_money(1, "test1", "test2", Balance(100)).sign(&signer);
         let proto: transaction_proto::SignedTransaction = tx.into();
         actix::spawn(
             client

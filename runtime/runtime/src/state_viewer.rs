@@ -33,7 +33,7 @@ pub struct AccountViewCallResult {
     pub account_id: AccountId,
     pub nonce: Nonce,
     pub amount: Balance,
-    pub stake: u64,
+    pub stake: Balance,
     pub public_keys: Vec<PublicKey>,
     #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
@@ -140,7 +140,7 @@ impl TrieViewer {
                     &wasm::types::Config::default(),
                     &RuntimeContext::new(
                         account.amount,
-                        0,
+                        Balance::default(),
                         contract_id,
                         contract_id,
                         0,

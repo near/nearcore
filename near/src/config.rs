@@ -22,10 +22,10 @@ use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = Balance(1_000_000_000_000_000);
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000;
+pub const TESTING_INIT_STAKE: Balance = Balance(50_000_000);
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";

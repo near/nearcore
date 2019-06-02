@@ -197,13 +197,13 @@ mod tests {
     }
 
     fn runtime_context(
-        balance: Balance,
-        amount: Balance,
+        balance: u128,
+        amount: u128,
         storage_usage: StorageUsage,
     ) -> RuntimeContext {
         RuntimeContext::new(
-            balance,
-            amount,
+            balance.into(),
+            amount.into(),
             &"alice.near".to_string(),
             &"bob".to_string(),
             storage_usage,
@@ -213,7 +213,7 @@ mod tests {
         )
     }
 
-    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u64) -> ExecutionOutcome {
+    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u128) -> ExecutionOutcome {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push("../../../tests/hello.wasm");
         run_with_filename(
@@ -338,7 +338,7 @@ mod tests {
         // At the moment of measurement the liquid balance is at 97 which is the value returned.
         // However returning the value itself costs additional balance which results in final
         // liquid balance being 79.
-        assert_eq!(outcome.liquid_balance, 79);
+        assert_eq!(outcome.liquid_balance.0, 79);
         match outcome.return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
             _ => assert!(false, "Expected returned value"),

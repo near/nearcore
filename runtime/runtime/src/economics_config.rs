@@ -16,7 +16,7 @@ pub struct EconomicsConfig {
 impl Default for EconomicsConfig {
     fn default() -> Self {
         Self {
-            storage_cost_byte_per_block: 0,
+            storage_cost_byte_per_block: Default::default(),
             transactions_costs: Default::default(),
             wasm_config: Default::default(),
         }
@@ -24,7 +24,7 @@ impl Default for EconomicsConfig {
 }
 
 /// The costs of the transactions.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionsCosts {
     pub create_account: Balance,
     pub deploy_contract: Balance,
@@ -36,34 +36,19 @@ pub struct TransactionsCosts {
     pub delete_key: Balance,
 }
 
-impl Default for TransactionsCosts {
-    fn default() -> Self {
-        Self {
-            create_account: 0,
-            deploy_contract: 0,
-            function_call: 0,
-            send_money: 0,
-            stake: 0,
-            swap_key: 0,
-            add_key: 0,
-            delete_key: 0,
-        }
-    }
-}
-
 impl TransactionsCosts {
     /// Get the cost of the given transaction.
     pub fn cost(&self, transaction_body: &TransactionBody) -> Balance {
         use TransactionBody::*;
         match transaction_body {
-            CreateAccount(_) => self.create_account,
-            DeployContract(_) => self.deploy_contract,
-            FunctionCall(_) => self.function_call,
-            SendMoney(_) => self.send_money,
-            Stake(_) => self.stake,
-            SwapKey(_) => self.swap_key,
-            AddKey(_) => self.add_key,
-            DeleteKey(_) => self.delete_key,
+            CreateAccount(_) => self.create_account.clone(),
+            DeployContract(_) => self.deploy_contract.clone(),
+            FunctionCall(_) => self.function_call.clone(),
+            SendMoney(_) => self.send_money.clone(),
+            Stake(_) => self.stake.clone(),
+            SwapKey(_) => self.swap_key.clone(),
+            AddKey(_) => self.add_key.clone(),
+            DeleteKey(_) => self.delete_key.clone(),
         }
     }
 }
