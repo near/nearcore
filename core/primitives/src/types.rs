@@ -1,7 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io::Cursor;
-use std::ops::{Add, SubAssign, AddAssign, Sub};
+use std::ops::{Add, AddAssign, Div, Sub, SubAssign};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use protobuf::SingularPtrField;
@@ -64,7 +64,7 @@ pub enum BlockId {
 }
 
 /// Monetary balance of an account or an amount for transfer.
-#[derive(Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Hash, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Hash, Clone, Debug, Copy)]
 pub struct Balance(pub u128);
 
 impl AddAssign for Balance {
@@ -95,6 +95,20 @@ impl Sub for Balance {
     }
 }
 
+impl Div for Balance {
+    type Output = Self;
+
+    fn div(self, rhs: Balance) -> Self::Output {
+        Balance(self.0 / rhs.0)
+    }
+}
+
+impl<'a> std::iter::Sum<&'a Balance> for Balance {
+    fn sum<I: Iterator<Item = &'a Balance>>(iter: I) -> Self {
+        Balance(iter.map(|x| x.0).sum())
+    }
+}
+
 impl From<Balance> for u128 {
     fn from(value: Balance) -> Self {
         value.0
@@ -104,6 +118,12 @@ impl From<Balance> for u128 {
 impl From<u128> for Balance {
     fn from(value: u128) -> Self {
         Balance(value)
+    }
+}
+
+impl From<u64> for Balance {
+    fn from(value: u64) -> Self {
+        Balance(value as u128)
     }
 }
 

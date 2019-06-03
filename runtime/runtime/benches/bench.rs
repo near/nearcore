@@ -6,16 +6,18 @@ use bencher::Bencher;
 use near_primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, TransactionBody,
 };
+use near_primitives::types::Balance;
 use testlib::node::{Node, RuntimeNode};
 use wasm::types::ContractCode;
+
 fn runtime_send_money(bench: &mut Bencher) {
     let node = RuntimeNode::new(&"alice.near".to_string());
     bench.iter(|| {
-        node.send_money(&"bob.near".to_string(), 1);
+        node.send_money(&"bob.near".to_string(), Balance(1));
     });
 }
 
-const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000;
+const FUNCTION_CALL_AMOUNT: Balance = Balance(1_000_000_000);
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());
@@ -25,7 +27,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         originator: account_id.clone(),
         new_account_id: "test_contract".to_string(),
         public_key: node.signer().public_key().0[..].to_vec(),
-        amount: 0,
+        amount: Balance::default(),
     })
     .sign(&*node.signer());
     let user = node.user();

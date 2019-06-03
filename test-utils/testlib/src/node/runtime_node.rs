@@ -76,24 +76,26 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
+    use near_primitives::types::Balance;
+
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
 
     #[test]
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
-        node.send_money(&"bob.near".to_string(), 1);
+        node.send_money(&"bob.near".to_string(), Balance(1));
         let (alice1, bob1) = (
             node.view_balance(&"alice.near".to_string()).unwrap(),
             node.view_balance(&"bob.near".to_string()).unwrap(),
         );
-        node.send_money(&"bob.near".to_string(), 1);
+        node.send_money(&"bob.near".to_string(), Balance(1));
         let (alice2, bob2) = (
             node.view_balance(&"alice.near".to_string()).unwrap(),
             node.view_balance(&"bob.near".to_string()).unwrap(),
         );
-        assert_eq!(alice2, alice1 - 1);
-        assert_eq!(bob2, bob1 + 1);
+        assert_eq!(alice2, alice1 - 1u128.into());
+        assert_eq!(bob2, bob1 + 1u128.into());
     }
 
 }

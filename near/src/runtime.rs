@@ -63,7 +63,7 @@ impl NightshadeRuntime {
                     .map(|(account_id, readable_key, amount)| ValidatorStake {
                         account_id: account_id.clone(),
                         public_key: PublicKey::try_from(readable_key.0.as_str()).unwrap(),
-                        amount: *amount,
+                        amount: amount.clone(),
                     })
                     .collect(),
                 store,

@@ -532,7 +532,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
 mod tests {
     use serde_json::json;
 
-    use near_primitives::types::ReadablePublicKey;
+    use near_primitives::types::{Balance, ReadablePublicKey};
 
     use super::GenesisConfig;
 
@@ -556,7 +556,7 @@ mod tests {
             (
                 "alice.near".to_string(),
                 ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),
-                50
+                Balance(50)
             )
         );
     }
