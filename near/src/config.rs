@@ -2,6 +2,7 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs};
@@ -26,6 +27,15 @@ pub const TESTING_INIT_BALANCE: Balance = Balance(1_000_000_000_000_000);
 
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = Balance(50_000_000);
+
+/// Value of NEAR token in femta-NEARs used for constant math.
+pub const NEAR_TOKEN_INT: u128 = 1_000_000_000_000_000;
+
+/// One NEAR in femta-NEARs.
+pub const NEAR_TOKEN: Balance = Balance(NEAR_TOKEN_INT);
+
+/// Initial token supply.
+pub const INITIAL_TOKEN_SUPPLY: Balance = Balance(1_000_000_000 * NEAR_TOKEN_INT);
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";

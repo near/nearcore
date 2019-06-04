@@ -7,7 +7,7 @@ use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 use heapsize;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, Encode, BaseDecode};
+use crate::serialize::{from_base, to_base, BaseDecode, Encode};
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);

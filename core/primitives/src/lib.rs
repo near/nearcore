@@ -15,6 +15,7 @@ extern crate serde_json;
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 pub mod account;
+pub mod balance;
 pub mod crypto;
 pub mod hash;
 pub mod logging;

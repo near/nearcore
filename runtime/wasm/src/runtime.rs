@@ -24,6 +24,19 @@ pub const DATA_TYPE_INPUT: DataTypeIndex = 4;
 pub const DATA_TYPE_RESULT: DataTypeIndex = 5;
 pub const DATA_TYPE_STORAGE_ITER: DataTypeIndex = 6;
 
+/// Because WASM doesn't support u128, we emulate it with 2 u64s.
+type Uint128 = (u64, u64);
+
+#[inline]
+fn to_uint128(value: u128) -> Uint128 {
+    ((value / (std::u64::MAX as u128) ) as u64, (value % (std::u64::MAX as u128))as u64)
+}
+
+#[inline]
+fn from_uint128(value: Uint128) -> u128 {
+    (value.0 as u128) * (std::u64::MAX as u128) + (value.1 as u128)
+}
+
 pub struct Runtime<'a> {
     ext: &'a mut External,
     input_data: &'a [u8],
@@ -267,8 +280,10 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        amount: u128,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> Result<u32> {
+        let amount = from_uint128((amount_hi, amount_lo));
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
 
@@ -297,8 +312,10 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        amount: u128,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> Result<u32> {
+        let amount = from_uint128((amount_hi, amount_lo));
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
         if method_name.is_empty() {
@@ -403,12 +420,12 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn get_frozen_balance(&self) -> Result<u128> {
-        Ok(self.frozen_balance.0)
+    fn get_frozen_balance(&self) -> Result<Uint128> {
+        Ok(to_uint128(self.frozen_balance.0))
     }
 
-    fn get_liquid_balance(&self) -> Result<u128> {
-        Ok(self.liquid_balance.0)
+    fn get_liquid_balance(&self) -> Result<Uint128> {
+        Ok(to_uint128(self.liquid_balance.0))
     }
 
     /// Helper function to transfer between two accounts.
@@ -438,25 +455,25 @@ impl<'a> Runtime<'a> {
     /// Deposit the given amount to the account balance and return deposited amount.
     /// If there is enough of liquid balance will deposit `max_amount`, otherwise will deposit
     /// as much as possible and will fail if there is less than `min_amount`.
-    fn deposit(&mut self, min_amount: u128, max_amount: u128) -> Result<u128> {
+    fn deposit(&mut self, min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64) -> Result<(u64, u64)> {
         Self::transfer_helper(
             &mut self.liquid_balance,
             &mut self.frozen_balance,
-            min_amount,
-            max_amount,
-        )
+            from_uint128((min_amount_hi, min_amount_lo)),
+            from_uint128((max_amount_hi, max_amount_lo)),
+        ).map(to_uint128)
     }
 
     /// Withdraw the given amount from the account balance and return withdrawn amount.
     /// If there is enough of frozen balance will withdraw `max_amount`, otherwise will withdraw
     /// as much as possible and will fail if there is less than `min_amount`.
-    fn withdraw(&mut self, min_amount: u128, max_amount: u128) -> Result<u128> {
+    fn withdraw(&mut self, min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64) -> Result<(u64, u64)> {
         Self::transfer_helper(
             &mut self.frozen_balance,
             &mut self.liquid_balance,
-            min_amount,
-            max_amount,
-        )
+            from_uint128((min_amount_hi, min_amount_lo)),
+            from_uint128((max_amount_hi, max_amount_lo)),
+        ).map(to_uint128)
     }
 
     fn storage_usage(&self) -> Result<StorageUsage> {
@@ -464,8 +481,8 @@ impl<'a> Runtime<'a> {
         Ok(storage_usage as StorageUsage)
     }
 
-    fn received_amount(&self) -> Result<u128> {
-        Ok(self.context.received_amount.0)
+    fn received_amount(&self) -> Result<(u64, u64)> {
+        Ok(to_uint128(self.context.received_amount.0))
     }
 
     fn assert(&self, expression: u32) -> Result<()> {
@@ -634,7 +651,7 @@ pub mod imports {
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
+                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
                     let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
                     runtime.$func( $( $arg_name, )* )
                 }
@@ -656,88 +673,88 @@ pub mod imports {
     }
 
     wrapped_imports! {
-        // Storage related
-        // name               // func          // signature
-        // Storage write. Writes given value for the given key.
-//        "storage_write" => storage_write<[key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32] -> []>,
-//        "storage_iter" => storage_iter<[prefix_len: u32, prefix_ptr: u32] -> [u32]>,
-//        "storage_range" => storage_range<[start_len: u32, start_ptr: u32, end_len: u32, end_ptr: u32] -> [u32]>,
-//        "storage_iter_next" => storage_iter_next<[storage_id: u32] -> [u32]>,
-//        "storage_remove" => storage_remove<[key_len: u32, key_ptr: u32] -> []>,
-//        "storage_has_key" => storage_has_key<[key_len: u32, key_ptr: u32] -> [u32]>,
-//        // Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
-//        "data_read" => data_read<[data_type_index: u32, key_len: u32, key: u32, max_buf_len: u32, buf_ptr: u32] -> [u32]>,
-//
-//        // Promises, callbacks and async calls
-//        // Creates a new promise that makes an async call to some other contract.
-//        "promise_create" => promise_create<[
-//            account_id_len: u32, account_id_ptr: u32,
-//            method_name_len: u32, method_name_ptr: u32,
-//            arguments_len: u32, arguments_ptr: u32,
-//            amount: u128
-//        ] -> [u32]>,
-//        // Attaches a callback to a given promise. This promise can be either an
-//        // async call or multiple joined promises.
-//        // NOTE: The given promise can't be a callback.
-//        "promise_then" => promise_then<[
-//            promise_index: u32,
-//            method_name_len: u32, method_name_ptr: u32,
-//            arguments_len: u32, arguments_ptr: u32,
-//            amount: u128
-//        ] -> [u32]>,
-//        // Joins 2 given promises together and returns a new promise.
-//        "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
-//        "check_ethash" => check_ethash<[
-//            block_number: u64,
-//            header_hash_ptr: u32, header_hash_len: u32,
-//            nonce: u64,
-//            mix_hash_ptr: u32, mix_hash_len: u32,
-//            difficulty: u64
-//        ] -> [u32]>,
-//        // Returns the number of returned results for this callback.
-//        "result_count" => result_count<[] -> [u32]>,
-//        "result_is_ok" => result_is_ok<[result_index: u32] -> [u32]>,
-//
-//        // Called to return value from the function.
-//        "return_value" => return_value<[value_len: u32, value_ptr: u32] -> []>,
-//        // Called to return promise from the function.
-//        "return_promise" => return_promise<[promise_index: u32] -> []>,
-//
-//        // Context
-//        // Returns the frozen balance.
-//        "frozen_balance" => get_frozen_balance<[] -> [u128]>,
-//        // Returns the liquid balance.
-//        "liquid_balance" => get_liquid_balance<[] -> [u128]>,
-//        // Deposits balance from liquid to frozen.
-//        "deposit" => deposit<[min_amount: u128, max_amount: u128] -> [u128]>,
-//        // Withdraws balance from frozen to liquid.
-//        "withdraw" => withdraw<[min_amount: u128, max_amount: u128] -> [u128]>,
-//
-//        // Returns the storage usage.
-//        "storage_usage" => storage_usage<[] -> [u64]>,
-//        // Returns the amount of tokens received with this call.
-//        "received_amount" => received_amount<[] -> [u128]>,
-//        // Returns currently produced block index.
-//        "block_index" => block_index<[] -> [u64]>,
-//
-//        // Contracts can assert properties. E.g. check the amount available mana.
-//        "assert" => assert<[expression: u32] -> []>,
-//        // Assembly Script specific abort
-//        "abort" => abort<[msg_ptr: u32, filename_ptr: u32, line: u32, col: u32] -> []>,
-//        // Hashes given value and writes 32 bytes of result in the given pointer.
-//        "hash" => hash<[value_len: u32, value_ptr: u32, buf_ptr: u32] -> []>,
-//        // Hashes given value and returns first 32 bits as u32.
-//        "hash32" => hash32<[value_len: u32, value_ptr: u32] -> [u32]>,
-//        // Fills given buffer of given length with random values.
-//        "random_buf" => random_buf<[buf_len: u32, buf_ptr: u32] -> []>,
-//        // Returns random u32.
-//        "random32" => random32<[] -> [u32]>,
-//        // Prints to logs utf-8 string using given msg and msg_ptr
-//        "debug" => debug<[msg_len: u32, msg_ptr: u32] -> []>,
-//        // Prints to logs given AssemblyScript string in utf-16 format
-//        "log" => log<[msg_ptr: u32] -> []>,
-//
-//        // Function for the injected gas counter. Automatically called by the gas meter.
-//        "gas" => gas<[gas_amount: u32] -> []>,
-    }
+            // Storage related
+            // name               // func          // signature
+            // Storage write. Writes given value for the given key.
+            "storage_write" => storage_write<[key_len: u32, key_ptr: u32, value_len: u32, value_ptr: u32] -> []>,
+            "storage_iter" => storage_iter<[prefix_len: u32, prefix_ptr: u32] -> [u32]>,
+            "storage_range" => storage_range<[start_len: u32, start_ptr: u32, end_len: u32, end_ptr: u32] -> [u32]>,
+            "storage_iter_next" => storage_iter_next<[storage_id: u32] -> [u32]>,
+            "storage_remove" => storage_remove<[key_len: u32, key_ptr: u32] -> []>,
+            "storage_has_key" => storage_has_key<[key_len: u32, key_ptr: u32] -> [u32]>,
+            // Generic data read. Tries to write data into the given buffer, only if the buffer has available capacity.
+            "data_read" => data_read<[data_type_index: u32, key_len: u32, key: u32, max_buf_len: u32, buf_ptr: u32] -> [u32]>,
+
+            // Promises, callbacks and async calls
+            // Creates a new promise that makes an async call to some other contract.
+            "promise_create" => promise_create<[
+                account_id_len: u32, account_id_ptr: u32,
+                method_name_len: u32, method_name_ptr: u32,
+                arguments_len: u32, arguments_ptr: u32,
+                amount_hi: u64, amount_lo: u64
+            ] -> [u32]>,
+            // Attaches a callback to a given promise. This promise can be either an
+            // async call or multiple joined promises.
+            // NOTE: The given promise can't be a callback.
+            "promise_then" => promise_then<[
+                promise_index: u32,
+                method_name_len: u32, method_name_ptr: u32,
+                arguments_len: u32, arguments_ptr: u32,
+                amount_hi: u64, amount_lo: u64
+            ] -> [u32]>,
+            // Joins 2 given promises together and returns a new promise.
+            "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
+            "check_ethash" => check_ethash<[
+                block_number: u64,
+                header_hash_ptr: u32, header_hash_len: u32,
+                nonce: u64,
+                mix_hash_ptr: u32, mix_hash_len: u32,
+                difficulty: u64
+            ] -> [u32]>,
+            // Returns the number of returned results for this callback.
+            "result_count" => result_count<[] -> [u32]>,
+            "result_is_ok" => result_is_ok<[result_index: u32] -> [u32]>,
+
+            // Called to return value from the function.
+            "return_value" => return_value<[value_len: u32, value_ptr: u32] -> []>,
+            // Called to return promise from the function.
+            "return_promise" => return_promise<[promise_index: u32] -> []>,
+
+            // Context
+            // Returns the frozen balance.
+            "frozen_balance" => get_frozen_balance<[] -> [u64, u64]>,
+            // Returns the liquid balance.
+            "liquid_balance" => get_liquid_balance<[] -> [u64, u64]>,
+            // Deposits balance from liquid to frozen.
+            "deposit" => deposit<[min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64] -> [u64, u64]>,
+            // Withdraws balance from frozen to liquid.
+             "withdraw" => withdraw<[min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64] -> [u64, u64]>,
+
+            // Returns the storage usage.
+            "storage_usage" => storage_usage<[] -> [u64]>,
+            // Returns the amount of tokens received with this call.
+            "received_amount" => received_amount<[] -> [u64, u64]>,
+            // Returns currently produced block index.
+            "block_index" => block_index<[] -> [u64]>,
+
+            // Contracts can assert properties. E.g. check the amount available mana.
+            "assert" => assert<[expression: u32] -> []>,
+            // Assembly Script specific abort
+            "abort" => abort<[msg_ptr: u32, filename_ptr: u32, line: u32, col: u32] -> []>,
+            // Hashes given value and writes 32 bytes of result in the given pointer.
+            "hash" => hash<[value_len: u32, value_ptr: u32, buf_ptr: u32] -> []>,
+            // Hashes given value and returns first 32 bits as u32.
+            "hash32" => hash32<[value_len: u32, value_ptr: u32] -> [u32]>,
+            // Fills given buffer of given length with random values.
+            "random_buf" => random_buf<[buf_len: u32, buf_ptr: u32] -> []>,
+            // Returns random u32.
+            "random32" => random32<[] -> [u32]>,
+            // Prints to logs utf-8 string using given msg and msg_ptr
+            "debug" => debug<[msg_len: u32, msg_ptr: u32] -> []>,
+            // Prints to logs given AssemblyScript string in utf-16 format
+            "log" => log<[msg_ptr: u32] -> []>,
+
+            // Function for the injected gas counter. Automatically called by the gas meter.
+            "gas" => gas<[gas_amount: u32] -> []>,
+        }
 }

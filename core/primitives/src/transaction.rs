@@ -309,7 +309,10 @@ impl TryFrom<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             new_key: t.new_key,
-            access_key: t.access_key.into_option().map_or(Ok(None), |x| AccessKey::try_from(x).map(Some))?,
+            access_key: t
+                .access_key
+                .into_option()
+                .map_or(Ok(None), |x| AccessKey::try_from(x).map(Some))?,
         })
     }
 }
