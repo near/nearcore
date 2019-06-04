@@ -64,6 +64,7 @@ fn main() {
             .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
+        .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
         .get_matches();
 
     init_logging(matches.is_present("verbose"));
@@ -109,6 +110,10 @@ fn main() {
             let store_path = get_store_path(home_dir);
             info!(target: "near", "Removing all data from {}", store_path);
             fs::remove_dir_all(store_path).expect("Removing data failed");
+        }
+        ("unsafe_reset_all", Some(_args)) => {
+            info!(target: "near", "Removing all data and config from {}", home_dir.to_str().unwrap());
+            fs::remove_dir_all(home_dir).expect("Removing data and config failed.");
         }
         (_, _) => unreachable!(),
     }

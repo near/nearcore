@@ -2,12 +2,11 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use log::info;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -365,6 +364,30 @@ fn random_chain_id() -> String {
     format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
 }
 
+/// Official TestNet configuration.
+pub fn testnet_genesis() -> GenesisConfig {
+    GenesisConfig {
+        genesis_time: DateTime::from_utc(NaiveDateTime::from_timestamp(1559628805, 0), Utc),
+        chain_id: "testnet".to_string(),
+        num_block_producers: 4,
+        block_producers_per_shard: vec![4],
+        avg_fisherman_per_shard: vec![100],
+        dynamic_resharding: true,
+        epoch_length: 20000,
+        validators: vec![(
+            ".near".to_string(),
+            ReadablePublicKey("DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string()),
+            5_000_000 * NEAR_TOKEN,
+        )],
+        accounts: vec![(
+            ".near".to_string(),
+            ReadablePublicKey("DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string()),
+            INITIAL_TOKEN_SUPPLY,
+        )],
+        contracts: vec![],
+    }
+}
+
 /// Initializes genesis and client configs and stores in the given folder
 pub fn init_configs(
     dir: &Path,
@@ -373,15 +396,37 @@ pub fn init_configs(
     test_seed: Option<&str>,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
+    // Check if config already exists in home dir.
+    if dir.join(CONFIG_FILENAME).exists() {
+        let config = Config::from_file(&dir.join(CONFIG_FILENAME));
+        let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
+        panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
+    }
     let chain_id = chain_id.map(|c| c.to_string()).unwrap_or(random_chain_id());
     match chain_id.as_ref() {
-        "testnet" => {
-            // TODO:
-            unimplemented!();
-        }
         "mainnet" => {
             // TODO:
             unimplemented!();
+        }
+        "testnet" => {
+            if test_seed.is_some() {
+                panic!("Test seed is not supported for official TestNet");
+            }
+            let config = Config::default();
+            config.write_to_file(&dir.join(CONFIG_FILENAME));
+
+            // If account id was given, create new key pair for this validator.
+            if let Some(account_id) = account_id {
+                let signer = InMemorySigner::new(account_id.to_string());
+                info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
+                signer.write_to_file(&dir.join(config.validator_key_file));
+            }
+
+            let network_signer = InMemorySigner::new("".to_string());
+            network_signer.write_to_file(&dir.join(config.node_key_file));
+
+            testnet_genesis().write_to_file(&dir.join(config.genesis_file));
+            info!(target: "near", "Generated node key and genesis file in {}", dir.to_str().unwrap());
         }
         _ => {
             // Create new configuration, key files and genesis for one validator.
