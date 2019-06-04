@@ -36,6 +36,7 @@ use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
+use kvdb::DBValue;
 use std::sync::{Arc, Mutex};
 use storage::{get, set, TrieUpdate};
 use verifier::{TransactionVerifier, VerificationData};
@@ -760,6 +761,17 @@ impl Runtime {
                 get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
             set(&mut state_update, account_id_bytes, &account);
+        }
+        state_update.finalize()
+    }
+
+    pub fn apply_hardcoded_genesis(
+        &self,
+        mut state_update: TrieUpdate,
+        state: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> (MerkleHash, storage::DBChanges) {
+        for (key, value) in state {
+            state_update.set(key, DBValue::from_vec(value));
         }
         state_update.finalize()
     }

@@ -32,6 +32,9 @@ pub struct ChainSpec {
 
     /// Define authority rotation strategy.
     pub authority_rotation: AuthorityRotation,
+
+    /// Start from a specific state
+    pub genesis_state: Option<Vec<(Vec<u8>, Vec<u8>)>>,
 }
 
 /// Initial balance used in tests.
@@ -129,6 +132,7 @@ impl ChainSpec {
             genesis_wasm: include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm")
                 .to_vec(),
             authority_rotation,
+            genesis_state: None,
         };
         (spec, signers)
     }

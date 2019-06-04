@@ -97,6 +97,10 @@ fn main() {
                 .long("devnet")
                 .help("Run with DevNet validator configuration (single alice.near validator)")
                 .takes_value(false),
+            Arg::with_name("dump_genesis_file")
+                .long("dump-genesis-file")
+                .help("Output chain spec for starting with current state as genesis")
+                .takes_value(true),
         ])
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
@@ -106,12 +110,25 @@ fn main() {
         let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
         ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
     };
+    let mut out_chain_spec = chain_spec.clone();
 
     let nearmint = NearMint::new(&base_path, chain_spec);
     let trie = TrieIterator::new(&nearmint.trie, &nearmint.root).unwrap();
+    let out_path = matches.value_of("dump_genesis_file").map(PathBuf::from);
     println!("Storage root is {}, block height is {}", nearmint.root, nearmint.height);
-    for item in trie {
-        let (key, value) = item.unwrap();
-        print_state_entry(key, value);
+    if let Some(out_path) = out_path {
+        let mut state = Vec::new();
+        for item in trie {
+            let (key, value) = item.unwrap();
+            state.push((key, value.into_vec()));
+        }
+        out_chain_spec.genesis_state = Some(state);
+        out_chain_spec.write_to_file(&out_path);
+        println!("Dumped chain spec to {:?}", out_path);
+    } else {
+        for item in trie {
+            let (key, value) = item.unwrap();
+            print_state_entry(key, value);
+        }
     }
 }

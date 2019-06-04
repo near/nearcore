@@ -67,12 +67,17 @@ impl NearMint {
 
         // Compute genesis from current spec.
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
-        let (genesis_root, db_changes) = runtime.apply_genesis_state(
-            state_update,
-            &chain_spec.accounts,
-            &chain_spec.genesis_wasm,
-            &chain_spec.initial_authorities,
-        );
+        let (genesis_root, db_changes) =
+            if let Some(ref hardcoded_genesis) = chain_spec.genesis_state {
+                runtime.apply_hardcoded_genesis(state_update, hardcoded_genesis.clone())
+            } else {
+                runtime.apply_genesis_state(
+                    state_update,
+                    &chain_spec.accounts,
+                    &chain_spec.genesis_wasm,
+                    &chain_spec.initial_authorities,
+                )
+            };
 
         storage
             .write()
