@@ -6,7 +6,7 @@ use std::time::Instant;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::base_format;
+use near_primitives::serialize::{base_format, u128_hex_format};
 use near_primitives::types::{AccountId, Balance, Nonce};
 use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
 use near_store::{get, TrieUpdate};
@@ -32,7 +32,9 @@ pub struct TrieViewer {
 pub struct AccountViewCallResult {
     pub account_id: AccountId,
     pub nonce: Nonce,
+    #[serde(with = "u128_hex_format")]
     pub amount: Balance,
+    #[serde(with = "u128_hex_format")]
     pub stake: Balance,
     pub public_keys: Vec<PublicKey>,
     #[serde(with = "base_format")]

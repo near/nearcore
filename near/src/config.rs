@@ -18,7 +18,7 @@ use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::NetworkConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::{to_base, u128_hex_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 
 /// Initial balance used in tests.
@@ -235,6 +235,14 @@ impl NearConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct AccountInfo {
+    pub account_id: AccountId,
+    pub public_key: ReadablePublicKey,
+    #[serde(with = "u128_hex_format")]
+    pub amount: Balance,
+}
+
 /// Runtime configuration, defining genesis block.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GenesisConfig {
@@ -254,9 +262,11 @@ pub struct GenesisConfig {
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
     /// List of initial validators.
-    pub validators: Vec<(AccountId, ReadablePublicKey, Balance)>,
+    #[serde(flatten)]
+    pub validators: Vec<AccountInfo>,
     /// List of accounts / balances at genesis.
-    pub accounts: Vec<(AccountId, ReadablePublicKey, Balance)>,
+    #[serde(flatten)]
+    pub accounts: Vec<AccountInfo>,
     /// List of contract code per accounts. Contract code encoded in base64.
     pub contracts: Vec<(AccountId, String)>,
 }
@@ -271,17 +281,17 @@ impl GenesisConfig {
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
             if i < num_validators {
-                validators.push((
-                    account.to_string(),
-                    signer.public_key.to_readable(),
-                    TESTING_INIT_STAKE,
-                ));
+                validators.push(AccountInfo {
+                    account_id: account.to_string(),
+                    public_key: signer.public_key.to_readable(),
+                    amount: TESTING_INIT_STAKE,
+                });
             }
-            accounts.push((
-                account.to_string(),
-                signer.public_key.to_readable(),
-                TESTING_INIT_BALANCE,
-            ));
+            accounts.push(AccountInfo {
+                account_id: account.to_string(),
+                public_key: signer.public_key.to_readable(),
+                amount: TESTING_INIT_BALANCE,
+            });
             contracts.push((account.to_string(), default_test_contract.clone()))
         }
         GenesisConfig {
@@ -310,13 +320,17 @@ impl GenesisConfig {
             let account_id = format!("near.{}", i);
             let signer = InMemorySigner::from_seed(&account_id, &account_id);
             if i < num_validators {
-                validators.push((
-                    account_id.clone(),
-                    signer.public_key.to_readable(),
-                    TESTING_INIT_STAKE,
-                ));
+                validators.push(AccountInfo {
+                    account_id: account_id.clone(),
+                    public_key: signer.public_key.to_readable(),
+                    amount: TESTING_INIT_STAKE,
+                });
             }
-            accounts.push((account_id, signer.public_key.to_readable(), TESTING_INIT_BALANCE));
+            accounts.push(AccountInfo {
+                account_id,
+                public_key: signer.public_key.to_readable(),
+                amount: TESTING_INIT_BALANCE,
+            });
         }
         GenesisConfig {
             genesis_time: Utc::now(),
@@ -405,12 +419,16 @@ pub fn init_configs(
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
                 epoch_length: 1000,
-                validators: vec![(
-                    account_id.clone(),
-                    signer.public_key.to_readable(),
-                    TESTING_INIT_STAKE,
-                )],
-                accounts: vec![(account_id, signer.public_key.to_readable(), TESTING_INIT_BALANCE)],
+                validators: vec![AccountInfo {
+                    account_id: account_id.clone(),
+                    public_key: signer.public_key.to_readable(),
+                    amount: TESTING_INIT_STAKE,
+                }],
+                accounts: vec![AccountInfo {
+                    account_id,
+                    public_key: signer.public_key.to_readable(),
+                    amount: TESTING_INIT_BALANCE,
+                }],
                 contracts: vec![],
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
@@ -432,16 +450,20 @@ pub fn create_testnet_configs_from_seeds(
     let accounts = seeds
         .iter()
         .enumerate()
-        .map(|(i, seed)| {
-            (seed.to_string(), signers[i].public_key.to_readable(), TESTING_INIT_BALANCE)
+        .map(|(i, seed)| AccountInfo {
+            account_id: seed.to_string(),
+            public_key: signers[i].public_key.to_readable(),
+            amount: TESTING_INIT_BALANCE,
         })
         .collect::<Vec<_>>();
     let validators = seeds
         .iter()
         .enumerate()
         .take(seeds.len() - num_non_validators)
-        .map(|(i, seed)| {
-            (seed.to_string(), signers[i].public_key.to_readable(), TESTING_INIT_STAKE)
+        .map(|(i, seed)| AccountInfo {
+            account_id: seed.to_string(),
+            public_key: signers[i].public_key.to_readable(),
+            amount: TESTING_INIT_STAKE,
         })
         .collect::<Vec<_>>();
     let genesis_config = GenesisConfig {
@@ -540,7 +562,7 @@ mod tests {
 
     use near_primitives::types::ReadablePublicKey;
 
-    use super::GenesisConfig;
+    use super::*;
 
     #[test]
     fn test_deserialize() {
@@ -552,18 +574,18 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
-            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 100]],
-            "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", 50)],
+            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "0x64"]],
+            "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "32")],
             "contracts": [],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(
             spec.validators[0],
-            (
-                "alice.near".to_string(),
-                ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),
-                50
-            )
+            AccountInfo {
+                account_id: "alice.near".to_string(),
+                public_key: ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),
+                amount: 50
+            }
         );
     }
 }

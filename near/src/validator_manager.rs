@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ValidatorId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{Balance, Epoch, MerkleHash, ShardId, ValidatorId, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{Store, COL_VALIDATORS};
 
@@ -281,8 +281,7 @@ impl ValidatorManager {
                 self.get_validators(epoch)?,
                 proposals,
             )?;
-            store_update
-                .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
+            store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
             store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
             self.last_epoch = epoch;
