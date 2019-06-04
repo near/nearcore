@@ -259,6 +259,47 @@ mod tests {
     }
 
     #[test]
+    fn test_rust_api() {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../rust-api/test-contract/pkg/test_contract_bg.wasm");
+
+        let wasm_binary = fs::read(path).expect("Unable to read file");
+        let code = ContractCode::new(wasm_binary);
+
+        let method_name = b"add_agent";
+        let input_data = [];
+        let result_data = [];
+        let mut ext = MyExt::default();
+        let config = Config::default();
+        let context = runtime_context(0, 1_000_000_000, 0);
+
+        let result = executor::execute(
+            &code,
+            method_name,
+            &input_data,
+            &result_data,
+            &mut ext,
+            &config,
+            &context,
+        );
+        println!("{:?}", result.unwrap().logs);
+
+        let method_name = b"agent";
+        let result = executor::execute(
+            &code,
+            method_name,
+            &input_data,
+            &result_data,
+            &mut ext,
+            &config,
+            &context,
+        );
+        if let ReturnData::Value(v) = result.unwrap().return_data.unwrap() {
+            println!("{:?}", String::from_utf8(v).unwrap());
+        }
+    }
+
+    #[test]
     fn test_result_ok() {
         let input_data = [0u8; 0];
         let result_data = vec![
