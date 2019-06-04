@@ -9,7 +9,6 @@ use near_network::NetworkClientMessages;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
-use near_primitives::types::Balance;
 
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
@@ -33,7 +32,7 @@ fn test_stake_nodes() {
     let tx = TransactionBody::Stake(StakeTransaction {
         nonce: 1,
         originator: "near.1".to_string(),
-        amount: Balance(50_000_000),
+        amount: 50_000_000,
         public_key: near2.block_producer.clone().unwrap().signer.public_key().to_base(),
     })
     .sign(&*near2.block_producer.clone().unwrap().signer);

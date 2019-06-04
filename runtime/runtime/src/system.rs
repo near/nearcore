@@ -29,7 +29,7 @@ pub fn send_money(
     sender: &mut Account,
     refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if transaction.amount.0 == 0 {
+    if transaction.amount == 0 {
         return Err("Sending 0 tokens".to_string());
     }
     if sender.amount >= transaction.amount {
@@ -103,7 +103,7 @@ pub fn deposit(
         receipts.push(new_receipt);
     }
 
-    if amount.0 > 0 {
+    if amount > 0 {
         receiver.amount += amount;
         set(state_update, key_for_account(&receiver_id), receiver);
     }
@@ -191,7 +191,7 @@ pub fn add_key(
     }
     if let Some(access_key) = &body.access_key {
         if account.amount >= access_key.amount {
-            if access_key.amount.0 > 0 {
+            if access_key.amount > 0 {
                 account.amount -= access_key.amount.clone();
                 set(state_update, key_for_account(&body.originator), &account);
             }
@@ -237,7 +237,7 @@ pub fn delete_key(
         .ok_or_else(|| {
             format!("Account {} tries to remove a public key that it does not own", body.originator)
         })?;
-        if access_key.amount.0 > 0 {
+        if access_key.amount > 0 {
             let balance_owner_id: &AccountId =
                 access_key.balance_owner.as_ref().unwrap_or(&body.originator);
             if balance_owner_id != &body.originator {

@@ -13,11 +13,11 @@ use wasm::types::ContractCode;
 fn runtime_send_money(bench: &mut Bencher) {
     let node = RuntimeNode::new(&"alice.near".to_string());
     bench.iter(|| {
-        node.send_money(&"bob.near".to_string(), Balance(1));
+        node.send_money(&"bob.near".to_string(), 1);
     });
 }
 
-const FUNCTION_CALL_AMOUNT: Balance = Balance(1_000_000_000);
+const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());

@@ -5,7 +5,6 @@ use std::sync::{Arc, RwLock};
 use near_primitives::transaction::{
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction, TransactionBody,
 };
-use near_primitives::types::Balance;
 
 use crate::remote_node::RemoteNode;
 
@@ -39,7 +38,7 @@ impl Generator {
             }
         };
 
-        TransactionBody::send_money(nonce, acc_from.as_str(), acc_to.as_str(), Balance(1))
+        TransactionBody::send_money(nonce, acc_from.as_str(), acc_to.as_str(), 1)
             .sign(&*signer_from)
     }
 
@@ -80,7 +79,7 @@ impl Generator {
             contract_id: acc_from,
             method_name: b"setKeyValue".to_vec(),
             args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_bytes().to_vec(),
-            amount: Balance(1),
+            amount: 1,
         };
         TransactionBody::FunctionCall(t).sign(&*signer_from)
     }
@@ -103,7 +102,7 @@ impl Generator {
             contract_id: acc_from,
             method_name: b"heavy_storage_blocks".to_vec(),
             args: "{\"n\":1000}".as_bytes().to_vec(),
-            amount: Balance(1),
+            amount: 1,
         };
         TransactionBody::FunctionCall(t).sign(&*signer_from)
     }

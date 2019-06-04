@@ -20,7 +20,7 @@ use crate::test_helpers::wait;
 use crate::user::User;
 
 /// The amount to send with function call.
-const FUNCTION_CALL_AMOUNT: Balance = Balance(1_000_000_000_000);
+const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
 
 /// validate transaction result in the case that it is successful and generates given number of receipts
 /// recursively.
@@ -466,7 +466,7 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
         &bob_account(),
-        TESTING_INIT_BALANCE + Balance(1),
+        TESTING_INIT_BALANCE + 1,
     )
     .sign(&*node.signer());
 
@@ -492,7 +492,7 @@ pub fn test_upload_contract(node: impl Node) {
         originator: account_id.clone(),
         new_account_id: eve_account(),
         public_key: node.signer().public_key().0[..].to_vec(),
-        amount: Balance(10),
+        amount: 10,
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -550,7 +550,7 @@ pub fn test_redeploy_contract(node: impl Node) {
 pub fn test_send_money(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
@@ -598,7 +598,7 @@ pub fn test_send_money(node: impl Node) {
 pub fn test_send_money_over_balance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let money_used = TESTING_INIT_BALANCE + Balance(1);
+    let money_used = TESTING_INIT_BALANCE + 1;
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
@@ -647,7 +647,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
 pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
@@ -693,7 +693,7 @@ pub fn test_create_account(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -746,7 +746,7 @@ pub fn test_create_account(node: impl Node) {
 pub fn test_create_account_again(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -830,7 +830,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let mut root = node_user.get_state_root();
-    let money_used = Balance(10);
+    let money_used = 10;
     for (counter, invalid_account_name) in [
         "eve",                               // too short
         "Alice.near",                        // capital letter
@@ -877,7 +877,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -936,7 +936,7 @@ pub fn test_swap_key(node: impl Node) {
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = Balance(10);
+    let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -1168,7 +1168,7 @@ pub fn test_delete_access_key(node: impl Node) {
 
 pub fn test_add_access_key_with_funding(node: impl Node) {
     let access_key =
-        AccessKey { amount: Balance(10), balance_owner: None, contract_id: None, method_name: None };
+        AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
@@ -1178,7 +1178,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.amount, initial_balance - Balance(10));
+    assert_eq!(account.amount, initial_balance - 10);
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key));
@@ -1186,7 +1186,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
 
 pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
     let access_key =
-        AccessKey { amount: Balance(10), balance_owner: None, contract_id: None, method_name: None };
+        AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
@@ -1222,7 +1222,7 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
 
 pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     let access_key = AccessKey {
-        amount: Balance(10),
+        amount: 10,
         balance_owner: Some(bob_account()),
         contract_id: None,
         method_name: None,
@@ -1254,7 +1254,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
     assert_eq!(account.public_keys[0], node.signer().public_key());
-    assert_eq!(account.amount, initial_balance - Balance(10));
+    assert_eq!(account.amount, initial_balance - 10);
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
@@ -1267,7 +1267,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     assert_ne!(new_root, root);
 
     let bob_account_result = node_user.view_account(&bob_account()).unwrap();
-    assert_eq!(bob_account_result.amount, bobs_initial_balance + Balance(10));
+    assert_eq!(bob_account_result.amount, bobs_initial_balance + 10);
 }
 
 pub fn test_access_key_smart_contract(node: impl Node) {

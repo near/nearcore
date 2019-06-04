@@ -1,8 +1,10 @@
 use std::convert::{TryFrom, TryInto};
 
+use protobuf::SingularPtrField;
+
 use near_protos::types as types_proto;
 
-pub use crate::balance::Balance;
+// pub use crate::balance::Balance;
 use crate::crypto::aggregate_signature::BlsSignature;
 use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
@@ -36,6 +38,8 @@ pub type Nonce = u64;
 pub type BlockIndex = u64;
 
 pub type ShardId = u32;
+
+pub type Balance = u128;
 
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
@@ -81,7 +85,7 @@ impl TryFrom<types_proto::ValidatorStake> for ValidatorStake {
         Ok(ValidatorStake {
             account_id: proto.account_id,
             public_key: PublicKey::try_from(proto.public_key.as_str())?,
-            amount: proto.amount.try_into()?,
+            amount: proto.amount.unwrap_or_default().try_into()?,
         })
     }
 }
@@ -91,7 +95,7 @@ impl From<ValidatorStake> for types_proto::ValidatorStake {
         types_proto::ValidatorStake {
             account_id: validator.account_id,
             public_key: validator.public_key.to_string(),
-            amount: validator.amount.into(),
+            amount: SingularPtrField::some(validator.amount.into()),
             ..Default::default()
         }
     }

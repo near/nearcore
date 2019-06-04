@@ -89,7 +89,7 @@ impl Runtime {
                         .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
                 ))
             }
-            None if transaction.amount.0 == 0 => {
+            None if transaction.amount == 0 => {
                 return Err(format!("Account {} tries to send 0 tokens", transaction.originator,))
             }
             _ => (),
@@ -130,8 +130,8 @@ impl Runtime {
         let total_storage = (account.storage_usage + meta_storage) as u128;
         let charge = ((block_index - account.storage_paid_at) as u128)
             * total_storage
-            * self.economics_config.storage_cost_byte_per_block.0;
-        account.amount.0 = if charge <= account.amount.0 { account.amount.0 - charge } else { 0 };
+            * self.economics_config.storage_cost_byte_per_block;
+        account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
 
@@ -534,7 +534,7 @@ impl Runtime {
                 Ok(())
             }
             Err(s) => {
-                if amount.0 > 0 {
+                if amount > 0 {
                     let receiver =
                         if receiver_exists { receipt.receiver.clone() } else { system_account() };
                     let new_receipt = ReceiptTransaction::new(
@@ -557,7 +557,7 @@ impl Runtime {
                 Err(s)
             }
         };
-        if leftover_balance.0 > 0 {
+        if leftover_balance > 0 {
             let new_receipt = ReceiptTransaction::new(
                 receipt.receiver.clone(),
                 refund_account,
@@ -778,7 +778,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(vec![], Balance(10), hash(&[]));
+        let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
@@ -790,7 +790,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(vec![], Balance(10), hash(&[]));
+        let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();

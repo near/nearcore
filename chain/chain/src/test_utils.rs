@@ -11,7 +11,7 @@ use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -165,8 +165,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             AccountViewCallResult {
                 account_id: path[1].to_string(),
                 nonce: 0,
-                amount: Balance(1000),
-                stake: Balance::default(),
+                amount: 1000,
+                stake: 0,
                 public_keys: vec![],
                 code_hash: CryptoHash::default(),
             },

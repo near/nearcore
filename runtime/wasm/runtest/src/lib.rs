@@ -338,7 +338,7 @@ mod tests {
         // At the moment of measurement the liquid balance is at 97 which is the value returned.
         // However returning the value itself costs additional balance which results in final
         // liquid balance being 79.
-        assert_eq!(outcome.liquid_balance.0, 79);
+        assert_eq!(outcome.liquid_balance, 79);
         match outcome.return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
             _ => assert!(false, "Expected returned value"),

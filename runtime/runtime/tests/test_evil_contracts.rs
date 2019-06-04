@@ -4,7 +4,7 @@ use near_primitives::transaction::{
 use near_primitives::types::Balance;
 use testlib::node::{Node, RuntimeNode};
 
-const FUNCTION_CALL_AMOUNT: Balance = Balance(1_000_000_000);
+const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     let node = RuntimeNode::new(&"alice.near".to_string());

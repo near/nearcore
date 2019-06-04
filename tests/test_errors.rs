@@ -5,7 +5,6 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{CreateAccountTransaction, TransactionBody};
 use testlib::node::{Node, ThreadNode};
-use near_primitives::types::Balance;
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
@@ -26,7 +25,7 @@ fn test_check_tx_error_log() {
         nonce: 1,
         originator: "bob.near".to_string(),
         new_account_id: "test.near".to_string(),
-        amount: Balance(1_000),
+        amount: 1_000,
         public_key: signer.public_key.0[..].to_vec(),
     })
     .sign(&signer);
@@ -46,7 +45,7 @@ fn test_deliver_tx_error_log() {
         nonce: 1,
         originator: "alice.near".to_string(),
         new_account_id: "test.near".to_string(),
-        amount: TESTING_INIT_BALANCE + Balance(1),
+        amount: TESTING_INIT_BALANCE + 1,
         public_key: signer.public_key.0[..].to_vec(),
     })
     .sign(&signer);

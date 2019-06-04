@@ -9,7 +9,6 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::TransactionBody;
 use near_store::create_store;
-use near_primitives::types::Balance;
 
 #[test]
 fn runtime_hanldle_fork() {
@@ -24,9 +23,9 @@ fn runtime_hanldle_fork() {
 
     let mut chain = Chain::new(store, runtime, genesis_config.genesis_time).unwrap();
 
-    let tx1 = TransactionBody::send_money(1, "near.0", "near.1", Balance(100)).sign(&*signer);
-    let tx2 = TransactionBody::send_money(1, "near.0", "near.1", Balance(500)).sign(&*signer);
-    let tx3 = TransactionBody::send_money(2, "near.0", "near.1", Balance(100)).sign(&*signer);
+    let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
+    let tx2 = TransactionBody::send_money(1, "near.0", "near.1", 500).sign(&*signer);
+    let tx3 = TransactionBody::send_money(2, "near.0", "near.1", 100).sign(&*signer);
     let state_root = chain.get_post_state_root(&chain.genesis().hash()).unwrap().clone();
     let b1 = Block::produce(
         chain.genesis(),

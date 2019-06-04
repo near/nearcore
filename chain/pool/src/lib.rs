@@ -90,7 +90,7 @@ mod tests {
     fn test_order_nonce() {
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
         let mut transactions: Vec<_> = (1..10)
-            .map(|i| TransactionBody::send_money(i, "alice.near", "bob.near", Balance(i as u128)).sign(&signer))
+            .map(|i| TransactionBody::send_money(i, "alice.near", "bob.near", i as Balance).sign(&signer))
             .collect();
         let mut pool = TransactionPool::new();
         let mut rng = thread_rng();
