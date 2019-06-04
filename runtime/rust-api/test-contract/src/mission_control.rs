@@ -1,7 +1,6 @@
 use crate::account::*;
 use crate::agent::Agent;
 use crate::asset::*;
-use crate::binding::originator_id;
 use crate::rate::*;
 use near_contract::{near_contract, show_streams};
 use serde::{Deserialize, Serialize};
@@ -16,7 +15,6 @@ pub struct MissionControl {
     rates: HashMap<Exchange, Rate>,
 }
 
-#[show_streams]
 #[near_contract]
 impl MissionControl {
     pub fn add_agent(&mut self) {

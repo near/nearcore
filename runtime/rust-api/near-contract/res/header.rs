@@ -1,9 +1,6 @@
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
-
 const SERIALIZED_STATE: &str = "STATE";
 
-fn read_state<T: DeserializeOwned>() -> Option<T> {
+fn read_state<T: serde::de::DeserializeOwned>() -> Option<T> {
     let arr = SERIALIZED_STATE.as_bytes();
     if !unsafe { storage_has_key(arr.len() as _, arr.as_ptr()) } {
         return None;
@@ -12,7 +9,7 @@ fn read_state<T: DeserializeOwned>() -> Option<T> {
     bincode::deserialize(&data).ok()
 }
 
-fn write_state<T: Serialize>(state: &T) {
+fn write_state<T: serde::Serialize>(state: &T) {
     let arr = SERIALIZED_STATE.as_bytes();
     let data = bincode::serialize(state).unwrap();
     unsafe {

@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use wasm::executor;
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
-use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
+use wasm::types::{Config, ContractCode, ReturnData, RuntimeContext};
 
 #[derive(Default)]
 struct MyExt {
@@ -145,7 +145,7 @@ fn test_rust_api() {
     let context = runtime_context(0, 1_000_000_000, 0);
 
     let method_name = b"add_agent";
-    let result =
+    let _result =
         executor::execute(&code, method_name, &[], &[], &mut ext, &config, &context).unwrap();
 
     for _ in 0..num_simulations {
@@ -165,6 +165,7 @@ fn test_rust_api() {
 }
 
 // Procedural macros is expected to generate the code similar to the following:
+//
 //#[no_mangle]
 //pub extern "C" fn add_agent() {
 //    let mut contract: MissionControl = read_state().unwrap_or_default();
