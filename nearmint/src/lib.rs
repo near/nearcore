@@ -228,7 +228,7 @@ impl Application for NearMint {
                 let state_update = TrieUpdate::new(self.trie.clone(), self.root);
                 let verifier = TransactionVerifier::new(&state_update);
                 if let Err(e) = verifier.verify_transaction(&tx) {
-                    error!("Failed check tx: {:?}, error: {}", req.tx, e);
+                    info!("Failed check tx: {:?}, error: {}", req.tx, e);
                     resp.code = 1;
                     resp.log = e;
                 }
@@ -316,11 +316,15 @@ impl Application for NearMint {
                     }
                 }
                 resp.log = logs.join("\n");
+                if resp.code == 1 {
+                    info!("Failed deliver tx: {}", resp.log);
+                }
             }
         } else {
             resp.code = 1;
             resp.log =
                 "Unable to decode transaction from proto. Might be a version mismatch".to_string();
+            info!("Failed deliver tx: {}", resp.log);
         }
         resp
     }
