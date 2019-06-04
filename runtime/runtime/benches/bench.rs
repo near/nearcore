@@ -27,7 +27,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         originator: account_id.clone(),
         new_account_id: "test_contract".to_string(),
         public_key: node.signer().public_key().0[..].to_vec(),
-        amount: Balance::default(),
+        amount: 0,
     })
     .sign(&*node.signer());
     let user = node.user();

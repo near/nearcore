@@ -292,7 +292,7 @@ impl Default for Config {
             grow_mem_cost: 1,
             regular_op_cost: 1,
             return_data_per_byte_cost: 1,
-            contract_call_cost: Balance::default(),
+            contract_call_cost: 0,
             max_stack_height: 64 * 1024,
             initial_memory_pages: 17,
             max_memory_pages: 32,

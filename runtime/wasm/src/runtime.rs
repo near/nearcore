@@ -72,7 +72,7 @@ impl<'a> Runtime<'a> {
             result_data,
             frozen_balance: context.initial_balance,
             liquid_balance: context.received_amount,
-            usage_counter: Balance::default(),
+            usage_counter: 0,
             context,
             config,
             storage_counter: 0,

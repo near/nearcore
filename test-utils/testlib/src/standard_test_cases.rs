@@ -116,7 +116,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"_run_test".to_vec(),
         args: vec![],
-        amount: Balance::default(),
+        amount: 0,
     })
     .sign(&*node.signer());
 
@@ -141,7 +141,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
         contract_id: bob_account(),
         method_name: vec![],
         args: vec![],
-        amount: Balance::default(),
+        amount: 0,
     })
     .sign(&*node.signer());
 
@@ -313,10 +313,10 @@ pub fn test_deposit_with_callback(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
     let refund_account = account_id;
-    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, Balance::default(), refund_account.clone());
+    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(vec![], vec![], Balance::default(), refund_account.clone());
+    let mut async_call = AsyncCall::new(vec![], vec![], 0, refund_account.clone());
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -396,7 +396,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let mut callback = Callback::new(
         b"a_function_that_does_not_exist".to_vec(),
         vec![],
-        Balance::default(),
+        0,
         refund_account.clone(),
     );
     callback.results.resize(1, None);
@@ -737,7 +737,7 @@ pub fn test_create_account(node: impl Node) {
             account_id: eve_account(),
             public_keys,
             amount: money_used,
-            stake: Balance::default(),
+            stake: 0,
             code_hash: hash(b""),
         }
     );
@@ -781,7 +781,7 @@ pub fn test_create_account_again(node: impl Node) {
             account_id: eve_account(),
             public_keys,
             amount: money_used,
-            stake: Balance::default(),
+            stake: 0,
             code_hash: hash(b""),
         }
     );
@@ -1121,7 +1121,7 @@ pub fn test_delete_key_last(node: impl Node) {
 pub fn test_add_access_key(node: impl Node) {
     let node_user = node.user();
     let access_key =
-        AccessKey { amount: Balance::default(), balance_owner: None, contract_id: None, method_name: None };
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
@@ -1136,7 +1136,7 @@ pub fn test_add_access_key(node: impl Node) {
 pub fn test_delete_access_key(node: impl Node) {
     let node_user = node.user();
     let access_key =
-        AccessKey { amount: Balance::default(), balance_owner: None, contract_id: None, method_name: None };
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
@@ -1301,7 +1301,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
 
 pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     let access_key = AccessKey {
-        amount: Balance::default(),
+        amount: 0,
         balance_owner: None,
         contract_id: Some(bob_account()),
         method_name: Some(b"log_something".to_vec()),
@@ -1334,7 +1334,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     let access_key = AccessKey {
-        amount: Balance::default(),
+        amount: 0,
         balance_owner: None,
         contract_id: Some(bob_account()),
         method_name: None,
@@ -1367,7 +1367,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
 
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
     let access_key =
-        AccessKey { amount: Balance::default(), balance_owner: None, contract_id: None, method_name: None };
+        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();

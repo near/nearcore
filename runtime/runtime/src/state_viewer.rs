@@ -142,7 +142,7 @@ impl TrieViewer {
                     &wasm::types::Config::default(),
                     &RuntimeContext::new(
                         account.amount,
-                        Balance::default(),
+                        0,
                         contract_id,
                         contract_id,
                         0,

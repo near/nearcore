@@ -483,7 +483,7 @@ impl SignedTransaction {
             nonce: 0,
             originator: AccountId::default(),
             receiver: AccountId::default(),
-            amount: Balance::default(),
+            amount: 0,
         });
         SignedTransaction {
             signature: DEFAULT_SIGNATURE,

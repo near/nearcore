@@ -459,10 +459,10 @@ impl Runtime {
     ) -> Result<(), String> {
         let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver));
         let receiver_exists = receiver.is_some();
-        let mut amount = Balance::default();
+        let mut amount = 0;
         let mut callback_info = None;
         // Un-utilized leftover liquid balance that we can refund back to the originator.
-        let mut leftover_balance = Balance::default();
+        let mut leftover_balance = 0;
         let mut refund_account: String = Default::default();
         let result = match receiver {
             Some(mut receiver) => match &receipt.body {

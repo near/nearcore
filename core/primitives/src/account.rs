@@ -33,7 +33,7 @@ impl Account {
             public_keys,
             nonce: 0,
             amount,
-            staked: Balance::default(),
+            staked: 0,
             code_hash,
             storage_usage: 0,
             storage_paid_at: 0,
