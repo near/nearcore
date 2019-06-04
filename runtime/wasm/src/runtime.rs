@@ -70,8 +70,8 @@ impl<'a> Runtime<'a> {
             ext,
             input_data,
             result_data,
-            frozen_balance: context.initial_balance.clone(),
-            liquid_balance: context.received_amount.clone(),
+            frozen_balance: context.initial_balance,
+            liquid_balance: context.received_amount,
             usage_counter: Balance::default(),
             context,
             config,
@@ -174,7 +174,7 @@ impl<'a> Runtime<'a> {
 
     /// Attempt to charge liquid balance, respecting usage limit.
     fn charge_balance_with_limit(&mut self, amount: Balance) -> Result<()> {
-        let new_usage = self.usage_counter.clone() + amount.clone();
+        let new_usage = self.usage_counter + amount;
         if new_usage > self.config.usage_limit as u128 {
             if self.context.free_of_charge {
                 Ok(())

@@ -95,7 +95,7 @@ impl Runtime {
             _ => (),
         };
         if sender.amount >= transaction.amount {
-            sender.amount -= transaction.amount.clone();
+            sender.amount -= transaction.amount;
             set(state_update, key_for_account(&transaction.originator), sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
@@ -104,7 +104,7 @@ impl Runtime {
                 ReceiptBody::NewCall(AsyncCall::new(
                     transaction.method_name.clone(),
                     transaction.args.clone(),
-                    transaction.amount.clone(),
+                    transaction.amount,
                     refund_account_id.clone(),
                 )),
             );
@@ -310,8 +310,8 @@ impl Runtime {
                 &mut runtime_ext,
                 &wasm::types::Config::default(),
                 &RuntimeContext::new(
-                    receiver.amount.clone(),
-                    async_call.amount.clone(),
+                    receiver.amount,
+                    async_call.amount,
                     sender_id,
                     receiver_id,
                     receiver.storage_usage,
@@ -386,8 +386,8 @@ impl Runtime {
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
                         &RuntimeContext::new(
-                            receiver.amount.clone(),
-                            callback.amount.clone(),
+                            receiver.amount,
+                            callback.amount,
                             sender_id,
                             receiver_id,
                             receiver.storage_usage,
@@ -467,14 +467,14 @@ impl Runtime {
         let result = match receiver {
             Some(mut receiver) => match &receipt.body {
                 ReceiptBody::NewCall(async_call) => {
-                    amount = async_call.amount.clone();
+                    amount = async_call.amount;
                     refund_account = async_call.refund_account.clone();
                     callback_info = async_call.callback.clone();
                     if async_call.method_name.is_empty() {
                         transaction_result.result = Some(vec![]);
                         system::deposit(
                             state_update,
-                            async_call.amount.clone(),
+                            async_call.amount,
                             &async_call.callback,
                             &receipt.receiver,
                             &receipt.nonce,
@@ -509,7 +509,7 @@ impl Runtime {
                     transaction_result,
                 ),
                 ReceiptBody::Refund(amount) => {
-                    receiver.amount += amount.clone();
+                    receiver.amount += amount;
                     set(state_update, key_for_account(&receipt.receiver), &receiver);
                     Ok(vec![])
                 }
@@ -517,7 +517,7 @@ impl Runtime {
             _ => {
                 let err = Err(format!("receiver {} does not exist", receipt.receiver));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
-                    amount = call.amount.clone();
+                    amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         system_create_account(state_update, &call, &receipt.receiver)
                     } else {
@@ -751,7 +751,7 @@ impl Runtime {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
-            account.staked = amount.clone();
+            account.staked = *amount;
             set(&mut state_update, account_id_bytes, &account);
         }
         let trie = state_update.trie.clone();
