@@ -622,8 +622,8 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
-            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "0x64"]],
-            "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "32")],
+            "accounts": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "0x64"}],
+            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "32"}],
             "contracts": [],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
