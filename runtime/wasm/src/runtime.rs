@@ -24,6 +24,23 @@ pub const DATA_TYPE_INPUT: DataTypeIndex = 4;
 pub const DATA_TYPE_RESULT: DataTypeIndex = 5;
 pub const DATA_TYPE_STORAGE_ITER: DataTypeIndex = 6;
 
+/// Because WASM doesn't support u128, we emulate it with 2 u64s.
+/// We can not return arrays, so we use tuples.
+type Uint128 = (u64, u64);
+
+/// Converts u128 into tuple of u64s.
+#[inline]
+fn to_uint128(value: u128) -> Uint128 {
+    let res = unsafe { std::slice::from_raw_parts(&value as *const u128 as *const u64, 2) };
+    (res[0], res[1])
+}
+
+/// Converts tuple of u64s in the form of the array into u128.
+#[inline]
+fn from_uint128(value: [u64; 2]) -> u128 {
+    unsafe { *((&value)[0] as *const u64 as *const u128) }
+}
+
 pub struct Runtime<'a> {
     ext: &'a mut External,
     input_data: &'a [u8],
@@ -162,7 +179,7 @@ impl<'a> Runtime<'a> {
     /// Attempt to charge liquid balance, respecting usage limit.
     fn charge_balance_with_limit(&mut self, amount: Balance) -> Result<()> {
         let new_usage = self.usage_counter + amount;
-        if new_usage > self.config.usage_limit {
+        if new_usage > self.config.usage_limit as u128 {
             if self.context.free_of_charge {
                 Ok(())
             } else {
@@ -267,8 +284,10 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        amount: u64,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> Result<u32> {
+        let amount = from_uint128([amount_hi, amount_lo]);
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
 
@@ -297,8 +316,10 @@ impl<'a> Runtime<'a> {
         method_name_ptr: u32,
         arguments_len: u32,
         arguments_ptr: u32,
-        amount: Balance,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> Result<u32> {
+        let amount = from_uint128([amount_hi, amount_lo]);
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
         if method_name.is_empty() {
@@ -310,12 +331,12 @@ impl<'a> Runtime<'a> {
             PromiseId::Receipt(_) => 1,
             PromiseId::Callback(_) => return Err(Error::PromiseError),
             PromiseId::Joiner(v) => v.len() as u64,
-        };
-        self.charge_balance(num_promises * self.config.contract_call_cost + amount)?;
+        } as u128;
+        self.charge_balance((num_promises * self.config.contract_call_cost + amount).into())?;
 
         let promise_id = self
             .ext
-            .promise_then(promise_id, method_name, arguments, amount)
+            .promise_then(promise_id, method_name, arguments, amount.into())
             .map_err(|_| Error::PromiseError)?;
 
         let promise_index = self.promise_ids.len();
@@ -403,21 +424,21 @@ impl<'a> Runtime<'a> {
         Ok(())
     }
 
-    fn get_frozen_balance(&self) -> Result<u64> {
-        Ok(self.frozen_balance)
+    fn get_frozen_balance(&self) -> Result<Uint128> {
+        Ok(to_uint128(self.frozen_balance))
     }
 
-    fn get_liquid_balance(&self) -> Result<u64> {
-        Ok(self.liquid_balance)
+    fn get_liquid_balance(&self) -> Result<Uint128> {
+        Ok(to_uint128(self.liquid_balance))
     }
 
     /// Helper function to transfer between two accounts.
     fn transfer_helper(
-        from: &mut u64,
-        to: &mut u64,
-        min_amount: u64,
-        max_amount: u64,
-    ) -> Result<u64> {
+        from: &mut Balance,
+        to: &mut Balance,
+        min_amount: Balance,
+        max_amount: Balance,
+    ) -> Result<Balance> {
         let result = if *from >= max_amount {
             *from -= max_amount;
             *to += max_amount;
@@ -438,25 +459,39 @@ impl<'a> Runtime<'a> {
     /// Deposit the given amount to the account balance and return deposited amount.
     /// If there is enough of liquid balance will deposit `max_amount`, otherwise will deposit
     /// as much as possible and will fail if there is less than `min_amount`.
-    fn deposit(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+    fn deposit(
+        &mut self,
+        min_amount_hi: u64,
+        min_amount_lo: u64,
+        max_amount_hi: u64,
+        max_amount_lo: u64,
+    ) -> Result<Uint128> {
         Self::transfer_helper(
             &mut self.liquid_balance,
             &mut self.frozen_balance,
-            min_amount,
-            max_amount,
+            from_uint128([min_amount_hi, min_amount_lo]),
+            from_uint128([max_amount_hi, max_amount_lo]),
         )
+        .map(to_uint128)
     }
 
     /// Withdraw the given amount from the account balance and return withdrawn amount.
     /// If there is enough of frozen balance will withdraw `max_amount`, otherwise will withdraw
     /// as much as possible and will fail if there is less than `min_amount`.
-    fn withdraw(&mut self, min_amount: u64, max_amount: u64) -> Result<u64> {
+    fn withdraw(
+        &mut self,
+        min_amount_hi: u64,
+        min_amount_lo: u64,
+        max_amount_hi: u64,
+        max_amount_lo: u64,
+    ) -> Result<Uint128> {
         Self::transfer_helper(
             &mut self.frozen_balance,
             &mut self.liquid_balance,
-            min_amount,
-            max_amount,
+            from_uint128([min_amount_hi, min_amount_lo]),
+            from_uint128([max_amount_hi, max_amount_lo]),
         )
+        .map(to_uint128)
     }
 
     fn storage_usage(&self) -> Result<StorageUsage> {
@@ -464,8 +499,8 @@ impl<'a> Runtime<'a> {
         Ok(storage_usage as StorageUsage)
     }
 
-    fn received_amount(&self) -> Result<u64> {
-        Ok(self.context.received_amount)
+    fn received_amount(&self) -> Result<Uint128> {
+        Ok(to_uint128(self.context.received_amount))
     }
 
     fn assert(&self, expression: u32) -> Result<()> {
@@ -634,7 +669,7 @@ pub mod imports {
     macro_rules! wrapped_imports {
         ( $( $import_name:expr => $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
             $(
-                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns )*)> {
+                fn $func( ctx: &mut Ctx, $( $arg_name: $arg_type ),* ) -> Result<($( $returns ),*)> {
                     let runtime: &mut Runtime = unsafe { &mut *(ctx.data as *mut Runtime) };
                     runtime.$func( $( $arg_name, )* )
                 }
@@ -674,7 +709,7 @@ pub mod imports {
             account_id_len: u32, account_id_ptr: u32,
             method_name_len: u32, method_name_ptr: u32,
             arguments_len: u32, arguments_ptr: u32,
-            amount: u64
+            amount_hi: u64, amount_lo: u64
         ] -> [u32]>,
         // Attaches a callback to a given promise. This promise can be either an
         // async call or multiple joined promises.
@@ -683,7 +718,7 @@ pub mod imports {
             promise_index: u32,
             method_name_len: u32, method_name_ptr: u32,
             arguments_len: u32, arguments_ptr: u32,
-            amount: u64
+            amount_hi: u64, amount_lo: u64
         ] -> [u32]>,
         // Joins 2 given promises together and returns a new promise.
         "promise_and" => promise_and<[promise_index1: u32, promise_index2: u32] -> [u32]>,
@@ -705,18 +740,18 @@ pub mod imports {
 
         // Context
         // Returns the frozen balance.
-        "frozen_balance" => get_frozen_balance<[] -> [u64]>,
+        "frozen_balance" => get_frozen_balance<[] -> [u64, u64]>,
         // Returns the liquid balance.
-        "liquid_balance" => get_liquid_balance<[] -> [u64]>,
+        "liquid_balance" => get_liquid_balance<[] -> [u64, u64]>,
         // Deposits balance from liquid to frozen.
-        "deposit" => deposit<[min_amount: u64, max_amount: u64] -> [u64]>,
+        "deposit" => deposit<[min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64] -> [u64, u64]>,
         // Withdraws balance from frozen to liquid.
-        "withdraw" => withdraw<[min_amount: u64, max_amount: u64] -> [u64]>,
+         "withdraw" => withdraw<[min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64] -> [u64, u64]>,
 
         // Returns the storage usage.
         "storage_usage" => storage_usage<[] -> [u64]>,
         // Returns the amount of tokens received with this call.
-        "received_amount" => received_amount<[] -> [u64]>,
+        "received_amount" => received_amount<[] -> [u64, u64]>,
         // Returns currently produced block index.
         "block_index" => block_index<[] -> [u64]>,
 

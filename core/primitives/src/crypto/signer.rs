@@ -184,7 +184,11 @@ impl InMemorySigner {
         Self { account_id, public_key, secret_key }
     }
 
-    pub fn from_secret_key(account_id: String, public_key: PublicKey, secret_key: SecretKey) -> Self {
+    pub fn from_secret_key(
+        account_id: String,
+        public_key: PublicKey,
+        secret_key: SecretKey,
+    ) -> Self {
         Self { account_id, public_key, secret_key }
     }
 

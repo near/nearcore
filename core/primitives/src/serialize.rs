@@ -113,3 +113,24 @@ pub mod base_vec_format {
         from_base(&s).map_err(|err| de::Error::custom(err.to_string()))
     }
 }
+
+pub mod u128_hex_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(num: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{:X}", num))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        u128::from_str_radix(s.trim_start_matches("0x"), 16)
+            .map_err(de::Error::custom)
+    }
+}

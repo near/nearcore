@@ -16,7 +16,7 @@ use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
-use near_store::{Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges, get};
+use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -60,10 +60,11 @@ impl NightshadeRuntime {
                 genesis_config
                     .validators
                     .iter()
-                    .map(|(account_id, readable_key, amount)| ValidatorStake {
-                        account_id: account_id.clone(),
-                        public_key: PublicKey::try_from(readable_key.0.as_str()).unwrap(),
-                        amount: *amount,
+                    .map(|account_info| ValidatorStake {
+                        account_id: account_info.account_id.clone(),
+                        public_key: PublicKey::try_from(account_info.public_key.0.as_str())
+                            .unwrap(),
+                        amount: account_info.amount,
                     })
                     .collect(),
                 store,
@@ -85,15 +86,33 @@ impl RuntimeAdapter for NightshadeRuntime {
             .genesis_config
             .accounts
             .iter()
-            .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
-            .cloned()
+            .filter_map(|account_info| {
+                if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                    Some((
+                        account_info.account_id.clone(),
+                        account_info.public_key.clone(),
+                        account_info.amount,
+                    ))
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>();
         let validators = self
             .genesis_config
             .validators
             .iter()
-            .filter(|(account_id, _, _)| self.account_id_to_shard_id(account_id) == shard_id)
-            .cloned()
+            .filter_map(|account_info| {
+                if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                    Some((
+                        account_info.account_id.clone(),
+                        account_info.public_key.clone(),
+                        account_info.amount,
+                    ))
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>();
         let contracts = self
             .genesis_config
@@ -113,9 +132,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let (_account_id, public_key, _) = &self.genesis_config.validators
+        let account_info = &self.genesis_config.validators
             [(header.height as usize) % self.genesis_config.validators.len()];
-        if !header.verify_block_producer(&PublicKey::try_from(public_key.0.as_str()).unwrap()) {
+        if !header.verify_block_producer(
+            &PublicKey::try_from(account_info.public_key.0.as_str()).unwrap(),
+        ) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
@@ -175,11 +196,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         unreachable!()
     }
 
-    fn check_validator_signature(
-        &self,
-        _account_id: &AccountId,
-        _signature: &Signature,
-    ) -> bool {
+    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
         true
     }
 
@@ -319,8 +336,11 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    let access_key = get::<AccessKey>(&state_update, &key).ok_or("Missing key from iterator")?;
-                    PublicKey::try_from(public_key).map_err(|err| format!("{}", err).into()).map(|key| (key, access_key))
+                    let access_key =
+                        get::<AccessKey>(&state_update, &key).ok_or("Missing key from iterator")?;
+                    PublicKey::try_from(public_key)
+                        .map_err(|err| format!("{}", err).into())
+                        .map(|key| (key, access_key))
                 })
                 .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
             Err(e) => Err(e),

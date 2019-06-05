@@ -82,6 +82,7 @@ mod tests {
     use near_primitives::transaction::TransactionBody;
 
     use crate::TransactionPool;
+    use near_primitives::types::Balance;
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
     /// orders them correctly.
@@ -89,7 +90,7 @@ mod tests {
     fn test_order_nonce() {
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
         let mut transactions: Vec<_> = (1..10)
-            .map(|i| TransactionBody::send_money(i, "alice.near", "bob.near", i).sign(&signer))
+            .map(|i| TransactionBody::send_money(i, "alice.near", "bob.near", i as Balance).sign(&signer))
             .collect();
         let mut pool = TransactionPool::new();
         let mut rng = thread_rng();

@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ValidatorId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{Balance, Epoch, MerkleHash, ShardId, ValidatorId, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{Store, COL_VALIDATORS};
 
@@ -62,7 +62,7 @@ impl From<std::io::Error> for ValidatorError {
 /// Find threshold of stake per seat, given provided stakes and required number of seats.
 fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, ValidatorError> {
     let stakes_sum: Balance = stakes.iter().sum();
-    if stakes_sum < num_seats {
+    if stakes_sum < num_seats.into() {
         return Err(ValidatorError::ThresholdError(stakes_sum, num_seats));
     }
     let (mut left, mut right): (Balance, Balance) = (1, stakes_sum + 1);
@@ -71,10 +71,10 @@ fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, Validat
             break Ok(left);
         }
         let mid = (left + right) / 2;
-        let mut current_sum = 0u64;
+        let mut current_sum: Balance = 0;
         for item in stakes.iter() {
             current_sum += item / mid;
-            if current_sum >= num_seats {
+            if current_sum >= num_seats as u128 {
                 left = mid;
                 continue 'outer;
             }
@@ -281,8 +281,7 @@ impl ValidatorManager {
                 self.get_validators(epoch)?,
                 proposals,
             )?;
-            store_update
-                .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
+            store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
             store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
             self.last_epoch = epoch;

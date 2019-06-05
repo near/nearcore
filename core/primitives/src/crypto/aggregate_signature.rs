@@ -512,7 +512,7 @@ pub mod uncompressed_bs64_signature_serializer {
     use serde::{Deserialize, Deserializer, Serializer};
 
     use crate::crypto::aggregate_signature::{Bls12, BlsSignature, UncompressedSignature};
-    use crate::serialize::{BaseEncode, BaseDecode};
+    use crate::serialize::{BaseDecode, BaseEncode};
 
     pub fn serialize<S>(sig: &BlsSignature, serializer: S) -> Result<S::Ok, S::Error>
     where

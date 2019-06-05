@@ -2,12 +2,13 @@ syntax = "proto3";
 
 import "wrappers.proto";
 import "access_key.proto";
+import "uint128.proto";
 
 message CreateAccountTransaction {
     uint64 nonce = 1;
     string originator = 2;
     string new_account_id = 3;
-    uint64 amount = 4;
+    Uint128 amount = 4;
     bytes public_key = 5;
 }
 
@@ -23,20 +24,20 @@ message FunctionCallTransaction {
     string contract_id = 3;
     bytes method_name = 4;
     bytes args = 5;
-    uint64 amount = 6;
+    Uint128 amount = 6;
 }
 
 message SendMoneyTransaction {
     uint64 nonce = 1;
     string originator = 2;
     string receiver = 3;
-    uint64 amount = 4;
+    Uint128 amount = 4;
 }
 
 message StakeTransaction {
     uint64 nonce = 1;
     string originator = 2;
-    uint64 amount = 3;
+    Uint128 amount = 3;
     string public_key = 4;
     string bls_public_key = 5;
 }

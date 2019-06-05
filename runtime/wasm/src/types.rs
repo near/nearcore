@@ -267,7 +267,7 @@ pub struct Config {
     pub return_data_per_byte_cost: u32,
 
     /// Gas cost of the contract call.
-    pub contract_call_cost: u64,
+    pub contract_call_cost: Balance,
 
     /// How tall the stack is allowed to grow?
     ///

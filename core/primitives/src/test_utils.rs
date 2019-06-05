@@ -32,7 +32,10 @@ pub fn init_test_module_logger(module: &str) {
 }
 
 pub fn init_integration_logger() {
-    let _ = env_logger::Builder::new().filter(None, LevelFilter::Info).filter(Some("actix_web"), LevelFilter::Warn).try_init();
+    let _ = env_logger::Builder::new()
+        .filter(None, LevelFilter::Info)
+        .filter(Some("actix_web"), LevelFilter::Warn)
+        .try_init();
 }
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {

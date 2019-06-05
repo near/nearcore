@@ -18,8 +18,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::StorageUsage;
 use near_primitives::types::{
-    AccountId, ValidatorStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey,
-    ShardId,
+    AccountId, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey, ShardId,
+    ValidatorStake,
 };
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
@@ -127,8 +127,8 @@ impl Runtime {
         // The number of bytes the account occupies in the Trie.
         let meta_storage = key_for_account(account_id).len() as StorageUsage
             + account.encode().unwrap().len() as StorageUsage;
-        let total_storage = account.storage_usage + meta_storage;
-        let charge = (block_index - account.storage_paid_at)
+        let total_storage = (account.storage_usage + meta_storage) as u128;
+        let charge = ((block_index - account.storage_paid_at) as u128)
             * total_storage
             * self.economics_config.storage_cost_byte_per_block;
         account.amount = if charge <= account.amount { account.amount - charge } else { 0 };

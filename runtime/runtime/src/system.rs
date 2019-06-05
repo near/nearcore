@@ -8,7 +8,7 @@ use near_primitives::transaction::{
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use near_primitives::types::{AccountId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
@@ -85,7 +85,7 @@ pub fn staking(
 
 pub fn deposit(
     state_update: &mut TrieUpdate,
-    amount: u64,
+    amount: Balance,
     callback_info: &Option<CallbackInfo>,
     receiver_id: &AccountId,
     nonce: &CryptoHash,

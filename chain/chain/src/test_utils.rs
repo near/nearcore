@@ -12,13 +12,13 @@ use near_primitives::transaction::{
     ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use near_store::test_utils::create_test_store;
+use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use node_runtime::state_viewer::AccountViewCallResult;
 
-use crate::{Block, Chain, ValidTransaction};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
+use crate::{Block, Chain, ValidTransaction};
 
 impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
@@ -83,7 +83,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn get_epoch_block_proposers(&self, _height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
+    fn get_epoch_block_proposers(
+        &self,
+        _height: BlockIndex,
+    ) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
         Ok(self.validators.iter().map(|x| (x.0.clone(), 1)).collect())
     }
 
@@ -91,15 +94,15 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
-    fn get_chunk_proposer(&self, _shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+    fn get_chunk_proposer(
+        &self,
+        _shard_id: ShardId,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
-    fn check_validator_signature(
-        &self,
-        _account_id: &AccountId,
-        _signature: &Signature,
-    ) -> bool {
+    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
         true
     }
 

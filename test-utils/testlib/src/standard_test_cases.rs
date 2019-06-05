@@ -9,6 +9,7 @@ use near_primitives::transaction::{
     FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
     TransactionStatus,
 };
+use near_primitives::types::Balance;
 use near_primitives::utils::key_for_callback;
 use near_store::set;
 use node_runtime::state_viewer::AccountViewCallResult;
@@ -19,7 +20,7 @@ use crate::test_helpers::wait;
 use crate::user::User;
 
 /// The amount to send with function call.
-const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000_000;
+const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
 
 /// validate transaction result in the case that it is successful and generates given number of receipts
 /// recursively.

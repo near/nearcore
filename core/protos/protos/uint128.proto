@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+/// Provides container for unsigned 128 bit integers.
+message Uint128 {
+    bytes number = 1;
+}

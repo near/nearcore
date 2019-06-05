@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::serialize::base_vec_format;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ABCIQueryResponse {

@@ -7,8 +7,8 @@ use crate::crypto::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
 use crate::logging::pretty_hash;
-use crate::serialize::{BaseEncode, BaseDecode, base_format};
-use crate::types::{ValidatorMask, PartialSignature};
+use crate::serialize::{base_format, BaseDecode, BaseEncode};
+use crate::types::{PartialSignature, ValidatorMask};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GroupSignature {

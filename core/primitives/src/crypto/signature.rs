@@ -70,7 +70,13 @@ impl TryFrom<&[u8]> for PublicKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
-            return Err(format!("bytes not the size {} of a public key {}: {:?}", bytes.len(), sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES, bytes).into());
+            return Err(format!(
+                "bytes not the size {} of a public key {}: {:?}",
+                bytes.len(),
+                sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES,
+                bytes
+            )
+            .into());
         }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         array.copy_from_slice(bytes);

@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "wrappers.proto";
+import "uint128.proto";
 
 message CallbackInfo {
     bytes id = 1;
@@ -9,7 +10,7 @@ message CallbackInfo {
 }
 
 message AsyncCall {
-    uint64 amount = 1;
+    Uint128 amount = 1;
     bytes method_name = 3;
     bytes args = 4;
     CallbackInfo callback = 5;
@@ -32,7 +33,7 @@ message ReceiptTransaction {
     oneof body {
         AsyncCall new_call = 4;
         CallbackResult callback = 5;
-        uint64 refund = 6;
+        Uint128 refund = 6;
     }
 
     reserved 7;

@@ -1,15 +1,16 @@
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
+
+use protobuf::well_known_types::BytesValue;
+use protobuf::well_known_types::StringValue;
+use protobuf::SingularPtrField;
+
+use near_protos::access_key as access_key_proto;
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
-
-use near_protos::access_key as access_key_proto;
-
-use protobuf::well_known_types::BytesValue;
-use protobuf::well_known_types::StringValue;
-use protobuf::SingularPtrField;
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -41,12 +42,16 @@ impl Account {
 
     /// Try debiting the balance by the given amount.
     pub fn checked_sub(&mut self, amount: Balance) -> Result<(), String> {
-        self.amount = self.amount.checked_sub(amount).ok_or_else(|| {
-            format!(
-                "Sender does not have enough balance {} for operation costing {}",
-                self.amount, amount
-            )
-        })?;
+        self.amount = self
+            .amount
+            .checked_sub(amount)
+            .ok_or_else(|| {
+                format!(
+                    "Sender does not have enough balance {} for operation costing {}",
+                    self.amount, amount
+                )
+            })?
+            .into();
         Ok(())
     }
 }
@@ -77,21 +82,23 @@ impl fmt::Debug for AccessKey {
     }
 }
 
-impl From<access_key_proto::AccessKey> for AccessKey {
-    fn from(access_key: access_key_proto::AccessKey) -> Self {
-        AccessKey {
-            amount: access_key.amount,
+impl TryFrom<access_key_proto::AccessKey> for AccessKey {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(access_key: access_key_proto::AccessKey) -> Result<Self, Self::Error> {
+        Ok(AccessKey {
+            amount: access_key.amount.unwrap_or_default().try_into()?,
             balance_owner: access_key.balance_owner.into_option().map(|s| s.value),
             contract_id: access_key.contract_id.into_option().map(|s| s.value),
             method_name: access_key.method_name.into_option().map(|s| s.value),
-        }
+        })
     }
 }
 
 impl From<AccessKey> for access_key_proto::AccessKey {
     fn from(access_key: AccessKey) -> access_key_proto::AccessKey {
         access_key_proto::AccessKey {
-            amount: access_key.amount,
+            amount: SingularPtrField::some(access_key.amount.into()),
             balance_owner: SingularPtrField::from_option(access_key.balance_owner.map(|v| {
                 let mut res = StringValue::new();
                 res.set_value(v);
