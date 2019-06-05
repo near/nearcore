@@ -281,10 +281,10 @@ impl ValidatorManager {
                 self.get_validators(epoch)?,
                 proposals,
             )?;
+            self.last_epoch = epoch + 1;
             store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
-            store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
+            store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &self.last_epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
-            self.last_epoch = epoch;
         }
         self.proposals.clear();
         Ok(())
@@ -411,6 +411,7 @@ mod test {
         assert_eq!(am.get_validators(1).unwrap(), &expected0);
         assert_eq!(am.get_validators(2), Err(ValidatorError::EpochOutOfBounds));
         am.finalize_epoch(0, config.clone(), sr2).unwrap();
+        assert_eq!(am.last_epoch(), 1);
         assert_eq!(
             am.get_validators(2).unwrap(),
             &assignment(
@@ -423,6 +424,7 @@ mod test {
 
         // Start another validator manager from the same store to check that it saved the state.
         let mut am2 = ValidatorManager::new(config, validators, store).unwrap();
+        assert_eq!(am2.last_epoch(), 1);
         assert_eq!(
             am2.get_validators(2).unwrap(),
             &assignment(
