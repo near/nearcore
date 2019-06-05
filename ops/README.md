@@ -59,7 +59,7 @@ For that we would need to install Rust.
 
 ```bash
 curl https://sh.rustup.rs -sSf | sh
-rustup component add clippy-preview
+rustup component add clippy
 rustup default nightly
 ```
 
