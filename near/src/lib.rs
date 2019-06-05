@@ -36,12 +36,16 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
-    let runtime = Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
+    let runtime =
+        Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
 
-    let view_client =
-        ViewClientActor::new(store.clone(), config.genesis_config.genesis_time.clone(), runtime.clone())
-            .unwrap()
-            .start();
+    let view_client = ViewClientActor::new(
+        store.clone(),
+        config.genesis_config.genesis_time.clone(),
+        runtime.clone(),
+    )
+    .unwrap()
+    .start();
     let view_client1 = view_client.clone();
     let client = ClientActor::create(move |ctx| {
         let network_actor =

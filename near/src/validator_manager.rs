@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{ValidatorId, Balance, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{Balance, Epoch, MerkleHash, ShardId, ValidatorId, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{Store, COL_VALIDATORS};
 
@@ -65,16 +65,16 @@ fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, Validat
     if stakes_sum < num_seats.into() {
         return Err(ValidatorError::ThresholdError(stakes_sum, num_seats));
     }
-    let (mut left, mut right): (Balance, Balance) = (1u128.into(), stakes_sum + 1u128.into());
+    let (mut left, mut right): (Balance, Balance) = (1, stakes_sum + 1);
     'outer: loop {
-        if left == right - 1u128.into() {
+        if left == right - 1 {
             break Ok(left);
         }
-        let mid = (left + right) / 2u128.into();
-        let mut current_sum: Balance = 0u128.into();
+        let mid = (left + right) / 2;
+        let mut current_sum: Balance = 0;
         for item in stakes.iter() {
-            current_sum += *item / mid;
-            if current_sum >= num_seats.into() {
+            current_sum += item / mid;
+            if current_sum >= num_seats as u128 {
                 left = mid;
                 continue 'outer;
             }
@@ -159,7 +159,7 @@ fn proposals_to_assignments(
     let mut dup_proposals = ordered_proposals
         .iter()
         .enumerate()
-        .flat_map(|(i, p)| iter::repeat(i).take((p.amount.0 / threshold.0) as usize))
+        .flat_map(|(i, p)| iter::repeat(i).take((p.amount / threshold) as usize))
         .collect::<Vec<_>>();
     if dup_proposals.len() < num_seats as usize {
         return Err(ValidatorError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_seats));
@@ -281,8 +281,7 @@ impl ValidatorManager {
                 self.get_validators(epoch)?,
                 proposals,
             )?;
-            store_update
-                .set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
+            store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
             store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &epoch)?;
             store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
             self.last_epoch = epoch;
@@ -342,11 +341,11 @@ mod test {
 
     #[test]
     fn test_find_threshold() {
-        assert_eq!(find_threshold(&[Balance(1_000_000), Balance(1_000_000), Balance(10)], 10).unwrap(), Balance(200_000));
-        assert_eq!(find_threshold(&[Balance(1_000_000_000), Balance(10)], 10).unwrap(), Balance(100_000_000));
-        assert_eq!(find_threshold(&[Balance(1_000_000_000)], 1_000_000_000).unwrap(), Balance(1));
-        assert_eq!(find_threshold(&[Balance(1_000), Balance(1), Balance(1), Balance(1), Balance(1), Balance(1), Balance(1), Balance(1), Balance(1), Balance(1)], 1).unwrap(), Balance(1_000));
-        assert!(find_threshold(&[Balance(1), Balance(1), Balance(2)], 100).is_err());
+        assert_eq!(find_threshold(&[1_000_000, 1_000_000, 10], 10).unwrap(), 200_000);
+        assert_eq!(find_threshold(&[1_000_000_000, 10], 10).unwrap(), 100_000_000);
+        assert_eq!(find_threshold(&[1_000_000_000], 1_000_000_000).unwrap(), 1);
+        assert_eq!(find_threshold(&[1_000, 1, 1, 1, 1, 1, 1, 1, 1, 1], 1).unwrap(), 1_000);
+        assert!(find_threshold(&[1, 1, 2], 100).is_err());
     }
 
     #[test]
@@ -355,11 +354,11 @@ mod test {
             proposals_to_assignments(
                 config(2, 1, 1),
                 &ValidatorAssignment::default(),
-                vec![stake("test1", Balance(1_000_000))]
+                vec![stake("test1", 1_000_000)]
             )
             .unwrap(),
             assignment(
-                vec![("test1", Balance(1_000_000))],
+                vec![("test1", 1_000_000)],
                 vec![1],
                 vec![vec![(0, 1)], vec![(0, 1)]],
                 vec![]
@@ -376,14 +375,14 @@ mod test {
                 },
                 &ValidatorAssignment::default(),
                 vec![
-                    stake("test1", Balance(1_000_000)),
-                    stake("test2", Balance(1_000_000)),
-                    stake("test3", Balance(1_000_000))
+                    stake("test1", 1_000_000),
+                    stake("test2", 1_000_000),
+                    stake("test3", 1_000_000)
                 ]
             )
             .unwrap(),
             assignment(
-                vec![("test1", Balance(1_000_000)), ("test2", Balance(1_000_000)), ("test3", Balance(1_000_000))],
+                vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![3, 2, 1],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
@@ -402,12 +401,12 @@ mod test {
     fn test_stake_validator() {
         let store = create_test_store();
         let config = config(1, 2, 2);
-        let validators = vec![stake("test1", Balance(1_000_000))];
+        let validators = vec![stake("test1", 1_000_000)];
         let mut am =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (sr1, sr2) = (hash(&vec![1]), hash(&vec![2]));
-        am.add_proposals(sr1, sr2, vec![stake("test2", Balance(1_000_000))]);
-        let expected0 = assignment(vec![("test1", Balance(1_000_000))], vec![2], vec![vec![(0, 2)]], vec![]);
+        am.add_proposals(sr1, sr2, vec![stake("test2", 1_000_000)]);
+        let expected0 = assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![]);
         assert_eq!(am.get_validators(0).unwrap(), &expected0);
         assert_eq!(am.get_validators(1).unwrap(), &expected0);
         assert_eq!(am.get_validators(2), Err(ValidatorError::EpochOutOfBounds));
@@ -415,7 +414,7 @@ mod test {
         assert_eq!(
             am.get_validators(2).unwrap(),
             &assignment(
-                vec![("test2", Balance(1_000_000)), ("test1", Balance(1_000_000))],
+                vec![("test2", 1_000_000), ("test1", 1_000_000)],
                 vec![1, 1],
                 vec![vec![(0, 1), (1, 1)]],
                 vec![]
@@ -427,7 +426,7 @@ mod test {
         assert_eq!(
             am2.get_validators(2).unwrap(),
             &assignment(
-                vec![("test2", Balance(1_000_000)), ("test1", Balance(1_000_000))],
+                vec![("test2", 1_000_000), ("test1", 1_000_000)],
                 vec![1, 1],
                 vec![vec![(0, 1), (1, 1)]],
                 vec![]

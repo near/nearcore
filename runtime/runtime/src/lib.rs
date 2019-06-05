@@ -89,13 +89,13 @@ impl Runtime {
                         .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
                 ))
             }
-            None if transaction.amount.0 == 0 => {
+            None if transaction.amount == 0 => {
                 return Err(format!("Account {} tries to send 0 tokens", transaction.originator,))
             }
             _ => (),
         };
         if sender.amount >= transaction.amount {
-            sender.amount -= transaction.amount.clone();
+            sender.amount -= transaction.amount;
             set(state_update, key_for_account(&transaction.originator), sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
@@ -104,7 +104,7 @@ impl Runtime {
                 ReceiptBody::NewCall(AsyncCall::new(
                     transaction.method_name.clone(),
                     transaction.args.clone(),
-                    transaction.amount.clone(),
+                    transaction.amount,
                     refund_account_id.clone(),
                 )),
             );
@@ -130,8 +130,8 @@ impl Runtime {
         let total_storage = (account.storage_usage + meta_storage) as u128;
         let charge = ((block_index - account.storage_paid_at) as u128)
             * total_storage
-            * self.economics_config.storage_cost_byte_per_block.0;
-        account.amount.0 = if charge <= account.amount.0 { account.amount.0 - charge } else { 0 };
+            * self.economics_config.storage_cost_byte_per_block;
+        account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
 
@@ -310,8 +310,8 @@ impl Runtime {
                 &mut runtime_ext,
                 &wasm::types::Config::default(),
                 &RuntimeContext::new(
-                    receiver.amount.clone(),
-                    async_call.amount.clone(),
+                    receiver.amount,
+                    async_call.amount,
                     sender_id,
                     receiver_id,
                     receiver.storage_usage,
@@ -386,8 +386,8 @@ impl Runtime {
                         &mut runtime_ext,
                         &wasm::types::Config::default(),
                         &RuntimeContext::new(
-                            receiver.amount.clone(),
-                            callback.amount.clone(),
+                            receiver.amount,
+                            callback.amount,
                             sender_id,
                             receiver_id,
                             receiver.storage_usage,
@@ -459,22 +459,22 @@ impl Runtime {
     ) -> Result<(), String> {
         let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver));
         let receiver_exists = receiver.is_some();
-        let mut amount = Balance::default();
+        let mut amount = 0;
         let mut callback_info = None;
         // Un-utilized leftover liquid balance that we can refund back to the originator.
-        let mut leftover_balance = Balance::default();
+        let mut leftover_balance = 0;
         let mut refund_account: String = Default::default();
         let result = match receiver {
             Some(mut receiver) => match &receipt.body {
                 ReceiptBody::NewCall(async_call) => {
-                    amount = async_call.amount.clone();
+                    amount = async_call.amount;
                     refund_account = async_call.refund_account.clone();
                     callback_info = async_call.callback.clone();
                     if async_call.method_name.is_empty() {
                         transaction_result.result = Some(vec![]);
                         system::deposit(
                             state_update,
-                            async_call.amount.clone(),
+                            async_call.amount,
                             &async_call.callback,
                             &receipt.receiver,
                             &receipt.nonce,
@@ -509,7 +509,7 @@ impl Runtime {
                     transaction_result,
                 ),
                 ReceiptBody::Refund(amount) => {
-                    receiver.amount += amount.clone();
+                    receiver.amount += amount;
                     set(state_update, key_for_account(&receipt.receiver), &receiver);
                     Ok(vec![])
                 }
@@ -517,7 +517,7 @@ impl Runtime {
             _ => {
                 let err = Err(format!("receiver {} does not exist", receipt.receiver));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
-                    amount = call.amount.clone();
+                    amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         system_create_account(state_update, &call, &receipt.receiver)
                     } else {
@@ -534,7 +534,7 @@ impl Runtime {
                 Ok(())
             }
             Err(s) => {
-                if amount.0 > 0 {
+                if amount > 0 {
                     let receiver =
                         if receiver_exists { receipt.receiver.clone() } else { system_account() };
                     let new_receipt = ReceiptTransaction::new(
@@ -557,7 +557,7 @@ impl Runtime {
                 Err(s)
             }
         };
-        if leftover_balance.0 > 0 {
+        if leftover_balance > 0 {
             let new_receipt = ReceiptTransaction::new(
                 receipt.receiver.clone(),
                 refund_account,
@@ -738,9 +738,9 @@ impl Runtime {
                 key_for_account(&account_id),
                 &Account {
                     public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
-                    amount: balance.clone(),
+                    amount: *balance,
                     nonce: 0,
-                    staked: Default::default(),
+                    staked: 0,
                     code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
                     storage_usage: 0,
                     storage_paid_at: 0,
@@ -751,7 +751,7 @@ impl Runtime {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
-            account.staked = amount.clone();
+            account.staked = *amount;
             set(&mut state_update, account_id_bytes, &account);
         }
         let trie = state_update.trie.clone();
@@ -778,7 +778,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(vec![], Balance(10), hash(&[]));
+        let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
@@ -790,7 +790,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(vec![], Balance(10), hash(&[]));
+        let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();

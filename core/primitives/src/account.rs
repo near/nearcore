@@ -33,7 +33,7 @@ impl Account {
             public_keys,
             nonce: 0,
             amount,
-            staked: Balance::default(),
+            staked: 0,
             code_hash,
             storage_usage: 0,
             storage_paid_at: 0,
@@ -44,8 +44,7 @@ impl Account {
     pub fn checked_sub(&mut self, amount: Balance) -> Result<(), String> {
         self.amount = self
             .amount
-            .0
-            .checked_sub(amount.clone().into())
+            .checked_sub(amount)
             .ok_or_else(|| {
                 format!(
                     "Sender does not have enough balance {} for operation costing {}",
@@ -88,7 +87,7 @@ impl TryFrom<access_key_proto::AccessKey> for AccessKey {
 
     fn try_from(access_key: access_key_proto::AccessKey) -> Result<Self, Self::Error> {
         Ok(AccessKey {
-            amount: access_key.amount.try_into()?,
+            amount: access_key.amount.unwrap_or_default().try_into()?,
             balance_owner: access_key.balance_owner.into_option().map(|s| s.value),
             contract_id: access_key.contract_id.into_option().map(|s| s.value),
             method_name: access_key.method_name.into_option().map(|s| s.value),
@@ -99,7 +98,7 @@ impl TryFrom<access_key_proto::AccessKey> for AccessKey {
 impl From<AccessKey> for access_key_proto::AccessKey {
     fn from(access_key: AccessKey) -> access_key_proto::AccessKey {
         access_key_proto::AccessKey {
-            amount: access_key.amount.into(),
+            amount: SingularPtrField::some(access_key.amount.into()),
             balance_owner: SingularPtrField::from_option(access_key.balance_owner.map(|v| {
                 let mut res = StringValue::new();
                 res.set_value(v);

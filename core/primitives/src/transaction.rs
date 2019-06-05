@@ -60,7 +60,7 @@ impl TryFrom<transaction_proto::CreateAccountTransaction> for CreateAccountTrans
             nonce: t.nonce,
             originator: t.originator,
             new_account_id: t.new_account_id,
-            amount: t.amount.try_into()?,
+            amount: t.amount.unwrap_or_default().try_into()?,
             public_key: t.public_key,
         })
     }
@@ -72,7 +72,7 @@ impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransact
             nonce: t.nonce,
             originator: t.originator,
             new_account_id: t.new_account_id,
-            amount: t.amount.into(),
+            amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
             ..Default::default()
         }
@@ -152,7 +152,7 @@ impl TryFrom<transaction_proto::FunctionCallTransaction> for FunctionCallTransac
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
-            amount: t.amount.try_into()?,
+            amount: t.amount.unwrap_or_default().try_into()?,
         })
     }
 }
@@ -165,7 +165,7 @@ impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransactio
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
-            amount: t.amount.into(),
+            amount: SingularPtrField::some(t.amount.into()),
             ..Default::default()
         }
     }
@@ -200,7 +200,7 @@ impl TryFrom<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             receiver: t.receiver,
-            amount: t.amount.try_into()?,
+            amount: t.amount.unwrap_or_default().try_into()?,
         })
     }
 }
@@ -211,7 +211,7 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             receiver: t.receiver,
-            amount: t.amount.into(),
+            amount: SingularPtrField::some(t.amount.into()),
             ..Default::default()
         }
     }
@@ -232,7 +232,7 @@ impl TryFrom<transaction_proto::StakeTransaction> for StakeTransaction {
         Ok(StakeTransaction {
             nonce: t.nonce,
             originator: t.originator,
-            amount: t.amount.try_into()?,
+            amount: t.amount.unwrap_or_default().try_into()?,
             public_key: t.public_key,
         })
     }
@@ -243,7 +243,7 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
         transaction_proto::StakeTransaction {
             nonce: t.nonce,
             originator: t.originator,
-            amount: t.amount.into(),
+            amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
             ..Default::default()
         }
@@ -483,7 +483,7 @@ impl SignedTransaction {
             nonce: 0,
             originator: AccountId::default(),
             receiver: AccountId::default(),
-            amount: Balance::default(),
+            amount: 0,
         });
         SignedTransaction {
             signature: DEFAULT_SIGNATURE,
@@ -624,7 +624,7 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
         Ok(AsyncCall {
-            amount: proto.amount.try_into()?,
+            amount: proto.amount.unwrap_or_default().try_into()?,
             method_name: proto.method_name,
             args: proto.args,
             callback: proto.callback.into_option().map(std::convert::Into::into),
@@ -636,7 +636,7 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
 impl From<AsyncCall> for receipt_proto::AsyncCall {
     fn from(call: AsyncCall) -> Self {
         receipt_proto::AsyncCall {
-            amount: call.amount.into(),
+            amount: SingularPtrField::some(call.amount.into()),
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),

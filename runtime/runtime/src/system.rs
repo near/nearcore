@@ -29,11 +29,11 @@ pub fn send_money(
     sender: &mut Account,
     refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if transaction.amount.0 == 0 {
+    if transaction.amount == 0 {
         return Err("Sending 0 tokens".to_string());
     }
     if sender.amount >= transaction.amount {
-        sender.amount -= transaction.amount.clone();
+        sender.amount -= transaction.amount;
         set(state_update, key_for_account(&transaction.originator), sender);
         let receipt = ReceiptTransaction::new(
             transaction.originator.clone(),
@@ -43,7 +43,7 @@ pub fn send_money(
                 // Empty method name is used for deposit
                 vec![],
                 vec![],
-                transaction.amount.clone(),
+                transaction.amount,
                 refund_account_id.clone(),
             )),
         );
@@ -68,10 +68,10 @@ pub fn staking(
             account_id: sender_account_id.clone(),
             public_key: PublicKey::try_from(body.public_key.as_str())
                 .map_err(|err| err.to_string())?,
-            amount: body.amount.clone(),
+            amount: body.amount,
         });
-        sender.amount -= body.amount.clone();
-        sender.staked += body.amount.clone();
+        sender.amount -= body.amount;
+        sender.staked += body.amount;
         set(state_update, key_for_account(sender_account_id), &sender);
         Ok(vec![])
     } else {
@@ -103,7 +103,7 @@ pub fn deposit(
         receipts.push(new_receipt);
     }
 
-    if amount.0 > 0 {
+    if amount > 0 {
         receiver.amount += amount;
         set(state_update, key_for_account(&receiver_id), receiver);
     }
@@ -121,7 +121,7 @@ pub fn create_account(
         return Err(format!("Account {} does not match requirements", body.new_account_id));
     }
     if sender.amount >= body.amount {
-        sender.amount -= body.amount.clone();
+        sender.amount -= body.amount;
         set(state_update, key_for_account(&body.originator), &sender);
         let new_nonce = create_nonce_with_nonce(&hash, 0);
         let receipt = ReceiptTransaction::new(
@@ -131,7 +131,7 @@ pub fn create_account(
             ReceiptBody::NewCall(AsyncCall::new(
                 SYSTEM_METHOD_CREATE_ACCOUNT.to_vec(),
                 body.public_key.clone(),
-                body.amount.clone(),
+                body.amount,
                 refund_account_id.clone(),
             )),
         );
@@ -191,8 +191,8 @@ pub fn add_key(
     }
     if let Some(access_key) = &body.access_key {
         if account.amount >= access_key.amount {
-            if access_key.amount.0 > 0 {
-                account.amount -= access_key.amount.clone();
+            if access_key.amount > 0 {
+                account.amount -= access_key.amount;
                 set(state_update, key_for_account(&body.originator), &account);
             }
         } else {
@@ -237,7 +237,7 @@ pub fn delete_key(
         .ok_or_else(|| {
             format!("Account {} tries to remove a public key that it does not own", body.originator)
         })?;
-        if access_key.amount.0 > 0 {
+        if access_key.amount > 0 {
             let balance_owner_id: &AccountId =
                 access_key.balance_owner.as_ref().unwrap_or(&body.originator);
             if balance_owner_id != &body.originator {
@@ -272,7 +272,7 @@ pub fn system_create_account(
     let account_id_bytes = key_for_account(&account_id);
 
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
-    let new_account = Account::new(vec![public_key], call.amount.clone(), hash(&[]));
+    let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
     set(state_update, account_id_bytes, &new_account);
     Ok(vec![])
 }
