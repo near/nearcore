@@ -4,23 +4,13 @@ use near_primitives::types::Balance;
 use wasm::types::Config;
 
 /// The structure that holds the parameters of the economics.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct EconomicsConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,
     pub transactions_costs: TransactionsCosts,
     /// Config of wasm operations.
     pub wasm_config: Config,
-}
-
-impl Default for EconomicsConfig {
-    fn default() -> Self {
-        Self {
-            storage_cost_byte_per_block: Default::default(),
-            transactions_costs: Default::default(),
-            wasm_config: Default::default(),
-        }
-    }
 }
 
 /// The costs of the transactions.

@@ -738,9 +738,9 @@ impl Runtime {
                 key_for_account(&account_id),
                 &Account {
                     public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
-                    amount: balance.clone(),
+                    amount: *balance,
                     nonce: 0,
-                    staked: Default::default(),
+                    staked: 0,
                     code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
                     storage_usage: 0,
                     storage_paid_at: 0,

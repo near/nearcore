@@ -73,8 +73,8 @@ fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, Validat
         let mid = (left + right) / 2;
         let mut current_sum: Balance = 0;
         for item in stakes.iter() {
-            current_sum += *item / mid;
-            if current_sum >= num_seats.into() {
+            current_sum += item / mid;
+            if current_sum >= num_seats as u128 {
                 left = mid;
                 continue 'outer;
             }

@@ -25,16 +25,20 @@ pub const DATA_TYPE_RESULT: DataTypeIndex = 5;
 pub const DATA_TYPE_STORAGE_ITER: DataTypeIndex = 6;
 
 /// Because WASM doesn't support u128, we emulate it with 2 u64s.
+/// We can not return arrays, so we use tuples.
 type Uint128 = (u64, u64);
 
+/// Converts u128 into tuple of u64s.
 #[inline]
 fn to_uint128(value: u128) -> Uint128 {
-    ((value / (std::u64::MAX as u128)) as u64, (value % (std::u64::MAX as u128)) as u64)
+    let res = unsafe { std::slice::from_raw_parts(&value as *const u128 as *const u64, 2) };
+    (res[0], res[1])
 }
 
+/// Converts tuple of u64s in the form of the array into u128.
 #[inline]
-fn from_uint128(value: Uint128) -> u128 {
-    (value.0 as u128) * (std::u64::MAX as u128) + (value.1 as u128)
+fn from_uint128(value: [u64; 2]) -> u128 {
+    unsafe { *((&value)[0] as *const u64 as *const u128) }
 }
 
 pub struct Runtime<'a> {
@@ -283,7 +287,7 @@ impl<'a> Runtime<'a> {
         amount_hi: u64,
         amount_lo: u64,
     ) -> Result<u32> {
-        let amount = from_uint128((amount_hi, amount_lo));
+        let amount = from_uint128([amount_hi, amount_lo]);
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
 
@@ -315,7 +319,7 @@ impl<'a> Runtime<'a> {
         amount_hi: u64,
         amount_lo: u64,
     ) -> Result<u32> {
-        let amount = from_uint128((amount_hi, amount_lo));
+        let amount = from_uint128([amount_hi, amount_lo]);
         let promise_id = self.promise_index_to_id(promise_index)?;
         let method_name = self.memory_get(method_name_ptr as usize, method_name_len as usize)?;
         if method_name.is_empty() {
@@ -434,7 +438,7 @@ impl<'a> Runtime<'a> {
         to: &mut Balance,
         min_amount: Balance,
         max_amount: Balance,
-    ) -> Result<u128> {
+    ) -> Result<Balance> {
         let result = if *from >= max_amount {
             *from -= max_amount;
             *to += max_amount;
@@ -461,12 +465,12 @@ impl<'a> Runtime<'a> {
         min_amount_lo: u64,
         max_amount_hi: u64,
         max_amount_lo: u64,
-    ) -> Result<(u64, u64)> {
+    ) -> Result<Uint128> {
         Self::transfer_helper(
             &mut self.liquid_balance,
             &mut self.frozen_balance,
-            from_uint128((min_amount_hi, min_amount_lo)),
-            from_uint128((max_amount_hi, max_amount_lo)),
+            from_uint128([min_amount_hi, min_amount_lo]),
+            from_uint128([max_amount_hi, max_amount_lo]),
         )
         .map(to_uint128)
     }
@@ -480,12 +484,12 @@ impl<'a> Runtime<'a> {
         min_amount_lo: u64,
         max_amount_hi: u64,
         max_amount_lo: u64,
-    ) -> Result<(u64, u64)> {
+    ) -> Result<Uint128> {
         Self::transfer_helper(
             &mut self.frozen_balance,
             &mut self.liquid_balance,
-            from_uint128((min_amount_hi, min_amount_lo)),
-            from_uint128((max_amount_hi, max_amount_lo)),
+            from_uint128([min_amount_hi, min_amount_lo]),
+            from_uint128([max_amount_hi, max_amount_lo]),
         )
         .map(to_uint128)
     }
@@ -495,7 +499,7 @@ impl<'a> Runtime<'a> {
         Ok(storage_usage as StorageUsage)
     }
 
-    fn received_amount(&self) -> Result<(u64, u64)> {
+    fn received_amount(&self) -> Result<Uint128> {
         Ok(to_uint128(self.context.received_amount))
     }
 
