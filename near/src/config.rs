@@ -262,10 +262,8 @@ pub struct GenesisConfig {
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
     /// List of initial validators.
-    #[serde(flatten)]
     pub validators: Vec<AccountInfo>,
     /// List of accounts / balances at genesis.
-    #[serde(flatten)]
     pub accounts: Vec<AccountInfo>,
     /// List of contract code per accounts. Contract code encoded in base64.
     pub contracts: Vec<(AccountId, String)>,
@@ -574,8 +572,8 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
-            "accounts": [["alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "0x64"]],
-            "validators": [("alice.near", "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "32")],
+            "accounts": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "0x64"}],
+            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "32"}],
             "contracts": [],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
