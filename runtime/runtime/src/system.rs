@@ -270,7 +270,8 @@ pub fn system_create_account(
     account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(account_id) {
-        return Err(format!("Account {} does not match requirements", account_id));
+        return Err(format!("Account name {} does not match requirements. Must be 5-32 characters (lower case letters/numbers or '@._-')
+", account_id));
     }
     let account_id_bytes = key_for_account(&account_id);
 
