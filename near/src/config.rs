@@ -262,10 +262,8 @@ pub struct GenesisConfig {
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
     /// List of initial validators.
-    #[serde(flatten)]
     pub validators: Vec<AccountInfo>,
     /// List of accounts / balances at genesis.
-    #[serde(flatten)]
     pub accounts: Vec<AccountInfo>,
     /// List of contract code per accounts. Contract code encoded in base64.
     pub contracts: Vec<(AccountId, String)>,
@@ -385,16 +383,20 @@ pub fn testnet_genesis() -> GenesisConfig {
         avg_fisherman_per_shard: vec![100],
         dynamic_resharding: true,
         epoch_length: 20000,
-        validators: vec![(
-            ".near".to_string(),
-            ReadablePublicKey("DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string()),
-            5_000_000 * NEAR_TOKEN,
-        )],
-        accounts: vec![(
-            ".near".to_string(),
-            ReadablePublicKey("DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string()),
-            INITIAL_TOKEN_SUPPLY,
-        )],
+        validators: vec![AccountInfo {
+            account_id: ".near".to_string(),
+            public_key: ReadablePublicKey(
+                "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
+            ),
+            amount: 5_000_000 * NEAR_TOKEN,
+        }],
+        accounts: vec![AccountInfo {
+            account_id: ".near".to_string(),
+            public_key: ReadablePublicKey(
+                "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
+            ),
+            amount: INITIAL_TOKEN_SUPPLY,
+        }],
         contracts: vec![],
     }
 }
@@ -629,7 +631,9 @@ mod tests {
             spec.validators[0],
             AccountInfo {
                 account_id: "alice.near".to_string(),
-                public_key: ReadablePublicKey("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()),
+                public_key: ReadablePublicKey(
+                    "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()
+                ),
                 amount: 50
             }
         );
