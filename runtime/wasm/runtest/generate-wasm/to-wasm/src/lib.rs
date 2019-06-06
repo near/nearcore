@@ -58,7 +58,8 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        amount: u64,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> u32;
 
     fn promise_then(
@@ -67,7 +68,8 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        amount: u64,
+        amount_hi: u64,
+        amount_lo: u64,
     ) -> u32;
 
     fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
@@ -82,10 +84,10 @@ extern "C" {
         difficulty: u64,
     ) -> u32;
 
-    fn frozen_balance() -> u64;
-    fn liquid_balance() -> u64;
-    fn deposit(min_amout: u64, max_amount: u64) -> u64;
-    fn withdraw(min_amout: u64, max_amount: u64) -> u64;
+    fn frozen_balance() -> (u64, u64);
+    fn liquid_balance() -> (u64, u64);
+    fn deposit(min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64) -> (u64, u64);
+    fn withdraw(min_amount_hi: u64, min_amount_lo: u64, max_amount_hi: u64, max_amount_lo: u64) -> (u64, u64);
     fn storage_usage() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
@@ -149,6 +151,15 @@ fn return_u64(res: u64) {
         let mut buf = [0u8; 8];
         LittleEndian::write_u64(&mut buf, res);
         return_value(8, buf.as_ptr())
+    }
+}
+
+fn return_u128((hi, lo): (u64, u64)) {
+    unsafe {
+        let mut buf = [0u8; 16];
+        LittleEndian::write_u64(&mut buf, hi);
+        LittleEndian::write_u64(&mut buf[8..], lo);
+        return_value(0, buf.as_ptr())
     }
 }
 
@@ -301,7 +312,7 @@ pub fn create_promises_and_join() {
             b"run1".to_vec().as_ptr(),
             5,
             b"args1".to_vec().as_ptr(),
-            0,
+            0, 0,
         );
         let promise2 = promise_create(
             5,
@@ -310,11 +321,11 @@ pub fn create_promises_and_join() {
             b"run2".to_vec().as_ptr(),
             5,
             b"args2".to_vec().as_ptr(),
-            0,
+            0, 0,
         );
         let promise_joined = promise_and(promise1, promise2);
         let callback =
-            promise_then(promise_joined, 8, b"run_test".to_vec().as_ptr(), 0, 0 as (*const u8), 0);
+            promise_then(promise_joined, 8, b"run_test".to_vec().as_ptr(), 0, 0 as (*const u8), 0, 0);
         return_promise(callback);
     }
 }
@@ -334,7 +345,7 @@ pub fn transfer_to_bob() {
             b"deposit".to_vec().as_ptr(),
             0,
             0 as (*const u8),
-            1u64,
+            0, 1u64,
         );
         return_promise(promise1);
     }
@@ -344,7 +355,7 @@ pub fn transfer_to_bob() {
 pub fn get_frozen_balance() {
     unsafe {
         let my_frozen_balance = frozen_balance();
-        return_u64(my_frozen_balance);
+        return_u128(my_frozen_balance);
     }
 }
 
@@ -352,7 +363,7 @@ pub fn get_frozen_balance() {
 pub fn get_liquid_balance() {
     unsafe {
         let my_liquid_balance = liquid_balance();
-        return_u64(my_liquid_balance);
+        return_u128(my_liquid_balance);
     }
 }
 

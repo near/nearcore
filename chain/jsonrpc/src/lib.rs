@@ -30,7 +30,7 @@ mod message;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
-const JSON_PAYLOAD_MAX_SIZE: usize = 256 * 1024;
+const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
