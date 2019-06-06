@@ -1,4 +1,13 @@
-<img src="docs/logo.svg" width="200px" align="right" />
+<br />
+<br />
+
+<p align="center">
+<img src="docs/logo.svg" width="240">
+</p>
+
+<br />
+<br />
+
 
 ## NEAR Protocol - scalable and usable blockchain
 
@@ -8,11 +17,9 @@
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
 <a href="https://discord.gg/gBtUFKR">![Discord](https://img.shields.io/discord/490367152054992913.svg)</a>
 
-NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
-
-Through sharding, it will linearly scale with the number of validation nodes on the network.
-
-Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
+* ⚖️ NEAR Protocol is a new smart-contract platform that delivers scalability and usability.
+* 🛠 Through sharding, it will linearly scale with the number of validation nodes on the network.
+* 🗝 Leveraging WebAssembly, TypeScript, more sane contract management, ephemeral accounts and many other advancements, NEAR
 finally makes using a blockchain protocol easy for both developers and consumers.
 
 ## Quick start
