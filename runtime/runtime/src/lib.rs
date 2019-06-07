@@ -123,6 +123,62 @@ impl Runtime {
         }
     }
 
+    fn self_function_call(
+        &self,
+        state_update: &mut TrieUpdate,
+        transaction: &FunctionCallTransaction,
+        hash: CryptoHash,
+        account: &mut Account,
+        refund_account_id: &AccountId,
+        public_key: PublicKey,
+        block_index: BlockIndex,
+        transaction_result: &mut TransactionResult,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        match transaction.method_name.get(0) {
+            Some(b'_') => {
+                return Err(format!(
+                    "Account {} tries to call a private method {}",
+                    transaction.originator,
+                    std::str::from_utf8(&transaction.method_name)
+                        .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
+                ))
+            }
+            None => {
+                return Err(format!(
+                    "Account {} tries to call itself with empty method name",
+                    transaction.originator,
+                ))
+            }
+            _ => (),
+        };
+        if transaction.amount > 0 {
+            return Err(format!(
+                "Account {} tries to call itself with the positive amount {}",
+                transaction.originator, transaction.amount,
+            ));
+        }
+
+        let mut leftover_balance = 0;
+
+        self.apply_async_call(
+            state_update,
+            &AsyncCall::new(
+                transaction.method_name.clone(),
+                transaction.args.clone(),
+                transaction.amount,
+                refund_account_id.clone(),
+            ),
+            &transaction.originator,
+            &transaction.originator,
+            &hash,
+            account,
+            &mut leftover_balance,
+            block_index,
+            Some(public_key),
+            transaction_result,
+        )
+    }
+
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
         // The number of bytes the account occupies in the Trie.
@@ -144,8 +200,9 @@ impl Runtime {
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         validator_proposals: &mut Vec<ValidatorStake>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let VerificationData { originator_id, mut originator, .. } = {
+        let VerificationData { originator_id, mut originator, public_key, .. } = {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(transaction)?
         };
@@ -172,6 +229,17 @@ impl Runtime {
                 &mut originator,
                 validator_proposals,
             ),
+            TransactionBody::FunctionCall(ref t) if originator_id == t.contract_id => self
+                .self_function_call(
+                    state_update,
+                    &t,
+                    transaction.get_hash(),
+                    &mut originator,
+                    refund_account_id,
+                    public_key,
+                    block_index,
+                    transaction_result,
+                ),
             TransactionBody::FunctionCall(ref t) => self.call_function(
                 state_update,
                 &t,
@@ -292,6 +360,7 @@ impl Runtime {
         receiver: &mut Account,
         leftover_balance: &mut Balance,
         block_index: BlockIndex,
+        public_key: Option<PublicKey>,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let code = Self::get_code(state_update, receiver_id)?;
@@ -319,6 +388,7 @@ impl Runtime {
                     block_index,
                     nonce.as_ref().to_vec(),
                     false,
+                    public_key,
                 ),
             )
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
@@ -395,6 +465,7 @@ impl Runtime {
                             block_index,
                             nonce.as_ref().to_vec(),
                             false,
+                            None,
                         ),
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
@@ -493,6 +564,7 @@ impl Runtime {
                             &mut receiver,
                             &mut leftover_balance,
                             block_index,
+                            None,
                             transaction_result,
                         )
                     }
@@ -598,6 +670,7 @@ impl Runtime {
             block_index,
             transaction,
             validator_proposals,
+            &mut result,
         ) {
             Ok(receipts) => {
                 for receipt in receipts {

@@ -214,6 +214,7 @@ mod tests {
             123,
             b"yolo".to_vec(),
             false,
+            None,
         )
     }
 

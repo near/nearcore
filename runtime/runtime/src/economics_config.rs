@@ -19,6 +19,7 @@ pub struct TransactionsCosts {
     pub create_account: Balance,
     pub deploy_contract: Balance,
     pub function_call: Balance,
+    pub self_function_call: Balance,
     pub send_money: Balance,
     pub stake: Balance,
     pub swap_key: Balance,
@@ -33,6 +34,12 @@ impl TransactionsCosts {
         match transaction_body {
             CreateAccount(_) => self.create_account.clone(),
             DeployContract(_) => self.deploy_contract.clone(),
+            FunctionCall(_)
+            if Some(transaction_body.get_originator())
+                == transaction_body.get_contract_id() =>
+                {
+                    self.self_function_call.clone()
+                }
             FunctionCall(_) => self.function_call.clone(),
             SendMoney(_) => self.send_money.clone(),
             Stake(_) => self.stake.clone(),
