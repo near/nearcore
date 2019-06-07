@@ -141,11 +141,13 @@ export function recurse(n: i32): i32 {
 
 export function callPromise(args: PromiseArgs): void {
   let inputArgs: InputPromiseArgs = { args: args.args };
+  near.log('1');
   let promise = ContractPromise.create(
       args.receiver,
       args.methodName,
       inputArgs.encode(),
       args.balance);
+  near.log('2');
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     promise = promise.then(
@@ -153,6 +155,7 @@ export function callPromise(args: PromiseArgs): void {
         inputArgs.encode(),
         args.callbackBalance);
   }
+  near.log('3');
   promise.returnAsResult();
 }
 

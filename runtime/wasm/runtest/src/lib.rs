@@ -196,6 +196,10 @@ mod tests {
         LittleEndian::read_u64(val)
     }
 
+    fn decode_u128(val: &[u8]) -> u128 {
+        LittleEndian::read_u128(val)
+    }
+
     fn runtime_context(
         balance: u128,
         amount: u128,
@@ -320,11 +324,12 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
+            run(b"test_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
 
         // The frozen balance is not used for the runtime deductions.
+        println!("{:?}", outcome);
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u128(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -334,13 +339,14 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+            run(b"test_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
         // At the moment of measurement the liquid balance is at 97 which is the value returned.
         // However returning the value itself costs additional balance which results in final
-        // liquid balance being 79.
-        assert_eq!(outcome.liquid_balance, 79);
+        // liquid balance being 55.
+        println!("{:?}", outcome);
+        assert_eq!(outcome.liquid_balance, 55);
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u128(&output_data), 74),
             _ => assert!(false, "Expected returned value"),
         };
     }
