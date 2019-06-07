@@ -27,7 +27,7 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
-/// One NEAR in femta-NEARs.
+/// One NEAR in atto-NEARs.
 pub const NEAR_TOKEN: Balance = 1_000_000_000_000_000_000;
 
 /// Initial token supply.
