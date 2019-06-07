@@ -152,14 +152,20 @@ fn return_u64(res: u64) {
     }
 }
 
+//fn cast_2u64()
+//
 fn return_u128(res: u128) {
     unsafe {
-        return_value(16, write_u128(res))
+//        let mut buf = [0u8; 16];
+//        let ptr = write_u128(res);
+//        LittleEndian::write_u64(&mut buf, ptr);
+//        LittleEndian::write_u64(&mut buf[8..], ptr + 8);
+        return_value(16, write_u128(&res))
     }
 }
 
-fn write_u128(value: u128) -> *const u8 {
-    &value as *const u128 as *const u8
+fn write_u128(value: &u128) -> *const u8 {
+    value as *const u128 as *const u8
 }
 
 fn originator_id() -> Vec<u8> {
@@ -311,7 +317,7 @@ pub fn create_promises_and_join() {
             b"run1".to_vec().as_ptr(),
             5,
             b"args1".to_vec().as_ptr(),
-            write_u128(0)
+            write_u128(&0)
         );
         let promise2 = promise_create(
             5,
@@ -320,7 +326,7 @@ pub fn create_promises_and_join() {
             b"run2".to_vec().as_ptr(),
             5,
             b"args2".to_vec().as_ptr(),
-            write_u128(0)
+            write_u128(&0)
         );
         let promise_joined = promise_and(promise1, promise2);
         let callback =
@@ -330,7 +336,7 @@ pub fn create_promises_and_join() {
                 b"run_test".to_vec().as_ptr(),
                 0,
                 0 as (*const u8),
-                write_u128(0)
+                write_u128(&0)
             );
         return_promise(callback);
     }
@@ -351,20 +357,20 @@ pub fn transfer_to_bob() {
             b"deposit".to_vec().as_ptr(),
             0,
             0 as (*const u8),
-            write_u128(0),
+            write_u128(&0),
         );
         return_promise(promise1);
     }
 }
 
 fn buf_to_u128(buf: [u8; 16]) -> u128 {
-    unsafe { *((&buf)[0] as *const u64 as *const u128) }
+    unsafe { *(&buf as *const u8 as *const u128) }
 }
 
 pub fn get_frozen_balance() -> u128 {
     unsafe {
-        let buf = [0u8; 16];
-        liquid_balance(buf.as_ptr());
+        let mut buf = [0u8; 16];
+        frozen_balance(buf.as_mut_ptr());
         buf_to_u128(buf)
     }
 }
@@ -377,8 +383,8 @@ pub fn test_frozen_balance() {
 
 pub fn get_liquid_balance() -> u128 {
     unsafe {
-        let buf = [0u8; 16];
-        liquid_balance(buf.as_ptr());
+        let mut buf = [0u8; 16];
+        liquid_balance(buf.as_mut_ptr());
         buf_to_u128(buf)
     }
 }
