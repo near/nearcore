@@ -72,7 +72,15 @@ lazy_static! {
     static ref VALID_ACCOUNT_ID: Regex = Regex::new(r"^[a-z0-9@._\-]{5,32}$").unwrap();
 }
 
+/// const does not allow function call, so have to resort to this
+pub fn system_account() -> AccountId {
+    "system".to_string()
+}
+
 pub fn is_valid_account_id(account_id: &AccountId) -> bool {
+    if *account_id == system_account() {
+        return false;
+    }
     VALID_ACCOUNT_ID.is_match(account_id)
 }
 

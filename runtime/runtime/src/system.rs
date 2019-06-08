@@ -10,17 +10,16 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
+    key_for_code,
 };
 use near_store::{get, set, TrieUpdate};
 use wasm::types::ContractCode;
 
-/// const does not allow function call, so have to resort to this
-pub fn system_account() -> AccountId {
-    "system".to_string()
-}
-
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+
+const INVALID_ACCOUNT_ID: &str =
+    "does not match account naming requirements ([a-z0-9@._\\-]{5,32})";
 
 pub fn send_money(
     state_update: &mut TrieUpdate,
@@ -118,7 +117,7 @@ pub fn create_account(
     refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
-        return Err(format!("Account {} does not match requirements", body.new_account_id));
+        return Err(format!("Account {} {}", body.new_account_id, INVALID_ACCOUNT_ID));
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
@@ -267,7 +266,7 @@ pub fn system_create_account(
     account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(account_id) {
-        return Err(format!("Account {} does not match requirements", account_id));
+        return Err(format!("Account {} {}", account_id, INVALID_ACCOUNT_ID));
     }
     let account_id_bytes = key_for_account(&account_id);
 

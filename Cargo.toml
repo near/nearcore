@@ -65,6 +65,9 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 [profile.dev.overrides.pairing]
 opt-level = 3 # pairing library is too slow to use in debug
 
+[profile.dev.overrides.bs58]
+opt-level = 3 # bs58 library is too slow to use in debug
+
 [features]
 expensive_tests = []
 regression_tests = []

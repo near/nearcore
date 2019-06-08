@@ -23,6 +23,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
+    system_account,
 };
 use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
 use near_verifier::{TransactionVerifier, VerificationData};
@@ -32,7 +33,7 @@ use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
-use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
+use crate::system::{system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 
 pub mod adapter;
 pub mod economics_config;
