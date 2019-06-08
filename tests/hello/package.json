@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "dependencies": {
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
-        "near-runtime-ts": "file:../../../near-runtime-ts",
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#nightshade",
         "nearlib": "github:nearprotocol/nearlib#nightshade"
     },
     "scripts": {
@@ -11,6 +11,6 @@
     },
     "devDependencies": {
         "gulp": "^3.0.0",
-        "near-shell": "file:../../../near-shell"
+        "near-shell": "github:nearprotocol/near-shell#nightshade"
     }
 }

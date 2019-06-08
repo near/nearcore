@@ -19,7 +19,7 @@ use wasm::types::ContractCode;
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
 
 const INVALID_ACCOUNT_ID: &str =
-    "does not match account naming requirements ([a-z0-9@._\\-]{5,32})";
+    "does not match requirements. Must be 5-32 characters (lower case letters/numbers or '@._-')";
 
 pub fn send_money(
     state_update: &mut TrieUpdate,
@@ -117,7 +117,7 @@ pub fn create_account(
     refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
-        return Err(format!("Account {} {}", body.new_account_id, INVALID_ACCOUNT_ID));
+        return Err(format!("Account name {} {}", body.new_account_id, INVALID_ACCOUNT_ID));
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
@@ -266,7 +266,7 @@ pub fn system_create_account(
     account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(account_id) {
-        return Err(format!("Account {} {}", account_id, INVALID_ACCOUNT_ID));
+        return Err(format!("Account name {} {}", account_id, INVALID_ACCOUNT_ID));
     }
     let account_id_bytes = key_for_account(&account_id);
 
