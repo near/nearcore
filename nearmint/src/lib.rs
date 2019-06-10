@@ -7,7 +7,7 @@ use std::sync::RwLock;
 use std::sync::{Arc, Mutex};
 
 use abci::*;
-use log::{error, info};
+use log::info;
 use protobuf::parse_from_bytes;
 
 use node_runtime::adapter::{query_client, RuntimeAdapter};
