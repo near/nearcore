@@ -229,7 +229,7 @@ impl<'a> External for RuntimeExt<'a> {
         difficulty: u64,
     ) -> bool {
         self.ethash_provider.lock().expect(POISONED_LOCK_ERR).check_ethash(
-            block_number,
+            U256::from(block_number),
             H256::from(header_hash),
             H64::from(nonce),
             H256::from(mix_hash),
