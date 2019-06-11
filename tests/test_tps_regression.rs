@@ -5,20 +5,14 @@
 #[cfg(any(feature = "expensive_tests", feature = "regression_tests"))]
 #[cfg(test)]
 mod test {
-    use std::thread;
-    use std::time::{Duration, Instant};
-
-    use network::proxy::benchmark::BenchmarkHandler;
-    use network::proxy::ProxyHandler;
-    use node_http::types::GetBlocksByIndexRequest;
-    use primitives::transaction::TransactionBody;
     use std::io::stdout;
     use std::io::Write;
     use std::sync::{Arc, RwLock};
-    use testlib::node::{
-        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
-        TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
-    };
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use near_primitives::transaction::TransactionBody;
+    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
     use testlib::test_helpers::heavy_test;
 
     /// Creates and sends a random transaction.
@@ -38,8 +32,8 @@ mod test {
         nonces[money_sender] += 1;
         let nonce = nonces[money_sender];
 
-        let sender_acc = nodes[money_sender].read().unwrap().account_id().cloned().unwrap();
-        let receiver_acc = nodes[money_receiver].read().unwrap().account_id().cloned().unwrap();
+        let sender_acc = nodes[money_sender].read().unwrap().account_id().unwrap();
+        let receiver_acc = nodes[money_receiver].read().unwrap().account_id().unwrap();
         let transaction =
             TransactionBody::send_money(nonce, sender_acc.as_str(), receiver_acc.as_str(), 1)
                 .sign(&*nodes[money_sender].read().unwrap().signer());
@@ -83,24 +77,8 @@ mod test {
         target_tps: usize,
         timeout: Duration,
         test_prefix: &str,
-        test_port: u16,
     ) {
-        // Add proxy handlers to the pipeline.
-        let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
-
-        let (_, _, mut nodes) = create_nodes(
-            num_nodes,
-            test_prefix,
-            test_port,
-            TEST_BLOCK_FETCH_LIMIT,
-            TEST_BLOCK_MAX_SIZE * 10,
-            proxy_handlers,
-        );
-        for n in &mut nodes {
-            if let NodeConfig::Thread(cfg) = n {
-                cfg.client_cfg.log_level = log::LevelFilter::Off;
-            }
-        }
+        let mut nodes = create_nodes(num_nodes, test_prefix);
 
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
             nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
@@ -153,20 +131,14 @@ mod test {
                     let node = &nodes[sample_queryable_node(&nodes)];
                     if let Some(new_ind) = node.read().unwrap().user().get_best_block_index() {
                         if new_ind > prev_ind {
-                            let blocks = node
-                                .read()
-                                .unwrap()
-                                .user()
-                                .get_shard_blocks_by_index(GetBlocksByIndexRequest {
-                                    start: Some(prev_ind + 1),
-                                    limit: Some(new_ind),
-                                })
-                                .unwrap();
-                            for b in &blocks.blocks {
+                            let blocks = ((prev_ind + 1)..=new_ind)
+                                .map(|idx| node.read().unwrap().user().get_block(idx).unwrap())
+                                .collect::<Vec<_>>();
+                            for b in &blocks {
                                 observed_transactions
                                     .write()
                                     .unwrap()
-                                    .push((b.body.transactions.len() as u64, Instant::now()));
+                                    .push((b.transactions.len() as u64, Instant::now()));
                             }
                             prev_ind = new_ind;
                         }
@@ -184,7 +156,7 @@ mod test {
         let mut bucketed_observed_xacts = bucketize_tps(&observed_transactions, bucket_size);
 
         let _ = stdout().write(
-            format!("Submitted transactions tps: {:?}", bucketed_submitted_xacts).as_bytes(),
+            format!("Submitted transactions tps: {:?}; ", bucketed_submitted_xacts).as_bytes(),
         );
         let _ = stdout()
             .write(format!("Observed transactions tps: {:?}", bucketed_observed_xacts).as_bytes());
@@ -210,6 +182,6 @@ mod test {
     #[test]
     fn test_highload() {
         // Run 4 nodes with 20 input tps and check the output tps to be 20.
-        heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_20", 3300));
+        heavy_test(|| run_multiple_nodes(4, 20, 20, Duration::from_secs(120), "4_20"));
     }
 }

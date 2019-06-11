@@ -1,24 +1,19 @@
 //! Tests whether nodes can leave and rejoin the consensus.
-#[cfg(feature = "old_tests")]
 #[cfg(test)]
+#[cfg(feature = "expensive_tests")]
 mod test {
     use std::process::Command;
+    use std::sync::{Arc, RwLock};
     use std::thread;
     use std::time::Duration;
 
-    use network::proxy::benchmark::BenchmarkHandler;
-    use network::proxy::ProxyHandler;
-    use primitives::transaction::TransactionBody;
-    use primitives::types::AccountId;
-    use std::sync::{Arc, RwLock};
-    use testlib::node::{
-        create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig,
-        TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
-    };
+    use near_primitives::transaction::TransactionBody;
+    use near_primitives::types::AccountId;
+    use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
-        Command::new("cargo").args(&["build"]).spawn().expect("warmup failed").wait().unwrap();
+        Command::new("cargo").args(&["build", "-p", "near"]).spawn().expect("warmup failed").wait().unwrap();
     }
 
     // DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
@@ -41,27 +36,19 @@ mod test {
                     nonces[from],
                     account_names[from].as_str(),
                     account_names[to].as_str(),
-                    1,
+                    1000,
                 )
                 .sign(&*nodes[from].read().unwrap().signer()),
             )
             .unwrap();
     }
 
-    fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
+    fn test_kill_1(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         warmup();
-        let proxy_handlers: Vec<Arc<ProxyHandler>> = vec![Arc::new(BenchmarkHandler::new())];
         // Start all nodes, crash node#2, proceed, restart node #2 but crash node #3
         let crash1 = 2;
         let crash2 = 3;
-        let (init_balance, account_names, nodes) = create_nodes(
-            num_nodes,
-            test_prefix,
-            test_port,
-            TEST_BLOCK_FETCH_LIMIT,
-            TEST_BLOCK_MAX_SIZE,
-            proxy_handlers,
-        );
+        let nodes = create_nodes(num_nodes, test_prefix);
         // Convert some of the thread nodes into processes.
         let nodes: Vec<_> = nodes
             .into_iter()
@@ -79,13 +66,20 @@ mod test {
             .collect();
 
         let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+        let account_names: Vec<_> =
+            nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 
         for i in 0..num_nodes {
             nodes[i].write().unwrap().start();
         }
 
-        let mut expected_balances = vec![init_balance; num_nodes];
+        let mut expected_balances = vec![0; num_nodes];
         let mut nonces = vec![1; num_nodes];
+        for i in 0..num_nodes {
+            let account = nodes[0].read().unwrap().view_account(&account_names[i]).unwrap();
+            nonces[i] = account.nonce + 1;
+            expected_balances[i] = account.amount;
+        }
         let trial_duration = 60000;
         for trial in 0..num_trials {
             println!("TRIAL #{}", trial);
@@ -109,13 +103,13 @@ mod test {
             let (i, j) = sample_two_nodes(num_nodes);
             send_transaction(&nodes, &account_names, &nonces, i, j);
             nonces[i] += 1;
-            expected_balances[i] -= 1;
-            expected_balances[j] += 1;
+            expected_balances[i] -= 1000;
+            expected_balances[j] += 1000;
             let t = sample_queryable_node(&nodes);
             wait(
                 || {
                     let amt = nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap();
-                    expected_balances[j] == amt
+                    expected_balances[j] <= amt
                 },
                 1000,
                 trial_duration,
@@ -123,18 +117,11 @@ mod test {
         }
     }
 
-    fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str, test_port: u16) {
+    fn test_kill_2(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         warmup();
         // Start all nodes, crash nodes 2 and 3, restart node 2, proceed, restart node 3
         let (crash1, crash2) = (2, 3);
-        let (init_balance, account_names, nodes) = create_nodes(
-            num_nodes,
-            test_prefix,
-            test_port,
-            TEST_BLOCK_FETCH_LIMIT,
-            TEST_BLOCK_MAX_SIZE,
-            vec![],
-        );
+        let nodes = create_nodes(num_nodes, test_prefix);
 
         // Convert some of the thread nodes into processes.
         let nodes: Vec<_> = nodes
@@ -153,13 +140,21 @@ mod test {
             .collect();
         let nodes: Vec<Arc<RwLock<Node>>> =
             nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
+        let account_names: Vec<_> =
+            nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();
 
         for i in 0..num_nodes {
             nodes[i].write().unwrap().start();
         }
 
-        let mut expected_balances = vec![init_balance; num_nodes];
+        let mut expected_balances = vec![0; num_nodes];
         let mut nonces = vec![1; num_nodes];
+        for i in 0..num_nodes {
+            let account = nodes[0].read().unwrap().view_account(&account_names[i]).unwrap();
+            nonces[i] = account.nonce + 1;
+            expected_balances[i] = account.amount;
+        }
+
         let trial_duration = 20000;
         for trial in 0..num_trials {
             println!("TRIAL #{}", trial);
@@ -190,13 +185,13 @@ mod test {
                 }
             }
             nonces[i] += 1;
-            expected_balances[i] -= 1;
-            expected_balances[j] += 1;
+            expected_balances[i] -= 100;
+            expected_balances[j] += 100;
             let t = sample_queryable_node(&nodes);
             wait(
                 || {
                     let amt = nodes[t].read().unwrap().view_balance(&account_names[j]).unwrap();
-                    expected_balances[j] == amt
+                    expected_balances[j] <= amt
                 },
                 1000,
                 trial_duration,
@@ -206,12 +201,12 @@ mod test {
 
     #[test]
     fn test_4_20_kill1() {
-        heavy_test(|| test_kill_1(4, 10, "4_10_kill1", 3200));
+        heavy_test(|| test_kill_1(4, 10, "4_10_kill1"));
     }
 
     #[test]
     #[ignore]
     fn test_4_20_kill2() {
-        heavy_test(|| test_kill_2(4, 5, "4_10_kill2", 3300));
+        heavy_test(|| test_kill_2(4, 5, "4_10_kill2"));
     }
 }

@@ -1,28 +1,25 @@
-use primitives::account::{AccessKey, Account};
-use primitives::crypto::aggregate_signature::BlsPublicKey;
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::{hash, CryptoHash};
-use primitives::traits::Base58Encoded;
-use primitives::transaction::{
+use std::convert::TryFrom;
+
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
     SwapKeyTransaction,
 };
-use primitives::types::{AccountId, AuthorityStake};
-use primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
+use near_primitives::types::{AccountId, Balance, ValidatorStake};
+use near_primitives::utils::{
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
+    key_for_code,
 };
-use std::convert::TryFrom;
-use storage::{get, set, TrieUpdate};
-
+use near_store::{get, set, TrieUpdate};
 use wasm::types::ContractCode;
 
-/// const does not allow function call, so have to resort to this
-pub fn system_account() -> AccountId {
-    "system".to_string()
-}
-
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+
+const INVALID_ACCOUNT_ID: &str =
+    "does not match requirements. Must be 5-32 characters (lower case letters/numbers or '@._-')";
 
 pub fn send_money(
     state_update: &mut TrieUpdate,
@@ -63,14 +60,13 @@ pub fn staking(
     body: &StakeTransaction,
     sender_account_id: &AccountId,
     sender: &mut Account,
-    authority_proposals: &mut Vec<AuthorityStake>,
+    validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if sender.amount >= body.amount {
-        authority_proposals.push(AuthorityStake {
+        validator_proposals.push(ValidatorStake {
             account_id: sender_account_id.clone(),
-            public_key: PublicKey::try_from(body.public_key.as_str())?,
-            bls_public_key: BlsPublicKey::from_base58(&body.bls_public_key)
-                .map_err(|e| format!("{}", e))?,
+            public_key: PublicKey::try_from(body.public_key.as_str())
+                .map_err(|err| err.to_string())?,
             amount: body.amount,
         });
         sender.amount -= body.amount;
@@ -88,7 +84,7 @@ pub fn staking(
 
 pub fn deposit(
     state_update: &mut TrieUpdate,
-    amount: u64,
+    amount: Balance,
     callback_info: &Option<CallbackInfo>,
     receiver_id: &AccountId,
     nonce: &CryptoHash,
@@ -121,7 +117,7 @@ pub fn create_account(
     refund_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
-        return Err(format!("Account {} does not match requirements", body.new_account_id));
+        return Err(format!("Account name {} {}", body.new_account_id, INVALID_ACCOUNT_ID));
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
@@ -270,8 +266,7 @@ pub fn system_create_account(
     account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(account_id) {
-        return Err(format!("Account name {} does not match requirements. Must be 5-32 characters (lower case letters/numbers or '@._-')
-", account_id));
+        return Err(format!("Account name {} {}", account_id, INVALID_ACCOUNT_ID));
     }
     let account_id_bytes = key_for_account(&account_id);
 

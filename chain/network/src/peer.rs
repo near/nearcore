@@ -1,547 +1,274 @@
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::io::{Error, ErrorKind};
+use std::io;
 use std::net::SocketAddr;
-use std::ops::DerefMut;
-use std::sync::RwLockWriteGuard;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use futures::stream::Stream;
-use futures::sync::mpsc::{channel, Sender};
-use futures::{try_ready, Async, Future, Poll, Sink};
-use log::{debug, info, warn};
-use tokio::codec::Framed;
-use tokio::net::tcp::ConnectFuture;
+use actix::io::{FramedWrite, WriteHandler};
+use actix::{
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler,
+    Recipient, Running, StreamHandler, WrapFuture,
+};
+use log::{debug, error, info, warn};
+use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
-use tokio::prelude::stream::SplitStream;
-use tokio::timer::Delay;
 
-use primitives::chain::ChainState;
-use primitives::network::{ConnectedInfo, Handshake, PeerInfo, PeerMessage, PeersInfo};
-use primitives::types::PeerId;
+use near_primitives::utils::DisplayOption;
 
-use super::codec::Codec;
-use super::message::{encode_message, Message, PROTOCOL_VERSION};
+use crate::codec::Codec;
+use crate::types::{
+    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
+    PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
+};
+use crate::{NetworkClientResponses, PeerManagerActor};
 
-/// How long do we wait for connection to be established.
-pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_millis(1000);
-/// How long do we wait for the initial handshake.
-const INIT_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(1000);
-/// How long to we wait for someone to reply to our handshake with their handshake.
-const RESPONSE_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(1000);
-/// Only happens if we made a mistake in our code and allowed certain optional fields to be None
-/// during the states that they are not supposed to be None.
-const STATE_ERR: &str = "Some fields are expected to be not None at the given state";
-/// The multiplier for delay in reconnecting.
-const DELAY_AMPLIFIER: u32 = 10;
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-
-/// Note, the peer that establishes the connection is the one that sends the handshake.
-pub enum PeerState {
-    /// Someone unknown has established connection with us and we are waiting for them to send us
-    /// the handshake.
-    IncomingConnection {
-        stream: Option<Framed<TcpStream, Codec>>,
-        hand_timeout: Delay,
-        // Whether it should terminate ASAP. We keep this flag in the state to ensure we it is under
-        // the same lock as the state.
-        evicted: bool,
-    },
-    /// We know some info about this account, but we have not connected to it.
-    Unconnected {
-        info: PeerInfo,
-        /// When to connect.
-        connect_timer: Delay,
-        /// In case the peer is malicious, we ban them until some moment.
-        banned_until: Option<Instant>,
-        // Whether it should terminate ASAP.
-        evicted: bool,
-    },
-    /// We are attempting to connect to the node.
-    Connecting { info: PeerInfo, connect: ConnectFuture, conn_timeout: Delay, evicted: bool },
-    /// We connected and sent them the handshake, now we are waiting for the reply.
-    Connected {
-        info: PeerInfo,
-        stream: Option<SplitStream<Framed<TcpStream, Codec>>>,
-        out_msg_tx: Sender<PeerMessage>,
-        hand_timeout: Delay,
-        evicted: bool,
-    },
-    /// We have performed the handshake exchange and are now ready to exchange other messages.
-    Ready {
-        info: PeerInfo,
-        stream: SplitStream<Framed<TcpStream, Codec>>,
-        out_msg_tx: Sender<PeerMessage>,
-        evicted: bool,
-    },
+pub struct Peer {
+    /// This node's id and address (either listening or socket address).
+    pub node_info: PeerInfo,
+    /// Peer address from connection.
+    pub peer_addr: SocketAddr,
+    /// Peer id and info. Present if outbound or ready.
+    pub peer_info: DisplayOption<PeerInfo>,
+    /// Peer type.
+    pub peer_type: PeerType,
+    /// Peer status.
+    pub peer_status: PeerStatus,
+    /// Framed wrapper to send messages through the TCP connection.
+    framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+    /// Handshake timeout.
+    handshake_timeout: Duration,
+    /// Peer manager recipient to break the dependency loop.
+    peer_manager_addr: Addr<PeerManagerActor>,
+    client_addr: Recipient<NetworkClientMessages>,
 }
 
-pub type LockedPeerState = Arc<RwLock<PeerState>>;
-pub type AllPeerStates = Arc<RwLock<HashMap<PeerId, LockedPeerState>>>;
-
-pub trait ChainStateRetriever: Sized + Send + Clone + 'static {
-    fn get_chain_state(&self) -> ChainState;
-}
-
-pub struct Peer<T> {
-    /// Info of the current node.
-    node_info: PeerInfo,
-    /// `Peer` object is a state machine. This is its state.
-    state: LockedPeerState,
-    /// Information on all peers.
-    all_peer_states: AllPeerStates,
-    /// Channel where the peer places incoming messages.
-    inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
-    /// How long do we wait before reconnecting to the peer.
-    reconnect_delay: Duration,
-    /// Chain state on peer connection.
-    chain_state_retriever: T,
-}
-
-impl<T: ChainStateRetriever> Peer<T> {
-    fn spawn_peer(self) {
-        let inc_msg_tx = self.inc_msg_tx.clone();
-        tokio_utils::spawn(
-            self.map_err(|e| warn!(target: "network", "Error receiving message: {}", e))
-                .forward(inc_msg_tx.sink_map_err(
-                    |e| warn!(target: "network", "Error forwarding incoming messages: {}", e),
-                ))
-                .map(|_| ()),
-        );
-    }
-
-    /// Spawn peer from incoming connection.
-    pub fn spawn_incoming_conn(
+impl Peer {
+    pub fn new(
         node_info: PeerInfo,
-        socket: TcpStream,
-        all_peer_states: AllPeerStates,
-        inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
-        reconnect_delay: Duration,
-        chain_state_retriever: T,
-    ) {
-        let stream = Some(Framed::new(socket, Codec::new()));
-        let hand_timeout = get_delay(INIT_HANDSHAKE_TIMEOUT);
-        let state = Arc::new(RwLock::new(PeerState::IncomingConnection {
-            stream,
-            hand_timeout,
-            evicted: false,
-        }));
-        let peer = Self {
+        peer_addr: SocketAddr,
+        peer_info: Option<PeerInfo>,
+        peer_type: PeerType,
+        framed: FramedWrite<WriteHalf<TcpStream>, Codec>,
+        handshake_timeout: Duration,
+        peer_manager_addr: Addr<PeerManagerActor>,
+        client_addr: Recipient<NetworkClientMessages>,
+    ) -> Self {
+        Peer {
             node_info,
-            state,
-            all_peer_states,
-            inc_msg_tx,
-            reconnect_delay,
-            chain_state_retriever,
+            peer_addr,
+            peer_info: peer_info.into(),
+            peer_type,
+            peer_status: PeerStatus::Connecting,
+            framed,
+            handshake_timeout,
+            peer_manager_addr,
+            client_addr,
+        }
+    }
+
+    fn send_message(&mut self, msg: PeerMessage) {
+        debug!(target: "network", "Sending {:?} message to peer {}", msg, self.peer_info);
+        self.framed.write(msg.into());
+    }
+
+    fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+        self.client_addr
+            .send(NetworkClientMessages::GetChainInfo)
+            .into_actor(self)
+            .then(move |res, act, _ctx| match res {
+                Ok(NetworkClientResponses::ChainInfo { height, total_weight }) => {
+                    let handshake = Handshake::new(
+                        act.node_info.id,
+                        act.node_info.account_id.clone(),
+                        act.node_info.addr_port(),
+                        PeerChainInfo { height, total_weight },
+                    );
+                    act.send_message(PeerMessage::Handshake(handshake));
+                    actix::fut::ok(())
+                }
+                Err(err) => {
+                    error!(target: "network", "Failed sending GetChain to client: {}", err);
+                    actix::fut::err(())
+                }
+                _ => actix::fut::err(()),
+            })
+            .spawn(ctx);
+    }
+
+    /// Process non handshake/peer related messages.
+    fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
+        let peer_id = match self.peer_info.as_ref() {
+            Some(peer_info) => peer_info.id.clone(),
+            None => {
+                return;
+            }
         };
-        peer.spawn_peer();
-    }
 
-    /// Try spawning peers from known information about them.
-    pub fn spawn_from_known(
-        node_info: PeerInfo,
-        peers_info: PeersInfo,
-        all_peer_states: AllPeerStates,
-        all_peer_states_guard: &mut RwLockWriteGuard<HashMap<PeerId, LockedPeerState>>,
-        inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
-        reconnect_delay: Duration,
-        // When this node should start connecting itself.
-        connect_at: Instant,
-        chain_state_retriever: T,
-    ) {
-        let all_peer_states1 = all_peer_states.clone();
-        for info in &peers_info {
-            if info.id == node_info.id {
-                // We do not want to connect to ourselves.
-                continue;
+        // Wrap peer message into what client expects.
+        let network_client_msg = match msg {
+            PeerMessage::Block(block) => {
+                // TODO: add tracking of requests here.
+                NetworkClientMessages::Block(block, peer_id, false)
             }
-            match all_peer_states_guard.entry(info.id) {
-                // This peer is already present.
-                Entry::Occupied(_) => continue,
-                Entry::Vacant(v) => {
-                    let connect_timer = Delay::new(connect_at); // It will initialize itself instantaneously.
-                    let state = Arc::new(RwLock::new(PeerState::Unconnected {
-                        info: info.clone(),
-                        connect_timer,
-                        banned_until: None,
-                        evicted: false,
-                    }));
-                    v.insert(state.clone());
-                    let peer = Self {
-                        node_info: node_info.clone(),
-                        state,
-                        all_peer_states: all_peer_states1.clone(),
-                        inc_msg_tx: inc_msg_tx.clone(),
-                        reconnect_delay,
-                        chain_state_retriever: chain_state_retriever.clone(),
-                    };
-                    peer.spawn_peer();
-                }
+            PeerMessage::BlockHeaderAnnounce(header) => {
+                NetworkClientMessages::BlockHeader(header, peer_id)
             }
+            PeerMessage::Transaction(transaction) => {
+                NetworkClientMessages::Transaction(transaction)
+            }
+            PeerMessage::BlockApproval(account_id, hash, signature) => {
+                NetworkClientMessages::BlockApproval(account_id, hash, signature)
+            }
+            PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
+            PeerMessage::BlockHeadersRequest(hashes) => {
+                NetworkClientMessages::BlockHeadersRequest(hashes)
+            }
+            PeerMessage::BlockHeaders(headers) => {
+                NetworkClientMessages::BlockHeaders(headers, peer_id)
+            }
+            _ => unreachable!(),
+        };
+        self.client_addr
+            .send(network_client_msg)
+            .into_actor(self)
+            .then(|res, act, ctx| {
+                // Ban peer if client thinks received data is bad.
+                match res {
+                    Ok(NetworkClientResponses::InvalidTx(err)) => {
+                        warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
+                        // TODO: count as malicious behaviour?
+                    }
+                    Ok(NetworkClientResponses::Ban { ban_reason }) => {
+                        act.peer_status = PeerStatus::Banned(ban_reason);
+                        ctx.stop();
+                    }
+                    Ok(NetworkClientResponses::Block(block)) => {
+                        act.send_message(PeerMessage::Block(block))
+                    }
+                    Ok(NetworkClientResponses::BlockHeaders(headers)) => {
+                        act.send_message(PeerMessage::BlockHeaders(headers))
+                    }
+                    Err(err) => {
+                        error!(
+                            target: "network",
+                            "Received error sending message to client: {} for {}",
+                            err, act.peer_info
+                        );
+                        return actix::fut::err(());
+                    }
+                    _ => {}
+                };
+                actix::fut::ok(())
+            })
+            .spawn(ctx);
+    }
+}
+
+impl Actor for Peer {
+    type Context = Context<Peer>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        debug!(target: "network", "Peer {:?} {:?} started", self.peer_addr, self.peer_type);
+        // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
+        ctx.run_later(self.handshake_timeout, move |act, ctx| {
+            if act.peer_status != PeerStatus::Ready {
+                info!(target: "network", "Handshake timeout expired for {}", act.peer_info);
+                ctx.stop();
+            }
+        });
+
+        // If outbound peer, initiate handshake.
+        if self.peer_type == PeerType::Outbound {
+            self.send_handshake(ctx);
         }
     }
 
-    fn on_peer_connected(&self, handshake: Handshake) {
-        let data = encode_message(Message::Connected(handshake.connected_info)).unwrap();
-        tokio_utils::spawn(
-            self.inc_msg_tx
-                .clone()
-                .send((handshake.peer_id, data))
-                .map(|_| ())
-                .map_err(|err| warn!("Failed to send message: {}", err)),
-        );
-    }
-}
-
-/// Splits the framed stream, attaches channel to the sink, sends handshake down the sink,
-/// returns the channel and the stream for reading incoming messages.
-fn framed_stream_to_channel_with_handshake(
-    node_info: &PeerInfo,
-    peers_info: Vec<PeerInfo>,
-    framed_stream: Framed<TcpStream, Codec>,
-    chain_state: ChainState,
-) -> (Sender<PeerMessage>, SplitStream<Framed<TcpStream, Codec>>) {
-    let (sink, stream) = framed_stream.split();
-    let (out_msg_tx, out_msg_rx) = channel(1024);
-    let handshake = PeerMessage::Handshake(Handshake {
-        version: PROTOCOL_VERSION,
-        peer_id: node_info.id,
-        account_id: node_info.account_id.clone(),
-        listen_port: node_info.addr_port(),
-        peers_info,
-        connected_info: ConnectedInfo { chain_state },
-    });
-    // Create the task that places the handshake down the channel.
-    let hand_task = out_msg_tx
-        .clone()
-        .send(handshake)
-        .map(|_| ())
-        .map_err(|e| warn!(target: "network", "Error sending handshake {}", e));
-    let fwd_task = out_msg_rx
-        .forward(sink.sink_map_err(|e| {
-            warn!(
-            target: "network",
-            "Error forwarding outgoing messages to the TcpStream sink: {}", e)
-        }))
-        .map(|_| ());
-    tokio_utils::spawn(hand_task.then(|_| fwd_task));
-    (out_msg_tx, stream)
-}
-
-/// Converts Timer Error to IO Error.
-fn timer_err(err: tokio::timer::Error) -> Error {
-    Error::new(ErrorKind::Other, format!("Timer error: {}", err))
-}
-
-/// Constructs `Delay` object from the given delay in ms.
-pub(crate) fn get_delay(delay: Duration) -> Delay {
-    Delay::new(Instant::now() + delay)
-}
-
-/// Provides convenience access to the `evicted` flag in the peer.
-fn get_evicted_flag(state: &mut PeerState) -> &mut bool {
-    use self::PeerState::*;
-    match state {
-        IncomingConnection { evicted, .. }
-        | Unconnected { evicted, .. }
-        | Connecting { evicted, .. }
-        | Connected { evicted, .. }
-        | Ready { evicted, .. } => evicted,
-    }
-}
-
-/// Provides convenience access to the `peer_info` in the peer state.
-pub fn get_peer_info(state: &PeerState) -> Option<&PeerInfo> {
-    use self::PeerState::*;
-    match state {
-        IncomingConnection { .. } => None,
-        Unconnected { info, .. }
-        | Connecting { info, .. }
-        | Connected { info, .. }
-        | Ready { info, .. } => Some(info),
-    }
-}
-
-impl<T: ChainStateRetriever> Stream for Peer<T> {
-    type Item = (PeerId, Vec<u8>);
-    type Error = Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        use self::PeerMessage::*;
-        use self::PeerState::*;
-        loop {
-            let mut all_peer_states = self.all_peer_states.write().expect(POISONED_LOCK_ERR);
-            // Need to compute this before going into match, otherwise dead lock on the one of the states.
-            let all_peer_info = all_peer_states
-                .values()
-                .filter_map(|state| {
-                    get_peer_info(state.write().expect(POISONED_LOCK_ERR).deref_mut()).cloned()
-                })
-                .collect();
-            let mut state_guard = self.state.write().expect(POISONED_LOCK_ERR);
-            // First, check the eviction condition.
-            if *get_evicted_flag(state_guard.deref_mut()) {
-                return Ok(Async::Ready(None));
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        debug!(target: "network", "Peer {} disconnected.", self.peer_info);
+        if let Some(peer_info) = self.peer_info.as_ref() {
+            if self.peer_status == PeerStatus::Ready {
+                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
+            } else if let PeerStatus::Banned(ban_reason) = self.peer_status {
+                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id, ban_reason });
             }
-            // Then do the state machine step.
-            *state_guard = match state_guard.deref_mut() {
-                IncomingConnection { stream, hand_timeout, .. } => {
-                    let peer_addr = stream.as_mut().expect(STATE_ERR).get_ref().peer_addr();
-                    match stream.as_mut().expect(STATE_ERR).poll() {
-                        // If connection was closed then close the stream
-                        Ok(Async::Ready(None)) => {
-                            return Ok(Async::Ready(None));
-                        }
-                        Ok(Async::Ready(Some(Handshake(handshake)))) => {
-                            if handshake.peer_id == self.node_info.id {
-                                panic!("Received info about itself. Contr-adversarial behavior is not implemented yet.");
-                            }
-                            match all_peer_states.entry(handshake.peer_id) {
-                                // We do not know about this peer. Add it as Ready.
-                                Entry::Vacant(entry) => {
-                                    // Add it and become ready, see below.
-                                    entry.insert(self.state.clone());
-                                }
-                                // We know this peer already.
-                                Entry::Occupied(mut entry) => {
-                                    // Check its state.
-                                    let entry_clone = entry.get().clone();
-                                    let mut entry_guard =
-                                        entry_clone.write().expect(POISONED_LOCK_ERR);
-                                    match entry_guard.deref_mut() {
-                                        old_state @ Unconnected { .. } => {
-                                            if let Unconnected {
-                                                banned_until: Some(banned_until),
-                                                ..
-                                            } = old_state
-                                            {
-                                                if Instant::now() < *banned_until {
-                                                    return Ok(Async::NotReady);
-                                                }
-                                            }
-                                            // It is unconnected, so we take its place, and become ready
-                                            // see below.
-                                            *get_evicted_flag(old_state) = true;
-                                            entry.insert(self.state.clone());
-                                        }
-                                        // The other connection is already in use, so we close this stream.
-                                        Ready { .. } => {
-                                            return Ok(Async::Ready(None));
-                                        }
-                                        // Anything else requires a tie breaker.
-                                        old_state => {
-                                            if handshake.peer_id < self.node_info.id {
-                                                // Keep this connection, take the place of the other
-                                                // connection, and become ready, see below.
-                                                *get_evicted_flag(old_state) = true;
-                                                entry.insert(self.state.clone());
-                                            } else {
-                                                // Drop this connection.
-                                                return Ok(Async::Ready(None));
-                                            }
-                                        }
-                                    };
-                                }
-                            };
-                            self.on_peer_connected(handshake.clone());
-                            // Re-insert new entry with updated info.
-                            let val = all_peer_states.remove(&handshake.peer_id).unwrap();
-                            all_peer_states.insert(handshake.peer_id, val);
-                            let addr = if peer_addr.is_ok() {
-                                handshake
-                                    .listen_port
-                                    .map(|port| SocketAddr::new(peer_addr.unwrap().ip(), port))
-                            } else {
-                                None
-                            };
-                            let info = PeerInfo {
-                                id: handshake.peer_id,
-                                addr,
-                                account_id: handshake.account_id,
-                            };
-                            let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
-                                &self.node_info,
-                                all_peer_info,
-                                stream.take().expect(STATE_ERR),
-                                self.chain_state_retriever.get_chain_state(),
-                            );
-                            Ready { info, stream, out_msg_tx, evicted: false }
-                        }
-                        // If error was received then log it and continue.
-                        Err(e) => {
-                            warn!(target: "network", "Error receiving data from incoming connection {}", e);
-                            continue;
-                        }
-                        // If it is not ready yet or some other message was received then check for
-                        // the timer.
-                        Ok(Async::NotReady) | Ok(Async::Ready(Some(_))) => {
-                            try_ready!(hand_timeout.poll().map_err(timer_err));
-                            // Timer has expired, close the stream.
-                            return Ok(Async::Ready(None));
-                        }
-                    }
-                }
-                Unconnected { info, connect_timer, banned_until, .. } => {
-                    if let Some(banned_until) = banned_until {
-                        if Instant::now() < *banned_until {
-                            return Ok(Async::NotReady);
-                        }
-                    }
-                    try_ready!(connect_timer.poll().map_err(timer_err));
-                    // TODO: add other state for peers who don't have open port, to not keep trying to connect to them.
-                    if info.addr.is_some() {
-                        let connect = TcpStream::connect(&info.addr.unwrap());
-                        let conn_timeout = get_delay(CONNECT_TIMEOUT);
-                        Connecting { info: info.clone(), connect, conn_timeout, evicted: false }
-                    } else {
-                        Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay * DELAY_AMPLIFIER),
-                            banned_until: None,
-                            evicted: false,
-                        }
-                    }
-                }
-                Connecting { info, connect, conn_timeout, .. } => match connect.poll() {
-                    Ok(Async::Ready(socket)) => {
-                        let framed_stream = Framed::new(socket, Codec::new());
-                        let (out_msg_tx, stream) = framed_stream_to_channel_with_handshake(
-                            &self.node_info,
-                            all_peer_info,
-                            framed_stream,
-                            self.chain_state_retriever.get_chain_state(),
-                        );
-                        let hand_timeout = get_delay(RESPONSE_HANDSHAKE_TIMEOUT);
-                        Connected {
-                            info: info.clone(),
-                            stream: Some(stream),
-                            out_msg_tx,
-                            hand_timeout,
-                            evicted: false,
-                        }
-                    }
-                    Ok(Async::NotReady) => {
-                        try_ready!(conn_timeout.poll().map_err(timer_err));
-                        // We have not locked this peer yet, because we do not know its info,
-                        // because we did not have a successful handshake. Try again later.
-                        Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay),
-                            banned_until: None,
-                            evicted: false,
-                        }
-                    }
-                    // Connection returned error. Should try again later.
-                    Err(e) => {
-                        debug!(target: "network", "Failed to connect to a known peer {}", e);
-                        Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay),
-                            banned_until: None,
-                            evicted: false,
-                        }
-                    }
-                },
-                Connected { info, stream, out_msg_tx, hand_timeout, .. } =>
-                // Wait for the handshake reply.
-                {
-                    match stream.as_mut().expect(STATE_ERR).poll() {
-                        // The connection was closed. Try again later.
-                        Ok(Async::Ready(None)) => Unconnected {
-                            info: info.clone(),
-                            connect_timer: get_delay(self.reconnect_delay),
-                            banned_until: None,
-                            evicted: false,
-                        },
-                        Ok(Async::Ready(Some(Handshake(handshake)))) => {
-                            // TODO: make sure this condition is correct for nodes that reconnect from different IP addresses.
-                            if info.id != handshake.peer_id {
-                                // Known info does not match the handshake. Try again later with
-                                // the new info.
-                                Unconnected {
-                                    info: PeerInfo {
-                                        id: handshake.peer_id,
-                                        addr: None,
-                                        account_id: handshake.account_id,
-                                    },
-                                    connect_timer: get_delay(self.reconnect_delay),
-                                    banned_until: None,
-                                    evicted: false,
-                                }
-                            } else {
-                                if info.account_id != handshake.account_id {
-                                    info.account_id = handshake.account_id.clone();
-                                }
-                                self.on_peer_connected(handshake);
-                                Ready {
-                                    info: info.clone(),
-                                    stream: stream.take().expect(STATE_ERR),
-                                    out_msg_tx: out_msg_tx.clone(),
-                                    evicted: false,
-                                }
-                            }
-                        }
-                        // Any other message returned by the stream is irrelevant.
-                        Ok(Async::NotReady) | Ok(Async::Ready(_)) => {
-                            try_ready!(hand_timeout.poll().map_err(timer_err));
-                            Unconnected {
-                                info: info.clone(),
-                                connect_timer: get_delay(self.reconnect_delay),
-                                banned_until: None,
-                                evicted: false,
-                            }
-                        }
-                        Err(e) => {
-                            warn!(target: "network", "Error while trying to get a handshake {}", e);
-                            try_ready!(hand_timeout.poll().map_err(timer_err));
-                            Unconnected {
-                                info: info.clone(),
-                                connect_timer: get_delay(self.reconnect_delay),
-                                banned_until: None,
-                                evicted: false,
-                            }
-                        }
-                    }
-                }
-                Ready { info, stream, .. } => match stream.poll() {
-                    // Connection was closed. Reconnect later.
-                    Ok(Async::Ready(None)) => Unconnected {
-                        info: info.clone(),
-                        connect_timer: get_delay(self.reconnect_delay),
-                        banned_until: None,
-                        evicted: false,
-                    },
-                    // Actual message transmitted over the network.
-                    Ok(Async::Ready(Some(Message(data)))) => {
-                        return Ok(Async::Ready(Some((info.id, data))));
-                    }
-                    Ok(Async::Ready(Some(InfoGossip(peers_info)))) => {
-                        Self::spawn_from_known(
-                            self.node_info.clone(),
-                            peers_info,
-                            self.all_peer_states.clone(),
-                            &mut all_peer_states,
-                            self.inc_msg_tx.clone(),
-                            self.reconnect_delay,
-                            Instant::now() + self.reconnect_delay,
-                            self.chain_state_retriever.clone(),
-                        );
-                        continue;
-                    }
-                    Ok(Async::Ready(Some(Handshake(handshake)))) => {
-                        info!(target: "network", "Unexpected handshake {:?} from {}", handshake, info);
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!(target: "network", "Error while communicating with Ready peer {}", e);
-                        continue;
-                    }
-                    Ok(Async::NotReady) => {
-                        return Ok(Async::NotReady);
-                    }
-                },
-            };
         }
+        Running::Stop
+    }
+}
+
+impl WriteHandler<io::Error> for Peer {}
+
+impl StreamHandler<PeerMessage, io::Error> for Peer {
+    fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
+        match (self.peer_type, self.peer_status, msg) {
+            (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
+                debug!(target: "network", "{:?} received handshake {:?}", self.node_info.id, handshake);
+                if handshake.peer_id == self.node_info.id {
+                    warn!(target: "network", "Received info about itself. Disconnecting this peer.");
+                    ctx.stop();
+                }
+                let peer_info = PeerInfo {
+                    id: handshake.peer_id,
+                    addr: handshake
+                        .listen_port
+                        .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
+                    account_id: handshake.account_id.clone(),
+                };
+                self.peer_manager_addr
+                    .send(Consolidate {
+                        actor: ctx.address(),
+                        peer_info: peer_info.clone(),
+                        peer_type: self.peer_type,
+                        chain_info: handshake.chain_info,
+                    })
+                    .into_actor(self)
+                    .then(move |res, act, ctx| {
+                        match res {
+                            Ok(true) => {
+                                debug!(target: "network", "Peer {:?} successfully consolidated", act.peer_addr);
+                                act.peer_info = Some(peer_info).into();
+                                act.peer_status = PeerStatus::Ready;
+                                // Respond to handshake if it's inbound and connection was consolidated.
+                                if act.peer_type == PeerType::Inbound {
+                                    act.send_handshake(ctx);
+                                }
+                                actix::fut::ok(())
+                            },
+                            _ => {
+                                info!(target: "network", "Peer with handshake {:?} wasn't consolidated, disconnecting.", handshake);
+                                ctx.stop();
+                                actix::fut::err(())
+                            }
+                        }
+                    })
+                    .wait(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
+                self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
+                    if let Ok(peers) = res {
+                        debug!(target: "network", "Peers request from {}: sending {} peers.", act.peer_info, peers.peers.len());
+                        act.send_message(PeerMessage::PeersResponse(peers.peers));
+                    }
+                    actix::fut::ok(())
+                }).spawn(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
+                debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
+                self.peer_manager_addr.do_send(PeersResponse { peers });
+            }
+            (_, PeerStatus::Ready, msg) => {
+                self.receive_client_message(ctx, msg);
+            }
+            (_, _, msg) => {
+                warn!(target: "network", "Received {} while {:?} from {:?} connection.", msg, self.peer_status, self.peer_type);
+            }
+        }
+    }
+}
+
+impl Handler<SendMessage> for Peer {
+    type Result = ();
+
+    fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
+        self.send_message(msg.message);
     }
 }

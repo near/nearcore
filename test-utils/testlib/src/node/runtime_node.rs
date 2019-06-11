@@ -1,13 +1,13 @@
+use std::sync::{Arc, RwLock};
+
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
+use near_primitives::types::{AccountId, Balance};
+
 use crate::node::Node;
 use crate::runtime_utils::get_runtime_and_trie;
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
-
-use primitives::crypto::signer::InMemorySigner;
-use primitives::transaction::{FunctionCallTransaction, TransactionBody};
-use primitives::types::{AccountId, Balance};
-
-use std::sync::{Arc, RwLock};
 
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
@@ -23,9 +23,9 @@ impl RuntimeNode {
     }
 
     pub fn send_money(&self, account_id: &AccountId, amount: Balance) {
-        let nonce = self.get_account_nonce(self.account_id().unwrap()).unwrap_or_default() + 1;
+        let nonce = self.get_account_nonce(&self.account_id().unwrap()).unwrap_or_default() + 1;
         let transaction =
-            TransactionBody::send_money(nonce, self.account_id().unwrap(), account_id, amount)
+            TransactionBody::send_money(nonce, &self.account_id().unwrap(), account_id, amount)
                 .sign(&*self.signer());
         self.user().add_transaction(transaction).unwrap();
     }
@@ -38,7 +38,7 @@ impl RuntimeNode {
         amount: Balance,
     ) {
         let account_id = self.account_id().unwrap();
-        let nonce = self.get_account_nonce(account_id).unwrap_or_default() + 1;
+        let nonce = self.get_account_nonce(&account_id).unwrap_or_default() + 1;
         let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce,
             originator: account_id.to_string(),
@@ -53,15 +53,15 @@ impl RuntimeNode {
 }
 
 impl Node for RuntimeNode {
-    fn account_id(&self) -> Option<&AccountId> {
-        Some(&self.signer.account_id)
+    fn account_id(&self) -> Option<AccountId> {
+        Some(self.signer.account_id.clone())
     }
 
     fn start(&mut self) {}
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<InMemorySigner> {
+    fn signer(&self) -> Arc<EDSigner> {
         self.signer.clone()
     }
 

@@ -1,4 +1,4 @@
-use primitives::types::{AccountId, Balance, PromiseId};
+use near_primitives::types::{AccountId, Balance, PromiseId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {

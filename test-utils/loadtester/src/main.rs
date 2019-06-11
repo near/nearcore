@@ -1,17 +1,20 @@
-use crate::transactions_executor::Executor;
-use env_logger::Builder;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::time::Duration;
+
+use env_logger::Builder;
+
+use near::config::GenesisConfig;
+use remote_node::RemoteNode;
+
+use crate::transactions_executor::Executor;
+use crate::transactions_generator::TransactionType;
 
 pub mod remote_node;
 pub mod sampler;
 pub mod stats;
 pub mod transactions_executor;
 pub mod transactions_generator;
-use crate::transactions_generator::TransactionType;
-use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
-use remote_node::RemoteNode;
-use std::time::Duration;
 
 #[allow(dead_code)]
 fn configure_logging(log_level: log::LevelFilter) {
@@ -26,13 +29,8 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let (chain_spec, _) = ChainSpec::testing_spec(
-        DefaultIdType::Enumerated,
-        400,
-        10,
-        AuthorityRotation::ProofOfAuthority,
-    );
-    let accounts: Vec<_> = chain_spec.accounts.into_iter().map(|t| t.0).collect();
+    let genesis_config = GenesisConfig::testing_spec(400, 10);
+    let accounts: Vec<_> = genesis_config.accounts.into_iter().map(|t| t.account_id).collect();
 
     let addrs = [
         "35.236.106.188:3030",

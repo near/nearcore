@@ -1,0 +1,17 @@
+[package]
+name = "near-pool"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+log = "0.4"
+chrono = "0.4.4"
+failure = "0.1"
+failure_derive = "0.1"
+
+near-primitives = { path = "../../core/primitives" }
+near-chain = { path = "../chain" }
+
+[dev-dependencies]
+rand = "0.6"

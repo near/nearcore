@@ -1,10 +1,12 @@
 use std::fmt;
 
-use crate::types::Error::Runtime;
-use primitives::hash::{hash, CryptoHash};
-use primitives::logging;
-use primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
 use wasmer_runtime::error as WasmerError;
+
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::logging;
+use near_primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
+
+use crate::types::Error::Runtime;
 
 #[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -265,7 +267,7 @@ pub struct Config {
     pub return_data_per_byte_cost: u32,
 
     /// Gas cost of the contract call.
-    pub contract_call_cost: u64,
+    pub contract_call_cost: Balance,
 
     /// How tall the stack is allowed to grow?
     ///

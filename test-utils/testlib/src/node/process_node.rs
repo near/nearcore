@@ -1,13 +1,19 @@
-use crate::node::Node;
-use crate::user::{RpcUser, User};
-use log::error;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::types::AccountId;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::process::{Child, Command};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fs, thread};
+use std::{env, thread};
+
+use log::error;
+use rand::Rng;
+
+use near::config::NearConfig;
+use near_primitives::crypto::signer::EDSigner;
+use near_primitives::types::AccountId;
+
+use crate::node::Node;
+use crate::user::rpc_user::RpcUser;
+use crate::user::User;
 
 pub enum ProcessNodeState {
     Stopped,
@@ -15,13 +21,17 @@ pub enum ProcessNodeState {
 }
 
 pub struct ProcessNode {
-    pub config: LocalNodeConfig,
+    pub work_dir: String,
+    pub config: NearConfig,
     pub state: ProcessNodeState,
 }
 
 impl Node for ProcessNode {
-    fn account_id(&self) -> Option<&AccountId> {
-        self.config.client_cfg.account_id.as_ref()
+    fn account_id(&self) -> Option<AccountId> {
+        match &self.config.block_producer {
+            Some(bp) => Some(bp.account_id.clone()),
+            None => None,
+        }
     }
 
     fn start(&mut self) {
@@ -36,11 +46,6 @@ impl Node for ProcessNode {
         }
     }
 
-    fn signer(&self) -> Arc<InMemorySigner> {
-        let account_id = &self.config.client_cfg.account_id.clone().expect("Must have signer");
-        Arc::new(InMemorySigner::from_seed(account_id, account_id))
-    }
-
     fn kill(&mut self) {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
@@ -52,12 +57,8 @@ impl Node for ProcessNode {
         }
     }
 
-    fn as_process_ref(&self) -> &ProcessNode {
-        self
-    }
-
-    fn as_process_mut(&mut self) -> &mut ProcessNode {
-        self
+    fn signer(&self) -> Arc<EDSigner> {
+        self.config.block_producer.clone().unwrap().signer.clone()
     }
 
     fn is_running(&self) -> bool {
@@ -68,84 +69,52 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            self.config.rpc_cfg.rpc_port,
-        )))
+        Box::new(RpcUser::new(&self.config.rpc_config.addr))
+    }
+
+    fn as_process_ref(&self) -> &ProcessNode {
+        self
+    }
+
+    fn as_process_mut(&mut self) -> &mut ProcessNode {
+        self
     }
 }
 
 impl ProcessNode {
     /// Side effect: reset_storage
-    pub fn new(config: LocalNodeConfig) -> ProcessNode {
-        let result = ProcessNode { config, state: ProcessNodeState::Stopped };
+    pub fn new(config: NearConfig) -> ProcessNode {
+        let mut rng = rand::thread_rng();
+        let work_dir = format!("{}process_node_{}", env::temp_dir().as_path().to_str().unwrap(), rng.gen::<u64>());
+        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped };
         result.reset_storage();
         result
     }
 
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
-        let keygen_path = self.config.client_cfg.base_path.join("storage/keystore");
         Command::new("rm")
-            .args(&["-r", self.config.client_cfg.base_path.to_str().unwrap()])
+            .args(&["-r", &self.work_dir])
             .spawn()
             .unwrap()
             .wait()
             .unwrap();
-        Command::new("cargo")
-            .args(&[
-                "run",
-                "--package",
-                "keystore",
-                "--",
-                "keygen",
-                "--test-seed",
-                self.config.client_cfg.account_id.clone().expect("Must have account").as_str(),
-                "-p",
-                keygen_path.to_str().unwrap(),
-            ])
-            .spawn()
-            .expect("keygen command failed")
-            .wait()
-            .expect("keygen command failed");
+        self.config.save_to_dir(Path::new(&self.work_dir));
     }
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
-        let account_name = self.config.client_cfg.account_id.clone().expect("Must have account");
-        let pubkey = InMemorySigner::from_seed(&account_name, &account_name).public_key;
-        let chain_spec = &self.config.client_cfg.chain_spec;
-        let chain_spec_path = self.config.client_cfg.base_path.join("chain_spec.json");
-        if !self.config.client_cfg.base_path.exists() {
-            fs::create_dir_all(&self.config.client_cfg.base_path).unwrap();
-        }
-        chain_spec.write_to_file(&chain_spec_path);
-
-        let mut start_node_command = Command::new("cargo");
-        start_node_command.args(&[
+        let mut command = Command::new("cargo");
+        command.args(&[
             "run",
+            "-p",
+            "near",
             "--",
-            "--rpc_port",
-            format!("{}", self.config.rpc_cfg.rpc_port).as_str(),
-            "--base-path",
-            self.config.client_cfg.base_path.to_str().unwrap(),
-            "--test-network-key-seed",
-            format!("{}", self.config.peer_id_seed).as_str(),
-            "--chain-spec-file",
-            chain_spec_path.to_str().unwrap(),
-            "-a",
-            account_name.as_str(),
-            "-k",
-            format!("{}", pubkey).as_str(),
+            "--home",
+            &self.work_dir,
+            "run",
         ]);
-        if let Some(ref addr) = self.config.node_info.addr {
-            start_node_command.args(&["--addr", format!("{}", addr).as_str()]);
-        }
-        if !self.config.network_cfg.boot_nodes.is_empty() {
-            let boot_node = format!("{}", self.config.network_cfg.boot_nodes[0]);
-            start_node_command.args(&["--boot-nodes", boot_node.as_str()]);
-        }
-        start_node_command
+        command
     }
 }
 
@@ -154,6 +123,7 @@ impl Drop for ProcessNode {
         match self.state {
             ProcessNodeState::Running(ref mut child) => {
                 let _ = child.kill().map_err(|_| error!("child process died"));
+                std::fs::remove_dir_all(self.work_dir.clone()).unwrap();
             }
             ProcessNodeState::Stopped => {}
         }

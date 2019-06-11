@@ -1,646 +1,459 @@
-//! Structure that encapsulates communication, gossip, and discovery with the peers.
+use std::cmp;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
 
-use std::collections::HashMap;
-use std::fmt;
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-
+use actix::actors::resolver::{ConnectAddr, Resolver};
+use actix::io::FramedWrite;
+use actix::prelude::Stream;
+use actix::{
+    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
+    StreamHandler, SystemService, WrapFuture,
+};
+use chrono::Utc;
 use futures::future;
-use futures::future::Future;
-use futures::sink::Sink;
-use futures::stream::Stream;
-use futures::sync::mpsc::Receiver;
-use futures::sync::mpsc::Sender;
-use log::warn;
-use rand::seq::IteratorRandom;
-use rand::thread_rng;
-use tokio::net::TcpListener;
-use tokio::timer::Interval;
+use log::{debug, error, info, warn};
+use rand::{thread_rng, Rng};
+use tokio::codec::FramedRead;
+use tokio::io::AsyncRead;
+use tokio::net::{TcpListener, TcpStream};
 
-use primitives::network::{PeerAddr, PeerInfo, PeerMessage};
-use primitives::types::{AccountId, PeerId};
+use near_primitives::types::AccountId;
+use near_store::Store;
 
-use crate::peer::{
-    get_delay, get_peer_info, AllPeerStates, ChainStateRetriever, Peer, PeerState, CONNECT_TIMEOUT,
+use crate::codec::Codec;
+use crate::peer::Peer;
+use crate::peer_store::PeerStore;
+use crate::types::{
+    Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, OutboundTcpConnect, PeerId,
+    PeerList, PeerMessage, PeerType, PeersRequest, PeersResponse, ReasonForBan, SendMessage,
+    Unregister,
+};
+use crate::types::{
+    NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
-const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
+    Ok(result) => result,
+    Err(err) => {
+        error!(target: "network", "{}: {}", $error, err);
+        return;
+    }
+}));
 
-pub struct PeerManager<T> {
-    pub all_peer_states: AllPeerStates,
-    pub node_info: PeerInfo,
-    phantom: PhantomData<T>,
+/// Actor that manages peers connections.
+pub struct PeerManagerActor {
+    /// Networking configuration.
+    config: NetworkConfig,
+    /// Peer information for this node.
+    peer_id: PeerId,
+    /// Address of the client actor.
+    client_addr: Recipient<NetworkClientMessages>,
+    /// Peer store that provides read/write access to peers.
+    peer_store: PeerStore,
+    /// Set of outbound connections that were not consolidated yet.
+    outgoing_peers: HashSet<PeerId>,
+    /// Active peers (inbound and outbound) with their full peer information.
+    active_peers: HashMap<PeerId, (Addr<Peer>, FullPeerInfo)>,
+    /// Peers with known account ids.
+    account_peers: HashMap<AccountId, PeerId>,
+    /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
+    monitor_peers_attempts: u64,
 }
 
-impl<T: ChainStateRetriever> PeerManager<T> {
-    /// Args:
-    /// * `reconnect_delay`: How long should we wait before connecting a newly discovered peer or
-    ///   reconnecting the old one;
-    ///    TODO: Use smarter strategy to gossip peer info. More frequent while not synced, and decaying with time
-    /// * `gossip_interval`: Frequency of gossiping the peers info;
-    /// * `gossip_sample_size`: How many peers should we gossip info to;
-    /// * `node_info`: Information about the current node;
-    /// * `boot_nodes`: list of verified info about boot nodes from which we can join the network;
-    /// * `inc_msg_tx`: where `PeerManager` should be sending incoming messages;
-    /// * `out_msg_rx`: where from `PeerManager` should be getting outgoing messages.
-    /// * `chain_state_retriever`: adapter to retrieve `ChainState`.
+impl PeerManagerActor {
     pub fn new(
-        reconnect_delay: Duration,
-        gossip_interval: Duration,
-        gossip_sample_size: usize,
-        node_info: PeerInfo,
-        boot_nodes: &[PeerAddr],
-        inc_msg_tx: Sender<(PeerId, Vec<u8>)>,
-        out_msg_rx: Receiver<(PeerId, Vec<u8>)>,
-        chain_state_retriever: T,
-    ) -> Self {
-        let all_peer_states = Arc::new(RwLock::new(HashMap::new()));
-        // Spawn peers that represent boot nodes.
-        Peer::spawn_from_known(
-            node_info.clone(),
-            boot_nodes.iter().cloned().map(std::convert::Into::into).collect(),
-            all_peer_states.clone(),
-            &mut all_peer_states.write().expect(POISONED_LOCK_ERR),
-            inc_msg_tx.clone(),
-            reconnect_delay,
-            // Connect to the boot nodes immediately.
-            Instant::now(),
-            chain_state_retriever.clone(),
-        );
-
-        // Spawn the task that forwards outgoing messages to the appropriate peers.
-        let all_peer_states1 = all_peer_states.clone();
-        let task = out_msg_rx
-            .filter_map(move |(id, data)| {
-                let states_guard = all_peer_states1.read().expect(POISONED_LOCK_ERR);
-                states_guard.get(&id).and_then(|locked_peer| {
-                    let locked_peer_guard = locked_peer.read().expect(POISONED_LOCK_ERR);
-                    match locked_peer_guard.deref() {
-                        // We only use peers that are ready to communicate.
-                        PeerState::Ready { out_msg_tx, .. } => Some((out_msg_tx.clone(), data)),
-                        _ => None,
-                    }
-                })
-            })
-            .for_each(|(ch, data)| {
-                ch.send(PeerMessage::Message(data))
-                    .map(|_| ())
-                    .map_err(|_| warn!(target: "network", "Error sending message to the peer"))
-            })
-            .map(|_| ());
-        tokio_utils::spawn(task);
-
-        // Spawn the task that gossips.
-        let all_peer_states2 = all_peer_states.clone();
-        let task = Interval::new_interval(gossip_interval)
-            .for_each(move |_| {
-                let guard = all_peer_states2.read().expect(POISONED_LOCK_ERR);
-                let peers_info: Vec<_> = guard
-                    .values()
-                    .filter_map(|state| {
-                        get_peer_info(state.write().expect(POISONED_LOCK_ERR).deref_mut()).cloned()
-                    })
-                    .collect();
-                let mut rng = thread_rng();
-                let sampled_peers = guard
-                    .iter()
-                    .filter_map(|(_, state)| {
-                        if let PeerState::Ready { out_msg_tx, .. } =
-                            state.read().expect(POISONED_LOCK_ERR).deref()
-                        {
-                            Some(out_msg_tx.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .choose_multiple(&mut rng, gossip_sample_size);
-                for ch in sampled_peers {
-                    tokio_utils::spawn(
-                        ch.send(PeerMessage::InfoGossip(peers_info.clone()))
-                            .map(|_| ())
-                            .map_err(|_| warn!(target: "network", "Error gossiping peers info.")),
-                    );
-                }
-                future::ok(())
-            })
-            .map(|_| ())
-            .map_err(|e| warn!(target: "network", "Error gossiping peers info {}", e));
-        tokio_utils::spawn(task);
-
-        // Spawn the task that listens to incoming connections if address is specified.
-        if node_info.addr.is_some() {
-            let node_info1 = node_info.clone();
-            let all_peer_states3 = all_peer_states.clone();
-            let task = TcpListener::bind(&node_info.addr.unwrap())
-                .expect("Cannot listen to the address")
-                .incoming()
-                .for_each(move |socket| {
-                    Peer::spawn_incoming_conn(
-                        node_info1.clone(),
-                        socket,
-                        all_peer_states3.clone(),
-                        inc_msg_tx.clone(),
-                        reconnect_delay,
-                        chain_state_retriever.clone(),
-                    );
-                    future::ok(())
-                })
-                .map(|_| ())
-                .map_err(
-                    |e| warn!(target: "network", "Error processing incoming connection {}", e),
-                );
-            tokio_utils::spawn(task);
-        }
-
-        Self { all_peer_states, node_info, phantom: PhantomData }
-    }
-
-    /// Ban this peer due to malicious behavior.
-    /// # Panics
-    /// Panics if the peer is in `IncomingConnection` state.
-    pub fn ban_peer(&self, peer_id: &PeerId, duration: Duration) {
-        if let Some(state) = self.all_peer_states.write().expect(POISONED_LOCK_ERR).get_mut(peer_id)
-        {
-            let mut guard = state.write().expect(POISONED_LOCK_ERR);
-            match guard.deref() {
-                PeerState::Connected { info, .. }
-                | PeerState::Connecting { info, .. }
-                | PeerState::Ready { info, .. }
-                | PeerState::Unconnected { info, .. } => {
-                    *guard = PeerState::Unconnected {
-                        info: info.clone(),
-                        connect_timer: get_delay(CONNECT_TIMEOUT),
-                        banned_until: Some(Instant::now() + duration),
-                        evicted: false,
-                    };
-                }
-                // Incoming connection is either already handled or shouldn't be banned
-                // because the connection is not yet established.
-                PeerState::IncomingConnection { .. } => {
-                    unreachable!("ban_peer cannot be called on incoming connection")
-                }
-            }
-        }
-    }
-
-    /// This should be called if peer has done something wrong.
-    pub fn suspect_malicious(&self, _peer_id: &PeerId) {
-        // TODO(??): add counter + banning (disconnect and don't connect again) flag here for given peers.
-    }
-
-    /// Get `peer_id` peer information.
-    pub fn get_peer_info(&self, peer_id: &PeerId) -> Option<PeerInfo> {
-        if let Some(state) = self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
-            return get_peer_info(&state.read().expect(POISONED_LOCK_ERR)).cloned();
-        }
-        None
-    }
-
-    /// Get channel for the given `peer_id`, if the corresponding peer is `Ready`.
-    pub fn get_peer_channel(&self, peer_id: &PeerId) -> Option<Sender<PeerMessage>> {
-        if let Some(state) = self.all_peer_states.read().expect(POISONED_LOCK_ERR).get(peer_id) {
-            if let PeerState::Ready { out_msg_tx, .. } =
-                state.read().expect(POISONED_LOCK_ERR).deref()
-            {
-                return Some(out_msg_tx.clone());
-            }
-        }
-        None
-    }
-
-    /// Get channel for the given `account_id`, if the corresponding peer is `Ready`.
-    pub fn get_account_channel(&self, account_id: AccountId) -> Option<Sender<PeerMessage>> {
-        self.all_peer_states.read().expect(POISONED_LOCK_ERR).iter().find_map(|(_, state)| {
-            let state_guard = state.read().expect(POISONED_LOCK_ERR);
-            if let Some(info) = get_peer_info(&state_guard) {
-                if info.account_id.as_ref() == Some(&account_id) {
-                    if let PeerState::Ready { out_msg_tx, .. } = state_guard.deref() {
-                        return Some(out_msg_tx.clone());
-                    }
-                }
-            }
-            None
+        store: Arc<Store>,
+        config: NetworkConfig,
+        client_addr: Recipient<NetworkClientMessages>,
+    ) -> Result<Self, Box<std::error::Error>> {
+        let peer_store = PeerStore::new(store, &config.boot_nodes)?;
+        debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
+        Ok(PeerManagerActor {
+            peer_id: config.public_key.into(),
+            config,
+            client_addr,
+            peer_store,
+            active_peers: HashMap::default(),
+            outgoing_peers: HashSet::default(),
+            account_peers: HashMap::default(),
+            monitor_peers_attempts: 0,
         })
     }
 
-    /// Get channels of all peers that are `Ready`.
-    #[allow(dead_code)]
-    pub fn get_ready_channels(&self) -> Vec<Sender<PeerMessage>> {
-        self.all_peer_states
-            .read()
-            .expect(POISONED_LOCK_ERR)
-            .values()
-            .filter_map(|state| match state.read().expect(POISONED_LOCK_ERR).deref() {
-                PeerState::Ready { out_msg_tx, .. } => Some(out_msg_tx.clone()),
-                _ => None,
-            })
-            .collect()
+    fn num_active_peers(&self) -> usize {
+        self.active_peers.len()
     }
 
-    pub fn get_peer_stats(&self) -> (usize, usize) {
-        let guard = self.all_peer_states.read().expect(POISONED_LOCK_ERR);
-        let active_peers = guard
-            .iter()
-            .map(|(_, state)| {
-                let state_guard = state.read().expect(POISONED_LOCK_ERR);
-                if let PeerState::Ready { .. } = state_guard.deref() {
-                    1
+    fn register_peer(&mut self, peer_info: FullPeerInfo, addr: Addr<Peer>) {
+        if self.outgoing_peers.contains(&peer_info.peer_info.id) {
+            self.outgoing_peers.remove(&peer_info.peer_info.id);
+        }
+        unwrap_or_error!(self.peer_store.peer_connected(&peer_info), "Failed to save peer data");
+        if let Some(account_id) = &peer_info.peer_info.account_id {
+            self.account_peers.insert(account_id.clone(), peer_info.peer_info.id);
+        }
+        self.active_peers.insert(peer_info.peer_info.id, (addr, peer_info));
+    }
+
+    fn unregister_peer(&mut self, peer_id: PeerId) {
+        // If this is an unconsolidated peer because failed / connected inbound, just delete it.
+        if self.outgoing_peers.contains(&peer_id) {
+            self.outgoing_peers.remove(&peer_id);
+            return;
+        }
+        if let Some((_, peer_info)) = self.active_peers.get(&peer_id) {
+            if let Some(account_id) = &peer_info.peer_info.account_id {
+                self.account_peers.remove(account_id);
+            }
+            self.active_peers.remove(&peer_id);
+        }
+        unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
+    }
+
+    fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
+        info!(target: "network", "Banning peer {:?}", peer_id);
+        self.active_peers.remove(&peer_id);
+        unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
+    }
+
+    /// Connects peer with given TcpStream and optional information if it's outbound.
+    fn connect_peer(
+        &mut self,
+        recipient: Addr<Self>,
+        stream: TcpStream,
+        peer_type: PeerType,
+        peer_info: Option<PeerInfo>,
+    ) {
+        let peer_id = self.peer_id;
+        let account_id = self.config.account_id.clone();
+        let server_addr = self.config.addr;
+        let handshake_timeout = self.config.handshake_timeout;
+        let client_addr = self.client_addr.clone();
+        Peer::create(move |ctx| {
+            let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
+            let remote_addr = stream.peer_addr().unwrap();
+            let (read, write) = stream.split();
+
+            // TODO: check if peer is banned or known based on IP address and port.
+
+            Peer::add_stream(FramedRead::new(read, Codec::new()), ctx);
+            Peer::new(
+                PeerInfo { id: peer_id, addr: Some(server_addr), account_id },
+                remote_addr,
+                peer_info,
+                peer_type,
+                FramedWrite::new(write, Codec::new(), ctx),
+                handshake_timeout,
+                recipient,
+                client_addr,
+            )
+        });
+    }
+
+    fn is_outbound_bootstrap_needed(&self) -> bool {
+        (self.active_peers.len() + self.outgoing_peers.len())
+            < (self.config.peer_max_count as usize)
+    }
+
+    /// Returns single random peer with the most weight.
+    fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
+        let max_weight =
+            match self.active_peers.values().map(|(_, x)| x.chain_info.total_weight).max() {
+                Some(w) => w,
+                None => return vec![],
+            };
+        self.active_peers
+            .values()
+            .filter_map(|(_, x)| {
+                if x.chain_info.total_weight == max_weight {
+                    Some(x.clone())
                 } else {
-                    0
+                    None
                 }
             })
-            .count();
-        let total_peers = guard.len();
-        (active_peers, total_peers)
+            .collect::<Vec<_>>()
     }
-}
 
-impl<T> fmt::Debug for PeerManager<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let peers: Vec<AccountId> = self
-            .all_peer_states
-            .read()
-            .expect(POISONED_LOCK_ERR)
+    /// Get a random peer we are not connected to from the known list.
+    fn sample_random_peer(&self) -> Option<PeerInfo> {
+        let unconnected_peers = self.peer_store.unconnected_peers();
+        let index = thread_rng().gen_range(0, std::cmp::max(unconnected_peers.len(), 1));
+
+        unconnected_peers
             .iter()
-            .filter_map(|(_, state)| {
-                let state_guard = state.read().expect(POISONED_LOCK_ERR);
-                if let Some(info) = get_peer_info(&state_guard) {
-                    if let PeerState::Ready { .. } = state_guard.deref() {
-                        return info.account_id.clone();
+            .enumerate()
+            .filter_map(|(i, v)| if i == index { Some(v.clone()) } else { None })
+            .next()
+    }
+
+    /// Periodically monitor list of peers and:
+    ///  - request new peers from connected peers,
+    ///  - bootstrap outbound connections from known peers,
+    ///  - unban peers that have been banned for awhile,
+    ///  - remove expired peers,
+    fn monitor_peers(&mut self, ctx: &mut Context<Self>) {
+        let mut to_unban = vec![];
+        for (peer_id, peer_state) in self.peer_store.iter() {
+            match peer_state.status {
+                KnownPeerStatus::Banned(_, last_banned) => {
+                    let interval = unwrap_or_error!(
+                        (Utc::now() - last_banned).to_std(),
+                        "Failed to convert time"
+                    );
+                    if interval > self.config.ban_window {
+                        info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
+                        to_unban.push(peer_id.clone());
                     }
                 }
-                None
-            })
-            .collect();
-        write!(f, "{:?}", peers)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-    use std::sync::{Arc, RwLock};
-    use std::thread;
-    use std::time::Duration;
-
-    use futures::future;
-    use futures::future::Future;
-    use futures::sink::Sink;
-    use futures::stream::{iter_ok, Stream};
-    use futures::sync::mpsc::channel;
-    use tokio::util::StreamExt;
-
-    use primitives::hash::hash_struct;
-    use primitives::network::{PeerAddr, PeerInfo};
-
-    use crate::peer::PeerState;
-    use crate::peer_manager::{PeerManager, POISONED_LOCK_ERR};
-    use crate::protocol::PEER_BAN_PERIOD;
-    use crate::testing_utils::{wait, wait_all_peers_connected, MockChainStateRetriever};
-
-    #[test]
-    fn test_two_peers_boot() {
-        let all_pms = Arc::new(RwLock::new(vec![]));
-        // Spawn the first manager.
-        let (out_msg_tx1, out_msg_rx1) = channel(1024);
-        let (inc_msg_tx1, _) = channel(1024);
-        let all_pms1 = all_pms.clone();
-        let chain_state_retriever = MockChainStateRetriever {};
-        let task = futures::lazy(move || {
-            let pm = PeerManager::new(
-                Duration::from_millis(5000),
-                Duration::from_millis(5000),
-                1,
-                PeerInfo {
-                    id: hash_struct(&0),
-                    addr: Some(SocketAddr::from_str("127.0.0.1:4000").unwrap()),
-                    account_id: None,
-                },
-                &vec![],
-                inc_msg_tx1,
-                out_msg_rx1,
-                chain_state_retriever,
-            );
-            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
-            future::ok(())
-        });
-        thread::spawn(move || tokio::run(task));
-
-        // Spawn the second manager and boot it from the first one.
-        let (_, out_msg_rx2) = channel(1024);
-        let (inc_msg_tx2, inc_msg_rx2) = channel(1024);
-        let all_pms2 = all_pms.clone();
-        let chain_state_retriever = MockChainStateRetriever {};
-        let task = futures::lazy(move || {
-            let pm = PeerManager::new(
-                Duration::from_millis(5000),
-                Duration::from_millis(5000),
-                1,
-                PeerInfo {
-                    id: hash_struct(&1),
-                    addr: Some(SocketAddr::from_str("127.0.0.1:4001").unwrap()),
-                    account_id: None,
-                },
-                &vec![PeerAddr {
-                    id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:4000").unwrap(),
-                }],
-                inc_msg_tx2,
-                out_msg_rx2,
-                chain_state_retriever,
-            );
-            all_pms2.write().expect(POISONED_LOCK_ERR).push(pm);
-            future::ok(())
-        });
-        thread::spawn(move || tokio::run(task));
-
-        wait_all_peers_connected(50, 10000, &all_pms, 2);
-        // Create task that sends the message and then places it into `acc`.
-        let acc = Arc::new(RwLock::new(None));
-        let acc1 = acc.clone();
-        // Send message from `manager1` to `manager2`.
-        let task = out_msg_tx1
-            .send((hash_struct(&1), b"hello".to_vec()))
-            .map(|_| ())
-            .map_err(|e| panic!("Should not panic {}", e))
-            .then(move |_| {
-                // Wait for 1 sec to receive it on `manager2`.
-                inc_msg_rx2
-                    .timeout(Duration::from_millis(1000))
-                    .into_future()
-                    .map(move |(el, _)| {
-                        *acc.write().expect(POISONED_LOCK_ERR) = Some(el);
-                    })
-                    .map_err(|_| panic!("Message was not received."))
-            })
-            .map(|_| ())
-            .map_err(|_| panic!("Error verifying messages."));
-        thread::spawn(move || tokio::run(task));
-
-        wait(move || acc1.read().expect(POISONED_LOCK_ERR).is_some(), 50, 10000);
-    }
-
-    #[test]
-    /// Connect many nodes to a single boot node, i.e. star. Check that all nodes manage to discover
-    /// each other by sending a message from every node to every other node.
-    fn test_many_star() {
-        const NUM_TASKS: usize = 20;
-
-        let (mut v_out_msg_tx, mut v_inc_msg_rx) = (vec![], vec![]);
-        let all_pms = Arc::new(RwLock::new(vec![]));
-
-        for i in 0..NUM_TASKS {
-            let (out_msg_tx, out_msg_rx) = channel(1024);
-            let (inc_msg_tx, inc_msg_rx) = channel(1024);
-            v_out_msg_tx.push(out_msg_tx);
-            v_inc_msg_rx.push(inc_msg_rx);
-            let all_pms1 = all_pms.clone();
-            let chain_state_retriever = MockChainStateRetriever {};
-            let task = futures::lazy(move || {
-                let mut boot_nodes = vec![];
-                if i != 0 {
-                    boot_nodes.push(PeerAddr {
-                        id: hash_struct(&(0 as usize)),
-                        addr: SocketAddr::from_str("127.0.0.1:3000").unwrap(),
-                    });
-                }
-                let pm = PeerManager::new(
-                    Duration::from_millis(50),
-                    Duration::from_millis(if i == 0 { 50 } else { 500000 }),
-                    if i == 0 { NUM_TASKS - 1 } else { 1 },
-                    PeerInfo {
-                        id: hash_struct(&i),
-                        addr: Some(SocketAddr::new("127.0.0.1".parse().unwrap(), 3000 + i as u16)),
-                        account_id: None,
-                    },
-                    &boot_nodes,
-                    inc_msg_tx,
-                    out_msg_rx,
-                    chain_state_retriever,
-                );
-                all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
-                Ok(())
-            });
-            thread::spawn(move || tokio::run(task));
+                _ => {}
+            }
+        }
+        for peer_id in to_unban {
+            unwrap_or_error!(self.peer_store.peer_unban(&peer_id), "Failed to unban a peer");
         }
 
-        let acc = Arc::new(RwLock::new(HashSet::new()));
-        let acc1 = acc.clone();
-
-        // Send messages from each peer to each other peer and check the receival.
-        wait_all_peers_connected(50, 10000, &all_pms, NUM_TASKS);
-        let task = futures::lazy(move || {
-            for i in 0..NUM_TASKS {
-                let mut messages = vec![];
-                for j in 0..NUM_TASKS {
-                    if j != i {
-                        messages.push((hash_struct(&j), vec![i as u8, j as u8]));
-                    }
-                }
-                let task = v_out_msg_tx[i]
-                    .clone()
-                    .send_all(iter_ok(messages.to_vec()))
-                    .map(move |_| ())
-                    .map_err(|_| panic!("Error sending messages"));
-                tokio_utils::spawn(task);
-
-                let inc_msg_rx = v_inc_msg_rx.remove(0);
-                let acc = acc.clone();
-                let task = inc_msg_rx
-                    .for_each(move |msg| {
-                        let (id, data) = msg;
-                        // Skip peer connected messages.
-                        if data.len() == 2 {
-                            let sender = data[0] as usize;
-                            let receiver = data[1] as usize;
-                            if hash_struct(&sender) == id && receiver == i {
-                                acc.write().expect(POISONED_LOCK_ERR).insert(data);
-                            } else {
-                                panic!("Should not happen");
-                            }
-                        }
-                        future::ok(())
-                    })
-                    .map(|_| ())
-                    .map_err(|_| ());
-                tokio_utils::spawn(task);
+        if self.is_outbound_bootstrap_needed() {
+            if let Some(peer_info) = self.sample_random_peer() {
+                ctx.notify(OutboundTcpConnect { peer_info });
+            } else {
+                // Query current peers for more peers.
+                self.broadcast_message(ctx, SendMessage { message: PeerMessage::PeersRequest });
             }
-            Ok(())
-        });
-        thread::spawn(move || tokio::run(task));
+        }
 
-        wait(
-            move || acc1.read().expect(POISONED_LOCK_ERR).len() == NUM_TASKS * (NUM_TASKS - 1),
-            50,
-            10000,
+        unwrap_or_error!(
+            self.peer_store.remove_expired(&self.config),
+            "Failed to remove expired peers"
         );
+
+        // Reschedule the bootstrap peer task, starting of as quick as possible with exponential backoff.
+        let wait = Duration::from_millis(cmp::min(
+            self.config.bootstrap_peers_period.as_millis() as u64,
+            10 << self.monitor_peers_attempts,
+        ));
+        self.monitor_peers_attempts = cmp::min(13, self.monitor_peers_attempts + 1);
+        ctx.run_later(wait, move |act, ctx| {
+            act.monitor_peers(ctx);
+        });
     }
 
-    #[test]
-    /// Two nodes connect and one bans the other. Check that the peer states are properly transitioned in
-    /// both nodes. Then try to reconnect the banned peer to the boot node. Check that the peer is not connected.
-    fn test_ban_peer() {
-        let all_pms = Arc::new(RwLock::new(vec![]));
-        // Spawn the first manager.
-        let (_, out_msg_rx1) = channel(1024);
-        let (inc_msg_tx1, _) = channel(1024);
-        let all_pms1 = all_pms.clone();
-        let chain_state_retriever = MockChainStateRetriever {};
-        let task = futures::lazy(move || {
-            let pm = PeerManager::new(
-                Duration::from_millis(5000),
-                Duration::from_millis(5000),
-                1,
-                PeerInfo {
-                    id: hash_struct(&0),
-                    addr: Some(SocketAddr::from_str("127.0.0.1:5000").unwrap()),
-                    account_id: None,
-                },
-                &vec![],
-                inc_msg_tx1,
-                out_msg_rx1,
-                chain_state_retriever,
-            );
-            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
-            future::ok(())
-        });
-        thread::spawn(move || tokio::run(task));
+    /// Broadcast message to all active peers.
+    fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
+        let requests: Vec<_> =
+            self.active_peers.values().map(|peer| peer.0.send(msg.clone())).collect();
+        future::join_all(requests)
+            .into_actor(self)
+            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+            .and_then(|_, _, _| actix::fut::ok(()))
+            .spawn(ctx);
+    }
 
-        let all_pms1 = all_pms.clone();
-        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 1, 50, 60000);
+    /// Send message to specific account.
+    /// TODO: currently sends in direct message, need to support indirect routing.
+    fn send_message_to_account(
+        &self,
+        ctx: &mut Context<Self>,
+        account_id: AccountId,
+        msg: SendMessage,
+    ) {
+        if let Some(peer_id) = self.account_peers.get(&account_id) {
+            if let Some((addr, _)) = self.active_peers.get(peer_id) {
+                addr.send(msg)
+                    .into_actor(self)
+                    .map_err(|e, _, _| error!("Failed sending message: {}", e))
+                    .and_then(|_, _, _| actix::fut::ok(()))
+                    .spawn(ctx);
+            } else {
+                error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
+            }
+        } else {
+            warn!(target: "network", "Unknown account {} in peers, not supported indirect routing", account_id);
+        }
+    }
+}
 
-        // Spawn the second manager and boot it from the first one.
-        let (_, out_msg_rx2) = channel(1024);
-        let (inc_msg_tx2, _) = channel(1024);
-        let all_pms1 = all_pms.clone();
-        let chain_state_retriever = MockChainStateRetriever {};
-        let task = futures::lazy(move || {
-            let pm = PeerManager::new(
-                Duration::from_millis(5000),
-                Duration::from_millis(5000),
-                1,
-                PeerInfo {
-                    id: hash_struct(&1),
-                    addr: Some(SocketAddr::from_str("127.0.0.1:5001").unwrap()),
-                    account_id: None,
-                },
-                &vec![PeerAddr {
-                    id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:5000").unwrap(),
-                }],
-                inc_msg_tx2,
-                out_msg_rx2,
-                chain_state_retriever,
-            );
-            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
-            future::ok(())
-        });
-        thread::spawn(move || tokio::run(task));
+impl Actor for PeerManagerActor {
+    type Context = Context<Self>;
 
-        let all_pms1 = all_pms.clone();
-        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 2, 50, 60000);
+    fn started(&mut self, ctx: &mut Self::Context) {
+        // Start server if address provided.
+        if let Some(server_addr) = self.config.addr {
+            // TODO: for now crashes if server didn't start.
+            let listener = TcpListener::bind(&server_addr).unwrap();
+            info!(target: "network", "Server listening at {}@{}", self.peer_id, server_addr);
+            ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(InboundTcpConnect::new));
+        }
 
-        wait_all_peers_connected(50, 60000, &all_pms, 2);
-        let peer1_id = all_pms.read().expect(POISONED_LOCK_ERR)[0].node_info.id;
-        let peer2_id = all_pms.read().expect(POISONED_LOCK_ERR)[1].node_info.id;
-        all_pms.read().expect(POISONED_LOCK_ERR)[0].ban_peer(&peer2_id, PEER_BAN_PERIOD);
-        let all_pms1 = all_pms.clone();
-        wait(
-            move || {
-                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[0]
-                    .all_peer_states
-                    .read()
-                    .expect(POISONED_LOCK_ERR)
-                    .get(&peer2_id)
-                {
-                    match *state.read().expect(POISONED_LOCK_ERR) {
-                        PeerState::Unconnected { banned_until, .. } => banned_until.is_some(),
-                        _ => false,
-                    }
-                } else {
-                    false
-                }
+        // Start peer monitoring.
+        self.monitor_peers(ctx);
+    }
+}
+
+impl Handler<NetworkRequests> for PeerManagerActor {
+    type Result = NetworkResponses;
+
+    fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
+        match msg {
+            NetworkRequests::FetchInfo => NetworkResponses::Info {
+                num_active_peers: self.num_active_peers(),
+                peer_max_count: self.config.peer_max_count,
+                most_weight_peers: self.most_weight_peers(),
             },
-            50,
-            60000,
+            NetworkRequests::Block { block } => {
+                self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::BlockHeaderAnnounce { header, approval } => {
+                if let Some(approval) = approval {
+                    if let Some(account_id) = &self.config.account_id {
+                        self.send_message_to_account(
+                            ctx,
+                            approval.target,
+                            SendMessage {
+                                message: PeerMessage::BlockApproval(
+                                    account_id.clone(),
+                                    approval.hash,
+                                    approval.signature,
+                                ),
+                            },
+                        );
+                    }
+                }
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::BlockHeaderAnnounce(header) },
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::BlockRequest { hash, peer_id } => {
+                if let Some((addr, _)) = self.active_peers.get(&peer_id) {
+                    addr.do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                if let Some((addr, _)) = self.active_peers.get(&peer_id) {
+                    addr.do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::StateRequest { shard_id: _, state_root: _ } => {
+                // TODO: implement state sync.
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::BanPeer { peer_id, ban_reason } => {
+                if let Some((_addr, _full_info)) = self.active_peers.get(&peer_id) {
+                    // TODO: send stop signal to the addr.
+                }
+                self.ban_peer(&peer_id, ban_reason);
+                NetworkResponses::NoResponse
+            }
+        }
+    }
+}
+
+impl Handler<InboundTcpConnect> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
+        self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None);
+    }
+}
+
+impl Handler<OutboundTcpConnect> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
+        if let Some(addr) = msg.peer_info.addr {
+            Resolver::from_registry()
+                .send(ConnectAddr(addr))
+                .into_actor(self)
+                .then(move |res, act, ctx| match res {
+                    Ok(res) => match res {
+                        Ok(stream) => {
+                            debug!(target: "network", "Connected to {}", msg.peer_info);
+                            act.outgoing_peers.insert(msg.peer_info.id);
+                            act.connect_peer(
+                                ctx.address(),
+                                stream,
+                                PeerType::Outbound,
+                                Some(msg.peer_info),
+                            );
+                            actix::fut::ok(())
+                        }
+                        Err(err) => {
+                            error!(target: "network", "Error connecting to {}: {}", addr, err);
+                            actix::fut::err(())
+                        }
+                    },
+                    Err(err) => {
+                        error!(target: "network", "Error connecting to {}: {}", addr, err);
+                        actix::fut::err(())
+                    }
+                })
+                .wait(ctx);
+        } else {
+            warn!(target: "network", "Trying to connect to peer with no public address: {:?}", msg.peer_info);
+        }
+    }
+}
+
+impl Handler<Consolidate> for PeerManagerActor {
+    type Result = bool;
+
+    fn handle(&mut self, msg: Consolidate, _ctx: &mut Self::Context) -> Self::Result {
+        // We already connected to this peer.
+        if self.active_peers.contains_key(&msg.peer_info.id) {
+            return false;
+        }
+        // This is incoming connection but we have this peer already in outgoing.
+        // This only happens when both of us connect at the same time, break tie using higher peer id.
+        if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
+            // We pick connection that has lower id.
+            if msg.peer_info.id > self.peer_id {
+                return false;
+            }
+        }
+        // TODO: double check that address is connectable and add account id.
+        self.register_peer(
+            FullPeerInfo { peer_info: msg.peer_info, chain_info: msg.chain_info },
+            msg.actor,
         );
+        true
+    }
+}
 
-        let all_pms1 = all_pms.clone();
-        wait(
-            move || {
-                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[1]
-                    .all_peer_states
-                    .read()
-                    .expect(POISONED_LOCK_ERR)
-                    .get(&peer1_id)
-                {
-                    match *state.read().expect(POISONED_LOCK_ERR) {
-                        PeerState::Unconnected { .. } => true,
-                        _ => false,
-                    }
-                } else {
-                    false
-                }
-            },
-            50,
-            60000,
-        );
+impl Handler<Unregister> for PeerManagerActor {
+    type Result = ();
 
-        // Spawn the third peer manager with the same peer id as the second peer manager
-        // to check that the banned peer cannot reconnect.
-        let all_pms1 = all_pms.clone();
-        let (_, out_msg_rx3) = channel(1024);
-        let (inc_msg_tx3, _) = channel(1024);
-        let task = futures::lazy(move || {
-            let pm = PeerManager::new(
-                Duration::from_millis(5000),
-                Duration::from_millis(5000),
-                1,
-                PeerInfo {
-                    id: hash_struct(&1),
-                    addr: Some(SocketAddr::from_str("127.0.0.1:5002").unwrap()),
-                    account_id: None,
-                },
-                &vec![PeerAddr {
-                    id: hash_struct(&0),
-                    addr: SocketAddr::from_str("127.0.0.1:5000").unwrap(),
-                }],
-                inc_msg_tx3,
-                out_msg_rx3,
-                chain_state_retriever,
-            );
-            all_pms1.write().expect(POISONED_LOCK_ERR).push(pm);
-            future::ok(())
-        });
-        thread::spawn(move || tokio::run(task));
+    fn handle(&mut self, msg: Unregister, _ctx: &mut Self::Context) {
+        self.unregister_peer(msg.peer_id);
+    }
+}
 
-        // Wait until the peer manager is spawned.
-        let all_pms1 = all_pms.clone();
-        wait(move || all_pms1.read().expect(POISONED_LOCK_ERR).len() == 3, 50, 60000);
+impl Handler<Ban> for PeerManagerActor {
+    type Result = ();
 
-        let all_pms1 = all_pms.clone();
-        wait(
-            move || {
-                if let Some(state) = all_pms1.read().expect(POISONED_LOCK_ERR)[2]
-                    .all_peer_states
-                    .read()
-                    .expect(POISONED_LOCK_ERR)
-                    .get(&peer1_id)
-                {
-                    match *state.read().expect(POISONED_LOCK_ERR) {
-                        PeerState::Unconnected { .. } => true,
-                        _ => false,
-                    }
-                } else {
-                    false
-                }
-            },
-            50,
-            60000,
+    fn handle(&mut self, msg: Ban, _ctx: &mut Self::Context) {
+        self.ban_peer(&msg.peer_id, msg.ban_reason);
+    }
+}
+
+impl Handler<PeersRequest> for PeerManagerActor {
+    type Result = PeerList;
+
+    fn handle(&mut self, _msg: PeersRequest, _ctx: &mut Self::Context) -> Self::Result {
+        PeerList { peers: self.peer_store.healthy_peers(self.config.max_send_peers) }
+    }
+}
+
+impl Handler<PeersResponse> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, mut msg: PeersResponse, _ctx: &mut Self::Context) {
+        self.peer_store.add_peers(
+            msg.peers.drain(..).filter(|peer_info| peer_info.id != self.peer_id).collect(),
         );
     }
 }

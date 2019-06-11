@@ -1,16 +1,20 @@
-use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use futures::Future;
+
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptInfo;
+use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
-use primitives::types::{AccountId, Balance, MerkleHash};
+use near_primitives::types::{AccountId, Balance, MerkleHash};
+use near_chain::Block;
+use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
+
+pub use crate::user::runtime_user::RuntimeUser;
 
 pub mod runtime_user;
-pub use self::runtime_user::RuntimeUser;
-use futures::Future;
-use primitives::account::AccessKey;
-use primitives::crypto::signature::PublicKey;
-use primitives::receipt::ReceiptInfo;
+pub mod rpc_user;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -25,11 +29,15 @@ pub trait User {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
 
+    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String>;
+
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String>;
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
 
     fn get_best_block_index(&self) -> Option<u64>;
+
+    fn get_block(&self, index: u64) -> Option<Block>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
 
@@ -39,7 +47,7 @@ pub trait User {
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 
-    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
+    fn get_access_key(&self, account_id: &AccountId, public_key: &PublicKey) -> Result<Option<AccessKey>, String>;
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.
@@ -97,6 +105,7 @@ pub trait AsyncUser: Send + Sync {
 
     fn get_access_key(
         &self,
+        account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Box<dyn Future<Item = Option<AccessKey>, Error = String>>;
 }

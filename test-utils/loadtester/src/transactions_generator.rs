@@ -1,10 +1,12 @@
 //! Set of methods that construct transactions of various kind.
 
-use crate::remote_node::RemoteNode;
-use primitives::transaction::{
+use std::sync::{Arc, RwLock};
+
+use near_primitives::transaction::{
     DeployContractTransaction, FunctionCallTransaction, SignedTransaction, TransactionBody,
 };
-use std::sync::{Arc, RwLock};
+
+use crate::remote_node::RemoteNode;
 
 #[derive(Clone, Copy)]
 pub enum TransactionType {
@@ -95,7 +97,7 @@ impl Generator {
         let acc_from = signer_from.account_id.clone();
 
         let t = FunctionCallTransaction {
-            nonce: nonce,
+            nonce,
             originator: acc_from.clone(),
             contract_id: acc_from,
             method_name: b"heavy_storage_blocks".to_vec(),

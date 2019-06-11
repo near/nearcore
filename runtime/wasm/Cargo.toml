@@ -16,7 +16,7 @@ cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef6860
 serde = "1.0"
 serde_derive = "1.0"
 
-primitives = { path = "../primitives" }
+near-primitives = { path = "../../core/primitives" }
 
 [dev-dependencies]
 assert_matches = "1.3.0"

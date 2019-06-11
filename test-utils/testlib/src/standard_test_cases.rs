@@ -1,24 +1,26 @@
-use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
-use crate::test_helpers::wait;
-use crate::user::User;
-use node_runtime::chain_spec::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use node_runtime::state_viewer::AccountViewCallResult;
-use primitives::account::AccessKey;
-use primitives::crypto::signer::InMemorySigner;
-use primitives::hash::{hash, CryptoHash};
-use primitives::serialize::Decode;
-use primitives::transaction::{
+use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::serialize::Decode;
+use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
     TransactionStatus,
 };
-use primitives::utils::key_for_callback;
-use storage::set;
+use near_primitives::types::Balance;
+use near_primitives::utils::key_for_callback;
+use near_store::set;
+use node_runtime::state_viewer::AccountViewCallResult;
+
+use crate::node::{Node, RuntimeNode};
+use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use crate::test_helpers::wait;
+use crate::user::User;
 
 /// The amount to send with function call.
-const FUNCTION_CALL_AMOUNT: u64 = 1_000_000_000_000;
+const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
 
 /// validate transaction result in the case that it is successful and generates given number of receipts
 /// recursively.
@@ -29,10 +31,16 @@ pub fn validate_tx_result(
     receipt_depth: usize,
 ) {
     let mut transaction_result = node_user.get_transaction_result(&hash);
+    if transaction_result.status != TransactionStatus::Completed {
+        println!("Tx failed: {:?}", transaction_result);
+    }
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     for _ in 0..receipt_depth {
         assert_eq!(transaction_result.receipts.len(), 1);
         transaction_result = node_user.get_transaction_result(&transaction_result.receipts[0]);
+        if transaction_result.status != TransactionStatus::Completed {
+            println!("Tx failed: {:?}", transaction_result);
+        }
         assert_eq!(transaction_result.status, TransactionStatus::Completed);
     }
     assert_eq!(transaction_result.receipts.len(), 0);
@@ -49,7 +57,7 @@ fn add_access_key(
     signer2: &InMemorySigner,
 ) {
     let root = node_user.get_state_root();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -81,7 +89,7 @@ pub fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
 }
 
 pub fn test_smart_contract_simple(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -101,7 +109,7 @@ pub fn test_smart_contract_simple(node: impl Node) {
 }
 
 pub fn test_smart_contract_bad_method_name(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -126,7 +134,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
 }
 
 pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -151,7 +159,7 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
 }
 
 pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -171,7 +179,7 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
 }
 
 pub fn test_smart_contract_with_args(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
@@ -191,7 +199,7 @@ pub fn test_smart_contract_with_args(node: impl Node) {
 }
 
 pub fn test_async_call_with_no_callback(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let nonce = hash(&[1, 2, 3]);
     let receipt = ReceiptTransaction {
         originator: account_id.clone(),
@@ -222,7 +230,7 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
 }
 
 pub fn test_async_call_with_callback(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
     let refund_account = account_id;
     let mut callback = Callback::new(
@@ -270,7 +278,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
 }
 
 pub fn test_async_call_with_logs(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let nonce = hash(&[1, 2, 3]);
     let receipt = ReceiptTransaction {
         originator: account_id.clone(),
@@ -302,7 +310,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
 }
 
 pub fn test_deposit_with_callback(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
     let refund_account = account_id;
     let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
@@ -335,7 +343,7 @@ pub fn test_deposit_with_callback(node: impl Node) {
 
 // This test only works with RuntimeNode because it requires modifying state.
 pub fn test_callback(node: RuntimeNode) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let refund_account = account_id;
     let mut callback = Callback::new(
         b"run_test_with_storage_change".to_vec(),
@@ -348,11 +356,12 @@ pub fn test_callback(node: RuntimeNode) {
 
     let mut state_update = node.client.read().unwrap().get_state_update();
     set(&mut state_update, key_for_callback(&callback_id), &callback);
-    let (root, transaction) = state_update.finalize();
+    let (transaction, root) =
+        state_update.finalize().unwrap().into(node.client.read().unwrap().trie.clone()).unwrap();
     {
         let mut client = node.client.write().unwrap();
         client.state_root = root;
-        client.trie.apply_changes(transaction).unwrap();
+        transaction.commit().unwrap();
     }
 
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
@@ -382,7 +391,7 @@ pub fn test_callback(node: RuntimeNode) {
 }
 
 pub fn test_callback_failure(node: RuntimeNode) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let refund_account = account_id;
     let mut callback = Callback::new(
         b"a_function_that_does_not_exist".to_vec(),
@@ -394,11 +403,12 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let callback_id = [0; 32].to_vec();
     let mut state_update = node.client.read().unwrap().get_state_update();
     set(&mut state_update, key_for_callback(&callback_id.clone()), &callback);
-    let (root, transaction) = state_update.finalize();
+    let (transaction, root) =
+        state_update.finalize().unwrap().into(node.client.read().unwrap().trie.clone()).unwrap();
     {
         let mut client = node.client.write().unwrap();
         client.state_root = root;
-        client.trie.apply_changes(transaction).unwrap();
+        transaction.commit().unwrap();
     }
 
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
@@ -428,7 +438,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
 }
 
 pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
@@ -451,7 +461,7 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
 }
 
 pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
@@ -474,14 +484,14 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
 }
 
 pub fn test_upload_contract(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: eve_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: 10,
     })
     .sign(&*node.signer());
@@ -514,7 +524,7 @@ pub fn test_upload_contract(node: impl Node) {
 }
 
 pub fn test_redeploy_contract(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let test_binary = b"test_binary";
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
@@ -538,7 +548,7 @@ pub fn test_redeploy_contract(node: impl Node) {
 }
 
 pub fn test_send_money(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let money_used = 10;
     let transaction = TransactionBody::send_money(
@@ -564,7 +574,7 @@ pub fn test_send_money(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -586,7 +596,7 @@ pub fn test_send_money(node: impl Node) {
 }
 
 pub fn test_send_money_over_balance(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let money_used = TESTING_INIT_BALANCE + 1;
     let transaction = TransactionBody::send_money(
@@ -613,7 +623,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -635,7 +645,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
 }
 
 pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let money_used = 10;
     let transaction = TransactionBody::send_money(
@@ -669,7 +679,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -680,7 +690,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
 }
 
 pub fn test_create_account(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = 10;
@@ -688,7 +698,7 @@ pub fn test_create_account(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: eve_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
     .sign(&*node.signer());
@@ -711,7 +721,7 @@ pub fn test_create_account(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -734,14 +744,14 @@ pub fn test_create_account(node: impl Node) {
 }
 
 pub fn test_create_account_again(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: eve_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
     .sign(&*node.signer());
@@ -755,7 +765,7 @@ pub fn test_create_account_again(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -780,7 +790,7 @@ pub fn test_create_account_again(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: eve_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
     .sign(&*node.signer());
@@ -808,7 +818,7 @@ pub fn test_create_account_again(node: impl Node) {
         AccountViewCallResult {
             nonce: 2,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -817,7 +827,7 @@ pub fn test_create_account_again(node: impl Node) {
 }
 
 pub fn test_create_account_failure_invalid_name(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let mut root = node_user.get_state_root();
     let money_used = 10;
@@ -835,7 +845,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
             originator: account_id.clone(),
             new_account_id: invalid_account_name.to_string(),
-            public_key: node.signer().public_key.0[..].to_vec(),
+            public_key: node.signer().public_key().0[..].to_vec(),
             amount: money_used,
         })
         .sign(&*node.signer());
@@ -854,7 +864,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
             AccountViewCallResult {
                 nonce: counter as u64 + 1,
                 account_id: account_id.clone(),
-                public_keys: vec![node.signer().public_key],
+                public_keys: vec![node.signer().public_key()],
                 amount: TESTING_INIT_BALANCE,
                 stake: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
@@ -864,7 +874,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
 }
 
 pub fn test_create_account_failure_already_exists(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = 10;
@@ -872,7 +882,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: bob_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
     .sign(&*node.signer());
@@ -899,7 +909,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         AccountViewCallResult {
             nonce: 1,
             account_id: account_id.clone(),
-            public_keys: vec![node.signer().public_key],
+            public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
@@ -922,7 +932,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
 }
 
 pub fn test_swap_key(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -931,7 +941,7 @@ pub fn test_swap_key(node: impl Node) {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
         new_account_id: eve_account(),
-        public_key: node.signer().public_key.0[..].to_vec(),
+        public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
     .sign(&*node.signer());
@@ -944,7 +954,7 @@ pub fn test_swap_key(node: impl Node) {
     let transaction = TransactionBody::SwapKey(SwapKeyTransaction {
         nonce: node.get_account_nonce(&eve_account()).unwrap_or_default() + 1,
         originator: eve_account(),
-        cur_key: node.signer().public_key.0[..].to_vec(),
+        cur_key: node.signer().public_key().0[..].to_vec(),
         new_key: signer2.public_key.0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -963,7 +973,7 @@ pub fn test_swap_key(node: impl Node) {
 }
 
 pub fn test_add_key(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -990,13 +1000,13 @@ pub fn test_add_key(node: impl Node) {
 }
 
 pub fn test_add_existing_key(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
-        new_key: node.signer().public_key.0[..].to_vec(),
+        new_key: node.signer().public_key().0[..].to_vec(),
         access_key: None,
     })
     .sign(&*node.signer());
@@ -1015,7 +1025,7 @@ pub fn test_add_existing_key(node: impl Node) {
 }
 
 pub fn test_delete_key(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -1039,7 +1049,7 @@ pub fn test_delete_key(node: impl Node) {
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
-        cur_key: node.signer().public_key.0[..].to_vec(),
+        cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -1058,7 +1068,7 @@ pub fn test_delete_key(node: impl Node) {
 }
 
 pub fn test_delete_key_not_owned(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -1084,14 +1094,14 @@ pub fn test_delete_key_not_owned(node: impl Node) {
 }
 
 pub fn test_delete_key_last(node: impl Node) {
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
-        cur_key: node.signer().public_key.0[..].to_vec(),
+        cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&*node.signer());
     let tx_hash = transaction.get_hash();
@@ -1112,14 +1122,14 @@ pub fn test_add_access_key(node: impl Node) {
     let node_user = node.user();
     let access_key =
         AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key));
 }
 
@@ -1127,7 +1137,7 @@ pub fn test_delete_access_key(node: impl Node) {
     let node_user = node.user();
     let access_key =
         AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
@@ -1150,9 +1160,9 @@ pub fn test_delete_access_key(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], node.signer().public_key);
+    assert_eq!(account.public_keys[0], node.signer().public_key());
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 }
 
@@ -1160,7 +1170,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
     let access_key =
         AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
@@ -1170,7 +1180,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
     assert_eq!(account.amount, initial_balance - 10);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key));
 }
 
@@ -1178,7 +1188,7 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
     let access_key =
         AccessKey { amount: 10, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
@@ -1203,10 +1213,10 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], node.signer().public_key);
+    assert_eq!(account.public_keys[0], node.signer().public_key());
     assert_eq!(account.amount, initial_balance);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 }
 
@@ -1218,7 +1228,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
         method_name: None,
     };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
@@ -1243,10 +1253,10 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], node.signer().public_key);
+    assert_eq!(account.public_keys[0], node.signer().public_key());
     assert_eq!(account.amount, initial_balance - 10);
 
-    let view_access_key = node_user.get_access_key(&signer2.public_key).unwrap();
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, None);
 
     wait_for_transaction(&node_user, &transaction_result.receipts[0]);
@@ -1268,7 +1278,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         method_name: None,
     };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
@@ -1297,7 +1307,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
         method_name: Some(b"log_something".to_vec()),
     };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
@@ -1330,7 +1340,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
         method_name: None,
     };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
@@ -1359,14 +1369,14 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
     let access_key =
         AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None };
     let node_user = node.user();
-    let account_id = &node.signer().account_id;
+    let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, &node_user, &access_key, &signer2);
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
         originator: account_id.clone(),
-        cur_key: node.signer().public_key.0[..].to_vec(),
+        cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&signer2);
 

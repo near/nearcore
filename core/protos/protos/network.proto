@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+import "chain.proto";
+import "signed_transaction.proto";
+import "receipt.proto";
+import "wrappers.proto";
+
+message PeerInfo {
+    bytes id = 1;
+    google.protobuf.StringValue addr = 2;
+    google.protobuf.StringValue account_id = 3;
+}
+
+message PeerChainInfo {
+    uint64 height = 1;
+    uint64 total_weight = 2;
+}
+
+message Handshake {
+    uint32 version = 1;
+    bytes peer_id = 2;
+    google.protobuf.StringValue account_id = 3;
+    google.protobuf.UInt32Value listen_port = 4;
+    PeerChainInfo chain_info = 5;
+}
+
+message PeersResponse {
+    repeated PeerInfo peers = 1;
+}
+
+message BlockApproval {
+    string account_id = 1;
+    bytes hash = 2;
+    bytes signature = 3;
+}
+
+message BlockHeaderRequest {
+    repeated bytes hashes = 1;
+}
+
+message BlockHeaders {
+    repeated BlockHeader headers = 1;
+}
+
+message PeerMessage {
+    oneof message_type {
+        Handshake hand_shake = 1;
+        bool peers_request = 2;
+        PeersResponse peers_response = 3;
+        BlockHeaderRequest block_headers_request = 4;
+        BlockHeaders block_headers = 5;
+        BlockHeader block_header_announce = 6;
+        bytes block_request = 7;
+        Block block = 8;
+        BlockApproval block_approval = 9;
+        SignedTransaction transaction = 10;
+    }
+}

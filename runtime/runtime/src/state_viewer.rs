@@ -1,21 +1,23 @@
 use std::collections::HashMap;
 use std::str;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use primitives::account::{AccessKey, Account};
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::{bs58_format, CryptoHash};
-use primitives::types::{AccountId, Balance, Nonce};
-use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
-use storage::{get, TrieUpdate};
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::{base_format, u128_hex_format};
+use near_primitives::types::{AccountId, Balance, Nonce};
+use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
+use near_store::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
-use super::ext::ACCOUNT_DATA_SEPARATOR;
-use super::RuntimeExt;
 use crate::ethereum::EthashProvider;
 use crate::Runtime;
-use std::sync::{Arc, Mutex};
+
+use super::ext::ACCOUNT_DATA_SEPARATOR;
+use super::RuntimeExt;
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
@@ -30,10 +32,12 @@ pub struct TrieViewer {
 pub struct AccountViewCallResult {
     pub account_id: AccountId,
     pub nonce: Nonce,
+    #[serde(with = "u128_hex_format")]
     pub amount: Balance,
-    pub stake: u64,
+    #[serde(with = "u128_hex_format")]
+    pub stake: Balance,
     pub public_keys: Vec<PublicKey>,
-    #[serde(with = "bs58_format")]
+    #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
 }
 
@@ -46,9 +50,9 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, String> {
+    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
         match get::<Account>(state_update, &key_for_account(account_id)) {
@@ -60,7 +64,7 @@ impl TrieViewer {
                 public_keys: account.public_keys,
                 code_hash: account.code_hash,
             }),
-            _ => Err(format!("account {} does not exist while viewing", account_id)),
+            _ => Err(format!("account {} does not exist while viewing", account_id).into()),
         }
     }
 
@@ -69,9 +73,9 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
         Ok(get(state_update, &key_for_access_key(account_id, public_key)))
@@ -81,7 +85,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, String> {
+    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
         self.view_account(state_update, account_id).map(|account| account.public_keys)
     }
 
@@ -89,9 +93,9 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<ViewStateResult, String> {
+    ) -> Result<ViewStateResult, Box<std::error::Error>> {
         if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id));
+            return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = HashMap::default();
         let mut prefix = key_for_account(account_id);
@@ -112,10 +116,10 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, Box<std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID '{}' is not valid", contract_id));
+            return Err(format!("Contract ID '{}' is not valid", contract_id).into());
         }
         let root = state_update.get_root();
         let code = Runtime::get_code(&state_update, contract_id)?;
@@ -148,7 +152,7 @@ impl TrieViewer {
                     ),
                 )
             }
-            None => return Err(format!("contract {} does not exist", contract_id)),
+            None => return Err(format!("contract {} does not exist", contract_id).into()),
         };
         let elapsed = now.elapsed();
         let time_ms =
@@ -160,11 +164,9 @@ impl TrieViewer {
                 logs.extend(res.logs);
                 match res.return_data {
                     Ok(return_data) => {
-                        let (root_after, _) = state_update.finalize();
-                        if root_after != root {
-                            return Err(
-                                "function call for viewing tried to change storage".to_string()
-                            );
+                        let trie_update = state_update.finalize()?;
+                        if trie_update.new_root != root {
+                            return Err("function call for viewing tried to change storage".into());
                         }
                         let mut result = vec![];
                         if let ReturnData::Value(buf) = return_data {
@@ -176,14 +178,14 @@ impl TrieViewer {
                         let message =
                             format!("wasm view call execution failed with error: {:?}", e);
                         debug!(target: "runtime", "{}", message);
-                        Err(message)
+                        Err(message.into())
                     }
                 }
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);
                 debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-                Err(message)
+                Err(message.into())
             }
         }
     }
@@ -191,15 +193,15 @@ impl TrieViewer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use kvdb::DBValue;
-    use primitives::types::AccountId;
-
     use tempdir::TempDir;
+
+    use near_primitives::types::AccountId;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
+
+    use super::*;
 
     #[test]
     fn test_view_call() {
@@ -268,8 +270,8 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
-        let (new_root, db_changes) = state_update.finalize();
-        trie.apply_changes(db_changes).unwrap();
+        let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        db_changes.commit().unwrap();
 
         let state_update = TrieUpdate::new(trie, new_root);
         let ethash_provider =

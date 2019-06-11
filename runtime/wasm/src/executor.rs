@@ -1,15 +1,15 @@
-use crate::ext::External;
-
 use std::ffi::c_void;
 use std::fmt;
 
+use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
+
+use near_primitives::logging;
+use near_primitives::types::{Balance, StorageUsage, StorageUsageChange};
+
 use crate::cache;
+use crate::ext::External;
 use crate::runtime::{self, Runtime};
 use crate::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
-use primitives::logging;
-use primitives::types::{Balance, StorageUsage, StorageUsageChange};
-
-use wasmer_runtime::{self, memory::Memory, units::Pages, wasm::MemoryDescriptor};
 
 pub struct ExecutionOutcome {
     pub frozen_balance: Balance,

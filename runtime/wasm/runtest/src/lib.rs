@@ -1,12 +1,7 @@
-extern crate wasm;
+use std::collections::BTreeMap;
 
+use near_primitives::types::{AccountId, Balance, PromiseId, ReceiptId};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
-
-extern crate byteorder;
-
-extern crate primitives;
-use primitives::types::{AccountId, Balance, PromiseId, ReceiptId};
-use std::collections::btree_map::BTreeMap;
 
 #[derive(Default)]
 struct MyExt {
@@ -118,15 +113,17 @@ impl External for MyExt {
 
 #[cfg(test)]
 mod tests {
-    use byteorder::{ByteOrder, LittleEndian};
-    use primitives::hash::hash;
     use std::fs;
+    use std::path::PathBuf;
+
+    use byteorder::{ByteOrder, LittleEndian};
+
+    use near_primitives::hash::hash;
+    use near_primitives::types::StorageUsage;
     use wasm::executor::{self, ExecutionOutcome};
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
-    use primitives::types::StorageUsage;
-    use std::path::PathBuf;
 
     fn infinite_initializer_contract() -> Vec<u8> {
         wabt::wat2wasm(
@@ -199,14 +196,18 @@ mod tests {
         LittleEndian::read_u64(val)
     }
 
+    fn decode_u128(val: &[u8]) -> u128 {
+        LittleEndian::read_u128(val)
+    }
+
     fn runtime_context(
-        balance: Balance,
-        amount: Balance,
+        balance: u128,
+        amount: u128,
         storage_usage: StorageUsage,
     ) -> RuntimeContext {
         RuntimeContext::new(
-            balance,
-            amount,
+            balance.into(),
+            amount.into(),
             &"alice.near".to_string(),
             &"bob".to_string(),
             storage_usage,
@@ -216,7 +217,7 @@ mod tests {
         )
     }
 
-    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u64) -> ExecutionOutcome {
+    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u128) -> ExecutionOutcome {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push("../../../tests/hello.wasm");
         run_with_filename(
@@ -323,11 +324,12 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
+            run(b"test_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
 
         // The frozen balance is not used for the runtime deductions.
+        println!("{:?}", outcome);
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u128(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -337,13 +339,14 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+            run(b"test_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
         // At the moment of measurement the liquid balance is at 97 which is the value returned.
         // However returning the value itself costs additional balance which results in final
-        // liquid balance being 79.
-        assert_eq!(outcome.liquid_balance, 79);
+        // liquid balance being 55.
+        println!("{:?}", outcome);
+        assert_eq!(outcome.liquid_balance, 55);
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u128(&output_data), 74),
             _ => assert!(false, "Expected returned value"),
         };
     }

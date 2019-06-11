@@ -1,10 +1,10 @@
-use primitives::account::{AccessKey, Account};
-use primitives::crypto::signature::{verify, PublicKey};
-use primitives::logging;
-use primitives::transaction::{SignedTransaction, TransactionBody};
-use primitives::types::AccountId;
-use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
-use storage::{get, TrieUpdate};
+use near_primitives::account::{AccessKey, Account};
+use near_primitives::crypto::signature::{verify, PublicKey};
+use near_primitives::logging;
+use near_primitives::transaction::{SignedTransaction, TransactionBody};
+use near_primitives::types::AccountId;
+use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
+use near_store::{get, TrieUpdate};
 
 pub struct VerificationData {
     pub originator_id: AccountId,

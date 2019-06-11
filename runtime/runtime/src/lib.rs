@@ -1,53 +1,46 @@
-extern crate bincode;
-extern crate byteorder;
-extern crate kvdb;
 #[macro_use]
 extern crate log;
-extern crate primitives;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate storage;
-extern crate wasm;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
+use std::sync::{Arc, Mutex};
 
-use primitives::account::Account;
-use primitives::chain::ReceiptBlock;
-use primitives::crypto::signature::PublicKey;
-use primitives::hash::CryptoHash;
-use primitives::transaction::{
+use near_primitives::account::Account;
+use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::{from_base, Encode};
+use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
-use primitives::types::{
-    AccountId, AuthorityStake, Balance, BlockIndex, MerkleHash, PromiseId, ReadableBlsPublicKey,
-    ReadablePublicKey, ShardId,
+use near_primitives::types::StorageUsage;
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey, ShardId,
+    ValidatorStake,
 };
-use primitives::utils::{
+use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
+    system_account,
 };
+use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
+use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
 
 use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
-use crate::system::{system_account, system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
-use std::sync::{Arc, Mutex};
-use storage::{get, set, TrieUpdate};
-use verifier::{TransactionVerifier, VerificationData};
+use crate::system::{system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 
 pub mod adapter;
-pub mod chain_spec;
 pub mod economics_config;
-mod system;
-
 pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
+mod system;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -60,12 +53,11 @@ pub struct ApplyState {
     pub parent_block_hash: CryptoHash,
 }
 
-#[derive(Clone, Debug)]
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub shard_id: ShardId,
-    pub db_changes: storage::DBChanges,
-    pub authority_proposals: Vec<AuthorityStake>,
+    pub trie_changes: TrieChanges,
+    pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: HashMap<ShardId, Vec<ReceiptTransaction>>,
     pub tx_result: Vec<TransactionResult>,
     pub largest_tx_nonce: HashMap<AccountId, u64>,
@@ -133,14 +125,11 @@ impl Runtime {
 
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
-        use primitives::serialize::Encode;
-        use primitives::types::StorageUsage;
-
         // The number of bytes the account occupies in the Trie.
         let meta_storage = key_for_account(account_id).len() as StorageUsage
             + account.encode().unwrap().len() as StorageUsage;
-        let total_storage = account.storage_usage + meta_storage;
-        let charge = (block_index - account.storage_paid_at)
+        let total_storage = (account.storage_usage + meta_storage) as u128;
+        let charge = ((block_index - account.storage_paid_at) as u128)
             * total_storage
             * self.economics_config.storage_cost_byte_per_block;
         account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
@@ -154,7 +143,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
         transaction: &SignedTransaction,
-        authority_proposals: &mut Vec<AuthorityStake>,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let VerificationData { originator_id, mut originator, .. } = {
             let verifier = TransactionVerifier::new(state_update);
@@ -181,7 +170,7 @@ impl Runtime {
                 &t,
                 &originator_id,
                 &mut originator,
-                authority_proposals,
+                validator_proposals,
             ),
             TransactionBody::FunctionCall(ref t) => self.call_function(
                 state_update,
@@ -294,7 +283,7 @@ impl Runtime {
     }
 
     fn apply_async_call(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         async_call: &AsyncCall,
         sender_id: &AccountId,
@@ -358,7 +347,7 @@ impl Runtime {
     }
 
     fn apply_callback(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         callback_res: &CallbackResult,
         sender_id: &AccountId,
@@ -462,7 +451,7 @@ impl Runtime {
     }
 
     fn apply_receipt(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
@@ -601,14 +590,14 @@ impl Runtime {
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
-        authority_proposals: &mut Vec<AuthorityStake>,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
         match self.apply_signed_transaction(
             state_update,
             block_index,
             transaction,
-            authority_proposals,
+            validator_proposals,
         ) {
             Ok(receipts) => {
                 for receipt in receipts {
@@ -630,7 +619,7 @@ impl Runtime {
     }
 
     pub fn process_receipt(
-        &mut self,
+        &self,
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
@@ -672,19 +661,19 @@ impl Runtime {
 
     /// apply receipts from previous block and transactions from this block
     pub fn apply(
-        &mut self,
+        &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
-        prev_receipts: &[ReceiptBlock],
+        prev_receipts: &[Vec<ReceiptTransaction>],
         transactions: &[SignedTransaction],
-    ) -> ApplyResult {
+    ) -> Result<ApplyResult, Box<std::error::Error>> {
         let mut new_receipts = HashMap::new();
-        let mut authority_proposals = vec![];
+        let mut validator_proposals = vec![];
         let shard_id = apply_state.shard_id;
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
         let mut largest_tx_nonce = HashMap::new();
-        for receipt in prev_receipts.iter().flat_map(|b| &b.receipts) {
+        for receipt in prev_receipts.iter().flatten() {
             tx_result.push(self.process_receipt(
                 &mut state_update,
                 shard_id,
@@ -713,19 +702,19 @@ impl Runtime {
                 block_index,
                 transaction,
                 &mut new_receipts,
-                &mut authority_proposals,
+                &mut validator_proposals,
             ));
         }
-        let (root, db_changes) = state_update.finalize();
-        ApplyResult {
-            root,
-            db_changes,
-            authority_proposals,
+        let trie_changes = state_update.finalize()?;
+        Ok(ApplyResult {
+            root: trie_changes.new_root,
+            trie_changes,
+            validator_proposals: validator_proposals,
             shard_id,
             new_receipts,
             tx_result,
             largest_tx_nonce,
-        }
+        })
     }
 
     /// Balances are account, publickey, initial_balance, initial_tx_stake
@@ -733,11 +722,18 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         balances: &[(AccountId, ReadablePublicKey, Balance)],
-        wasm_binary: &[u8],
-        initial_authorities: &[(AccountId, ReadablePublicKey, ReadableBlsPublicKey, u64)],
-    ) -> (MerkleHash, storage::DBChanges) {
-        balances.iter().for_each(|(account_id, public_key, balance)| {
-            let code = ContractCode::new(wasm_binary.to_vec());
+        validators: &[(AccountId, ReadablePublicKey, Balance)],
+        contracts: &[(AccountId, String)],
+    ) -> (StoreUpdate, MerkleHash) {
+        let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
+        for (account_id, wasm) in contracts {
+            let code =
+                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
+            code_hash.insert(account_id.clone(), code.get_hash());
+            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
+            set(&mut state_update, key_for_code(&account_id), &code);
+        }
+        for (account_id, public_key, balance) in balances {
             set(
                 &mut state_update,
                 key_for_account(&account_id),
@@ -746,33 +742,36 @@ impl Runtime {
                     amount: *balance,
                     nonce: 0,
                     staked: 0,
-                    code_hash: code.get_hash(),
+                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
                     storage_usage: 0,
                     storage_paid_at: 0,
                 },
             );
-            // Default code
-            set(&mut state_update, key_for_code(&account_id), &code);
-        });
-        for (account_id, _, _, amount) in initial_authorities {
+        }
+        for (account_id, _, amount) in validators {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
                 get(&state_update, &account_id_bytes).expect("account must exist");
             account.staked = *amount;
             set(&mut state_update, account_id_bytes, &account);
         }
-        state_update.finalize()
+        let trie = state_update.trie.clone();
+        state_update
+            .finalize()
+            .expect("Genesis state update failed")
+            .into(trie)
+            .expect("Genesis state update failed")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use primitives::hash::hash;
-    use primitives::types::MerkleHash;
-    use storage::test_utils::create_trie;
+    use near_primitives::hash::hash;
+    use near_primitives::types::MerkleHash;
+    use near_store::test_utils::create_trie;
+    use testlib::runtime_utils::bob_account;
 
     use super::*;
-    use testlib::runtime_utils::bob_account;
 
     // TODO(#348): Add tests for TX staking, mana charging and regeneration
 
@@ -795,8 +794,8 @@ mod tests {
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
         set(&mut state_update, key_for_account(&account_id), &test_account);
-        let (new_root, transaction) = state_update.finalize();
-        trie.apply_changes(transaction).unwrap();
+        let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
+        store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
         let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
