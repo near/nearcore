@@ -1,0 +1,13 @@
+[package]
+name = "near-protos"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+protobuf = { version = "2.2.4", features = ["with-bytes"] }
+byteorder = "1.2"
+
+[build-dependencies]
+protos-autogen = { path = "../../protos/builder" }

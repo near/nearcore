@@ -1,32 +1,22 @@
 [package]
-name = "client"
+name = "near-client"
 version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
+ansi_term = "0.11.0"
+actix = "0.8.1"
+futures = "0.1"
+chrono = { version = "0.4.4", features = ["serde"] }
+kvdb = "0.1"
 log = "0.4"
-parking_lot = "0.7.1"
-env_logger = "0.6.0"
-
-beacon = { path = "../beacon" }
-chain = { path = "../../chain/chain" }
-node-runtime = { path = "../../runtime/runtime" }
-primitives = { path = "../../runtime/primitives" }
-shard = { path = "../shard" }
-storage = { path = "../../runtime/storage" }
-configs = { path = "../../chain/configs" }
-
-serde = "1.0"
+rand = "0.6.5"
 serde_derive = "1.0"
-serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 
-[dev-dependencies]
-bencher = "0.1.5"
-rand = "0.6"
-rand_xorshift = "0.1"
-testlib = { path = "../../test-utils/testlib" }
-
-[[bench]]
-name = "client_bench"
-harness = false
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-chain = { path = "../chain" }
+near-network = { path = "../network" }
+near-pool = { path = "../pool" }

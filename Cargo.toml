@@ -8,37 +8,51 @@ edition = "2018"
 
 [workspace]
 members = [
+    "async-utils/",
     "protos/builder",
-    "runtime/primitives",
-    "runtime/storage",
+    "core/primitives",
+    "core/store",
     "runtime/runtime",
     "runtime/wasm",
     "runtime/wasm/runtest",
+    "chain/chain",
+    "chain/pool",
+    "chain/client",
+    "chain/network",
+    "chain/jsonrpc",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
-    "nearmint/",
+    "near/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
 ]
 
 [dev-dependencies]
+actix = "0.8.2"
 lazy_static = "1.2.0"
 log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
 reqwest = "0.9"
+futures = "0.1.25"
 
-keystore = { path = "./test-utils/keystore" }
-primitives = { path = "./runtime/primitives" }
-storage = { path = "./runtime/storage" }
-testlib = { path = "./test-utils/testlib" }
+near-protos = { path = "./core/protos" }
+near-primitives = { path = "./core/primitives" }
+near-store = { path = "./core/store" }
+
 node-runtime = { path = "./runtime/runtime" }
-near-protos = { path = "./runtime/protos" }
-nearmint = { path = "./nearmint" }
 wasm = { path = "./runtime/wasm" }
+
+near-jsonrpc = { path = "./chain/jsonrpc" }
+near-network = { path = "./chain/network" }
+
+near = { path = "./near"}
+
+testlib = { path = "./test-utils/testlib" }
+keystore = { path = "./test-utils/keystore" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -50,6 +64,9 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
 [profile.dev.overrides.pairing]
 opt-level = 3 # pairing library is too slow to use in debug
+
+[profile.dev.overrides.bs58]
+opt-level = 3 # bs58 library is too slow to use in debug
 
 [features]
 expensive_tests = []

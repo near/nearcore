@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+import "wrappers.proto";
+import "access_key.proto";
+import "uint128.proto";
+
+message CreateAccountTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string new_account_id = 3;
+    Uint128 amount = 4;
+    bytes public_key = 5;
+}
+
+message DeployContractTransaction {
+    uint64 nonce = 1;
+    string contract_id = 2;
+    bytes wasm_byte_array = 3;
+}
+
+message FunctionCallTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string contract_id = 3;
+    bytes method_name = 4;
+    bytes args = 5;
+    Uint128 amount = 6;
+}
+
+message SendMoneyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    string receiver = 3;
+    Uint128 amount = 4;
+}
+
+message StakeTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    Uint128 amount = 3;
+    string public_key = 4;
+    string bls_public_key = 5;
+}
+
+message SwapKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes cur_key = 3;
+    bytes new_key = 4;
+}
+
+message AddKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes new_key = 3;
+    AccessKey access_key = 4;
+}
+
+message DeleteKeyTransaction {
+    uint64 nonce = 1;
+    string originator = 2;
+    bytes cur_key = 3;
+}
+
+message SignedTransaction {
+    bytes signature = 1;
+    // In case this TX uses AccessKey, it needs to provide the public_key
+    google.protobuf.BytesValue public_key = 10;
+    oneof body {
+        CreateAccountTransaction create_account = 2;
+        DeployContractTransaction deploy_contract = 3;
+        FunctionCallTransaction function_call = 4;
+        SendMoneyTransaction send_money = 5;
+        StakeTransaction stake = 6;
+        SwapKeyTransaction swap_key = 7;
+        AddKeyTransaction add_key = 8;
+        DeleteKeyTransaction delete_key = 9;
+        // Next 11
+    }
+}

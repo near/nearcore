@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use testlib::node::runtime_node::RuntimeNode;
+    use testlib::node::RuntimeNode;
     use testlib::runtime_utils::alice_account;
     use testlib::standard_test_cases::*;
 

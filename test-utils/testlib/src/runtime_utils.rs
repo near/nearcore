@@ -1,18 +1,15 @@
-use node_runtime::chain_spec::{AuthorityRotation, ChainSpec, DefaultIdType};
-use node_runtime::{state_viewer::TrieViewer, Runtime};
-use primitives::chain::{ReceiptBlock, ShardBlockHeader, SignedShardBlockHeader};
-use primitives::crypto::group_signature::GroupSignature;
-use primitives::hash::{hash, CryptoHash};
-use primitives::merkle::merklize;
-use primitives::transaction::ReceiptTransaction;
-use primitives::types::{AccountId, MerkleHash};
-use storage::test_utils::create_trie;
-use storage::{Trie, TrieUpdate};
+use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
-use node_runtime::ethereum::EthashProvider;
-use std::sync::{Arc, Mutex};
 use tempdir::TempDir;
+
+use near::GenesisConfig;
+use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::types::{AccountId, MerkleHash};
+use near_store::{Trie, TrieUpdate};
+use near_store::test_utils::create_trie;
+use node_runtime::{Runtime, state_viewer::TrieViewer};
+use node_runtime::ethereum::EthashProvider;
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -29,28 +26,27 @@ pub fn default_code_hash() -> CryptoHash {
     hash(genesis_wasm)
 }
 
-pub fn get_runtime_and_trie_from_chain_spec(
-    chain_spec: &ChainSpec,
+pub fn get_runtime_and_trie_from_genesis(
+    genesis_config: &GenesisConfig,
 ) -> (Runtime, Arc<Trie>, MerkleHash) {
     let trie = create_trie();
     let dir = TempDir::new("ethash_test").unwrap();
     let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
     let runtime = Runtime::new(ethash_provider);
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
-    let (genesis_root, db_changes) = runtime.apply_genesis_state(
+    let (store_update, genesis_root) = runtime.apply_genesis_state(
         trie_update,
-        &chain_spec.accounts,
-        &chain_spec.genesis_wasm,
-        &chain_spec.initial_authorities,
+        &genesis_config.accounts.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
+        &genesis_config.validators.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
+        &genesis_config.contracts,
     );
-    trie.apply_changes(db_changes).unwrap();
+    store_update.commit().unwrap();
     (runtime, trie, genesis_root)
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let (chain_spec, _) =
-        ChainSpec::testing_spec(DefaultIdType::Named, 3, 3, AuthorityRotation::ProofOfAuthority);
-    get_runtime_and_trie_from_chain_spec(&chain_spec)
+    let genesis_config = GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+    get_runtime_and_trie_from_genesis(&genesis_config)
 }
 
 pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
@@ -66,20 +62,4 @@ pub fn encode_int(val: i32) -> [u8; 4] {
     let mut tmp = [0u8; 4];
     LittleEndian::write_i32(&mut tmp, val);
     tmp
-}
-
-pub fn to_receipt_block(receipts: Vec<ReceiptTransaction>) -> ReceiptBlock {
-    let (receipt_merkle_root, path) = merklize(&[&receipts]);
-    let header = SignedShardBlockHeader {
-        body: ShardBlockHeader {
-            parent_hash: CryptoHash::default(),
-            shard_id: 0,
-            index: 0,
-            merkle_root_state: CryptoHash::default(),
-            receipt_merkle_root,
-        },
-        hash: CryptoHash::default(),
-        signature: GroupSignature::default(),
-    };
-    ReceiptBlock::new(header, path[0].clone(), receipts, 0)
 }

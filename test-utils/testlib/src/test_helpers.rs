@@ -1,9 +1,9 @@
+use crate::node::Node;
 use lazy_static::lazy_static;
-use std::sync::{Mutex, Arc, RwLock};
 use std::process::Output;
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
-use crate::node::Node;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -29,8 +29,8 @@ pub fn check_result(output: Output) -> Result<String, String> {
 }
 
 pub fn wait<F>(mut f: F, check_interval_ms: u64, max_wait_ms: u64)
-    where
-        F: FnMut() -> bool,
+where
+    F: FnMut() -> bool,
 {
     let mut ms_slept = 0;
     while !f() {

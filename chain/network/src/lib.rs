@@ -1,12 +1,13 @@
-extern crate futures;
+pub use peer_manager::PeerManagerActor;
+pub use types::{
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
+    NetworkResponses, PeerInfo,
+};
 
-pub use crate::protocol::spawn_network;
-
-mod message;
+mod codec;
 mod peer;
 mod peer_manager;
-mod protocol;
-mod codec;
-#[cfg(test)]
-mod testing_utils;
-pub mod proxy;
+mod peer_store;
+pub mod types;
+
+pub mod test_utils;

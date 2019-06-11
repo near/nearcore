@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+import "types.proto";
+import "receipt.proto";
+import "signed_transaction.proto";
+
+message BlockHeaderBody {
+    uint64 height = 1;
+    bytes prev_hash = 2;
+    bytes prev_state_root = 3;
+    bytes tx_root = 4;
+    uint64 timestamp = 5;
+    repeated bool approval_mask = 6;
+    repeated bytes approval_sigs = 7;
+    uint64 total_weight = 8;
+    repeated ValidatorStake validator_proposal = 9;
+}
+
+message BlockHeader {
+    BlockHeaderBody body = 1;
+    bytes signature = 2;
+}
+
+message Block {
+    BlockHeader header = 1;
+    repeated SignedTransaction transactions = 2;
+}

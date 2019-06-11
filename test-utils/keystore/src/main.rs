@@ -7,10 +7,12 @@ use std::process;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 
-use primitives::crypto::signature::{sign, PublicKey, SecretKey};
-use primitives::crypto::signer::{get_key_file, write_block_producer_key_file, InMemorySigner};
-use primitives::hash::hash;
-use primitives::traits::ToBytes;
+use near_primitives::crypto::signature::{sign, PublicKey, SecretKey};
+use near_primitives::crypto::signer::{
+    get_key_file, write_block_producer_key_file, InMemorySigner,
+};
+use near_primitives::hash::hash;
+use near_primitives::serialize::{from_base, to_base, BaseEncode};
 
 #[derive(Serialize)]
 struct TypeValue {
@@ -31,17 +33,17 @@ fn write_tendermint_key_file(key_store_path: &Path, public_key: PublicKey, secre
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let address_bytes = hash(&public_key.to_bytes()).as_ref()[..20].to_vec();
+    let address_bytes = hash(public_key.as_ref()).as_ref()[..20].to_vec();
     let address = hex::encode(&address_bytes);
     let key_file = TendermintKeyFile {
         address,
         pub_key: TypeValue {
             type_field: "tendermint/PubKeyEd25519".to_string(),
-            value: public_key.to_base64(),
+            value: public_key.to_base(),
         },
         priv_key: TypeValue {
             type_field: "tendermint/PrivKeyEd25519".to_string(),
-            value: secret_key.to_base64(),
+            value: secret_key.to_base(),
         },
     };
     let key_file_path = key_store_path.join(Path::new("priv_validator_key.json"));
@@ -60,22 +62,16 @@ fn sign_data(matches: &ArgMatches) {
     let key_file = get_key_file(&key_store_path, public_key);
 
     let data = matches.value_of("data").unwrap();
-    let bytes = base64::decode(data).unwrap();
+    let bytes = from_base(data).unwrap();
     let signature = sign(&bytes, &key_file.secret_key);
-    let encoded = base64::encode(&signature);
+    let encoded = to_base(&signature);
     print!("{}", encoded);
 }
 
 fn generate_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
     let signer = InMemorySigner::from_seed("not_used", matches.value_of("test_seed").unwrap());
-    write_block_producer_key_file(
-        &key_store_path.as_path(),
-        signer.public_key,
-        signer.secret_key,
-        signer.bls_public_key,
-        signer.bls_secret_key,
-    );
+    write_block_producer_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key);
 }
 
 fn generate_tendermint_key(matches: &ArgMatches) {

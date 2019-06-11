@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use cached::SizedCache;
 use wasmer_runtime;
 
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::serialize::Encode;
+
 use crate::prepare;
 use crate::types::{Config, ContractCode, Error};
-use primitives::hash::{hash, CryptoHash};
-use primitives::serialize::Encode;
-use std::sync::Arc;
 
 /// Cache size in number of cached modules to hold.
 const CACHE_SIZE: usize = 1024;

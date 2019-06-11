@@ -58,7 +58,7 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        amount: u64,
+        amount_ptr: *const u8,
     ) -> u32;
 
     fn promise_then(
@@ -67,7 +67,7 @@ extern "C" {
         method_name_ptr: *const u8,
         arguments_len: usize,
         arguments_ptr: *const u8,
-        amount: u64,
+        amount_ptr: *const u8,
     ) -> u32;
 
     fn promise_and(promise_index1: u32, promise_index2: u32) -> u32;
@@ -82,10 +82,10 @@ extern "C" {
         difficulty: u64,
     ) -> u32;
 
-    fn frozen_balance() -> u64;
-    fn liquid_balance() -> u64;
-    fn deposit(min_amout: u64, max_amount: u64) -> u64;
-    fn withdraw(min_amout: u64, max_amount: u64) -> u64;
+    fn frozen_balance(balance_ptr: *const u8);
+    fn liquid_balance(balance_ptr: *const u8);
+    fn deposit(min_amount_ptr: u32, max_amount_ptr: u32, balance_ptr: u32);
+    fn withdraw(min_amount_ptr: u32, max_amount_ptr: u32, balance_ptr: u32);
     fn storage_usage() -> u64;
     fn received_amount() -> u64;
     fn assert(expr: bool);
@@ -150,6 +150,22 @@ fn return_u64(res: u64) {
         LittleEndian::write_u64(&mut buf, res);
         return_value(8, buf.as_ptr())
     }
+}
+
+//fn cast_2u64()
+//
+fn return_u128(res: u128) {
+    unsafe {
+//        let mut buf = [0u8; 16];
+//        let ptr = write_u128(res);
+//        LittleEndian::write_u64(&mut buf, ptr);
+//        LittleEndian::write_u64(&mut buf[8..], ptr + 8);
+        return_value(16, write_u128(&res))
+    }
+}
+
+fn write_u128(value: &u128) -> *const u8 {
+    value as *const u128 as *const u8
 }
 
 fn originator_id() -> Vec<u8> {
@@ -301,7 +317,7 @@ pub fn create_promises_and_join() {
             b"run1".to_vec().as_ptr(),
             5,
             b"args1".to_vec().as_ptr(),
-            0,
+            write_u128(&0)
         );
         let promise2 = promise_create(
             5,
@@ -310,11 +326,18 @@ pub fn create_promises_and_join() {
             b"run2".to_vec().as_ptr(),
             5,
             b"args2".to_vec().as_ptr(),
-            0,
+            write_u128(&0)
         );
         let promise_joined = promise_and(promise1, promise2);
         let callback =
-            promise_then(promise_joined, 8, b"run_test".to_vec().as_ptr(), 0, 0 as (*const u8), 0);
+            promise_then(
+                promise_joined,
+                8,
+                b"run_test".to_vec().as_ptr(),
+                0,
+                0 as (*const u8),
+                write_u128(&0)
+            );
         return_promise(callback);
     }
 }
@@ -334,26 +357,42 @@ pub fn transfer_to_bob() {
             b"deposit".to_vec().as_ptr(),
             0,
             0 as (*const u8),
-            1u64,
+            write_u128(&0),
         );
         return_promise(promise1);
     }
 }
 
-#[no_mangle]
-pub fn get_frozen_balance() {
+fn buf_to_u128(buf: [u8; 16]) -> u128 {
+    unsafe { *(&buf as *const u8 as *const u128) }
+}
+
+pub fn get_frozen_balance() -> u128 {
     unsafe {
-        let my_frozen_balance = frozen_balance();
-        return_u64(my_frozen_balance);
+        let mut buf = [0u8; 16];
+        frozen_balance(buf.as_mut_ptr());
+        buf_to_u128(buf)
     }
 }
 
 #[no_mangle]
-pub fn get_liquid_balance() {
+pub fn test_frozen_balance() {
+    let my_frozen_balance = get_frozen_balance();
+    return_u128(my_frozen_balance);
+}
+
+pub fn get_liquid_balance() -> u128 {
     unsafe {
-        let my_liquid_balance = liquid_balance();
-        return_u64(my_liquid_balance);
+        let mut buf = [0u8; 16];
+        liquid_balance(buf.as_mut_ptr());
+        buf_to_u128(buf)
     }
+}
+
+#[no_mangle]
+pub fn test_liquid_balance() {
+    let my_liquid_balance = get_liquid_balance();
+    return_u128(my_liquid_balance);
 }
 
 #[no_mangle]

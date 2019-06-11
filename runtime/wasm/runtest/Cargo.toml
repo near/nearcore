@@ -2,12 +2,13 @@
 name = "runtest"
 version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
 
 [dependencies]
 byteorder = { version = "1", default-features = false }
 
 wasm = { path = "../" }
-primitives = { path = "../../primitives" }
+near-primitives = { path = "../../../core/primitives" }
 
 [dev-dependencies]
 wabt = "0.7.4"

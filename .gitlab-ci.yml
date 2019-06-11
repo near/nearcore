@@ -1,4 +1,4 @@
-image: parity/rust:nightly-20190315
+image: parity/rust:a811bb14-20190522 
 
 variables:
     CI_SERVER_NAME:  "GitLab CI"
@@ -8,17 +8,10 @@ variables:
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
     APT_CACHE_DIR: apt-cache
-    NEAR_PROTOS_DIR: ../runtime/protos/protos
+    NEAR_PROTOS_DIR: ../core/protos/protos
 
 .setup_rust: &setup_rust
     rustup default nightly
-
-.setup_tendermint: &setup_tendermint
-    curl -O https://raw.githubusercontent.com/tendermint/tendermint/develop/scripts/install/install_tendermint_ubuntu.sh &&
-    chmod +x install_tendermint_ubuntu.sh &&
-    ./install_tendermint_ubuntu.sh &&
-    source ~/.profile &&
-    tendermint init &&
 
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
@@ -26,7 +19,7 @@ variables:
 
 .install_protos: &install_protos
     sudo apt-get install -y unzip &&
-    wget -O /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
+    curl -Lo /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
     sudo unzip /tmp/protoc.zip -d protoc &&
     sudo mv protoc/bin/* /usr/local/bin/ &&
     sudo chmod 755 /usr/local/bin/protoc
@@ -55,15 +48,13 @@ test_cargo:
     stage: rust
     before_script:
     - *setup_rust
-    - *setup_tendermint
     #- rustup component add clippy
     - *setup_cache
     - *install_protos
     script:
     - rustc --version && cargo --version
-    #- ./scripts/run_clippy.sh
-    - ./scripts/build_wasm.sh
-    - cargo build -p keystore --release && ./target/release/keystore keygen --tendermint --test-seed "alice.near" -p ~/.tendermint/config/
+    # - ./scripts/run_clippy.sh
+    # - ./scripts/build_wasm.sh
     - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
@@ -88,24 +79,6 @@ test_regression:
         - schedules
 
 # A set of expensive tests.
-test_cases_testnet_direct:
-    stage: rust
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *install_protos
-    script:
-    - rustc --version && cargo --version
-    - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_cases_testnet_direct test --features expensive_tests
-    tags:
-      - expensive_tests
-    after_script:
-    - *cleanup_obsolete_cache
-    only:
-        - schedules
-
-# A set of expensive tests.
 test_cases_testnet_rpc:
     stage: rust
     before_script:
@@ -123,40 +96,39 @@ test_cases_testnet_rpc:
     only:
         - schedules
 
-release_build:
-    stage: rust
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *install_protos
-    script:
-    - rustc --version && cargo --version
-    after_script:
-    - *cleanup_obsolete_cache
-
-coverage:
-    stage: libs
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *install_protos
-    script:
-    - ./scripts/build_wasm.sh
-    - cargo test --all --no-run
-    - *code_coverage
-
-test_nearlib:
-    stage: libs
-    before_script:
-    - *setup_rust
-    - *setup_cache
-    - *setup_tendermint
-    - *install_protos
-    dependencies:
-    - release_build
-    script:
-    - ./scripts/start_nearmint.sh &
-    - ./scripts/test_nearlib.sh
+#release_build:
+#    stage: rust
+#    before_script:
+#    - *setup_rust
+#    - *setup_cache
+#    - *install_protos
+#    script:
+#    - rustc --version && cargo --version
+#    after_script:
+#    - *cleanup_obsolete_cache
+#
+#coverage:
+#    stage: libs
+#    before_script:
+#    - *setup_rust
+#    - *setup_cache
+#    - *install_protos
+#    script:
+#    - ./scripts/build_wasm.sh
+#    - cargo test --all --no-run
+#    - *code_coverage
+#
+#test_nearlib:
+#    stage: libs
+#    before_script:
+#    - *setup_rust
+#    - *setup_cache
+#    - *install_protos
+#    dependencies:
+#    - release_build
+#    script:
+#    - ./scripts/start_near.sh &
+#    - ./scripts/test_nearlib.sh
 
 #test_pynear:
 #    stage: libs

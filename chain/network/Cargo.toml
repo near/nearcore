@@ -1,35 +1,25 @@
 [package]
-name = "network"
-version = "0.0.1"
+name = "near-network"
+version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-bincode = { "version" = "1.0", features = ["i128"] }
-byteorder = "1.2.7"
 bytes = "0.4"
-env_logger = "0.5"
-futures = "0.1"
+actix = "0.8.1"
 log = "0.4"
-parking_lot = "0.7.1"
-rand = "0.6"
-serde = "1.0"
-serde_derive = "1.0"
-serde_json = "1.0"
 tokio = "0.1"
 protobuf = "2.4"
+futures = "0.1"
+chrono = { version = "0.4.4", features = ["serde"] }
+serde = "1.0"
+serde_derive = "1.0"
+rand = "0.6.5"
 
-beacon = { path = "../../chain/beacon" }
-chain = { path = "../../chain/chain" }
-client = { path = "../../chain/client" }
-configs = { path = "../configs" }
-primitives = { path = "../../runtime/primitives" }
-near-protos = { path = "../../runtime/protos" }
-shard = { path = "../shard" }
-storage = { path = "../../runtime/storage", features=["test-utils"] }
-nightshade = { path = "../../chain/nightshade" }
-mempool = { path = "../../chain/mempool" }
-tokio-utils = { path = "../tokio-utils" }
+near-primitives = { path = "../../core/primitives" }
+near-protos = { path = "../../core/protos" }
+near-store = { path = "../../core/store" }
+near-chain = { path = "../chain" }
 
-[features]
-test-utils = []
+[dev-dependencies]
+near-client = { path = "../client" }

@@ -1,0 +1,37 @@
+[package]
+name = "near-primitives"
+version = "0.1.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+regex = "1"
+bincode = { version = "1.0", features = ["i128"] }
+bs58 = { git = "https://github.com/ilblackdragon/bs58-rs", rev = "46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b" }
+byteorder = "1.2"
+exonum_sodiumoxide = "0.0.20"
+futures = "0.1"
+heapsize = "0.4"
+lazy_static = "1.3"
+serde = "1.0"
+serde_derive = "1.0"
+sha2 = "0.8.0"
+serde_json = "1.0"
+pairing = { git = "https://github.com/nearprotocol/pairing.git", rev = "f009a9f54c1c1149cea4ee3e6e58ed71d72bb2e9" }
+rand = "0.6"
+rand_xorshift = "0.1"
+protobuf = "2.4"
+env_logger = "0.6.0"
+log = "0.4"
+reed-solomon-erasure = "3.1.1"
+jemallocator = "0.3.0"
+
+near-protos = { path = "../protos" }
+
+[dev-dependencies]
+bencher = "0.1.5"
+serde_json = "1.0"
+
+[[bench]]
+name = "bls"
+harness = false

@@ -1,13 +1,11 @@
 //! Checks that late validator can catch-up and start validating.
-#[cfg(feature = "old_tests")]
 #[test]
+#[cfg(feature = "expensive_tests")]
 fn test_catchup() {
     use std::time::Duration;
 
     use std::sync::{Arc, RwLock};
-    use testlib::node::{
-        create_nodes, Node, NodeConfig, TEST_BLOCK_FETCH_LIMIT, TEST_BLOCK_MAX_SIZE,
-    };
+    use testlib::node::{create_nodes, Node};
     use testlib::test_helpers::{heavy_test, wait};
 
     /// Creates a network of `num_nodes` nodes, but starts only `num_nodes - 1`. After
@@ -19,22 +17,8 @@ fn test_catchup() {
         catchup_timeout: Duration,
         block_generation_timeout: Duration,
         test_prefix: &str,
-        test_port: u16,
     ) {
-        let (_, _, mut nodes) = create_nodes(
-            num_nodes,
-            test_prefix,
-            test_port,
-            TEST_BLOCK_FETCH_LIMIT,
-            TEST_BLOCK_MAX_SIZE * 10,
-            vec![],
-        );
-
-        for n in &mut nodes {
-            if let NodeConfig::Thread(cfg) = n {
-                cfg.client_cfg.log_level = log::LevelFilter::Off;
-            }
-        }
+        let mut nodes = create_nodes(num_nodes, test_prefix);
 
         let mut nodes: Vec<Arc<RwLock<dyn Node>>> =
             nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
@@ -76,6 +60,6 @@ fn test_catchup() {
     }
 
     heavy_test(|| {
-        run_multiple_nodes(4, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20", 3300)
+        run_multiple_nodes(4, 20, Duration::from_secs(120), Duration::from_secs(60), "4_20")
     });
 }
