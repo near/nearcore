@@ -18,13 +18,11 @@ npm run doc
 cd ..
 
 # Try creating and building new project using NEAR CLI tools
-<<COMMENT
-git clone https://git@github.com/nearprotocol/near-shell.git near-shell
+git clone --single-branch --branch nightshade https://git@github.com/nearprotocol/near-shell.git near-shell
 git checkout origin/nightshade
 cd near-shell
 npm install
 npm test
 cd ..
-COMMENT
 
 ./scripts/kill_near.sh
