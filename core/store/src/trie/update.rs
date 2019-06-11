@@ -66,14 +66,14 @@ impl TrieUpdate {
     pub fn rollback(&mut self) {
         self.prospective.clear();
     }
-    pub fn finalize(mut self) -> Result<TrieChanges, Box<std::error::Error>> {
+    pub fn finalize(mut self) -> Result<TrieChanges, Box<dyn std::error::Error>> {
         if !self.prospective.is_empty() {
             self.commit();
         }
         let TrieUpdate { trie, root, committed, .. } = self;
         trie.update(&root, committed.into_iter())
     }
-    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<std::error::Error>> {
+    pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
         TrieUpdateIterator::new(self, prefix, b"", None)
     }
 
@@ -82,7 +82,7 @@ impl TrieUpdate {
         prefix: &[u8],
         start: &[u8],
         end: &[u8],
-    ) -> Result<TrieUpdateIterator, Box<std::error::Error>> {
+    ) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
         TrieUpdateIterator::new(self, prefix, start, Some(end))
     }
 
@@ -145,7 +145,7 @@ impl<'a> TrieUpdateIterator<'a> {
         prefix: &[u8],
         start: &[u8],
         end: Option<&[u8]>,
-    ) -> Result<Self, Box<std::error::Error>> {
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut trie_iter = state_update.trie.iter(&state_update.root)?;
         let mut start_offset = prefix.to_vec();
         start_offset.extend_from_slice(start);

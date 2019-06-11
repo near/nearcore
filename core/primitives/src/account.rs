@@ -83,7 +83,7 @@ impl fmt::Debug for AccessKey {
 }
 
 impl TryFrom<access_key_proto::AccessKey> for AccessKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(access_key: access_key_proto::AccessKey) -> Result<Self, Self::Error> {
         Ok(AccessKey {

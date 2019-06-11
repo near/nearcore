@@ -71,7 +71,7 @@ impl InMemorySigner {
 }
 
 impl TransactionBody {
-    pub fn sign(self, signer: &EDSigner) -> SignedTransaction {
+    pub fn sign(self, signer: &dyn EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self, Some(signer.public_key()))
     }

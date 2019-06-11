@@ -139,7 +139,7 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<EDSigner>,
+    pub signer: Arc<dyn EDSigner>,
 }
 
 impl From<InMemorySigner> for BlockProducer {

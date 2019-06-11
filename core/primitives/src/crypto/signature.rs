@@ -66,7 +66,7 @@ impl Hash for PublicKey {
 }
 
 impl TryFrom<&[u8]> for PublicKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES {
@@ -86,7 +86,7 @@ impl TryFrom<&[u8]> for PublicKey {
 }
 
 impl TryFrom<Vec<u8>> for PublicKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let bytes: &[u8] = bytes.as_ref();
@@ -95,7 +95,7 @@ impl TryFrom<Vec<u8>> for PublicKey {
 }
 
 impl TryFrom<&str> for PublicKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
@@ -113,7 +113,7 @@ impl TryFrom<&str> for PublicKey {
 }
 
 impl TryFrom<&[u8]> for SecretKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES {
@@ -127,7 +127,7 @@ impl TryFrom<&[u8]> for SecretKey {
 }
 
 impl TryFrom<&str> for SecretKey {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
@@ -145,7 +145,7 @@ impl TryFrom<&str> for SecretKey {
 }
 
 impl TryFrom<&[u8]> for Signature {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES {
@@ -159,7 +159,7 @@ impl TryFrom<&[u8]> for Signature {
 }
 
 impl TryFrom<Vec<u8>> for Signature {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         let bytes: &[u8] = bytes.as_ref();
@@ -168,7 +168,7 @@ impl TryFrom<Vec<u8>> for Signature {
 }
 
 impl TryFrom<&str> for Signature {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];

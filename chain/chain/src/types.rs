@@ -13,7 +13,7 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::ABCIQueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, ValidatorStake, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::proto_to_type;
 use near_protos::chain as chain_proto;
 use near_store::{StoreUpdate, WrappedTrieChanges};
@@ -92,7 +92,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
-        signer: Arc<EDSigner>,
+        signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
             height,
@@ -146,7 +146,7 @@ impl BlockHeader {
 }
 
 impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
         let body = proto.body.into_option().ok_or("Missing Header body")?;
@@ -237,7 +237,7 @@ impl Block {
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
-        signer: Arc<EDSigner>,
+        signer: Arc<dyn EDSigner>,
     ) -> Self {
         // TODO: merkelize transactions.
         let tx_root = CryptoHash::default();
@@ -273,7 +273,7 @@ impl Block {
 }
 
 impl TryFrom<chain_proto::Block> for Block {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: chain_proto::Block) -> Result<Self, Self::Error> {
         let transactions =
@@ -325,7 +325,7 @@ pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
-pub trait RuntimeAdapter : Send + Sync {
+pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate and state root.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash);
@@ -339,13 +339,23 @@ pub trait RuntimeAdapter : Send + Sync {
 
     /// Epoch block proposers with number of seats they have for given shard.
     /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_proposers(&self, height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>>;
+    fn get_epoch_block_proposers(
+        &self,
+        height: BlockIndex,
+    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>>;
+    fn get_block_proposer(
+        &self,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_proposer(&self, shard_id: ShardId, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>>;
+    fn get_chunk_proposer(
+        &self,
+        shard_id: ShardId,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     /// Check validator's signature.
     fn check_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
@@ -376,7 +386,7 @@ pub trait RuntimeAdapter : Send + Sync {
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
-        Box<std::error::Error>,
+        Box<dyn std::error::Error>,
     >;
 
     /// Query runtime with given `path` and `data`.
@@ -386,7 +396,7 @@ pub trait RuntimeAdapter : Send + Sync {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<std::error::Error>>;
+    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>>;
 }
 
 /// The weight is defined as the number of unique validators approving this fork.
@@ -453,7 +463,7 @@ pub struct BlockApproval {
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &EDSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn EDSigner, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -483,8 +493,15 @@ mod tests {
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 =
-            Block::produce(&b1.header, 2, MerkleHash::default(), vec![], approvals, vec![], signer.clone());
+        let b2 = Block::produce(
+            &b1.header,
+            2,
+            MerkleHash::default(),
+            vec![],
+            approvals,
+            vec![],
+            signer.clone(),
+        );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

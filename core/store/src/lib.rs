@@ -11,7 +11,8 @@ use serde::Serialize;
 use near_primitives::serialize::{to_base, Decode, Encode};
 
 pub use crate::trie::{
-    update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieIterator, TrieChanges, WrappedTrieChanges
+    update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
+    WrappedTrieChanges,
 };
 
 pub mod test_utils;
@@ -30,11 +31,11 @@ pub const COL_VALIDATORS: Option<u32> = Some(9);
 const NUM_COLS: u32 = 10;
 
 pub struct Store {
-    storage: Arc<KeyValueDB>,
+    storage: Arc<dyn KeyValueDB>,
 }
 
 impl Store {
-    pub fn new(storage: Arc<KeyValueDB>) -> Store {
+    pub fn new(storage: Arc<dyn KeyValueDB>) -> Store {
         Store { storage }
     }
 
@@ -68,26 +69,26 @@ impl Store {
     pub fn iter<'a>(
         &'a self,
         column: Option<u32>,
-    ) -> Box<Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
         self.storage.iter(column)
     }
 }
 
 /// Keeps track of current changes to the database and can commit all of them to the database.
 pub struct StoreUpdate {
-    storage: Arc<KeyValueDB>,
+    storage: Arc<dyn KeyValueDB>,
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     trie: Option<Arc<Trie>>,
 }
 
 impl StoreUpdate {
-    pub fn new(storage: Arc<KeyValueDB>) -> Self {
+    pub fn new(storage: Arc<dyn KeyValueDB>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: None }
     }
 
-    pub fn new_with_trie(storage: Arc<KeyValueDB>, trie: Arc<Trie>) -> Self {
+    pub fn new_with_trie(storage: Arc<dyn KeyValueDB>, trie: Arc<Trie>) -> Self {
         let transaction = storage.transaction();
         StoreUpdate { storage, transaction, trie: Some(trie) }
     }

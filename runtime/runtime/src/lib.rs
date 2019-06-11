@@ -666,7 +666,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Vec<ReceiptTransaction>],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyResult, Box<std::error::Error>> {
+    ) -> Result<ApplyResult, Box<dyn std::error::Error>> {
         let mut new_receipts = HashMap::new();
         let mut validator_proposals = vec![];
         let shard_id = apply_state.shard_id;

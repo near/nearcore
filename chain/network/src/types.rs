@@ -46,7 +46,7 @@ impl From<PublicKey> for PeerId {
 }
 
 impl TryFrom<Vec<u8>> for PeerId {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
         Ok(PeerId(bytes.try_into()?))
@@ -108,7 +108,7 @@ impl fmt::Display for PeerInfo {
 }
 
 impl TryFrom<&str> for PeerInfo {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let chunks: Vec<_> = s.split("@").collect();
@@ -128,7 +128,7 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 impl TryFrom<network_proto::PeerInfo> for PeerInfo {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
         let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
@@ -158,7 +158,7 @@ pub struct PeerChainInfo {
 }
 
 impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::PeerChainInfo) -> Result<Self, Self::Error> {
         Ok(PeerChainInfo { height: proto.height, total_weight: proto.total_weight.into() })
@@ -221,7 +221,7 @@ impl Handshake {
 }
 
 impl TryFrom<network_proto::Handshake> for Handshake {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
@@ -293,7 +293,7 @@ impl fmt::Display for PeerMessage {
 }
 
 impl TryFrom<network_proto::PeerMessage> for PeerMessage {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::PeerMessage) -> Result<Self, Self::Error> {
         match proto.message_type {
@@ -465,7 +465,7 @@ impl KnownPeerState {
 }
 
 impl TryFrom<Vec<u8>> for KnownPeerState {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, Self::Error> {
         Decode::decode(&bytes).map_err(|err| err.into())

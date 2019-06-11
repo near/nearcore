@@ -37,11 +37,11 @@ pub fn to_base<T: ?Sized + AsRef<[u8]>>(input: &T) -> String {
     bs58::encode(input).into_string()
 }
 
-pub fn from_base(s: &str) -> Result<Vec<u8>, Box<std::error::Error>> {
+pub fn from_base(s: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     bs58::decode(s).into_vec().map_err(|err| err.into())
 }
 
-pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<std::error::Error>> {
+pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
     match bs58::decode(s).into(buffer) {
         Ok(_) => Ok(()),
         Err(err) => Err(err.into()),
@@ -61,8 +61,8 @@ where
     }
 }
 
-pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<std::error::Error>> {
-    fn from_base(s: &str) -> Result<Self, Box<std::error::Error>> {
+pub trait BaseDecode: for<'a> TryFrom<&'a [u8], Error = Box<dyn std::error::Error>> {
+    fn from_base(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let bytes = from_base(s)?;
         Self::try_from(&bytes).map_err(|err| err.into())
     }
@@ -130,7 +130,6 @@ pub mod u128_hex_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        u128::from_str_radix(s.trim_start_matches("0x"), 16)
-            .map_err(de::Error::custom)
+        u128::from_str_radix(s.trim_start_matches("0x"), 16).map_err(de::Error::custom)
     }
 }

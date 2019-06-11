@@ -90,13 +90,13 @@ pub fn to_string_value(s: String) -> StringValue {
     res
 }
 
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<std::error::Error>> {
+pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<dyn std::error::Error>> {
     proto.into_option().ok_or_else(|| "Bad Proto".into())
 }
 
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<std::error::Error>>
+pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<dyn std::error::Error>>
 where
-    U: TryFrom<T, Error = Box<std::error::Error>>,
+    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
 {
     proto_to_result(proto).and_then(TryInto::try_into)
 }

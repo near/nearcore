@@ -12,7 +12,7 @@ pub trait RuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<std::error::Error>>;
+    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>>;
 
     fn call_function(
         &self,
@@ -22,37 +22,37 @@ pub trait RuntimeAdapter {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, Box<std::error::Error>>;
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     fn view_access_key(
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<std::error::Error>>;
+    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>>;
 
     fn view_access_keys(
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<std::error::Error>>;
+    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>>;
 
     fn view_state(
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<ViewStateResult, Box<std::error::Error>>;
+    ) -> Result<ViewStateResult, Box<dyn std::error::Error>>;
 }
 
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
 /// Given implementation only supports latest height, thus ignoring it.
 pub fn query_client(
-    adapter: &RuntimeAdapter,
+    adapter: &dyn RuntimeAdapter,
     state_root: MerkleHash,
     height: BlockIndex,
     path: &str,
     data: &[u8],
-) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
+) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>> {
     let path_parts: Vec<&str> = path.split('/').collect();
     if path_parts.is_empty() {
         return Err("Path must contain at least single token".into());

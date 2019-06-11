@@ -92,7 +92,7 @@ pub fn wait_or_panic(max_wait_ms: u64) {
 /// }).unwrap();
 /// ```
 pub struct WaitOrTimeout {
-    f: Box<FnMut(&mut Context<WaitOrTimeout>)>,
+    f: Box<dyn FnMut(&mut Context<WaitOrTimeout>)>,
     check_interval_ms: u64,
     max_wait_ms: u64,
     ms_slept: u64,
@@ -100,7 +100,7 @@ pub struct WaitOrTimeout {
 
 impl WaitOrTimeout {
     pub fn new(
-        f: Box<FnMut(&mut Context<WaitOrTimeout>)>,
+        f: Box<dyn FnMut(&mut Context<WaitOrTimeout>)>,
         check_interval_ms: u64,
         max_wait_ms: u64,
     ) -> Self {

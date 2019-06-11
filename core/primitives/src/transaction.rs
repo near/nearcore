@@ -53,7 +53,7 @@ pub struct CreateAccountTransaction {
 }
 
 impl TryFrom<transaction_proto::CreateAccountTransaction> for CreateAccountTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::CreateAccountTransaction) -> Result<Self, Self::Error> {
         Ok(CreateAccountTransaction {
@@ -143,7 +143,7 @@ pub struct FunctionCallTransaction {
 }
 
 impl TryFrom<transaction_proto::FunctionCallTransaction> for FunctionCallTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::FunctionCallTransaction) -> Result<Self, Self::Error> {
         Ok(FunctionCallTransaction {
@@ -193,7 +193,7 @@ pub struct SendMoneyTransaction {
 }
 
 impl TryFrom<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::SendMoneyTransaction) -> Result<Self, Self::Error> {
         Ok(SendMoneyTransaction {
@@ -226,7 +226,7 @@ pub struct StakeTransaction {
 }
 
 impl TryFrom<transaction_proto::StakeTransaction> for StakeTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::StakeTransaction) -> Result<Self, Self::Error> {
         Ok(StakeTransaction {
@@ -302,7 +302,7 @@ pub struct AddKeyTransaction {
 }
 
 impl TryFrom<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::AddKeyTransaction) -> Result<Self, Self::Error> {
         Ok(AddKeyTransaction {
@@ -509,10 +509,10 @@ impl PartialEq for SignedTransaction {
 }
 
 impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(t: transaction_proto::SignedTransaction) -> Result<Self, Self::Error> {
-        let mut bytes;
+        let bytes;
         let body = match t.body {
             Some(transaction_proto::SignedTransaction_oneof_body::create_account(t)) => {
                 bytes = t.write_to_bytes();
@@ -620,7 +620,7 @@ pub struct AsyncCall {
 }
 
 impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: receipt_proto::AsyncCall) -> Result<Self, Self::Error> {
         Ok(AsyncCall {
@@ -769,7 +769,7 @@ pub struct CallbackResult {
 }
 
 impl TryFrom<receipt_proto::CallbackResult> for CallbackResult {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: receipt_proto::CallbackResult) -> Result<Self, Self::Error> {
         match proto_to_result(proto.info) {
@@ -822,7 +822,7 @@ pub struct ReceiptTransaction {
 }
 
 impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: receipt_proto::ReceiptTransaction) -> Result<Self, Self::Error> {
         let body = match proto.body {
