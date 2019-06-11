@@ -9,8 +9,8 @@ set -ex
 rm -rf nearlib
 git clone --single-branch --branch nightshade https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
-export NEAR_PROTOS_DIR="../nearcore/core/protos/protos"
-export HELLO_WASM_PATH="../nearcore/tests/hello.wasm"
+export NEAR_PROTOS_DIR="../core/protos/protos"
+export HELLO_WASM_PATH="../tests/hello.wasm"
 npm install
 npm test
 npm run build
