@@ -53,8 +53,8 @@ test_cargo:
     - *install_protos
     script:
     - rustc --version && cargo --version
-    #- ./scripts/run_clippy.sh
-    - ./scripts/build_wasm.sh
+    # - ./scripts/run_clippy.sh
+    # - ./scripts/build_wasm.sh
     - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
