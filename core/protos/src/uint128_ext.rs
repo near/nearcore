@@ -7,7 +7,7 @@ use byteorder::ReadBytesExt;
 use crate::uint128 as uint128_proto;
 
 impl TryFrom<uint128_proto::Uint128> for u128 {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(value: uint128_proto::Uint128) -> Result<Self, Self::Error> {
         let len = value.number.len();

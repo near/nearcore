@@ -73,7 +73,7 @@ impl Decoder for Codec {
                 parse_from_bytes(&buf[4..4 + len as usize]).map_err(convert_protobuf_error)?;
             buf.advance(4 + len as usize);
             res.try_into()
-                .map_err(|e: Box<std::error::Error>| {
+                .map_err(|e: Box<dyn std::error::Error>| {
                     Error::new(ErrorKind::InvalidData, e.to_string())
                 })
                 .map(Some)

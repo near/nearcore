@@ -57,7 +57,12 @@ impl TrieNode {
         }
     }
 
-    fn print(&self, f: &mut fmt::Write, memory: &NodesStorage, spaces: &mut String) -> fmt::Result {
+    fn print(
+        &self,
+        f: &mut dyn fmt::Write,
+        memory: &NodesStorage,
+        spaces: &mut String,
+    ) -> fmt::Result {
         match self {
             TrieNode::Empty => {
                 write!(f, "{}Empty", spaces)?;
@@ -402,7 +407,7 @@ impl TrieChanges {
         &self,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.insertions.iter() {
             let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
@@ -416,7 +421,7 @@ impl TrieChanges {
         &self,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.deletions.iter() {
             let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
@@ -434,7 +439,7 @@ impl TrieChanges {
     pub fn into(
         self,
         trie: Arc<Trie>,
-    ) -> Result<(StoreUpdate, CryptoHash), Box<std::error::Error>> {
+    ) -> Result<(StoreUpdate, CryptoHash), Box<dyn std::error::Error>> {
         let mut store_update =
             StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
         self.insertions_into(trie.clone(), &mut store_update)?;
@@ -456,14 +461,14 @@ impl WrappedTrieChanges {
     pub fn insertions_into(
         &self,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.trie_changes.insertions_into(self.trie.clone(), store_update)
     }
 
     pub fn deletions_into(
         &self,
         store_update: &mut StoreUpdate,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.trie_changes.deletions_into(self.trie.clone(), store_update)
     }
 }
@@ -487,7 +492,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
-    ) -> Result<StorageHandle, Box<std::error::Error>> {
+    ) -> Result<StorageHandle, Box<dyn std::error::Error>> {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
@@ -592,7 +597,7 @@ impl Trie {
         node: StorageHandle,
         partial: NibbleSlice,
         value: Vec<u8>,
-    ) -> Result<StorageHandle, Box<std::error::Error>> {
+    ) -> Result<StorageHandle, Box<dyn std::error::Error>> {
         let root_handle = node;
         let mut handle = node;
         let mut value = Some(value);
@@ -745,7 +750,7 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice,
-    ) -> Result<(StorageHandle, bool), Box<std::error::Error>> {
+    ) -> Result<(StorageHandle, bool), Box<dyn std::error::Error>> {
         let mut handle = node;
         let mut partial = partial;
         let root_node = handle;
@@ -833,7 +838,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         path: Vec<StorageHandle>,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         for handle in path.into_iter().rev() {
             match memory.destroy(handle) {
                 TrieNode::Empty => {
@@ -891,7 +896,7 @@ impl Trie {
         handle: StorageHandle,
         key: Vec<u8>,
         child: NodeHandle,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let child = match child {
             NodeHandle::Hash(hash) => self.move_node_to_mutable(memory, &hash)?,
             NodeHandle::InMemory(h) => h,
@@ -926,7 +931,7 @@ impl Trie {
         old_root: &CryptoHash,
         memory: NodesStorage,
         node: StorageHandle,
-    ) -> Result<TrieChanges, Box<std::error::Error>> {
+    ) -> Result<TrieChanges, Box<dyn std::error::Error>> {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
@@ -1027,7 +1032,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         changes: I,
-    ) -> Result<TrieChanges, Box<std::error::Error>>
+    ) -> Result<TrieChanges, Box<dyn std::error::Error>>
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
@@ -1052,7 +1057,7 @@ impl Trie {
     pub fn iter<'a>(
         &'a self,
         root: &CryptoHash,
-    ) -> Result<TrieIterator<'a>, Box<std::error::Error>> {
+    ) -> Result<TrieIterator<'a>, Box<dyn std::error::Error>> {
         TrieIterator::new(self, root)
     }
 
@@ -1121,7 +1126,7 @@ pub struct TrieIterator<'a> {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, Box<std::error::Error>> {
+    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, Box<dyn std::error::Error>> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),

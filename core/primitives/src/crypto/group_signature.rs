@@ -18,7 +18,7 @@ pub struct GroupSignature {
 }
 
 impl TryFrom<types_proto::GroupSignature> for GroupSignature {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: types_proto::GroupSignature) -> Result<Self, Self::Error> {
         BaseDecode::from_base(&proto.signature)

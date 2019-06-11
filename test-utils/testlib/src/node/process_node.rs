@@ -57,7 +57,7 @@ impl Node for ProcessNode {
         }
     }
 
-    fn signer(&self) -> Arc<EDSigner> {
+    fn signer(&self) -> Arc<dyn EDSigner> {
         self.config.block_producer.clone().unwrap().signer.clone()
     }
 
@@ -85,7 +85,11 @@ impl ProcessNode {
     /// Side effect: reset_storage
     pub fn new(config: NearConfig) -> ProcessNode {
         let mut rng = rand::thread_rng();
-        let work_dir = format!("{}process_node_{}", env::temp_dir().as_path().to_str().unwrap(), rng.gen::<u64>());
+        let work_dir = format!(
+            "{}process_node_{}",
+            env::temp_dir().as_path().to_str().unwrap(),
+            rng.gen::<u64>()
+        );
         let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped };
         result.reset_storage();
         result
@@ -93,27 +97,14 @@ impl ProcessNode {
 
     /// Clear storage directory and run keygen
     pub fn reset_storage(&self) {
-        Command::new("rm")
-            .args(&["-r", &self.work_dir])
-            .spawn()
-            .unwrap()
-            .wait()
-            .unwrap();
+        Command::new("rm").args(&["-r", &self.work_dir]).spawn().unwrap().wait().unwrap();
         self.config.save_to_dir(Path::new(&self.work_dir));
     }
 
     /// Side effect: writes chain spec file
     pub fn get_start_node_command(&self) -> Command {
         let mut command = Command::new("cargo");
-        command.args(&[
-            "run",
-            "-p",
-            "near",
-            "--",
-            "--home",
-            &self.work_dir,
-            "run",
-        ]);
+        command.args(&["run", "-p", "near", "--", "--home", &self.work_dir, "run"]);
         command
     }
 }

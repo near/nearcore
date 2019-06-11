@@ -49,7 +49,7 @@ impl Node for ThreadNode {
         }
     }
 
-    fn signer(&self) -> Arc<EDSigner> {
+    fn signer(&self) -> Arc<dyn EDSigner> {
         self.config.block_producer.clone().unwrap().signer.clone()
     }
 

@@ -37,7 +37,7 @@ pub fn execute(
     method_name: &[u8],
     input_data: &[u8],
     result_data: &[Option<Vec<u8>>],
-    ext: &mut External,
+    ext: &mut dyn External,
     config: &Config,
     context: &RuntimeContext,
 ) -> Result<ExecutionOutcome, Error> {
