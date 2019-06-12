@@ -2,10 +2,9 @@
 set -ex
 
 ./scripts/start_near.sh &
-NEAR_PID=$!
-trap 'kill $NEAR_PID' 0
+export NEAR_PID=$!
+trap 'pkill -15 -P $NEAR_PID' 0
 
-# Must start binary outside of this script.
 ./scripts/waitonserver.sh
 #./scripts/build_wasm.sh
 
