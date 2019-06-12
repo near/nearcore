@@ -14,8 +14,8 @@ ls -la
 export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
 npm install
-npm test
 npm run build
+npm test
 npm run doc
 cd ..
 
