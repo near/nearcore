@@ -7,6 +7,7 @@ use near_primitives::logging;
 use near_primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
 
 use crate::types::Error::Runtime;
+use near_primitives::crypto::signature::PublicKey;
 
 #[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
