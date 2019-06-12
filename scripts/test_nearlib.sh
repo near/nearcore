@@ -1,7 +1,9 @@
 #!/bin/bash
 set -ex
 
-nohup ./scripts/start_near.sh &
+./scripts/start_near.sh &
+NEAR_PID=$!
+trap 'kill $NEAR_PID' 0
 
 # Must start binary outside of this script.
 ./scripts/waitonserver.sh
@@ -25,6 +27,3 @@ cd near-shell
 npm install
 #npm test
 cd ..
-
-#./scripts/kill_near.sh
-exit 0
