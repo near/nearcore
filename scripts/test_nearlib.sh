@@ -1,6 +1,8 @@
 #!/bin/bash
 set -ex
 
+nohup ./scripts/start_near.sh &
+
 # Must start binary outside of this script.
 ./scripts/waitonserver.sh
 #./scripts/build_wasm.sh

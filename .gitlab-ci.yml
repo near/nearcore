@@ -127,7 +127,6 @@ test_nearlib:
    dependencies:
    - release_build
    script:
-   - nohup ./scripts/start_near.sh &
    - ./scripts/test_nearlib.sh
 
 #test_pynear:
