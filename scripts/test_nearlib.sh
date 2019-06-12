@@ -26,5 +26,5 @@ npm install
 #npm test
 cd ..
 
-./scripts/kill_near.sh
+#./scripts/kill_near.sh
 exit 0
