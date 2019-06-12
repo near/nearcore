@@ -23,7 +23,7 @@ cd ..
 git clone --single-branch --branch nightshade https://git@github.com/nearprotocol/near-shell.git near-shell
 cd near-shell
 npm install
-npm test
+#npm test
 cd ..
 
 ./scripts/kill_near.sh
