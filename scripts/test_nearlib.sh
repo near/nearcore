@@ -21,7 +21,6 @@ cd ..
 
 # Try creating and building new project using NEAR CLI tools
 git clone --single-branch --branch nightshade https://git@github.com/nearprotocol/near-shell.git near-shell
-git checkout origin/nightshade
 cd near-shell
 npm install
 npm test
