@@ -24,10 +24,10 @@ finally makes using a blockchain protocol easy for both developers and consumers
 
 ## Quick start
 
-[Check out quick start documentation](https://docs.nearprotocol.com/quick_start), specifically:
-  - [Build your first app in NEAR Studio](https://docs.nearprotocol.com/quick_start/easy)
-  - [Running local DevNet](https://docs.nearprotocol.com/quick_start/advanced)
-  - [Join TestNet](https://docs.nearprotocol.com/tutorials/run-your-own-testnet)
+[Check out quick start documentation](https://docs.nearprotocol.com/quick-start), specifically:
+  - [Working with Smart Contracts in NEAR Studio](https://docs.nearprotocol.com/working-smart-contracts)
+  - [Running local DevNet](https://docs.nearprotocol.com/development-environment/advanced)
+  - [Join TestNet](https://docs.nearprotocol.com/development-environment/run-your-own-testnet)
   
 Develop and deploy contracts without any setup required using [NEAR Studio](https://studio.nearprotocol.com):
 
