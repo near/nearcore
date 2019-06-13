@@ -415,7 +415,7 @@ pub fn init_configs(
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
-    let chain_id = chain_id.map(|c| c.to_string()).unwrap_or(random_chain_id());
+    let chain_id = chain_id.and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) }).unwrap_or(random_chain_id());
     match chain_id.as_ref() {
         "mainnet" => {
             // TODO:
@@ -429,8 +429,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
-            if let Some(account_id) = account_id {
-                let signer = InMemorySigner::new(account_id.to_string());
+            if let Some(account_id) = account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) }) {
+                let signer = InMemorySigner::new(account_id.clone());
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
@@ -447,7 +447,7 @@ pub fn init_configs(
             config.network.skip_sync_wait = true;
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let account_id = account_id.unwrap_or("test.near").to_string();
+            let account_id = account_id.and_then(|x| if x.is_empty() { None } else { Some(x) }).unwrap_or("test.near").to_string();
 
             let signer = if let Some(test_seed) = test_seed {
                 InMemorySigner::from_seed(&account_id, test_seed)
