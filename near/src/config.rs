@@ -165,15 +165,15 @@ impl NearConfig {
             client_config: ClientConfig {
                 chain_id: genesis_config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
-                min_block_production_delay: Duration::from_millis(100),
-                max_block_production_delay: Duration::from_millis(2000),
+                min_block_production_delay: config.consensus.min_block_production_delay,
+                max_block_production_delay: config.consensus.max_block_production_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
-                min_num_peers: 1,
+                min_num_peers: config.consensus.min_num_peers,
                 fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -194,7 +194,7 @@ impl NearConfig {
                         .network
                         .boot_nodes
                         .split(",")
-                        .map(|chunk| chunk.try_into().unwrap())
+                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
                 handshake_timeout: config.network.handshake_timeout,
@@ -382,7 +382,7 @@ pub fn testnet_genesis() -> GenesisConfig {
         block_producers_per_shard: vec![4],
         avg_fisherman_per_shard: vec![100],
         dynamic_resharding: true,
-        epoch_length: 20000,
+        epoch_length: 60,
         validators: vec![AccountInfo {
             account_id: ".near".to_string(),
             public_key: ReadablePublicKey(

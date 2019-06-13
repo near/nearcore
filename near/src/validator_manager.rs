@@ -274,18 +274,15 @@ impl ValidatorManager {
         state_root: MerkleHash,
     ) -> Result<(), ValidatorError> {
         // If there are any proposals in given branch.
-        if let Some(proposals) = self.proposals.remove(&state_root) {
-            let mut store_update = self.store.store_update();
-            let assignment = proposals_to_assignments(
-                next_epoch_config,
-                self.get_validators(epoch)?,
-                proposals,
-            )?;
-            self.last_epoch = epoch + 1;
-            store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
-            store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &self.last_epoch)?;
-            store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
-        }
+        let proposals = self.proposals.remove(&state_root).unwrap_or(vec![]);
+        let mut store_update = self.store.store_update();
+        let assignment =
+            proposals_to_assignments(next_epoch_config, self.get_validators(epoch)?, proposals)?;
+        self.last_epoch = epoch + 1;
+        println!("{} -> {:?}", epoch + 2, assignment);
+        store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
+        store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &self.last_epoch)?;
+        store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
         self.proposals.clear();
         Ok(())
     }
@@ -404,7 +401,7 @@ mod test {
         let validators = vec![stake("test1", 1_000_000)];
         let mut am =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
-        let (sr1, sr2) = (hash(&vec![1]), hash(&vec![2]));
+        let (sr1, sr2, sr3) = (hash(&vec![1]), hash(&vec![2]), hash(&vec![4]));
         am.add_proposals(sr1, sr2, vec![stake("test2", 1_000_000)]);
         let expected0 = assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![]);
         assert_eq!(am.get_validators(0).unwrap(), &expected0);
@@ -412,28 +409,24 @@ mod test {
         assert_eq!(am.get_validators(2), Err(ValidatorError::EpochOutOfBounds));
         am.finalize_epoch(0, config.clone(), sr2).unwrap();
         assert_eq!(am.last_epoch(), 1);
+        let expected = assignment(
+            vec![("test2", 1_000_000), ("test1", 1_000_000)],
+            vec![1, 1],
+            vec![vec![(0, 1), (1, 1)]],
+            vec![],
+        );
+        assert_eq!(am.get_validators(2).unwrap(), &expected);
+        am.finalize_epoch(1, config.clone(), sr3).unwrap();
+        // TODO: not very fair, should distribute more evenly.
         assert_eq!(
-            am.get_validators(2).unwrap(),
-            &assignment(
-                vec![("test2", 1_000_000), ("test1", 1_000_000)],
-                vec![1, 1],
-                vec![vec![(0, 1), (1, 1)]],
-                vec![]
-            )
+            am.get_validators(3).unwrap(),
+            &assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![])
         );
 
         // Start another validator manager from the same store to check that it saved the state.
         let mut am2 = ValidatorManager::new(config, validators, store).unwrap();
-        assert_eq!(am2.last_epoch(), 1);
-        assert_eq!(
-            am2.get_validators(2).unwrap(),
-            &assignment(
-                vec![("test2", 1_000_000), ("test1", 1_000_000)],
-                vec![1, 1],
-                vec![vec![(0, 1), (1, 1)]],
-                vec![]
-            )
-        );
+        assert_eq!(am2.last_epoch(), 2);
+        assert_eq!(am2.get_validators(2).unwrap(), &expected);
     }
 
     /// Test handling forks across the epoch finalization.

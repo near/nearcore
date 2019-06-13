@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::fs;
 use std::path::Path;
 
@@ -52,7 +53,7 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("init").about("Initializes NEAR configuration")
             .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
-            .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for initial validator"))
+            .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for the validator key"))
             .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
@@ -62,6 +63,10 @@ fn main() {
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
             .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
+            .arg(Arg::with_name("boot-nodes").long("boot-nodes").help("Set the boot nodes to bootstrap network from").takes_value(true))
+            .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
+            .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
+            .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
@@ -97,9 +102,31 @@ fn main() {
             // Override some parameters from command line.
             if let Some(produce_empty_blocks) = args
                 .value_of("produce-empty-blocks")
-                .map(|x| x.parse().expect("Failed to parse boolean"))
+                .map(|x| x.parse().expect("Failed to parse boolean for produce-empty-blocks"))
             {
                 near_config.client_config.produce_empty_blocks = produce_empty_blocks;
+            }
+            if let Some(boot_nodes) = args.value_of("boot-nodes") {
+                near_config.network_config.boot_nodes = boot_nodes
+                    .to_string()
+                    .split(",")
+                    .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
+                    .collect();
+            }
+            if let Some(min_peers) = args
+                .value_of("min-peers")
+                .map(|x| x.parse().expect("Failed to parse number for min-peers"))
+            {
+                near_config.client_config.min_num_peers = min_peers;
+            }
+            if let Some(network_addr) = args
+                .value_of("network-addr")
+                .map(|value| value.parse().expect("Failed to parse an address"))
+            {
+                near_config.network_config.addr = Some(network_addr);
+            }
+            if let Some(rpc_addr) = args.value_of("rpc-addr") {
+                near_config.rpc_config.addr = rpc_addr.to_string();
             }
 
             let system = System::new("NEAR");
