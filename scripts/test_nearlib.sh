@@ -5,7 +5,6 @@ set -ex
 export NEAR_PID=$!
 trap 'pkill -15 -P $NEAR_PID' 0
 
-./scripts/waitonserver.sh
 #./scripts/build_wasm.sh
 
 # Run nearlib tests
@@ -16,6 +15,7 @@ export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
 yarn
 yarn build
+./scripts/waitonserver.sh
 yarn test
 yarn doc
 cd ..
