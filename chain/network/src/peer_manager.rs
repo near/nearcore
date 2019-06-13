@@ -281,7 +281,7 @@ impl Actor for PeerManagerActor {
         if let Some(server_addr) = self.config.addr {
             // TODO: for now crashes if server didn't start.
             let listener = TcpListener::bind(&server_addr).unwrap();
-            info!(target: "network", "Server listening at {}@{}", self.peer_id, server_addr);
+            info!(target: "info", "Server listening at {}@{}", self.peer_id, server_addr);
             ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(InboundTcpConnect::new));
         }
 

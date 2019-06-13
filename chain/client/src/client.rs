@@ -466,11 +466,11 @@ impl ClientActor {
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
             Ok(_) => NetworkClientResponses::NoResponse,
-            Err(ref e) if e.is_bad_data() => {
+            Err(ref err) if err.is_bad_data() => {
                 NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
             }
-            Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of block: {}", e.description());
+            Err(ref err) if err.is_error() => {
+                error!(target: "client", "Error on receival of block: {}", err);
                 NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {

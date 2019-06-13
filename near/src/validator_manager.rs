@@ -279,7 +279,6 @@ impl ValidatorManager {
         let assignment =
             proposals_to_assignments(next_epoch_config, self.get_validators(epoch)?, proposals)?;
         self.last_epoch = epoch + 1;
-        println!("{} -> {:?}", epoch + 2, assignment);
         store_update.set_ser(COL_VALIDATORS, &index_to_bytes(epoch + 2), &assignment)?;
         store_update.set_ser(COL_VALIDATORS, LAST_EPOCH_KEY, &self.last_epoch)?;
         store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;

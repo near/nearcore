@@ -466,7 +466,7 @@ pub fn init_configs(
                 block_producers_per_shard: vec![1],
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
-                epoch_length: 1000,
+                epoch_length: 60,
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
