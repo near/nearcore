@@ -2,7 +2,6 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -391,10 +390,11 @@ impl ClientActor {
         let total_validators = validators.len();
         let prev_same_bp = self
             .runtime_adapter
-            .get_block_proposer(next_height - 1)
+            .get_block_proposer(last_height)
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
-        let total_approvals = total_validators - if prev_same_bp { 1 } else { 2 };
+        // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
+        let total_approvals = total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
