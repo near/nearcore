@@ -597,6 +597,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
     let mut config = Config::default();
+    config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
