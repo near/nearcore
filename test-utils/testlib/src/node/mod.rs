@@ -10,7 +10,7 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::serialize::to_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use node_runtime::state_viewer::AccountViewCallResult;
+use near_primitives::rpc::AccountViewCallResult;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;

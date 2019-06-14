@@ -9,7 +9,7 @@ use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::serialize::base_format;
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
@@ -204,7 +204,7 @@ pub struct Query {
 }
 
 impl Message for Query {
-    type Result = Result<ABCIQueryResponse, String>;
+    type Result = Result<QueryResponse, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]
