@@ -15,6 +15,12 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_self_call_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_self_call(node);
+    }
+
+    #[test]
     fn test_smart_contract_bad_method_name_runtime() {
         let node = create_runtime_node();
         test_smart_contract_bad_method_name(node);

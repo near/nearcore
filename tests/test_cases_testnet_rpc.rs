@@ -63,6 +63,11 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_self_call_testnet() {
+        run_testnet_test!(test_smart_contract_self_call);
+    }
+
+    #[test]
     fn test_smart_contract_bad_method_name_testnet() {
         run_testnet_test!(test_smart_contract_bad_method_name);
     }

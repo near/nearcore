@@ -151,16 +151,24 @@ impl Runtime {
             }
             _ => (),
         };
-        if transaction.amount > 0 {
-            return Err(format!(
-                "Account {} tries to call itself with the positive amount {}",
-                transaction.originator, transaction.amount,
-            ));
+        if account.amount >= transaction.amount {
+            account.amount -= transaction.amount;
+            set(state_update, key_for_account(&transaction.originator), account);
+        } else {
+            return Err(
+                format!(
+                    "Account {} tries to call itself with the amount {}, but has staked {} and only has {}",
+                    transaction.originator,
+                    transaction.amount,
+                    account.staked,
+                    account.amount
+                )
+            );
         }
 
         let mut leftover_balance = 0;
 
-        self.apply_async_call(
+        let res = self.apply_async_call(
             state_update,
             &AsyncCall::new(
                 transaction.method_name.clone(),
@@ -176,7 +184,13 @@ impl Runtime {
             block_index,
             Some(public_key),
             transaction_result,
-        )
+        );
+
+        if leftover_balance > 0 {
+            account.amount += leftover_balance;
+            set(state_update, key_for_account(&transaction.originator), account);
+        }
+        res
     }
 
     /// Subtracts the storage rent from the given account balance.
@@ -363,6 +377,7 @@ impl Runtime {
         public_key: Option<PublicKey>,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        *leftover_balance = async_call.amount;
         let code = Self::get_code(state_update, receiver_id)?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
@@ -394,7 +409,7 @@ impl Runtime {
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.frozen_balance;
-            *leftover_balance += wasm_res.liquid_balance;
+            *leftover_balance = wasm_res.liquid_balance;
             let storage_usage = wasm_res.storage_usage;
             let return_data = wasm_res
                 .return_data
@@ -439,6 +454,7 @@ impl Runtime {
                 callback.result_counter += 1;
                 // if we have gathered all results, execute the callback
                 if callback.result_counter == callback.results.len() {
+                    *leftover_balance = callback.amount;
                     let mut runtime_ext = RuntimeExt::new(
                         state_update,
                         receiver_id,
@@ -472,7 +488,7 @@ impl Runtime {
                     .and_then(|mut res| {
                         transaction_result.logs.append(&mut res.logs);
                         let balance = res.frozen_balance;
-                        *leftover_balance += res.liquid_balance;
+                        *leftover_balance = res.liquid_balance;
                         let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
