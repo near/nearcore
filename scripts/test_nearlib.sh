@@ -15,7 +15,7 @@ export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
 yarn
 yarn build
-./scripts/waitonserver.sh
+../scripts/waitonserver.sh
 yarn test
 yarn doc
 cd ..
