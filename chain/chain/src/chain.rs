@@ -7,7 +7,7 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{TransactionResult, ReceiptTransaction};
+use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
 use near_primitives::types::{BlockIndex, MerkleHash};
 use near_store::Store;
 
@@ -95,7 +95,7 @@ impl OrphanBlockPool {
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     store: ChainStore,
-    runtime_adapter: Arc<RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     genesis: BlockHeader,
 }
@@ -103,7 +103,7 @@ pub struct Chain {
 impl Chain {
     pub fn new(
         store: Arc<Store>,
-        runtime_adapter: Arc<RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         genesis_time: DateTime<Utc>,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
@@ -234,18 +234,16 @@ impl Chain {
 
         // Find common block between header chain and block chain.
         let mut _oldest_height = 0;
-        let mut oldest_hash = CryptoHash::default();
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.height <= block_head.height {
-                if let Ok(_) = self.is_on_current_chain(&header) {
+                if self.is_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
 
             _oldest_height = header.height;
-            oldest_hash = header.hash();
-            hashes.push(oldest_hash);
+            hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
@@ -531,7 +529,7 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
-    runtime_adapter: Arc<RuntimeAdapter>,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
 }
@@ -539,7 +537,7 @@ struct ChainUpdate<'a> {
 impl<'a> ChainUpdate<'a> {
     pub fn new(
         store: &'a mut ChainStore,
-        runtime_adapter: Arc<RuntimeAdapter>,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
     ) -> Self {
         let chain_store_update = store.store_update();
@@ -637,7 +635,10 @@ impl<'a> ChainUpdate<'a> {
             if i < receipt_hashes.len() {
                 self.chain_store_update.save_transaction_result(&receipt_hashes[i], tx_result);
             } else {
-                self.chain_store_update.save_transaction_result(&block.transactions[i - receipt_hashes.len()].get_hash(), tx_result);
+                self.chain_store_update.save_transaction_result(
+                    &block.transactions[i - receipt_hashes.len()].get_hash(),
+                    tx_result,
+                );
             }
         }
 

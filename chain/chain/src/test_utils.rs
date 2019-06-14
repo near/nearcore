@@ -21,7 +21,7 @@ use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Block, Chain, ValidTransaction};
 
 impl Block {
-    pub fn empty(prev: &BlockHeader, signer: Arc<EDSigner>) -> Self {
+    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
         Block::produce(
             prev,
             prev.height + 1,
@@ -86,11 +86,14 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_block_proposers(
         &self,
         _height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
+    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
         Ok(self.validators.iter().map(|x| (x.0.clone(), 1)).collect())
     }
 
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+    fn get_block_proposer(
+        &self,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
@@ -98,7 +101,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _shard_id: ShardId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<std::error::Error>> {
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
     }
 
@@ -133,7 +136,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
-        Box<std::error::Error>,
+        Box<dyn std::error::Error>,
     > {
         let mut tx_results = vec![];
         for _ in transactions {
@@ -158,7 +161,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _height: BlockIndex,
         path: &str,
         _data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
+    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>> {
         let path = path.split("/").collect::<Vec<_>>();
         Ok(ABCIQueryResponse::account(
             path[1],

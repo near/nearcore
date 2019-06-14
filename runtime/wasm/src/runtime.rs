@@ -31,7 +31,7 @@ fn to_uint128<'a>(value: u128) -> &'a [u8] {
 }
 
 pub struct Runtime<'a> {
-    ext: &'a mut External,
+    ext: &'a mut dyn External,
     input_data: &'a [u8],
     result_data: &'a [Option<Vec<u8>>],
     pub frozen_balance: Balance,
@@ -52,7 +52,7 @@ pub struct Runtime<'a> {
 
 impl<'a> Runtime<'a> {
     pub fn new(
-        ext: &'a mut External,
+        ext: &'a mut dyn External,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
         context: &'a RuntimeContext,
@@ -466,7 +466,8 @@ impl<'a> Runtime<'a> {
             min_amount,
             max_amount,
         )
-        .map(to_uint128).and_then(|val| self.memory_set(balance_ptr as usize, val))
+        .map(to_uint128)
+        .and_then(|val| self.memory_set(balance_ptr as usize, val))
     }
 
     /// Withdraw the given amount from the account balance and return withdrawn amount.
@@ -486,7 +487,8 @@ impl<'a> Runtime<'a> {
             min_amount,
             max_amount,
         )
-        .map(to_uint128).and_then(|val| self.memory_set(balance_ptr as usize, val))
+        .map(to_uint128)
+        .and_then(|val| self.memory_set(balance_ptr as usize, val))
     }
 
     fn storage_usage(&self) -> Result<StorageUsage> {

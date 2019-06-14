@@ -50,7 +50,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
+    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
@@ -73,7 +73,7 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
+    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
@@ -85,7 +85,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, Box<std::error::Error>> {
+    ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
         self.view_account(state_update, account_id).map(|account| account.public_keys)
     }
 
@@ -93,7 +93,7 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<ViewStateResult, Box<std::error::Error>> {
+    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
@@ -116,7 +116,7 @@ impl TrieViewer {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, Box<std::error::Error>> {
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
             return Err(format!("Contract ID '{}' is not valid", contract_id).into());

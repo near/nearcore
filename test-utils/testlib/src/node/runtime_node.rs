@@ -61,7 +61,7 @@ impl Node for RuntimeNode {
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<EDSigner> {
+    fn signer(&self) -> Arc<dyn EDSigner> {
         self.signer.clone()
     }
 

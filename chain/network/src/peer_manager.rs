@@ -66,7 +66,7 @@ impl PeerManagerActor {
         store: Arc<Store>,
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
-    ) -> Result<Self, Box<std::error::Error>> {
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store, &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         Ok(PeerManagerActor {

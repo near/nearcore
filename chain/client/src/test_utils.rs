@@ -47,7 +47,11 @@ pub fn setup_mock(
     account_id: &'static str,
     skip_sync_wait: bool,
     mut network_mock: Box<
-        FnMut(&NetworkRequests, &mut Context<NetworkMock>, Addr<ClientActor>) -> NetworkResponses,
+        dyn FnMut(
+            &NetworkRequests,
+            &mut Context<NetworkMock>,
+            Addr<ClientActor>,
+        ) -> NetworkResponses,
     >,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let view_client_addr = Arc::new(RwLock::new(None));

@@ -25,7 +25,7 @@ const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
 /// validate transaction result in the case that it is successful and generates given number of receipts
 /// recursively.
 pub fn validate_tx_result(
-    node_user: Box<User>,
+    node_user: Box<dyn User>,
     root: CryptoHash,
     hash: &CryptoHash,
     receipt_depth: usize,
@@ -77,7 +77,7 @@ fn add_access_key(
 
 /// Wait until transaction finishes (either succeeds or fails).
 #[allow(clippy::borrowed_box)]
-pub fn wait_for_transaction(node_user: &Box<User>, hash: &CryptoHash) {
+pub fn wait_for_transaction(node_user: &Box<dyn User>, hash: &CryptoHash) {
     wait(
         || match node_user.get_transaction_final_result(hash).status {
             FinalTransactionStatus::Unknown | FinalTransactionStatus::Started => false,

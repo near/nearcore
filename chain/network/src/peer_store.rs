@@ -20,7 +20,10 @@ pub struct PeerStore {
 }
 
 impl PeerStore {
-    pub fn new(store: Arc<Store>, boot_nodes: &[PeerInfo]) -> Result<Self, Box<std::error::Error>> {
+    pub fn new(
+        store: Arc<Store>,
+        boot_nodes: &[PeerInfo],
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let mut peer_states = HashMap::default();
         for (key, value) in store.iter(COL_PEERS) {
             let key: Vec<u8> = key.into();
@@ -45,7 +48,7 @@ impl PeerStore {
     pub fn peer_connected(
         &mut self,
         peer_info: &FullPeerInfo,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let entry = self
             .peer_states
             .entry(peer_info.peer_info.id)
@@ -57,7 +60,10 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), Box<std::error::Error>> {
+    pub fn peer_disconnected(
+        &mut self,
+        peer_id: &PeerId,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.last_seen = Utc::now();
             peer_state.status = KnownPeerStatus::NotConnected;
@@ -73,7 +79,7 @@ impl PeerStore {
         &mut self,
         peer_id: &PeerId,
         ban_reason: ReasonForBan,
-    ) -> Result<(), Box<std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.last_seen = Utc::now();
             peer_state.status = KnownPeerStatus::Banned(ban_reason, Utc::now());
@@ -85,7 +91,7 @@ impl PeerStore {
         }
     }
 
-    pub fn peer_unban(&mut self, peer_id: &PeerId) -> Result<(), Box<std::error::Error>> {
+    pub fn peer_unban(&mut self, peer_id: &PeerId) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
@@ -138,7 +144,10 @@ impl PeerStore {
     }
 
     /// Removes peers that are not responding for expiration period.
-    pub fn remove_expired(&mut self, config: &NetworkConfig) -> Result<(), Box<std::error::Error>> {
+    pub fn remove_expired(
+        &mut self,
+        config: &NetworkConfig,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let now = Utc::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {

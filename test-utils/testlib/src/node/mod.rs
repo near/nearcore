@@ -65,7 +65,7 @@ pub trait Node: Send + Sync {
         self.user().get_account_nonce(account_id)
     }
 
-    fn signer(&self) -> Arc<EDSigner>;
+    fn signer(&self) -> Arc<dyn EDSigner>;
 
     fn is_running(&self) -> bool;
 
@@ -92,7 +92,7 @@ pub trait Node: Send + Sync {
     }
 }
 
-impl Node {
+impl dyn Node {
     pub fn new_sharable(config: NodeConfig) -> Arc<RwLock<dyn Node>> {
         match config {
             NodeConfig::Runtime { account_id } => {
@@ -157,7 +157,7 @@ pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
 }
 
 /// Sample a node for sending a transaction/checking balance
-pub fn sample_queryable_node(nodes: &[Arc<RwLock<Node>>]) -> usize {
+pub fn sample_queryable_node(nodes: &[Arc<RwLock<dyn Node>>]) -> usize {
     let num_nodes = nodes.len();
     let mut k = rand::random::<usize>() % num_nodes;
     while !nodes[k].read().unwrap().is_running() {

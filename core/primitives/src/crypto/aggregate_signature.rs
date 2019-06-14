@@ -216,7 +216,7 @@ impl<E: Engine> From<SecretKey<E>> for Vec<u8> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let mut repr: <E::Fr as PrimeField>::Repr = Default::default();
@@ -228,7 +228,7 @@ impl<E: Engine> TryFrom<&[u8]> for SecretKey<E> {
 }
 
 impl<E: Engine> TryFrom<Vec<u8>> for SecretKey<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(v.as_ref())
@@ -274,7 +274,7 @@ impl fmt::Display for LengthError {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for PublicKey<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(CompressedPublicKey::try_from(v)?.decompress().map_err(|err| err.to_string())?)
@@ -288,7 +288,7 @@ impl<E: Engine> From<&Signature<E>> for Vec<u8> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         Ok(CompressedSignature::try_from(v)?.decode().map_err(|err| err.to_string())?)
@@ -296,7 +296,7 @@ impl<E: Engine> TryFrom<&[u8]> for Signature<E> {
 }
 
 impl<E: Engine> TryFrom<Vec<u8>> for Signature<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(v.as_ref())
@@ -341,7 +341,7 @@ impl<E: Engine> From<CompressedPublicKey<E>> for Vec<u8> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedPublicKey<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G1Affine as CurveAffine>::Compressed as EncodedPoint>::size();
@@ -386,7 +386,7 @@ impl<E: Engine> From<CompressedSignature<E>> for Vec<u8> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for CompressedSignature<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Compressed as EncodedPoint>::size();
@@ -431,7 +431,7 @@ impl<E: Engine> From<UncompressedSignature<E>> for Vec<u8> {
 }
 
 impl<E: Engine> TryFrom<&[u8]> for UncompressedSignature<E> {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: &[u8]) -> Result<Self, Self::Error> {
         let expected = <<E::G2Affine as CurveAffine>::Uncompressed as EncodedPoint>::size();

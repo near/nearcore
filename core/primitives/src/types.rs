@@ -79,7 +79,7 @@ impl ValidatorStake {
 }
 
 impl TryFrom<types_proto::ValidatorStake> for ValidatorStake {
-    type Error = Box<std::error::Error>;
+    type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: types_proto::ValidatorStake) -> Result<Self, Self::Error> {
         Ok(ValidatorStake {

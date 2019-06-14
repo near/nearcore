@@ -157,7 +157,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_epoch_block_proposers(
         &self,
         height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<std::error::Error>> {
+    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
         let (epoch, _) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
@@ -179,7 +179,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<std::error::Error>> {
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let (epoch, idx) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
@@ -237,7 +237,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
-        Box<std::error::Error>,
+        Box<dyn std::error::Error>,
     > {
         let apply_state = ApplyState {
             root: state_root.clone(),
@@ -288,7 +288,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<std::error::Error>> {
+    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>> {
         query_client(self, state_root, height, path, data)
     }
 }
@@ -298,7 +298,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<std::error::Error>> {
+    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_account(&state_update, account_id)
     }
@@ -311,7 +311,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
-    ) -> Result<Vec<u8>, Box<std::error::Error>> {
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
     }
@@ -321,7 +321,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<std::error::Error>> {
+    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_access_key(&state_update, account_id, public_key)
     }
@@ -330,7 +330,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<std::error::Error>> {
+    ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let prefix = prefix_for_access_key(account_id);
         match state_update.iter(&prefix) {
@@ -343,7 +343,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
                 })
-                .collect::<Result<Vec<_>, Box<std::error::Error>>>(),
+                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
             Err(e) => Err(e),
         }
     }
@@ -352,7 +352,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<ViewStateResult, Box<std::error::Error>> {
+    ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         self.trie_viewer.view_state(&state_update, account_id)
     }
