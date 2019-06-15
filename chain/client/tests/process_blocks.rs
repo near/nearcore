@@ -294,9 +294,9 @@ fn skip_block_production() {
     .unwrap();
 }
 
-/// Runs client that syncs with peers.
+/// Runs client that requests syncing headers from peers.
 #[test]
-fn client_sync() {
+fn client_sync_headers() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();

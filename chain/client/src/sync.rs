@@ -257,34 +257,39 @@ pub struct BlockSync {
     blocks_requested: BlockIndex,
     receive_timeout: DateTime<Utc>,
     prev_blocks_recevied: BlockIndex,
+    /// How far to fetch blocks vs fetch state.
+    block_fetch_horizon: BlockIndex,
 }
 
 impl BlockSync {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+    pub fn new(network_recipient: Recipient<NetworkRequests>, block_fetch_horizon: BlockIndex) -> Self {
         BlockSync {
             network_recipient,
             blocks_requested: 0,
             receive_timeout: Utc::now(),
             prev_blocks_recevied: 0,
+            block_fetch_horizon,
         }
     }
 
+    /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
+    /// Otherwise requests recent blocks from peers.
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
         highest_height: BlockIndex,
         most_weight_peers: &[FullPeerInfo],
-    ) -> Result<(), near_chain::Error> {
+    ) -> Result<bool, near_chain::Error> {
         if self.block_sync_due(chain)? {
-            if self.block_sync(chain, most_weight_peers)? {
-                return Ok(());
+            if self.block_sync(chain, most_weight_peers, self.block_fetch_horizon)? {
+                return Ok(true);
             }
 
             let head = chain.head()?;
             *sync_status = SyncStatus::BodySync { current_height: head.height, highest_height };
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Returns true if state download is required (last known block is too far).
@@ -293,8 +298,9 @@ impl BlockSync {
         &mut self,
         chain: &mut Chain,
         most_weight_peers: &[FullPeerInfo],
+        block_fetch_horizon: BlockIndex,
     ) -> Result<bool, near_chain::Error> {
-        let (state_needed, mut hashes) = chain.check_state_needed()?;
+        let (state_needed, mut hashes) = chain.check_state_needed(block_fetch_horizon)?;
         if state_needed {
             return Ok(true);
         }
@@ -373,6 +379,21 @@ impl BlockSync {
     /// Total number of received blocks by the chain.
     fn blocks_received(&self, chain: &Chain) -> Result<u64, near_chain::Error> {
         Ok((chain.head()?).height + chain.orphans_len() as u64 + chain.orphans_evicted_len() as u64)
+    }
+}
+
+/// Helper to track state sync.
+pub struct StateSync {
+    network_recipient: Recipient<NetworkRequests>,
+}
+
+impl StateSync {
+    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+        StateSync { network_recipient }
+    }
+
+    pub fn run(&self) -> Result<(), near_chain::Error> {
+        Ok(())
     }
 }
 

@@ -27,11 +27,17 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
-/// One NEAR in atto-NEARs.
-pub const NEAR_TOKEN: Balance = 1_000_000_000_000_000_000;
+/// One NEAR, divisible by 10^18.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
+
+/// Millinear, 1/1000 of NEAR.
+pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
+
+/// Attonear, 1/10^18 of NEAR.
+pub const ATTO_NEAR: Balance = 1;
 
 /// Initial token supply.
-pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_TOKEN;
+pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_BASE;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -389,7 +395,7 @@ pub fn testnet_genesis() -> GenesisConfig {
             public_key: ReadablePublicKey(
                 "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
             ),
-            amount: 5_000_000 * NEAR_TOKEN,
+            amount: 5_000_000 * NEAR_BASE,
         }],
         accounts: vec![AccountInfo {
             account_id: ".near".to_string(),

@@ -223,7 +223,7 @@ impl Chain {
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    pub fn check_state_needed(&mut self) -> Result<(bool, Vec<CryptoHash>), Error> {
+    pub fn check_state_needed(&mut self, block_fetch_horizon: BlockIndex) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
@@ -233,7 +233,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut _oldest_height = 0;
+        let mut oldest_height = 0;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.height <= block_head.height {
@@ -242,14 +242,15 @@ impl Chain {
                 }
             }
 
-            _oldest_height = header.height;
-            hashes.push(header.hash());
+            oldest_height = header.height;
+            hashes.push(oldest_hash);
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
-        // TODO: calcaulate if the oldest height is too far from header_head.height
-        // let sync_head = self.sync_head()?;
-        // and return Ok(true) to download state instead.
+        let sync_head = self.sync_head()?;
+        if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
+            Ok((true, vec![]))
+        }
         Ok((false, hashes))
     }
 

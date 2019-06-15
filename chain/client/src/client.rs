@@ -29,7 +29,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex};
 use near_store::Store;
 
-use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
+use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
 use crate::types::{
     BlockProducer, ClientConfig, Error, NetworkInfo, Status, StatusSyncInfo, SyncStatus,
 };
@@ -59,7 +59,10 @@ pub struct ClientActor {
     last_block_processed: Instant,
     /// Keeps track of syncing headers.
     header_sync: HeaderSync,
+    /// Keeps track of syncing block.
     block_sync: BlockSync,
+    /// Keeps track of syncing state.
+    state_sync: StateSync,
     /// Timestamp when client was started.
     started: Instant,
     /// Total number of blocks processed.
@@ -83,6 +86,7 @@ impl ClientActor {
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone());
+        let state_sync = StateSync::new(network_actor.clone());
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
@@ -103,6 +107,7 @@ impl ClientActor {
             last_block_processed: Instant::now(),
             header_sync,
             block_sync,
+            state_sync,
             started: Instant::now(),
             num_blocks_processed: 0,
             num_tx_processed: 0,
@@ -684,12 +689,15 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            unwrap_or_run_later!(self.block_sync.run(
+            let sync_state = unwrap_or_run_later!(self.block_sync.run(
                 &mut self.sync_status,
                 &mut self.chain,
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
+            if sync_state {
+                unwrap_or_run_later!(self.state_sync.run());
+            }
         }
 
         ctx.run_later(wait_period, move |act, ctx| {
