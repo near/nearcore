@@ -10,6 +10,7 @@ use near_protos::access_key as access_key_proto;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::serialize::u128_hex_format;
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
@@ -61,6 +62,7 @@ impl Account {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
+    #[serde(with = "u128_hex_format")]
     pub amount: Balance,
     /// Owner of the balance of this Access Key. None means the account owner.
     pub balance_owner: Option<AccountId>,

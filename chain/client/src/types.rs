@@ -91,6 +91,8 @@ pub struct ClientConfig {
     pub log_summary_period: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
+    /// Epoch length.
+    pub epoch_length: BlockIndex,
 }
 
 impl ClientConfig {
@@ -110,6 +112,7 @@ impl ClientConfig {
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
+            epoch_length: 10,
         }
     }
 }
@@ -131,6 +134,7 @@ impl ClientConfig {
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
+            epoch_length: 10,
         }
     }
 }
