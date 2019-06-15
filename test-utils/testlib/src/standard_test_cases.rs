@@ -2,6 +2,7 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::rpc::AccountViewCallResult;
 use near_primitives::serialize::Decode;
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
@@ -12,7 +13,6 @@ use near_primitives::transaction::{
 use near_primitives::types::Balance;
 use near_primitives::utils::key_for_callback;
 use near_store::set;
-use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::node::{Node, RuntimeNode};
 use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};

@@ -6,7 +6,7 @@ use chrono::Utc;
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
@@ -14,7 +14,6 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
-use node_runtime::state_viewer::AccountViewCallResult;
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
@@ -161,19 +160,16 @@ impl RuntimeAdapter for KeyValueRuntime {
         _height: BlockIndex,
         path: &str,
         _data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         let path = path.split("/").collect::<Vec<_>>();
-        Ok(ABCIQueryResponse::account(
-            path[1],
-            AccountViewCallResult {
-                account_id: path[1].to_string(),
-                nonce: 0,
-                amount: 1000,
-                stake: 0,
-                public_keys: vec![],
-                code_hash: CryptoHash::default(),
-            },
-        ))
+        Ok(QueryResponse::ViewAccount(AccountViewCallResult {
+            account_id: path[1].to_string(),
+            nonce: 0,
+            amount: 1000,
+            stake: 0,
+            public_keys: vec![],
+            code_hash: CryptoHash::default(),
+        }))
     }
 }
 

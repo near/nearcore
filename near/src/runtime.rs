@@ -12,7 +12,7 @@ use near_chain::{
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
@@ -20,7 +20,7 @@ use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
+use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
@@ -290,7 +290,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>> {
+    ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         query_client(self, state_root, height, path, data)
     }
 }

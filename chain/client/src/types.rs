@@ -9,7 +9,7 @@ use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::serialize::base_format;
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
@@ -91,6 +91,8 @@ pub struct ClientConfig {
     pub log_summary_period: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
+    /// Epoch length.
+    pub epoch_length: BlockIndex,
 }
 
 impl ClientConfig {
@@ -110,6 +112,7 @@ impl ClientConfig {
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
+            epoch_length: 10,
         }
     }
 }
@@ -131,6 +134,7 @@ impl ClientConfig {
             fetch_info_period: Duration::from_millis(100),
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
+            epoch_length: 10,
         }
     }
 }
@@ -204,7 +208,7 @@ pub struct Query {
 }
 
 impl Message for Query {
-    type Result = Result<ABCIQueryResponse, String>;
+    type Result = Result<QueryResponse, String>;
 }
 
 #[derive(Serialize, Deserialize, Debug)]

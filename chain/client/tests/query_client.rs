@@ -4,6 +4,7 @@ use futures::future::Future;
 
 use near_client::test_utils::setup_no_network;
 use near_client::Query;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::test_utils::init_test_logger;
 
 /// Query account from view client
@@ -15,7 +16,10 @@ fn query_client() {
         actix::spawn(
             view_client.send(Query { path: "account/test".to_string(), data: vec![] }).then(
                 |res| {
-                    assert_eq!(res.unwrap().unwrap().log, "exists");
+                    match res {
+                        Ok(Ok(QueryResponse::ViewAccount(_))) => (),
+                        _ => panic!("Invalid response"),
+                    }
                     System::current().stop();
                     future::result(Ok(()))
                 },

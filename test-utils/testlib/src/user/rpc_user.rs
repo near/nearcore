@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::sync::RwLock;
 
 use actix::System;
@@ -5,18 +6,18 @@ use protobuf::Message;
 
 use near_chain::Block;
 use near_client::StatusResponse;
-use near_jsonrpc::client::{new_client, JsonRpcClient};
+use near_jsonrpc::client::{JsonRpcClient, new_client};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
-use near_primitives::serialize::{to_base, BaseEncode};
+use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
+use near_primitives::serialize::{BaseEncode, to_base};
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, MerkleHash};
 use near_protos::signed_transaction as transaction_proto;
-use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
 use crate::user::User;
 
@@ -33,24 +34,18 @@ impl RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().status()).ok()
     }
 
-    pub fn query<T: serde::de::DeserializeOwned>(
-        &self,
-        path: String,
-        data: Vec<u8>,
-    ) -> Result<T, String> {
-        let response =
-            System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(&data)))?;
-        serde_json::from_slice(&response.value).map_err(|err| err.to_string())
+    pub fn query(&self, path: String, data: Vec<u8>) -> Result<QueryResponse, String> {
+        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(&data)))
     }
 }
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        self.query(format!("account/{}", account_id), vec![])
+        self.query(format!("account/{}", account_id), vec![])?.try_into()
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        self.query(format!("contract/{}", account_id), vec![])
+        self.query(format!("contract/{}", account_id), vec![])?.try_into()
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -61,11 +56,13 @@ impl User for RpcUser {
         Ok(())
     }
 
-    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String> {
+    fn commit_transaction(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Result<FinalTransactionResult, String> {
         let proto: transaction_proto::SignedTransaction = transaction.into();
         let bytes = to_base(&proto.write_to_bytes().unwrap());
-        System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
+        System::new("actix").block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
     }
 
     fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
@@ -107,6 +104,6 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])
+        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?.try_into()
     }
 }

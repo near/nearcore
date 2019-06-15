@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 
 use near_chain::{Block, Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, TransactionLogs, TransactionResult,
     TransactionStatus,
@@ -85,7 +85,7 @@ impl Actor for ViewClientActor {
 
 /// Handles runtime query.
 impl Handler<Query> for ViewClientActor {
-    type Result = Result<ABCIQueryResponse, String>;
+    type Result = Result<QueryResponse, String>;
 
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;

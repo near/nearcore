@@ -81,8 +81,10 @@ pub fn setup_no_network(
         validators,
         account_id,
         skip_sync_wait,
-        Box::new(|_, _, _| NetworkResponses::NoResponse),
-    )
+        Box::new(|req, _, _| match req {
+            NetworkRequests::FetchInfo => NetworkResponses::Info { num_active_peers: 0, peer_max_count: 0, most_weight_peers: vec![] },
+            _ => NetworkResponses::NoResponse
+        }))
 }
 
 impl BlockProducer {
