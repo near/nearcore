@@ -1,68 +1,84 @@
-use crate::serialize::base_vec_format;
+use std::collections::HashMap;
+use std::convert::TryFrom;
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ABCIQueryResponse {
-    pub code: u32,
-    pub log: String,
-    pub info: String,
-    pub index: i64,
-    #[serde(with = "base_vec_format")]
-    pub key: Vec<u8>,
-    #[serde(with = "base_vec_format")]
-    pub value: Vec<u8>,
-    pub proof: Vec<ProofOp>,
-    pub height: i64,
-    pub codespace: String,
-}
+use crate::account::AccessKey;
+use crate::crypto::signature::PublicKey;
+use crate::hash::CryptoHash;
+use crate::serialize::{base_format, u128_hex_format};
+use crate::types::{AccountId, Balance, Nonce};
 
-impl ABCIQueryResponse {
-    pub fn account<T: serde::Serialize>(key: &str, value: T) -> Self {
-        ABCIQueryResponse {
-            code: 0,
-            log: "exists".to_string(),
-            info: "".to_string(),
-            index: -1,
-            key: key.as_bytes().to_vec(),
-            value: serde_json::to_string(&value).unwrap().as_bytes().to_vec(),
-            proof: vec![],
-            height: 0,
-            codespace: "".to_string(),
-        }
-    }
-
-    pub fn result(key: &str, value: Vec<u8>, logs: Vec<String>) -> Self {
-        ABCIQueryResponse {
-            code: 0,
-            log: logs.join("\n"),
-            info: "".to_string(),
-            index: -1,
-            key: key.as_bytes().to_vec(),
-            value,
-            proof: vec![],
-            height: 0,
-            codespace: "".to_string(),
-        }
-    }
-
-    pub fn result_err(key: &str, message: String, logs: Vec<String>) -> Self {
-        ABCIQueryResponse {
-            code: 1,
-            log: logs.join("\n"),
-            info: message,
-            index: -1,
-            key: key.as_bytes().to_vec(),
-            value: vec![],
-            proof: vec![],
-            height: 0,
-            codespace: "".to_string(),
-        }
-    }
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct AccountViewCallResult {
+    pub account_id: AccountId,
+    pub nonce: Nonce,
+    #[serde(with = "u128_hex_format")]
+    pub amount: Balance,
+    #[serde(with = "u128_hex_format")]
+    pub stake: Balance,
+    pub public_keys: Vec<PublicKey>,
+    #[serde(with = "base_format")]
+    pub code_hash: CryptoHash,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ProofOp {
-    pub field_type: String,
-    pub key: Vec<u8>,
-    pub data: Vec<u8>,
+pub struct ViewStateResult {
+    pub values: HashMap<Vec<u8>, Vec<u8>>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CallResult {
+    pub result: Vec<u8>,
+    pub logs: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct QueryError {
+    pub error: String,
+    pub logs: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum QueryResponse {
+    ViewAccount(AccountViewCallResult),
+    ViewState(ViewStateResult),
+    CallResult(CallResult),
+    Error(QueryError),
+    AccessKey(Option<AccessKey>),
+    AccessKeyList(Vec<(PublicKey, AccessKey)>),
+}
+
+impl TryFrom<QueryResponse> for AccountViewCallResult {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response {
+            QueryResponse::ViewAccount(acc) => Ok(acc),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
+impl TryFrom<QueryResponse> for ViewStateResult {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response {
+            QueryResponse::ViewState(vs) => Ok(vs),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
+impl TryFrom<QueryResponse> for Option<AccessKey> {
+    type Error = String;
+
+    fn try_from(query_response: QueryResponse) -> Result<Self, Self::Error> {
+        match query_response {
+            QueryResponse::AccessKey(access_key) => Ok(access_key),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
 }

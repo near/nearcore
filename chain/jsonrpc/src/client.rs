@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use near_chain::Block;
 use near_client::StatusResponse;
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::BlockIndex;
 
@@ -164,7 +164,7 @@ macro_rules! jsonrpc_client {
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
     pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<ABCIQueryResponse>;
+    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;

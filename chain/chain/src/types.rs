@@ -11,7 +11,7 @@ use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::rpc::ABCIQueryResponse;
+use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::proto_to_type;
@@ -396,7 +396,7 @@ pub trait RuntimeAdapter: Send + Sync {
         height: BlockIndex,
         path: &str,
         data: &[u8],
-    ) -> Result<ABCIQueryResponse, Box<dyn std::error::Error>>;
+    ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 }
 
 /// The weight is defined as the number of unique validators approving this fork.

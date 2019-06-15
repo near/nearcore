@@ -177,6 +177,7 @@ impl NearConfig {
                 fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
+                epoch_length: genesis_config.epoch_length,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

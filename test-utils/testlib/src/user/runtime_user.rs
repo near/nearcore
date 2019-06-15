@@ -2,14 +2,15 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-use lazy_static::lazy_static;
 use tempdir::TempDir;
 
+use lazy_static::lazy_static;
 use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
+use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
@@ -17,7 +18,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, MerkleHash};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
-use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
+use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
@@ -161,7 +162,10 @@ impl User for RuntimeUser {
         Ok(())
     }
 
-    fn commit_transaction(&self, transaction: SignedTransaction) -> Result<FinalTransactionResult, String> {
+    fn commit_transaction(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Result<FinalTransactionResult, String> {
         let apply_state = ApplyState {
             root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
             shard_id: 0,

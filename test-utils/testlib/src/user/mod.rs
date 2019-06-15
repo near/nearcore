@@ -5,11 +5,11 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
+use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
 use near_primitives::types::{AccountId, Balance, MerkleHash};
-use node_runtime::state_viewer::{AccountViewCallResult, ViewStateResult};
 
 pub use crate::user::runtime_user::RuntimeUser;
 
