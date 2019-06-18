@@ -187,6 +187,21 @@ impl PeerManagerActor {
             .next()
     }
 
+    /// Query current peers for more peers.
+    fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>) {
+        for (peer_id, (addr, )) in self.active_peers {
+
+        }
+        let requests: Vec<_> =
+            self.active_peers.values().map(|peer| peer.0.send(msg.clone())).collect();
+        future::join_all(requests)
+            .into_actor(self)
+            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+            .and_then(|_, _, _| actix::fut::ok(()))
+            .spawn(ctx);
+        self.broadcast_message(ctx, SendMessage { message: PeerMessage::PeersRequest });
+    }
+
     /// Periodically monitor list of peers and:
     ///  - request new peers from connected peers,
     ///  - bootstrap outbound connections from known peers,
@@ -217,8 +232,7 @@ impl PeerManagerActor {
             if let Some(peer_info) = self.sample_random_peer() {
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
-                // Query current peers for more peers.
-                self.broadcast_message(ctx, SendMessage { message: PeerMessage::PeersRequest });
+                self.query_active_peers_for_more_peers(ctx);
             }
         }
 

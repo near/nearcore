@@ -93,6 +93,8 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockIndex,
+    /// Horizon at which instead of fetching block, fetch full state.
+    pub block_fetch_horizon: BlockIndex,
 }
 
 impl ClientConfig {
@@ -113,6 +115,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            block_fetch_horizon: 50,
         }
     }
 }
@@ -135,6 +138,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            block_fetch_horizon: 50,
         }
     }
 }

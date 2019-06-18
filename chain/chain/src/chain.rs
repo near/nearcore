@@ -243,13 +243,13 @@ impl Chain {
             }
 
             oldest_height = header.height;
-            hashes.push(oldest_hash);
+            hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
         let sync_head = self.sync_head()?;
         if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
-            Ok((true, vec![]))
+            return Ok((true, vec![]));
         }
         Ok((false, hashes))
     }

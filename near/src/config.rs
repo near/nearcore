@@ -184,6 +184,8 @@ impl NearConfig {
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
+                // TODO: this should be adjusted depending on the speed of sync of state.
+                block_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
