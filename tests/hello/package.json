@@ -2,8 +2,8 @@
     "name": "hello-wasm",
     "version": "0.1.0",
     "dependencies": {
-        "assemblyscript-json": "github:nearprotocol/assemblyscript-json",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#nightshade",
+        "assemblyscript-json": "github:nearprotocol/assemblyscript-json#update-as",
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#update-as",
         "nearlib": "github:nearprotocol/nearlib#nightshade"
     },
     "scripts": {
@@ -11,6 +11,7 @@
     },
     "devDependencies": {
         "gulp": "^3.0.0",
-        "near-shell": "github:nearprotocol/near-shell#nightshade"
+        "near-shell": "github:nearprotocol/near-shell#nightshade",
+        "bignum": "github:MaxGraey/bignum.wasm"
     }
 }
