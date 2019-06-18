@@ -123,6 +123,76 @@ impl Runtime {
         }
     }
 
+    fn self_function_call(
+        &self,
+        state_update: &mut TrieUpdate,
+        transaction: &FunctionCallTransaction,
+        hash: CryptoHash,
+        account: &mut Account,
+        refund_account_id: &AccountId,
+        public_key: PublicKey,
+        block_index: BlockIndex,
+        transaction_result: &mut TransactionResult,
+    ) -> Result<Vec<ReceiptTransaction>, String> {
+        match transaction.method_name.get(0) {
+            Some(b'_') => {
+                return Err(format!(
+                    "Account {} tries to call a private method {}",
+                    transaction.originator,
+                    std::str::from_utf8(&transaction.method_name)
+                        .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
+                ))
+            }
+            None => {
+                return Err(format!(
+                    "Account {} tries to call itself with empty method name",
+                    transaction.originator,
+                ))
+            }
+            _ => (),
+        };
+        if account.amount >= transaction.amount {
+            account.amount -= transaction.amount;
+            set(state_update, key_for_account(&transaction.originator), account);
+        } else {
+            return Err(
+                format!(
+                    "Account {} tries to call itself with the amount {}, but has staked {} and only has {}",
+                    transaction.originator,
+                    transaction.amount,
+                    account.staked,
+                    account.amount
+                )
+            );
+        }
+
+        let mut leftover_balance = 0;
+
+        let res = self.apply_async_call(
+            state_update,
+            &AsyncCall::new(
+                transaction.method_name.clone(),
+                transaction.args.clone(),
+                transaction.amount,
+                refund_account_id.clone(),
+            ),
+            &transaction.originator,
+            &transaction.originator,
+            &hash,
+            account,
+            &mut leftover_balance,
+            block_index,
+            Some(public_key),
+            transaction_result,
+        );
+
+        if leftover_balance > 0 {
+            account.amount += leftover_balance;
+            set(state_update, key_for_account(&transaction.originator), account);
+        }
+        res
+    }
+
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
         // The number of bytes the account occupies in the Trie.
@@ -144,8 +214,9 @@ impl Runtime {
         block_index: BlockIndex,
         transaction: &SignedTransaction,
         validator_proposals: &mut Vec<ValidatorStake>,
+        transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let VerificationData { originator_id, mut originator, .. } = {
+        let VerificationData { originator_id, mut originator, public_key, .. } = {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(transaction)?
         };
@@ -172,6 +243,17 @@ impl Runtime {
                 &mut originator,
                 validator_proposals,
             ),
+            TransactionBody::FunctionCall(ref t) if originator_id == t.contract_id => self
+                .self_function_call(
+                    state_update,
+                    &t,
+                    transaction.get_hash(),
+                    &mut originator,
+                    refund_account_id,
+                    public_key,
+                    block_index,
+                    transaction_result,
+                ),
             TransactionBody::FunctionCall(ref t) => self.call_function(
                 state_update,
                 &t,
@@ -292,8 +374,10 @@ impl Runtime {
         receiver: &mut Account,
         leftover_balance: &mut Balance,
         block_index: BlockIndex,
+        public_key: Option<PublicKey>,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
+        *leftover_balance = async_call.amount;
         let code = Self::get_code(state_update, receiver_id)?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
@@ -319,12 +403,13 @@ impl Runtime {
                     block_index,
                     nonce.as_ref().to_vec(),
                     false,
+                    public_key,
                 ),
             )
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
             transaction_result.logs.append(&mut wasm_res.logs);
             let balance = wasm_res.frozen_balance;
-            *leftover_balance += wasm_res.liquid_balance;
+            *leftover_balance = wasm_res.liquid_balance;
             let storage_usage = wasm_res.storage_usage;
             let return_data = wasm_res
                 .return_data
@@ -369,6 +454,7 @@ impl Runtime {
                 callback.result_counter += 1;
                 // if we have gathered all results, execute the callback
                 if callback.result_counter == callback.results.len() {
+                    *leftover_balance = callback.amount;
                     let mut runtime_ext = RuntimeExt::new(
                         state_update,
                         receiver_id,
@@ -395,13 +481,14 @@ impl Runtime {
                             block_index,
                             nonce.as_ref().to_vec(),
                             false,
+                            None,
                         ),
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
                     .and_then(|mut res| {
                         transaction_result.logs.append(&mut res.logs);
                         let balance = res.frozen_balance;
-                        *leftover_balance += res.liquid_balance;
+                        *leftover_balance = res.liquid_balance;
                         let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
@@ -493,6 +580,7 @@ impl Runtime {
                             &mut receiver,
                             &mut leftover_balance,
                             block_index,
+                            None,
                             transaction_result,
                         )
                     }
@@ -598,6 +686,7 @@ impl Runtime {
             block_index,
             transaction,
             validator_proposals,
+            &mut result,
         ) {
             Ok(receipts) => {
                 for receipt in receipts {

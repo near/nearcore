@@ -7,6 +7,7 @@ use near_primitives::logging;
 use near_primitives::types::{AccountId, Balance, BlockIndex, PromiseId, StorageUsage};
 
 use crate::types::Error::Runtime;
+use near_primitives::crypto::signature::PublicKey;
 
 #[derive(Debug, Clone)]
 /// Error that can occur while preparing or executing wasm smart-contract.
@@ -321,6 +322,10 @@ pub struct RuntimeContext {
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.
     pub free_of_charge: bool,
+    /// In case this is a function call on by the account owner on their account, we provide
+    /// public key to identify which access key or the public key was used to sign this transaction.
+    /// It's useful to create contract based accounts.
+    public_key: Option<PublicKey>,
 }
 
 impl RuntimeContext {
@@ -333,6 +338,7 @@ impl RuntimeContext {
         block_index: BlockIndex,
         random_seed: Vec<u8>,
         free_of_charge: bool,
+        public_key: Option<PublicKey>,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
@@ -343,6 +349,7 @@ impl RuntimeContext {
             block_index,
             random_seed,
             free_of_charge,
+            public_key,
         }
     }
 }

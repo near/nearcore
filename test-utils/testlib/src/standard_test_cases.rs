@@ -108,6 +108,26 @@ pub fn test_smart_contract_simple(node: impl Node) {
     validate_tx_result(node_user, root, &hash, 2);
 }
 
+pub fn test_smart_contract_self_call(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: account_id.clone(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: FUNCTION_CALL_AMOUNT,
+    })
+    .sign(&*node.signer());
+
+    let node_user = node.user();
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    validate_tx_result(node_user, root, &hash, 0);
+}
+
 pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -116,7 +136,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"_run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&*node.signer());
 

@@ -131,6 +131,7 @@ impl TrieViewer {
                         block_index,
                         root.as_ref().into(),
                         true,
+                        None,
                     ),
                 )
             }
