@@ -159,7 +159,7 @@ export function callPromise(args: PromiseArgs): void {
 
 export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let contractResults = ContractPromise.getResults();
-  let allRes = new Array<MyContractPromiseResult>(contractResults.length);
+  let allRes = Array.create<MyContractPromiseResult>(contractResults.length);
   for (let i = 0; i < contractResults.length; ++i) {
     allRes[i] = new MyContractPromiseResult();
     allRes[i].ok = contractResults[i].success;
@@ -170,7 +170,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let result: MyCallbackResult = {
     rs: allRes,
     n: context.contractName,
-  }
+  };
   let bytes = result.encode();
   storage.setBytes("lastResult", bytes);
   return result;
