@@ -133,10 +133,13 @@ impl<'a> Runtime<'a> {
 
     /// Reads AssemblyScript string from utf-16
     fn read_string(&self, offset: usize) -> Result<String> {
-        let len: u32 = self.memory_get_u32(offset)?;
-        let buffer = self.memory_get(offset + 4, (len * 2) as usize)?;
+        let len: u32 = self.memory_get_u32(offset - 4)?;
+        if len % 2 != 0 {
+            return Err(Error::BadUtf16);
+        }
+        let buffer = self.memory_get(offset, len as usize)?;
         let mut u16_buffer = Vec::new();
-        for i in 0..(len as usize) {
+        for i in 0..((len / 2) as usize) {
             let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
             u16_buffer.push(c);
         }

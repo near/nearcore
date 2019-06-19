@@ -1,9 +1,8 @@
-import "allocator/arena";
-export { memory };
-
 import { context, storage, ContractPromise, ContractPromiseResult, near } from "./near";
 
 import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model.near";
+
+import { u128 } from "./node_modules/bignum/assembly/integer/u128";
 
 export function hello(name: string): string {
 
@@ -141,44 +140,38 @@ export function recurse(n: i32): i32 {
 
 export function callPromise(args: PromiseArgs): void {
   let inputArgs: InputPromiseArgs = { args: args.args };
-  near.log('1');
+  let balance = args.balance as u64;
   let promise = ContractPromise.create(
       args.receiver,
       args.methodName,
       inputArgs.encode(),
-      args.balance);
-  near.log('2');
+      new u128(args.balance));
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
+    let callbackBalance = args.callbackBalance as u64;
     promise = promise.then(
         args.callback,
         inputArgs.encode(),
-        args.callbackBalance);
+        new u128(callbackBalance));
   }
-  near.log('3');
   promise.returnAsResult();
-}
-
-function strFromBytes(buffer: Uint8Array): string {
-  return String.fromUTF8(buffer.buffer.data, buffer.byteLength);
 }
 
 export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let contractResults = ContractPromise.getResults();
-  let allRes = new Array<MyContractPromiseResult>(contractResults.length);
+  let allRes = Array.create<MyContractPromiseResult>(contractResults.length);
   for (let i = 0; i < contractResults.length; ++i) {
     allRes[i] = new MyContractPromiseResult();
     allRes[i].ok = contractResults[i].success;
     if (allRes[i].ok && contractResults[i].buffer != null && contractResults[i].buffer.length > 0) {
       allRes[i].r = MyCallbackResult.decode(contractResults[i].buffer);
     }
-  } 
+  }
   let result: MyCallbackResult = {
     rs: allRes,
     n: context.contractName,
-  }
+  };
   let bytes = result.encode();
-  near.log(strFromBytes(bytes));
   storage.setBytes("lastResult", bytes);
   return result;
 }
