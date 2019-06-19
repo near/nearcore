@@ -55,6 +55,7 @@ fn main() {
             .arg(Arg::with_name("chain-id").long("chain-id").takes_value(true).help("Chain ID, by default creates new random"))
             .arg(Arg::with_name("account-id").long("account-id").takes_value(true).help("Account ID for the validator key"))
             .arg(Arg::with_name("test-seed").long("test-seed").takes_value(true).help("Specify private key generated from seed (TESTING ONLY)"))
+            .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
         )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
@@ -82,7 +83,8 @@ fn main() {
             let chain_id = args.value_of("chain-id");
             let account_id = args.value_of("account-id");
             let test_seed = args.value_of("test-seed");
-            init_configs(home_dir, chain_id, account_id, test_seed);
+            let fast = args.is_present("fast");
+            init_configs(home_dir, chain_id, account_id, test_seed, fast);
         }
         ("testnet", Some(args)) => {
             let num_validators = args
