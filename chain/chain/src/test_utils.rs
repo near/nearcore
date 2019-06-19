@@ -4,7 +4,7 @@ use std::sync::Arc;
 use chrono::Utc;
 
 use near_primitives::crypto::signature::{PublicKey, Signature};
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
 use near_primitives::test_utils::get_public_key_from_seed;
@@ -17,21 +17,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Block, Chain, ValidTransaction};
-
-impl Block {
-    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
-        Block::produce(
-            prev,
-            prev.height + 1,
-            prev.prev_state_root,
-            vec![],
-            HashMap::default(),
-            vec![],
-            signer,
-        )
-    }
-}
+use crate::{Chain, ValidTransaction};
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {

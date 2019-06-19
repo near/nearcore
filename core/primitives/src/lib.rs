@@ -16,6 +16,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 pub mod account;
 //pub mod balance;
+pub mod block;
 pub mod crypto;
 pub mod hash;
 pub mod logging;
