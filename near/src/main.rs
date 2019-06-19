@@ -107,11 +107,13 @@ fn main() {
                 near_config.client_config.produce_empty_blocks = produce_empty_blocks;
             }
             if let Some(boot_nodes) = args.value_of("boot-nodes") {
+                if !boot_nodes.is_empty() {
                 near_config.network_config.boot_nodes = boot_nodes
                     .to_string()
                     .split(",")
                     .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                     .collect();
+                }
             }
             if let Some(min_peers) = args
                 .value_of("min-peers")
