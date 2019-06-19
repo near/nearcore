@@ -1,3 +1,4 @@
+#![feature(trait_alias)]
 use std::time::Duration;
 
 use actix_web::client::Client;
@@ -15,11 +16,16 @@ use crate::message::{from_slice, Message};
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-type HttpRequest<T> = Box<dyn Future<Item = T, Error = String>>;
-type RpcRequest<T> = Box<dyn Future<Item = T, Error = String>>;
+pub trait HttpRequest<T> = Future<Item = T, Error = String>;
+pub trait RpcRequest<T> = Future<Item = T, Error = String>;
 
 /// Prepare a `RPCRequest` with a given client, server address, method and parameters.
-fn call_method<P, R>(client: &Client, server_addr: &str, method: &str, params: P) -> RpcRequest<R>
+fn call_method<P, R>(
+    client: &Client,
+    server_addr: &str,
+    method: &str,
+    params: P,
+) -> impl RpcRequest<R>
 where
     P: Serialize,
     R: serde::de::DeserializeOwned + 'static,
@@ -27,28 +33,26 @@ where
     let request =
         Message::request(method.to_string(), Some(serde_json::to_value(&params).unwrap()));
     // TODO: simplify this.
-    Box::new(
-        client
-            .post(server_addr)
-            .header("Content-Type", "application/json")
-            .send_json(&request)
-            .map_err(|err| err.to_string())
-            .and_then(|mut response| {
-                response.body().then(|body| match body {
-                    Ok(bytes) => {
-                        from_slice(&bytes).map_err(|err| format!("Error {:?} in {:?}", err, bytes))
-                    }
-                    Err(_) => Err("Payload error: {:?}".to_string()),
-                })
+    client
+        .post(server_addr)
+        .header("Content-Type", "application/json")
+        .send_json(&request)
+        .map_err(|err| err.to_string())
+        .and_then(|mut response| {
+            response.body().then(|body| match body {
+                Ok(bytes) => {
+                    from_slice(&bytes).map_err(|err| format!("Error {:?} in {:?}", err, bytes))
+                }
+                Err(_) => Err("Payload error: {:?}".to_string()),
             })
-            .and_then(|message| match message {
-                Message::Response(resp) => resp
-                    .result
-                    .map_err(|x| format!("{:?}", x))
-                    .and_then(|x| serde_json::from_value(x).map_err(|x| x.to_string())),
-                _ => Err("Invalid message type".to_string()),
-            }),
-    )
+        })
+        .and_then(|message| match message {
+            Message::Response(resp) => resp
+                .result
+                .map_err(|x| format!("{:?}", x))
+                .and_then(|x| serde_json::from_value(x).map_err(|x| x.to_string())),
+            _ => Err("Invalid message type".to_string()),
+        })
 }
 
 /// Prepare a `HttpRequest` with a given client, server address and parameters.
@@ -57,13 +61,13 @@ fn call_http_get<R, P>(
     server_addr: &str,
     method: &str,
     _params: P,
-) -> HttpRequest<R>
+) -> impl HttpRequest<R>
 where
     P: Serialize,
     R: serde::de::DeserializeOwned + 'static,
 {
     // TODO: url encode params.
-    let response = client
+    client
         .get(format!("{}/{}", server_addr, method))
         .send()
         .map_err(|err| err.to_string())
@@ -74,8 +78,7 @@ where
                     .and_then(|s| serde_json::from_str(&s).map_err(|err| err.to_string())),
                 Err(_) => Err("Payload error: {:?}".to_string()),
             })
-        });
-    Box::new(response)
+        })
 }
 
 /// Expands a variable list of parameters into its serializable form. Is needed to make the params
@@ -113,7 +116,7 @@ macro_rules! http_client {
             $(
                 $(#[$attr])*
                 pub fn $method(&mut $selff $(, $arg_name: $arg_ty)*)
-                    -> HttpRequest<$return_ty>
+                    -> impl HttpRequest<$return_ty>
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
@@ -132,7 +135,7 @@ macro_rules! jsonrpc_client {
         pub struct $struct_name:ident {$(
             $(#[$attr:meta])*
             pub fn $method:ident(&mut $selff:ident $(, $arg_name:ident: $arg_ty:ty)*)
-                -> RpcRequest<$return_ty:ty>;
+                -> impl RpcRequest<$return_ty:ty>;
         )*}
     ) => (
         $(#[$struct_attr])*
@@ -150,7 +153,7 @@ macro_rules! jsonrpc_client {
             $(
                 $(#[$attr])*
                 pub fn $method(&mut $selff $(, $arg_name: $arg_ty)*)
-                    -> RpcRequest<$return_ty>
+                    -> impl RpcRequest<$return_ty>
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
@@ -162,14 +165,14 @@ macro_rules! jsonrpc_client {
 }
 
 jsonrpc_client!(pub struct JsonRpcClient {
-    pub fn broadcast_tx_async(&mut self, tx: String) -> RpcRequest<String>;
-    pub fn broadcast_tx_commit(&mut self, tx: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn query(&mut self, path: String, data: String) -> RpcRequest<QueryResponse>;
-    pub fn status(&mut self) -> RpcRequest<StatusResponse>;
-    pub fn health(&mut self) -> RpcRequest<()>;
-    pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResult>;
-    pub fn block(&mut self, height: BlockIndex) -> RpcRequest<Block>;
+    pub fn broadcast_tx_async(&mut self, tx: String) -> impl RpcRequest<String>;
+    pub fn broadcast_tx_commit(&mut self, tx: String) -> impl RpcRequest<FinalTransactionResult>;
+    pub fn query(&mut self, path: String, data: String) -> impl RpcRequest<QueryResponse>;
+    pub fn status(&mut self) -> impl RpcRequest<StatusResponse>;
+    pub fn health(&mut self) -> impl RpcRequest<()>;
+    pub fn tx(&mut self, hash: String) -> impl RpcRequest<FinalTransactionResult>;
+    pub fn tx_details(&mut self, hash: String) -> impl RpcRequest<TransactionResult>;
+    pub fn block(&mut self, height: BlockIndex) -> impl RpcRequest<Block>;
 });
 
 /// Create new JSON RPC client that connects to the given address.
