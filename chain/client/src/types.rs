@@ -2,17 +2,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use actix::Message;
-use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
-use near_primitives::serialize::base_format;
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, BlockIndex};
+
+pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -209,30 +208,6 @@ pub struct Query {
 
 impl Message for Query {
     type Result = Result<QueryResponse, String>;
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct StatusSyncInfo {
-    #[serde(with = "base_format")]
-    pub latest_block_hash: CryptoHash,
-    pub latest_block_height: BlockIndex,
-    #[serde(with = "base_format")]
-    pub latest_state_root: MerkleHash,
-    pub latest_block_time: DateTime<Utc>,
-    pub syncing: bool,
-}
-
-// TODO: add more information to status.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct StatusResponse {
-    /// Unique chain id.
-    pub chain_id: String,
-    /// Address for RPC server.
-    pub rpc_addr: String,
-    /// Current epoch validators.
-    pub validators: Vec<AccountId>,
-    /// Sync status of the node.
-    pub sync_info: StatusSyncInfo,
 }
 
 pub struct Status {}

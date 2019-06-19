@@ -23,10 +23,10 @@ use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
-use crate::message::{Request, RpcError};
+use message::{Request, RpcError};
 
-pub mod client;
-mod message;
+pub use near_jsonrpc_client as client;
+use near_jsonrpc_client::message as message;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.

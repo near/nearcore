@@ -18,5 +18,3 @@ cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef6860
 near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 near-store = { path = "../../core/store" }
-# Not great, but used in test-utils
-node-runtime = { path = "../../runtime/runtime" }

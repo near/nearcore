@@ -6,13 +6,13 @@ use protobuf::Message;
 
 use near_chain::Block;
 use near_client::StatusResponse;
-use near_jsonrpc::client::{JsonRpcClient, new_client};
+use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
-use near_primitives::serialize::{BaseEncode, to_base};
+use near_primitives::serialize::{to_base, BaseEncode};
 use near_primitives::transaction::{
     FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
 };
@@ -104,6 +104,7 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?.try_into()
+        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?
+            .try_into()
     }
 }
