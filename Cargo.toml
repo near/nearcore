@@ -20,6 +20,7 @@ members = [
     "chain/client",
     "chain/network",
     "chain/jsonrpc",
+    "chain/jsonrpc/client",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
