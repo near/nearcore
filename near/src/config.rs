@@ -42,6 +42,11 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (60 * 60 * 12) / MIN_BLOCK_PRODUCTION_DELAY;
 
+/// Fast mode constants for testing/developing.
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_EPOCH_LENGTH: u64 = 10;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -309,7 +314,7 @@ impl GenesisConfig {
             block_producers_per_shard: vec![num_validators],
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
-            epoch_length: 10,
+            epoch_length: FAST_EPOCH_LENGTH,
             validators,
             accounts,
             contracts,
@@ -347,7 +352,7 @@ impl GenesisConfig {
             block_producers_per_shard: vec![num_validators],
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
-            epoch_length: 10,
+            epoch_length: FAST_EPOCH_LENGTH,
             validators,
             accounts,
             contracts: vec![],
@@ -457,8 +462,8 @@ pub fn init_configs(
             let mut config = Config::default();
             config.network.skip_sync_wait = true;
             if fast {
-                config.consensus.min_block_production_delay = Duration::from_millis(10);
-                config.consensus.max_block_production_delay = Duration::from_millis(100);
+                config.consensus.min_block_production_delay = Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                config.consensus.max_block_production_delay = Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
@@ -481,7 +486,7 @@ pub fn init_configs(
                 block_producers_per_shard: vec![1],
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
-                epoch_length: if fast { 60 } else { EXPECTED_EPOCH_LENGTH },
+                epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
@@ -536,7 +541,7 @@ pub fn create_testnet_configs_from_seeds(
         block_producers_per_shard: vec![num_validators],
         avg_fisherman_per_shard: vec![0],
         dynamic_resharding: false,
-        epoch_length: 10,
+        epoch_length: FAST_EPOCH_LENGTH,
         validators,
         accounts,
         contracts: vec![],
