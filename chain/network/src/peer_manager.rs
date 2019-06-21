@@ -383,12 +383,12 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                             actix::fut::ok(())
                         }
                         Err(err) => {
-                            error!(target: "network", "Error connecting to {}: {}", addr, err);
+                            info!(target: "network", "Error connecting to {}: {}", addr, err);
                             actix::fut::err(())
                         }
                     },
                     Err(err) => {
-                        error!(target: "network", "Error connecting to {}: {}", addr, err);
+                        info!(target: "network", "Error connecting to {}: {}", addr, err);
                         actix::fut::err(())
                     }
                 })
