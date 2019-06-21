@@ -29,7 +29,7 @@ RUN cargo build -p near --release && \
 
 EXPOSE 3030 24567
 
-COPY ops/run.sh /usr/local/bin/run.sh
+COPY scripts/run_docker.sh /usr/local/bin/run.sh
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 

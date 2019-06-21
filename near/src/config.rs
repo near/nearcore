@@ -45,7 +45,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (60 * 60 * 12) / MIN_BLOCK_PRODUCT
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
-pub const FAST_EPOCH_LENGTH: u64 = 10;
+pub const FAST_EPOCH_LENGTH: u64 = 60;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
