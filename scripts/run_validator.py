@@ -13,16 +13,16 @@ except NameError:
 """Installs cargo/Rust."""
 def install_cargo():
     try:
-        subprocess.call(['cargo', '--version'])
+        subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'), '--version'])
     except OSError:
         print("Installing Rust...")
-        subprocess.call(['curl', 'https://sh.rustup.rs', '-sSf', '|', 'sh'])
-        subprocess.call(['rustup', 'default', 'nightly'])
+        subprocess.check_output('curl https://sh.rustup.rs -sSf | sh -s -- -y', shell=True)
+        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'), 'default', 'nightly'])
 
 
 """Inits the node configuration using docker."""
 def docker_init(image, home_dir, account_id):
-    subprocess.call(['docker', 'run', 
+    subprocess.call(['docker', 'run',
         '-v', '%s:/srv/near' % home_dir, '-it',
         image, 'near', '--home=/srv/near', 'init', '--chain-id=testnet', 
         '--account-id=%s' % account_id])
@@ -30,13 +30,19 @@ def docker_init(image, home_dir, account_id):
 
 """Inits the node configuration using local build."""
 def local_init(home_dir, account_id):
-    subprocess.call(['cargo', 'run', '--release', '-p', 'near', '--', 
-        '--home=%s' % home_dir, 'init', '--chain-id=testnet', 
+    subprocess.call(['targete/release/near',
+        '--home=%s' % home_dir, 'init', '--chain-id=testnet',
         '--account-id=%s' % account_id])
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
 def check_and_setup(is_local, image, home_dir):
+    if is_local:
+        subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
+            'default', 'nightly'])
+        subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
+            'build', '--release', '-p', 'near'])
+
     if os.path.exists(os.path.join(home_dir, 'config.json')):
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
         if genesis_config['chain_id'] != 'testnet':
