@@ -24,20 +24,12 @@ WORKDIR /near
 COPY . .
 
 ENV CARGO_TARGET_DIR=/tmp/target
-RUN cargo build -p nearmint --release && \
-    cp /tmp/target/release/nearmint /usr/local/bin/ && \
-    cargo build -p keystore --release && \
-    cp /tmp/target/release/keystore /usr/local/bin/ && \
-    cargo build -p testlib --bin generate-test-spec --release && \
-    cp /tmp/target/release/generate-test-spec /usr/local/bin/
+RUN cargo build -p near --release && \
+    cp /tmp/target/release/near /usr/local/bin/
 
-RUN curl -L https://github.com/tendermint/tendermint/releases/download/v0.31.5/tendermint_v0.31.5_linux_amd64.zip > tendermint_v0.31.5_linux_amd64.zip
-RUN unzip -o tendermint_v0.31.5_linux_amd64.zip -d /usr/local/bin/
-
-EXPOSE 3030 26656 26657
+EXPOSE 3030 24567
 
 COPY ops/run.sh /usr/local/bin/run.sh
-COPY ops/tendermint-config.toml ./config.toml
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 

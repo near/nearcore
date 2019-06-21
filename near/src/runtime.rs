@@ -78,6 +78,21 @@ impl NightshadeRuntime {
     fn height_to_epoch(&self, height: BlockIndex) -> (Epoch, BlockIndex) {
         (height / self.genesis_config.epoch_length, height % self.genesis_config.epoch_length)
     }
+
+    fn get_block_proposer_info(&self, height: BlockIndex) -> Result<ValidatorStake, Box<std::error::Error>> {
+        let (epoch, idx) = self.height_to_epoch(height);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validator_assignemnt = vm.get_validators(epoch)?;
+        let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
+        let mut cur_seats = 0;
+        for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
+            if cur_seats + seats > idx % total_seats {
+                return Ok(validator_assignemnt.validators[i].clone());
+            }
+            cur_seats += seats;
+        }
+        unreachable!()
+    }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -132,11 +147,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let account_info = &self.genesis_config.validators
-            [(header.height as usize) % self.genesis_config.validators.len()];
-        if !header.verify_block_producer(
-            &PublicKey::try_from(account_info.public_key.0.as_str()).unwrap(),
-        ) {
+        let validator = self.get_block_proposer_info(header.height).map_err(|err| ErrorKind::Other(err.to_string()))?;
+        if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
@@ -159,22 +171,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             .collect())
     }
 
-    fn get_block_proposer(
-        &self,
-        height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(height);
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
-        let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
-        let mut cur_seats = 0;
-        for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
-            if cur_seats + seats > idx % total_seats {
-                return Ok(validator_assignemnt.validators[i].account_id.clone());
-            }
-            cur_seats += seats;
-        }
-        unreachable!()
+    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+        Ok(self.get_block_proposer_info(height)?.account_id)
     }
 
     fn get_chunk_proposer(

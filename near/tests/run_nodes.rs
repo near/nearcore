@@ -17,6 +17,7 @@ fn run_nodes(num_nodes: usize) {
     let first_node = open_port();
     for i in 0..num_nodes {
         let mut near_config = load_test_config(&validators[i], if i == 0 { first_node } else { open_port() }, &genesis_config);
+        near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
             near_config.network_config.boot_nodes = convert_boot_nodes(vec![(&validators[0], first_node)]);
         }

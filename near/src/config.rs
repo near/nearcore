@@ -33,6 +33,20 @@ pub const NEAR_TOKEN: Balance = 1_000_000_000_000_000_000;
 /// Initial token supply.
 pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_TOKEN;
 
+/// Expected block production time in secs.
+pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
+
+/// Maximum time to delay block production until skip.
+pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
+
+/// Expected epoch length.
+pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (60 * 60 * 12) / MIN_BLOCK_PRODUCTION_DELAY;
+
+/// Fast mode constants for testing/developing.
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_EPOCH_LENGTH: u64 = 10;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -90,8 +104,8 @@ impl Default for Consensus {
     fn default() -> Self {
         Consensus {
             min_num_peers: 3,
-            min_block_production_delay: Duration::from_secs(1),
-            max_block_production_delay: Duration::from_secs(6),
+            min_block_production_delay: Duration::from_secs(MIN_BLOCK_PRODUCTION_DELAY),
+            max_block_production_delay: Duration::from_secs(MAX_BLOCK_PRODUCTION_DELAY),
             produce_empty_blocks: true,
         }
     }
@@ -165,15 +179,15 @@ impl NearConfig {
             client_config: ClientConfig {
                 chain_id: genesis_config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
-                min_block_production_delay: Duration::from_millis(100),
-                max_block_production_delay: Duration::from_millis(2000),
+                min_block_production_delay: config.consensus.min_block_production_delay,
+                max_block_production_delay: config.consensus.max_block_production_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
                 sync_step_period: Duration::from_millis(10),
                 sync_weight_threshold: 0,
                 sync_height_threshold: 1,
-                min_num_peers: 1,
+                min_num_peers: config.consensus.min_num_peers,
                 fetch_info_period: Duration::from_millis(100),
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
@@ -195,7 +209,7 @@ impl NearConfig {
                         .network
                         .boot_nodes
                         .split(",")
-                        .map(|chunk| chunk.try_into().unwrap())
+                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
                         .collect()
                 },
                 handshake_timeout: config.network.handshake_timeout,
@@ -300,7 +314,7 @@ impl GenesisConfig {
             block_producers_per_shard: vec![num_validators],
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
-            epoch_length: 10,
+            epoch_length: FAST_EPOCH_LENGTH,
             validators,
             accounts,
             contracts,
@@ -338,7 +352,7 @@ impl GenesisConfig {
             block_producers_per_shard: vec![num_validators],
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
-            epoch_length: 10,
+            epoch_length: FAST_EPOCH_LENGTH,
             validators,
             accounts,
             contracts: vec![],
@@ -383,7 +397,7 @@ pub fn testnet_genesis() -> GenesisConfig {
         block_producers_per_shard: vec![4],
         avg_fisherman_per_shard: vec![100],
         dynamic_resharding: true,
-        epoch_length: 20000,
+        epoch_length: EXPECTED_EPOCH_LENGTH,
         validators: vec![AccountInfo {
             account_id: ".near".to_string(),
             public_key: ReadablePublicKey(
@@ -408,6 +422,7 @@ pub fn init_configs(
     chain_id: Option<&str>,
     account_id: Option<&str>,
     test_seed: Option<&str>,
+    fast: bool,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
     // Check if config already exists in home dir.
@@ -416,7 +431,7 @@ pub fn init_configs(
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
-    let chain_id = chain_id.map(|c| c.to_string()).unwrap_or(random_chain_id());
+    let chain_id = chain_id.and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) }).unwrap_or(random_chain_id());
     match chain_id.as_ref() {
         "mainnet" => {
             // TODO:
@@ -430,8 +445,8 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
-            if let Some(account_id) = account_id {
-                let signer = InMemorySigner::new(account_id.to_string());
+            if let Some(account_id) = account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) }) {
+                let signer = InMemorySigner::new(account_id.clone());
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
@@ -446,9 +461,13 @@ pub fn init_configs(
             // Create new configuration, key files and genesis for one validator.
             let mut config = Config::default();
             config.network.skip_sync_wait = true;
+            if fast {
+                config.consensus.min_block_production_delay = Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                config.consensus.max_block_production_delay = Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+            }
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let account_id = account_id.unwrap_or("test.near").to_string();
+            let account_id = account_id.and_then(|x| if x.is_empty() { None } else { Some(x) }).unwrap_or("test.near").to_string();
 
             let signer = if let Some(test_seed) = test_seed {
                 InMemorySigner::from_seed(&account_id, test_seed)
@@ -467,7 +486,7 @@ pub fn init_configs(
                 block_producers_per_shard: vec![1],
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
-                epoch_length: 1000,
+                epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
@@ -522,7 +541,7 @@ pub fn create_testnet_configs_from_seeds(
         block_producers_per_shard: vec![num_validators],
         avg_fisherman_per_shard: vec![0],
         dynamic_resharding: false,
-        epoch_length: 10,
+        epoch_length: FAST_EPOCH_LENGTH,
         validators,
         accounts,
         contracts: vec![],
@@ -598,6 +617,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
     let mut config = Config::default();
+    config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));

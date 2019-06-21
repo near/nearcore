@@ -1,10 +1,10 @@
-# NEAR Application Layer with Tendermint Consensus
+# Running NEAR
 
 #### Table of contents
 
 1. [Running Locally](#running-locally)
 2. [Running Remotely](#running-remotely)
-3. [Developing NEAR Runtime](#developing-near-runtime)
+3. [Developing NEAR](#developing-near)
 4. [Building and Pushing Docker Image](#building-and-pushing-docker-image)
 
 ## Running Locally
@@ -33,7 +33,7 @@ Similarly you deploy the network to the GCloud:
 ```
 When the network is deployed it will print the address of the studio.
 
-## Developing NEAR Runtime
+## Developing NEAR
 This section is for those who want to develop the NEAR Runtime. If you only want to develop dApps then the above sections suffice.
 Developing NEAR Runtime locally requires more installation and configuration.
 
@@ -73,80 +73,51 @@ git clone https://github.com/nearprotocol/nearcore
 cd nearcore
 ```
 
-**4. Tendermint**
+**4. Running locally**
 
-Follow the official instructions to install Tendermint: https://tendermint.com/docs/introduction/install.html
-
-### Configure and run
-
-To configure Tendermint run:
-
-```bash
-tendermint init
-```
-
-Configure Tendermint to use `3030` for its RPC. Open `~/.tendermint/config/config.toml` and change:
-```yaml
-[rpc]
-laddr = "tcp://0.0.0.0:3030"
-```
-
-For local development we also recommend setting:
-```yaml
-create_empty_blocks = false
-```
-
-First, we want to set `alice.near` as a single validator. Open `~/.tendermint/config/priv_validator_key.json` and replace with:
-
-```json
-{
-  "address": "27B2B6C138DDF7B77E4318A22CAE1A38F55AA29A",
-  "pub_key": {
-    "type": "tendermint/PubKeyEd25519",
-    "value": "D1al8CjfwInsfDnBGDsyG02Pibpb7J4XYoA8wkkfbvg="
-  },
-  "priv_key": {
-    "type": "tendermint/PrivKeyEd25519",
-    "value": "YWxpY2UubmVhciAgICAgICAgICAgICAgICAgICAgICAPVqXwKN/Aiex8OcEYOzIbTY+JulvsnhdigDzCSR9u+A=="
-  }
-}
-```
 
 Navigate to the root of the repository, and run:
 ```bash
-cargo run --package nearmint -- --devnet
+cargo run --package near -- init
+cargo run --package near -- run
 ```
 
-This will start NEARMint in application mode, without consensus backing it up.
+This will setup a local chain with `init` and will run the node.
 
-To start Tendermint run:
+You can now check the status of the node with `http` tool (`brew install http` or `apt install http` or configure CURL for POST requests) via RPC:
 ```bash
-tendermint node
+http get http://localhost:3030/status
+http post http://localhost:3030/ method=query jsonrpc=2.0 id=1 params:='["account/test.near", ""]' 
 ```
 
-Now we can issue specific commands to the node:
-```bash
-curl http://localhost:3030/status
-curl -s 'localhost:3030/abci_query?path="account/alice.near"'
-curl -s 'localhost:3030/validators'
-```
+See full list of RPC endpoints here: https://docs.nearprotocol.com/api-documentation/rpc
 
-See full list of RPC endpoints here: https://tendermint.com/rpc/#endpoints
-
-Unfortunately, transactions can be only submitted in base64 encoding, which is hard to do from the command line.
+Unfortunately, transactions needs to be signed and encoded in base58, which is hard to do from the command line.
+Use `near-shell` tool for that (`npm install -g near-shell`).
 
 ## Building and Pushing Docker Image
 
 If you have modified the source code of NEAR Runtime and want to see how it performs in prod you would need to build
 an docker image from it. Once the docker image is built you can run it locally or remotely.
 
-### Building NEAR Runtime
+### Building NEAR client
 To build docker image run from the root:
 ```bash
 make docker-nearcore
 ```
 
 This will build an image with `nearcore` name.
+
+### Publishing NEAR client
+
+To publish docker image, use 
+
+```bash
+sudo docker tag nearcore <your username>/mynearcore:<version>
+sudo docker push <your username>/mynearcore:<version>
+```
+
+Official image is published at `nearprotocol/nearcore`
 
 ### Running locally
 
@@ -157,14 +128,8 @@ To run this image locally, run:
 
 ### Running remotely
 
-To run this image remotely we would need to tag and publish it to the docker hub. For instance, when using `nearprotocol` docker hub repo:
+If you have published image to `<your username>/mynearcore`, you can use:
 
 ```bash
-sudo docker tag nearcore nearprotocol/mynearcore
-sudo docker push nearprotocol/mynearcore
-```
-
-Then run:
-```bash
-./ops/deploy_remote.sh nearprotocol/mynearcore
+./ops/deploy_remote.sh <your username>/mynearcore
 ```
