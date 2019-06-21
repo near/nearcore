@@ -40,7 +40,7 @@ pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (60 * 60 * 12) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
