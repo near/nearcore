@@ -11,7 +11,7 @@ if __name__ == "__main__":
     print("* Running NEAR validator node for Official TestNet *")
     print("****************************************************")
 
-    DEFAULT_BOOT_NODE = "EtzHNR2x9uCrv5D6uQEsetR8KWjUoGccoMX2Zqp47hbT@34.94.33.164:24567"
+    DEFAULT_BOOT_NODE = "49ppQ9vkLYvWajZ1KRMdism4AQswFT4yD2e9kRt7B4rC@34.94.33.164:24567"
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--local', action='store_true', help='If set, runs in the local version instead of auto-updatable docker. Otherwise runs locally')
