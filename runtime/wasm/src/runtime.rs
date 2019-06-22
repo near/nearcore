@@ -39,7 +39,7 @@ pub struct Runtime<'a> {
     /// Keep track of how much of the liquid balance is used by the contract so far,
     /// without deposits/withdrawals and resending of the balance to other contracts.
     usage_counter: Balance,
-    context: &'a RuntimeContext,
+    context: &'a RuntimeContext<'a>,
     config: Config,
     pub storage_counter: StorageUsageChange,
     promise_ids: Vec<PromiseId>,
@@ -55,7 +55,7 @@ impl<'a> Runtime<'a> {
         ext: &'a mut dyn External,
         input_data: &'a [u8],
         result_data: &'a [Option<Vec<u8>>],
-        context: &'a RuntimeContext,
+        context: &'a RuntimeContext<'a>,
         config: Config,
         memory: Memory,
     ) -> Runtime<'a> {
