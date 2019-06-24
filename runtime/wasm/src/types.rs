@@ -303,7 +303,7 @@ impl Default for Config {
 }
 
 /// Context for the WASM contract execution.
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct RuntimeContext {
     /// Initial balance is the balance of the account before the
     /// received_amount is added.
@@ -322,10 +322,11 @@ pub struct RuntimeContext {
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.
     pub free_of_charge: bool,
-    /// In case this is a function call on by the account owner on their account, we provide
-    /// public key to identify which access key or the public key was used to sign this transaction.
-    /// It's useful to create contract based accounts.
-    public_key: Option<PublicKey>,
+    /// TODO(#1017): Rename to originator_id
+    /// Account ID of the account who signed the initial transaction.
+    pub tx_originator_id: AccountId,
+    /// The public key used to sign the initial transaction.
+    pub public_key: PublicKey,
 }
 
 impl RuntimeContext {
@@ -338,7 +339,8 @@ impl RuntimeContext {
         block_index: BlockIndex,
         random_seed: Vec<u8>,
         free_of_charge: bool,
-        public_key: Option<PublicKey>,
+        originator_id: &AccountId,
+        public_key: &PublicKey,
     ) -> RuntimeContext {
         RuntimeContext {
             initial_balance,
@@ -349,7 +351,8 @@ impl RuntimeContext {
             block_index,
             random_seed,
             free_of_charge,
-            public_key,
+            tx_originator_id: originator_id.clone(),
+            public_key: public_key.clone(),
         }
     }
 }

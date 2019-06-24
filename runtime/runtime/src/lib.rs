@@ -80,6 +80,7 @@ impl Runtime {
         hash: CryptoHash,
         sender: &mut Account,
         refund_account_id: &AccountId,
+        public_key: PublicKey,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         match transaction.method_name.get(0) {
             Some(b'_') => {
@@ -107,6 +108,8 @@ impl Runtime {
                     transaction.args.clone(),
                     transaction.amount,
                     refund_account_id.clone(),
+                    transaction.originator.clone(),
+                    public_key,
                 )),
             );
             Ok(vec![receipt])
@@ -175,6 +178,8 @@ impl Runtime {
                 transaction.args.clone(),
                 transaction.amount,
                 refund_account_id.clone(),
+                transaction.originator.clone(),
+                public_key.clone(),
             ),
             &transaction.originator,
             &transaction.originator,
@@ -182,7 +187,6 @@ impl Runtime {
             account,
             &mut leftover_balance,
             block_index,
-            Some(public_key),
             transaction_result,
         );
 
@@ -235,6 +239,7 @@ impl Runtime {
                 transaction.get_hash(),
                 &mut originator,
                 refund_account_id,
+                public_key,
             ),
             TransactionBody::Stake(ref t) => system::staking(
                 state_update,
@@ -260,6 +265,7 @@ impl Runtime {
                 transaction.get_hash(),
                 &mut originator,
                 refund_account_id,
+                public_key,
             ),
             TransactionBody::DeployContract(ref t) => {
                 system::deploy(state_update, &t.contract_id, &t.wasm_byte_array, &mut originator)
@@ -270,6 +276,7 @@ impl Runtime {
                 transaction.get_hash(),
                 &mut originator,
                 refund_account_id,
+                public_key,
             ),
             TransactionBody::SwapKey(ref t) => system::swap_key(state_update, t, &mut originator),
             TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut originator),
@@ -374,7 +381,6 @@ impl Runtime {
         receiver: &mut Account,
         leftover_balance: &mut Balance,
         block_index: BlockIndex,
-        public_key: Option<PublicKey>,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         *leftover_balance = async_call.amount;
@@ -386,6 +392,8 @@ impl Runtime {
                 &async_call.refund_account,
                 nonce,
                 self.ethash_provider.clone(),
+                &async_call.originator_id,
+                &async_call.public_key,
             );
             let mut wasm_res = executor::execute(
                 &code,
@@ -403,7 +411,8 @@ impl Runtime {
                     block_index,
                     nonce.as_ref().to_vec(),
                     false,
-                    public_key,
+                    &async_call.originator_id,
+                    &async_call.public_key,
                 ),
             )
             .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
@@ -461,6 +470,8 @@ impl Runtime {
                         &callback.refund_account,
                         nonce,
                         self.ethash_provider.clone(),
+                        &callback.originator_id,
+                        &callback.public_key,
                     );
 
                     *refund_account = callback.refund_account.clone();
@@ -481,7 +492,8 @@ impl Runtime {
                             block_index,
                             nonce.as_ref().to_vec(),
                             false,
-                            None,
+                            &callback.originator_id,
+                            &callback.public_key,
                         ),
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
@@ -580,7 +592,6 @@ impl Runtime {
                             &mut receiver,
                             &mut leftover_balance,
                             block_index,
-                            None,
                             transaction_result,
                         )
                     }

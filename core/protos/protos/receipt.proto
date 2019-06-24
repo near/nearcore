@@ -15,6 +15,11 @@ message AsyncCall {
     bytes args = 4;
     CallbackInfo callback = 5;
     string refund_account = 7;
+    // Account ID of the account who signed the initial transaction.
+    string originator_id = 8;
+    // The public key used to sign the initial transaction.
+    bytes public_key = 9;
+
 
     // Removed fields.
     reserved 2, 6;
