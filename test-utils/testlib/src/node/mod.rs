@@ -124,7 +124,7 @@ fn near_configs_to_node_configs(
             configs[i].clone(),
             &genesis_config,
             network_signers[i].clone().into(),
-            Some(&signers[i].clone().into()),
+            Some(signers[i].clone().into()),
         )))
     }
     result

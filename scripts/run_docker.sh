@@ -3,7 +3,10 @@ set -e
 
 export NEAR_HOME=/srv/near
 
-near --home=${NEAR_HOME} init --chain-id=${CHAIN_ID} --account-id=${ACCOUNT_ID}
+if [[ -z {INIT} ]]
+then
+    near --home=${NEAR_HOME} init --chain-id=${CHAIN_ID} --account-id=${ACCOUNT_ID}
+fi
 
 if [[ -z {NODE_KEY} ]]
 then
@@ -17,3 +20,4 @@ fi
 echo "Bootnodes: ${BOOT_NODES}"
 
 near --home=${NEAR_HOME} run --boot-nodes="${BOOT_NODES}"
+

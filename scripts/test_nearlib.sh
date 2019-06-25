@@ -1,7 +1,7 @@
 #!/bin/bash
 set -ex
 
-./scripts/start_near.sh &
+./scripts/start_unittest.py --local &
 export NEAR_PID=$!
 trap 'pkill -15 -P $NEAR_PID' 0
 
