@@ -73,6 +73,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
+        _parent_height: BlockIndex,
         _height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
         Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
@@ -80,6 +81,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_block_proposer(
         &self,
+        _parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
@@ -88,6 +90,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_chunk_proposer(
         &self,
         _shard_id: ShardId,
+        _parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())

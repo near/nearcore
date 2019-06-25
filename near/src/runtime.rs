@@ -77,15 +77,22 @@ impl NightshadeRuntime {
     }
 
     /// Returns current epoch and position in the epoch for given height.
-    fn height_to_epoch(&self, height: BlockIndex) -> (Epoch, BlockIndex) {
-        (height / self.genesis_config.epoch_length, height % self.genesis_config.epoch_length)
+    fn height_to_epoch(
+        &self,
+        parent_height: BlockIndex,
+        height: BlockIndex,
+    ) -> Result<(Epoch, BlockIndex), Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let epoch = vm.get_epoch(parent_height, height)?;
+        Ok((epoch, height - epoch))
     }
 
     fn get_block_proposer_info(
         &self,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(height);
+        let (epoch, idx) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
         let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
@@ -159,7 +166,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let validator = self
-            .get_block_proposer_info(header.height)
+            .get_block_proposer_info(prev_header.height, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -169,9 +176,10 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        let (epoch, _) = self.height_to_epoch(height);
+        let (epoch, _) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
         Ok(validator_assignemnt
@@ -186,17 +194,19 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_block_proposer(
         &self,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.get_block_proposer_info(height)?.account_id)
+        Ok(self.get_block_proposer_info(parent_height, height)?.account_id)
     }
 
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(height);
+        let (epoch, idx) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
         let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]

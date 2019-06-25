@@ -35,11 +35,11 @@ use crate::types::{
 use crate::{sync, StatusResponse};
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr) => (match $obj {
+macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
     Ok(value) => value,
     Err(err) => {
         error!(target: "client", "Error: {:?}", err);
-        return
+        return $ret;
     }
 }));
 
@@ -191,14 +191,15 @@ impl Handler<Status> for ClientActor {
 
     fn handle(&mut self, _: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
-        let last_header =
+        let prev_header =
             self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
-        let latest_block_time = last_header.timestamp.clone();
+        let last_height = prev_header.height;
+        let latest_block_time = prev_header.timestamp.clone();
         let state_root =
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(head.height)
+            .get_epoch_block_proposers(last_height, head.height)
             .map_err(|err| err.to_string())?
             .drain(..)
             .map(|(account_id, _)| account_id)
@@ -270,22 +271,24 @@ impl ClientActor {
     /// Create approval for given block or return none if not a block producer.
     fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
         let next_block_producer_account =
-            self.runtime_adapter.get_block_proposer(block.header.height + 1);
+            self.runtime_adapter.get_block_proposer(block.header.height, block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                if let Ok(validators) = self
-                    .runtime_adapter
-                    .get_epoch_block_proposers(block.header.height)
-                    .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
-                {
-                    if validators.contains(&block_producer.account_id) {
-                        return Some(BlockApproval::new(
-                            block.hash(),
-                            &*block_producer.signer,
-                            next_block_producer_account.clone(),
-                        ));
+                if let Ok(prev_block) = self.chain.get_block_header(&block.header.prev_hash) {
+                    if let Ok(validators) = self
+                        .runtime_adapter
+                        .get_epoch_block_proposers(prev_block.height, block.header.height)
+                        .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
+                    {
+                        if validators.contains(&block_producer.account_id) {
+                            return Some(BlockApproval::new(
+                                block.hash(),
+                                &*block_producer.signer,
+                                next_block_producer_account.clone(),
+                            ));
+                        }
                     }
                 }
             }
@@ -302,8 +305,10 @@ impl ClientActor {
         check_height: BlockIndex,
     ) {
         // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
-        let next_block_producer_account =
-            unwrap_or_return!(self.runtime_adapter.get_block_proposer(check_height + 1));
+        let next_block_producer_account = unwrap_or_return!(
+            self.runtime_adapter.get_block_proposer(last_height, check_height + 1),
+            ()
+        );
         if let Some(block_producer) = &self.block_producer {
             if block_producer.account_id.clone() == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
@@ -328,7 +333,7 @@ impl ClientActor {
         last_height: BlockIndex,
         check_height: BlockIndex,
     ) {
-        let head = unwrap_or_return!(self.chain.head());
+        let head = unwrap_or_return!(self.chain.head(), ());
         // If height changed since we scheduled this, exit.
         if head.height != last_height {
             return;
@@ -371,7 +376,7 @@ impl ClientActor {
         // Check that we are were called at the block that we are producer for.
         let next_block_proposer = self
             .runtime_adapter
-            .get_block_proposer(next_height)
+            .get_block_proposer(last_height, next_height)
             .map_err(|err| Error::Other(err.to_string()))?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
@@ -380,17 +385,17 @@ impl ClientActor {
         let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
         let has_receipts =
             self.chain.get_receipts(&head.last_block_hash).map(|r| r.len() > 0).unwrap_or(false);
-        let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(next_height)
+            .get_epoch_block_proposers(last_height, next_height)
             .map_err(|err| Error::Other(err.to_string()))?;
         let total_validators = validators.len();
+        let last_last_height = self.chain.get_block_header(&head.prev_block_hash)?.height;
         let prev_same_bp = self
             .runtime_adapter
-            .get_block_proposer(last_height)
+            .get_block_proposer(last_last_height, last_height)
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
@@ -420,10 +425,12 @@ impl ClientActor {
             return Ok(());
         }
 
+        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
+
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
         let block = Block::produce(
-            &prev,
+            &prev_header,
             next_height,
             state_root,
             transactions,
@@ -735,8 +742,9 @@ impl ClientActor {
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
-            let head = unwrap_or_return!(act.chain.head());
-            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(head.height)).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let head = unwrap_or_return!(act.chain.head(), ());
+            let prev_header = unwrap_or_return!(act.chain.get_block_header(&head.prev_block_hash), ());
+            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(prev_header.height, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
@@ -777,21 +785,20 @@ impl ClientActor {
         signature: &Signature,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
-        let header = match self.chain.get_block_header(&hash) {
-            Ok(header) => header,
-            Err(_) => {
-                // TODO: This header is missing, should collect for later? should have better way to verify then.
-                return true;
-            }
-        };
+        // TODO: This header is missing, should collect for later? should have better way to verify then.
+        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
+        let prev_height = unwrap_or_return!(self.chain.get_block_header(&header.prev_hash), true).height;
+
         // If given account is not current block proposer.
-        let position = match self.runtime_adapter.get_epoch_block_proposers(header.height) {
-            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
-        };
+        let position =
+            match self.runtime_adapter.get_epoch_block_proposers(prev_height, header.height)
+            {
+                Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+                Err(err) => {
+                    error!(target: "client", "Error: {}", err);
+                    return false;
+                }
+            };
         if position.is_none() {
             return false;
         }

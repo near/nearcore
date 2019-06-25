@@ -60,12 +60,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -73,6 +75,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
+        parent_height: BlockIndex,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -133,7 +136,7 @@ pub trait RuntimeAdapter: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
-    pub height: u64,
+    pub height: BlockIndex,
     /// Last block pushed to the fork
     pub last_block_hash: CryptoHash,
     /// Previous block
