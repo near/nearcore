@@ -14,7 +14,7 @@ use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
@@ -76,25 +76,14 @@ impl NightshadeRuntime {
         NightshadeRuntime { genesis_config, store, trie, runtime, trie_viewer, validator_manager }
     }
 
-    /// Returns current epoch and position in the epoch for given height.
-    fn height_to_epoch(
-        &self,
-        parent_height: BlockIndex,
-        height: BlockIndex,
-    ) -> Result<(Epoch, BlockIndex), Box<dyn std::error::Error>> {
-        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
-        let epoch = vm.get_epoch(parent_height, height)?;
-        Ok((epoch, height - epoch))
-    }
-
     fn get_block_proposer_info(
         &self,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
         let mut cur_seats = 0;
         for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
@@ -166,7 +155,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let validator = self
-            .get_block_proposer_info(prev_header.height, header.height)
+            .get_block_proposer_info(header.prev_hash, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -176,12 +165,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        let (epoch, _) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, _) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         Ok(validator_assignemnt
             .block_producers
             .iter()
@@ -194,21 +183,21 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_block_proposer(
         &self,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.get_block_proposer_info(parent_height, height)?.account_id)
+        Ok(self.get_block_proposer_info(parent_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(parent_height, height)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
             .iter()
             .map(|(_, seats)| seats)
@@ -255,14 +244,15 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn add_validator_proposals(
         &self,
-        parent_block_index: BlockIndex,
+        parent_hash: CryptoHash,
+        current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deal with validator proposals and epoch finishing.
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         // TODO: don't commit here, instead contribute to upstream store update.
-        vm.add_proposals(parent_block_index, block_index, proposals)?
+        vm.add_proposals(parent_hash, current_hash, block_index, proposals)?
             .commit()
             .map_err(|err| err.into())
     }
@@ -272,12 +262,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
-        prev_block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     > {
         let apply_state = ApplyState {
@@ -290,17 +279,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
 
-        self.add_validator_proposals(
-            prev_block_index,
-            block_index,
-            apply_result.validator_proposals,
-        )?;
-
         Ok((
             WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             apply_result.root,
             apply_result.tx_result,
             apply_result.new_receipts,
+            apply_result.validator_proposals
         ))
     }
 

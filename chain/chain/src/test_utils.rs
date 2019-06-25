@@ -73,7 +73,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        _parent_height: BlockIndex,
+        _parent_hash: CryptoHash,
         _height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
         Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
@@ -81,7 +81,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_block_proposer(
         &self,
-        _parent_height: BlockIndex,
+        _parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
@@ -90,7 +90,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_chunk_proposer(
         &self,
         _shard_id: ShardId,
-        _parent_height: BlockIndex,
+        _parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
@@ -119,7 +119,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn add_validator_proposals(
         &self,
-        _prev_block_index: u64,
+        _parent_hash: CryptoHash,
+        _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -131,12 +132,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
-        _prev_block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     > {
         let mut tx_results = vec![];
@@ -153,6 +153,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             *state_root,
             tx_results,
             HashMap::default(),
+            vec![]
         ))
     }
 

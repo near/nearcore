@@ -60,14 +60,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -75,7 +75,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
-        parent_height: BlockIndex,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -99,7 +99,8 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Add proposals for validators.
     fn add_validator_proposals(
         &self,
-        prev_block_index: BlockIndex,
+        parent_hash: CryptoHash,
+        current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
     ) -> Result<(), Box<dyn std::error::Error>>;
@@ -111,12 +112,11 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         merkle_hash: &MerkleHash,
         block_index: BlockIndex,
-        prev_block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     >;
 
