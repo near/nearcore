@@ -6,7 +6,7 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -45,9 +45,9 @@ pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Initialize state to genesis state and returns StoreUpdate and state root.
+    /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -93,6 +93,14 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, String>;
 
+    /// Add proposals for validators.
+    fn add_validator_proposals(
+        &self,
+        prev_block_index: BlockIndex,
+        block_index: BlockIndex,
+        proposals: Vec<ValidatorStake>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
@@ -100,6 +108,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         merkle_hash: &MerkleHash,
         block_index: BlockIndex,
+        prev_block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
@@ -162,11 +171,13 @@ impl BlockApproval {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+
     use near_primitives::crypto::signer::InMemorySigner;
 
     use super::*;
-    use chrono::Utc;
-    use std::sync::Arc;
 
     #[test]
     fn test_block_produce() {

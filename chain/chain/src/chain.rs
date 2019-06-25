@@ -109,8 +109,8 @@ impl Chain {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
-        let (state_store_update, state_root) = runtime_adapter.genesis_state(0);
-        let genesis = Block::genesis(state_root, genesis_time);
+        let (state_store_update, state_roots) = runtime_adapter.genesis_state();
+        let genesis = Block::genesis(state_roots[0], genesis_time);
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
@@ -157,7 +157,7 @@ impl Chain {
 
                     store_update.merge(state_store_update);
 
-                    info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_root);
+                    info!(target: "chain", "Init: saved genesis: {:?} / {:?}", genesis.hash(), state_roots);
                 }
                 e => return Err(e.into()),
             },
@@ -587,6 +587,7 @@ impl<'a> ChainUpdate<'a> {
 
         // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
+        let prev_index = prev.height;
         let prev_hash = prev.hash();
 
         // Block is an orphan if we do not know about the previous full block.
@@ -618,6 +619,7 @@ impl<'a> ChainUpdate<'a> {
                 0,
                 &block.header.prev_state_root,
                 block.header.height,
+                prev_index,
                 &block.header.prev_hash,
                 &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
@@ -664,8 +666,11 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Process incoming block headers for syncing.
-    fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
-        let _first_header = if let Some(header) = headers.first() {
+    fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
+        // Sort headers by heights if they are out of order.
+        headers.sort_by(|left, right| left.height.cmp(&right.height));
+
+        let first_header = if let Some(header) = headers.first() {
             debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
             header
         } else {
@@ -679,14 +684,18 @@ impl<'a> ChainUpdate<'a> {
         };
 
         if !all_known {
-            // First add all headers to the chain.
-            for header in headers.iter() {
-                self.chain_store_update.save_block_header(header.clone());
-            }
-            // Then validate all headers (splitting into two, makes sure if they are out of order).
-            // If validation fails, the saved block headers will not be committed to database as we revert store update.
-            for header in headers.iter() {
+            let start_height = self.chain_store_update.get_block_header(&first_header.prev_hash)?.height;
+            // Validate header and then add to the chain. If validation of subsequent fails, headers won't be committed to the database.
+            for (i, header) in headers.iter().enumerate() {
+                println!("{} Header: {}", i, header.height);
                 self.validate_header(header, &Provenance::SYNC)?;
+                self.chain_store_update.save_block_header(header.clone());
+
+                // Add validator proposals for given header.
+                let prev_index = if i > 0 { headers[i - 1].height } else { start_height };
+                self.runtime_adapter.add_validator_proposals(
+                    prev_index, header.height,
+                    header.validator_proposal.clone()).map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
         }
 

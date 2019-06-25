@@ -394,7 +394,8 @@ impl ClientActor {
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
-        let total_approvals = total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+        let total_approvals =
+            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {

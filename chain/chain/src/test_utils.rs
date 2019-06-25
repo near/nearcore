@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
@@ -11,7 +11,7 @@ use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 
@@ -24,7 +24,7 @@ pub struct KeyValueRuntime {
     store: Arc<Store>,
     trie: Arc<Trie>,
     root: MerkleHash,
-    validators: Vec<(AccountId, PublicKey)>,
+    validators: Vec<ValidatorStake>,
 }
 
 impl KeyValueRuntime {
@@ -40,7 +40,11 @@ impl KeyValueRuntime {
             root: MerkleHash::default(),
             validators: validators
                 .iter()
-                .map(|account_id| (account_id.clone(), get_public_key_from_seed(account_id)))
+                .map(|account_id| ValidatorStake {
+                    account_id: account_id.clone(),
+                    public_key: get_public_key_from_seed(account_id),
+                    amount: 1_000_000,
+                })
                 .collect(),
         }
     }
@@ -51,8 +55,8 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self, _shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
-        (self.store.store_update(), MerkleHash::default())
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+        (self.store.store_update(), vec![MerkleHash::default()])
     }
 
     fn compute_block_weight(
@@ -60,9 +64,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let (_account_id, public_key) =
-            &self.validators[(header.height as usize) % self.validators.len()];
-        if !header.verify_block_producer(public_key) {
+        let validator = &self.validators[(header.height as usize) % self.validators.len()];
+        if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
@@ -72,14 +75,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        Ok(self.validators.iter().map(|x| (x.0.clone(), 1)).collect())
+        Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
     }
 
     fn get_block_proposer(
         &self,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
+        Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
     }
 
     fn get_chunk_proposer(
@@ -87,7 +90,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.validators[(height as usize) % self.validators.len()].0.clone())
+        Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
     }
 
     fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
@@ -111,11 +114,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ValidTransaction { transaction })
     }
 
+    fn add_validator_proposals(
+        &self,
+        _prev_block_index: u64,
+        _block_index: u64,
+        _proposals: Vec<ValidatorStake>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
     fn apply_transactions(
         &self,
         _shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
+        _prev_block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
