@@ -392,7 +392,11 @@ impl ClientActor {
             .get_epoch_block_proposers(last_height, next_height)
             .map_err(|err| Error::Other(err.to_string()))?;
         let total_validators = validators.len();
-        let last_last_height = self.chain.get_block_header(&head.prev_block_hash)?.height;
+        let last_last_height = if head.height > 0 {
+            self.chain.get_block_header(&head.prev_block_hash)?.height
+        } else {
+            0
+        };
         let prev_same_bp = self
             .runtime_adapter
             .get_block_proposer(last_last_height, last_height)
@@ -743,8 +747,8 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head(), ());
-            let prev_header = unwrap_or_return!(act.chain.get_block_header(&head.prev_block_hash), ());
-            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(prev_header.height, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let prev_height = if head.height > 0 { unwrap_or_return!(act.chain.get_block_header(&head.prev_block_hash), ()).height } else { 0 };
+            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(prev_height, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
