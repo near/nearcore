@@ -120,6 +120,7 @@ mod tests {
 
     use near_primitives::hash::hash;
     use near_primitives::types::StorageUsage;
+    use testlib::runtime_utils::{alice_account, bob_account};
     use wasm::executor::{self, ExecutionOutcome};
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
@@ -201,12 +202,18 @@ mod tests {
         LittleEndian::read_u128(val)
     }
 
-    fn runtime_context(balance: u128, amount: u128, storage_usage: StorageUsage) -> RuntimeContext {
+    fn runtime_context<'a>(
+        balance: u128,
+        amount: u128,
+        storage_usage: StorageUsage,
+        sender_id: &'a AccountId,
+        account_id: &'a AccountId,
+    ) -> RuntimeContext<'a> {
         RuntimeContext::new(
             balance.into(),
             amount.into(),
-            &"alice.near".to_string(),
-            &"bob".to_string(),
+            sender_id,
+            account_id,
             storage_usage,
             123,
             b"yolo".to_vec(),
@@ -223,7 +230,7 @@ mod tests {
             method_name,
             input_data,
             &[],
-            &runtime_context(0, amount, 0),
+            &runtime_context(0, amount, 0, &alice_account(), &bob_account()),
             path.to_str().unwrap(),
         )
         .expect("ok")
@@ -233,9 +240,14 @@ mod tests {
     fn test_storage() {
         let input_data = [0u8; 0];
 
-        let return_data = run(b"run_test", &input_data, &[], &runtime_context(0, 1_000_000, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data = run(
+            b"run_test",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         match return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 10),
@@ -247,10 +259,14 @@ mod tests {
     fn test_input() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0];
 
-        let return_data =
-            run(b"sum_with_input", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+        let return_data = run(
+            b"sum_with_input",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         match return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 40),
@@ -271,7 +287,7 @@ mod tests {
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
-            &runtime_context(0, 1_000_000_000, 0),
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
         )
         .map(|outcome| outcome.return_data)
         .expect("ok");
@@ -286,9 +302,13 @@ mod tests {
     fn test_promises() {
         let input_data = [0u8; 0];
 
-        let outcome =
-            run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 1_000_000, 0))
-                .expect("ok");
+        let outcome = run(
+            b"create_promises_and_join",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
 
         match outcome.return_data {
             Ok(ReturnData::Promise(promise_id)) => {
@@ -302,15 +322,26 @@ mod tests {
     fn test_assert_sum_ok() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0, 40u8, 0, 0, 0];
 
-        run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
+        run(
+            b"assert_sum",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
     }
 
     #[test]
     fn test_assert_sum_fail() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0, 45u8, 0, 0, 0];
 
-        let outcome = run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0))
-            .expect("outcome to be ok");
+        let outcome = run(
+            b"assert_sum",
+            &input_data,
+            &[],
+            &runtime_context(0, 0, 0, &alice_account(), &bob_account()),
+        )
+        .expect("outcome to be ok");
 
         match outcome.return_data {
             Err(_) => assert!(true, "That's legit"),
@@ -322,8 +353,13 @@ mod tests {
     fn test_frozen_balance() {
         let input_data = [0u8; 0];
 
-        let outcome = run(b"test_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0))
-            .expect("ok");
+        let outcome = run(
+            b"test_frozen_balance",
+            &input_data,
+            &[],
+            &runtime_context(10, 100, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
 
         // The frozen balance is not used for the runtime deductions.
         println!("{:?}", outcome);
@@ -337,8 +373,13 @@ mod tests {
     fn test_liquid_balance() {
         let input_data = [0u8; 0];
 
-        let outcome =
-            run(b"test_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        let outcome = run(
+            b"test_liquid_balance",
+            &input_data,
+            &[],
+            &runtime_context(0, 100, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
         // At the moment of measurement the liquid balance is at 97 which is the value returned.
         // However returning the value itself costs additional balance which results in final
         // liquid balance being 55.
@@ -353,8 +394,13 @@ mod tests {
     #[test]
     fn test_get_storage_usage() {
         let input_data = [0u8; 0];
-        let outcome =
-            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 100, 10)).expect("ok");
+        let outcome = run(
+            b"get_storage_usage",
+            &input_data,
+            &[],
+            &runtime_context(0, 100, 10, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
 
         // The storage usage is not changed by this function call.
         assert_eq!(outcome.storage_usage, 10);
@@ -372,7 +418,7 @@ mod tests {
             b"run_test_with_storage_change",
             &input_data,
             &[],
-            &runtime_context(0, 1_000_000_000, 10),
+            &runtime_context(0, 1_000_000_000, 10, &alice_account(), &bob_account()),
         )
         .expect("ok");
 
@@ -392,7 +438,7 @@ mod tests {
             b"hello",
             input_data,
             &[],
-            &runtime_context(0, 1_000_000_000, 0),
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
             path.to_str().unwrap(),
         )
         .expect("ok");
@@ -490,7 +536,7 @@ mod tests {
             b"limited_storage",
             input_data,
             &[],
-            &runtime_context(0, 1_000_000_000, 0),
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
             path.to_str().unwrap(),
         )
         .expect("ok");
@@ -511,10 +557,14 @@ mod tests {
     fn test_originator() {
         let input_data = [0u8; 0];
 
-        let return_data =
-            run(b"get_originator_id", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+        let return_data = run(
+            b"get_originator_id",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         match return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice.near"),
@@ -529,9 +579,14 @@ mod tests {
         let mut output_data = Vec::new();
 
         for _ in 0..2 {
-            let return_data = run(b"get_random_32", &input_data, &[], &runtime_context(0, 100, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+            let return_data = run(
+                b"get_random_32",
+                &input_data,
+                &[],
+                &runtime_context(0, 100, 0, &alice_account(), &bob_account()),
+            )
+            .map(|outcome| outcome.return_data)
+            .expect("ok");
 
             output_data.push(match return_data {
                 Ok(ReturnData::Value(output_data)) => output_data,
@@ -550,10 +605,14 @@ mod tests {
         let mut output_data = Vec::new();
 
         for _ in 0..2 {
-            let return_data =
-                run(b"get_random_buf", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
-                    .map(|outcome| outcome.return_data)
-                    .expect("ok");
+            let return_data = run(
+                b"get_random_buf",
+                &input_data,
+                &[],
+                &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+            )
+            .map(|outcome| outcome.return_data)
+            .expect("ok");
 
             let data = match return_data {
                 Ok(ReturnData::Value(output_data)) => output_data,
@@ -572,10 +631,14 @@ mod tests {
     fn test_hash() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data =
-            run(b"hash_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+        let return_data = run(
+            b"hash_given_input",
+            input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -591,10 +654,14 @@ mod tests {
     fn test_hash32() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data =
-            run(b"hash32_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
-                .map(|outcome| outcome.return_data)
-                .expect("ok");
+        let return_data = run(
+            b"hash32_given_input",
+            input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .map(|outcome| outcome.return_data)
+        .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -612,8 +679,13 @@ mod tests {
     fn test_get_block_index() {
         let input_data = [0u8; 0];
 
-        let outcome =
-            run(b"get_block_index", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        let outcome = run(
+            b"get_block_index",
+            &input_data,
+            &[],
+            &runtime_context(0, 100, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
 
         match outcome.return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 123),
@@ -625,8 +697,13 @@ mod tests {
     fn test_debug() {
         let input_data = [0u8; 0];
 
-        let outcome =
-            run(b"log_something", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        let outcome = run(
+            b"log_something",
+            &input_data,
+            &[],
+            &runtime_context(0, 100, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
 
         assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
     }
@@ -634,8 +711,13 @@ mod tests {
     #[test]
     fn test_mock_check_ethash() {
         let input_data = [0u8; 0];
-        let outcome =
-            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        let outcome = run(
+            b"check_ethash_naive",
+            &input_data,
+            &[],
+            &runtime_context(0, 100, 0, &alice_account(), &bob_account()),
+        )
+        .expect("ok");
         println!("{:?}", outcome);
 
         let output_data = match outcome.return_data {
@@ -647,7 +729,13 @@ mod tests {
 
     #[test]
     fn test_export_not_found() {
-        let outcome = run(b"hello", &[], &[], &runtime_context(0, 1_000_000, 0)).expect("expect");
+        let outcome = run(
+            b"hello",
+            &[],
+            &[],
+            &runtime_context(0, 1_000_000, 0, &alice_account(), &bob_account()),
+        )
+        .expect("expect");
         println!("{:?}", outcome);
         match outcome.return_data {
             Err(Error::Wasmer(msg)) => {
@@ -664,7 +752,7 @@ mod tests {
             b"hello",
             &[],
             &[],
-            &runtime_context(0, 1_000_000, 0),
+            &runtime_context(0, 1_000_000, 0, &alice_account(), &bob_account()),
         )
         .expect("expect");
         println!("{:?}", outcome);
@@ -682,7 +770,7 @@ mod tests {
             b"hello2",
             &[],
             &[],
-            &runtime_context(0, 1_000_000, 0),
+            &runtime_context(0, 1_000_000, 0, &alice_account(), &bob_account()),
         )
         .expect("expect");
         println!("{:?}", outcome);

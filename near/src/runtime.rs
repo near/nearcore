@@ -79,7 +79,10 @@ impl NightshadeRuntime {
         (height / self.genesis_config.epoch_length, height % self.genesis_config.epoch_length)
     }
 
-    fn get_block_proposer_info(&self, height: BlockIndex) -> Result<ValidatorStake, Box<std::error::Error>> {
+    fn get_block_proposer_info(
+        &self,
+        height: BlockIndex,
+    ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
         let (epoch, idx) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator_assignemnt = vm.get_validators(epoch)?;
@@ -147,7 +150,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = self.get_block_proposer_info(header.height).map_err(|err| ErrorKind::Other(err.to_string()))?;
+        let validator = self
+            .get_block_proposer_info(header.height)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -171,7 +176,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             .collect())
     }
 
-    fn get_block_proposer(&self, height: BlockIndex) -> Result<AccountId, Box<std::error::Error>> {
+    fn get_block_proposer(
+        &self,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.get_block_proposer_info(height)?.account_id)
     }
 

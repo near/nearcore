@@ -304,16 +304,16 @@ impl Default for Config {
 
 /// Context for the WASM contract execution.
 #[derive(Clone, Debug)]
-pub struct RuntimeContext {
+pub struct RuntimeContext<'a> {
     /// Initial balance is the balance of the account before the
     /// received_amount is added.
     pub initial_balance: Balance,
     /// The amount sent by the Sender.
     pub received_amount: Balance,
     /// Originator's Account ID.
-    pub originator_id: AccountId,
+    pub originator_id: &'a AccountId,
     /// Current Account ID.
-    pub account_id: AccountId,
+    pub account_id: &'a AccountId,
     /// Storage that the account is already using.
     pub storage_usage: StorageUsage,
     /// Currently produced block index
@@ -329,24 +329,24 @@ pub struct RuntimeContext {
     pub public_key: PublicKey,
 }
 
-impl RuntimeContext {
+impl<'a> RuntimeContext<'a> {
     pub fn new(
         initial_balance: Balance,
         received_amount: Balance,
-        sender_id: &AccountId,
-        account_id: &AccountId,
+        sender_id: &'a AccountId,
+        account_id: &'a AccountId,
         storage_usage: StorageUsage,
         block_index: BlockIndex,
         random_seed: Vec<u8>,
         free_of_charge: bool,
         originator_id: &AccountId,
         public_key: &PublicKey,
-    ) -> RuntimeContext {
+    ) -> RuntimeContext<'a> {
         RuntimeContext {
             initial_balance,
             received_amount,
-            originator_id: sender_id.clone(),
-            account_id: account_id.clone(),
+            originator_id: sender_id,
+            account_id,
             storage_usage,
             block_index,
             random_seed,
