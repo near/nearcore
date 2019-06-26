@@ -216,7 +216,7 @@ pub struct ValidatorAssignment {
 pub struct ValidatorIndexInfo {
     pub index: BlockIndex,
     pub prev_hash: CryptoHash,
-    pub epoch_hash: CryptoHash,
+    pub epoch_start_hash: CryptoHash,
     pub proposals: Vec<ValidatorStake>,
 }
 
@@ -256,7 +256,7 @@ impl ValidatorManager {
                     &ValidatorIndexInfo {
                         index: 0,
                         prev_hash: genesis_hash,
-                        epoch_hash: genesis_hash,
+                        epoch_start_hash: genesis_hash,
                         proposals: vec![],
                     },
                 )?;
@@ -286,16 +286,20 @@ impl ValidatorManager {
         }
         let parent_info =
             self.get_index_info(parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
-        let current_epoch = (index - 1) / self.config.epoch_length;
-        let parent_epoch = (parent_info.index - 1) / self.config.epoch_length;
-        let offset = (index - 1) % self.config.epoch_length;
-        if parent_epoch < current_epoch {
-            // If this is next epoch index, return parent's index as "epoch_start"
-            Ok((parent_info.epoch_hash, offset))
+        let (epoch_start_index, epoch_start_parent_hash) = if parent_hash == parent_info.epoch_start_hash {
+            (parent_info.index, parent_info.prev_hash)
         } else {
-            // Otherwise, follow parent's epoch hash to it's parent's epoch hash.
-            let parent_epoch_info = self.get_index_info(parent_info.epoch_hash)?;
-            Ok((parent_epoch_info.epoch_hash, offset))
+            let epoch_start_info = self.get_index_info(parent_info.epoch_start_hash)?;
+            (epoch_start_info.index, epoch_start_info.prev_hash)
+        };
+
+        if epoch_start_index + self.config.epoch_length <= index {
+            // If this is next epoch index, return parent's epoch hash and 0 as offset.
+            Ok((parent_info.epoch_start_hash, 0))
+        } else {
+            // If index is within the same epoch as it's parent, return it's epoch parent and current offset from this epoch start.
+            let prev_epoch_info = self.get_index_info(epoch_start_parent_hash)?;
+            Ok((prev_epoch_info.epoch_start_hash, index - epoch_start_index))
         }
     }
 
@@ -329,7 +333,7 @@ impl ValidatorManager {
         let mut hash = last_hash;
         loop {
             let info = self.get_index_info(hash)?;
-            if info.epoch_hash != epoch_hash || info.prev_hash == hash {
+            if info.epoch_start_hash != epoch_hash || info.prev_hash == hash {
                 break;
             }
             proposals.extend(info.proposals);
@@ -362,20 +366,26 @@ impl ValidatorManager {
         if self.store.get(COL_PROPOSALS, current_hash.as_ref())?.is_none() {
             // TODO: keep track of size here to make sure we can't be spammed storing non interesting forks.
             let parent_info = self.get_index_info(prev_hash)?;
-            let epoch_hash = if index > self.config.epoch_length {
-                let current_epoch = (index - 1) / self.config.epoch_length;
-                let parent_epoch = (parent_info.index - 1) / self.config.epoch_length;
-                if parent_epoch < current_epoch {
-                    // This is first block of the next epoch.
-                    self.finalize_epoch(parent_info.epoch_hash, prev_hash, current_hash)?;
+            let epoch_start_hash = if prev_hash == CryptoHash::default() {
+                // If this is first block after genesis, we also save genesis validators for these epoch.
+                let mut store_update = self.store.store_update();
+                let genesis_validators = self.get_validators(CryptoHash::default())?;
+                store_update.set_ser(COL_VALIDATORS, current_hash.as_ref(), genesis_validators)?;
+                store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
+
+                current_hash
+            } else {
+                let epoch_start_info = self.get_index_info(parent_info.epoch_start_hash)?;
+                if epoch_start_info.index + self.config.epoch_length <= index {
+                    // This is first block of the next epoch, finalize it and return current hash and index as epoch hash/start.
+                    self.finalize_epoch(parent_info.epoch_start_hash, prev_hash, current_hash)?;
                     current_hash
                 } else {
-                    parent_info.epoch_hash
+                    // Otherwise, return parent's info.
+                    parent_info.epoch_start_hash
                 }
-            } else {
-                CryptoHash::default()
             };
-            let info = ValidatorIndexInfo { index, epoch_hash, prev_hash, proposals };
+            let info = ValidatorIndexInfo { index, epoch_start_hash, prev_hash, proposals };
             store_update.set_ser(COL_PROPOSALS, current_hash.as_ref(), &info)?;
         }
         Ok(store_update)
@@ -561,11 +571,10 @@ mod test {
         vm.add_proposals(h3, h5, 5, vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h5, h6, 6, vec![]).unwrap().commit().unwrap();
 
-        println!("{} {}", h5, h6);
         // For block 7, epoch is defined by block 1.
         assert_eq!(vm.get_epoch_offset(h4, 7).unwrap(), (h4, 0));
-        // For block 8, epoch is defined by block 3.
-        assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h5, 1));
+        // For block 8, epoch is defined by block 2.
+        assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h5, 0));
 
         assert_eq!(
             vm.get_validators(h0).unwrap(),
