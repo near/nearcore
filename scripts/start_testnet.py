@@ -24,4 +24,4 @@ if __name__ == "__main__":
         help='Specify boot nodes to load from (Default: %s)' % DEFAULT_BOOT_NODE)
     args = parser.parse_args()
 
-    setup_and_run(args.local, args.image, args.home, 'testnet', args.boot_nodes)
+    setup_and_run(args.local, args.image, args.home, ['--chain-id=testnet'], args.boot_nodes)
