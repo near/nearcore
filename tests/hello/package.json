@@ -3,8 +3,7 @@
     "version": "0.1.0",
     "dependencies": {
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json#update-as",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#update-as",
-        "nearlib": "github:nearprotocol/nearlib#nightshade"
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#update-as"
     },
     "scripts": {
         "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"
