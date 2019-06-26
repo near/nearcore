@@ -125,6 +125,7 @@ mod tests {
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
+    use near_primitives::crypto::signature::PublicKey;
 
     fn infinite_initializer_contract() -> Vec<u8> {
         wabt::wat2wasm(
@@ -217,7 +218,8 @@ mod tests {
             123,
             b"yolo".to_vec(),
             false,
-            None,
+            &"alice.near".to_string(),
+            &PublicKey::empty(),
         )
     }
 

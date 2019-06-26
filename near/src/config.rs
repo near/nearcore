@@ -40,12 +40,12 @@ pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (60 * 60 * 12) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
-pub const FAST_EPOCH_LENGTH: u64 = 10;
+pub const FAST_EPOCH_LENGTH: u64 = 60;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -172,7 +172,7 @@ impl NearConfig {
         config: Config,
         genesis_config: &GenesisConfig,
         network_key_pair: KeyFile,
-        block_producer: Option<&BlockProducer>,
+        block_producer: Option<BlockProducer>,
     ) -> Self {
         NearConfig {
             config: config.clone(),
@@ -196,7 +196,7 @@ impl NearConfig {
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
                 secret_key: network_key_pair.secret_key,
-                account_id: block_producer.map(|bp| bp.account_id.clone()),
+                account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
                 } else {
@@ -222,7 +222,7 @@ impl NearConfig {
             },
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),
-            block_producer: block_producer.map(Clone::clone),
+            block_producer,
         }
     }
 }
@@ -609,10 +609,14 @@ pub fn init_testnet_configs(
 pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
-    let signer = Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
-    let block_producer = BlockProducer::from(signer);
+    let block_producer = if dir.join(config.validator_key_file.clone()).exists() {
+        let signer = Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
+        Some(BlockProducer::from(signer))
+    } else {
+        None
+    };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), Some(&block_producer))
+    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
@@ -622,7 +626,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     config.rpc.addr = format!("0.0.0.0:{}", port + 100);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
     let block_producer = BlockProducer::from(signer.clone());
-    NearConfig::new(config, &genesis_config, signer.into(), Some(&block_producer))
+    NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))
 }
 
 #[cfg(test)]

@@ -57,6 +57,11 @@ impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
         ReadablePublicKey(self.to_string())
     }
+    pub fn empty() -> Self {
+        let array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        PublicKey(public_key)
+    }
 }
 
 impl Hash for PublicKey {
@@ -100,7 +105,7 @@ impl TryFrom<&str> for PublicKey {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
-            format!("Failed to convert public key from base64: {}", e).into()
+            format!("Failed to convert public key from base58: {}", e).into()
         })?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for public key", s).into());
@@ -132,7 +137,7 @@ impl TryFrom<&str> for SecretKey {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
         let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
-            format!("Failed to convert secret key from base64: {}", e).into()
+            format!("Failed to convert secret key from base58: {}", e).into()
         })?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for secret key", s).into());

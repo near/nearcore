@@ -49,7 +49,12 @@ impl fmt::Debug for ValidatorError {
 
 impl fmt::Display for ValidatorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        match self {
+            ValidatorError::ThresholdError(stake, num_seats) => write!(f, "ThresholdError({}, {})", stake, num_seats),
+            ValidatorError::EpochOutOfBounds => write!(f, "EpochOutOfBounds"),
+            ValidatorError::SelectedSeatsMismatch(num_seats, validator) => write!(f, "SelectedSeatsMismatch({}, {})", num_seats, validator),
+            ValidatorError::Other(err) => write!(f, "Other({})", err),
+        }
     }
 }
 
