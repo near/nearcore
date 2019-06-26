@@ -472,7 +472,7 @@ impl ClientActor {
     ) -> NetworkClientResponses {
         let hash = block.hash();
         debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_id);
-        let previous = self.chain.get_previous_header(&block.header).map(Clone::clone);
+        let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
@@ -486,14 +486,8 @@ impl ClientActor {
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
-                    if let Ok(previous) = previous {
-                        if !self.chain.is_orphan(&previous.hash()) {
-                            debug!(
-                                "Process block: received an orphan block, checking the parent: {}",
-                                previous.hash()
-                            );
-                            self.request_block_by_hash(previous.hash(), peer_id)
-                        }
+                    if !self.chain.is_orphan(&prev_hash) && !self.sync_status.is_syncing() {
+                        self.request_block_by_hash(prev_hash, peer_id)
                     }
                     NetworkClientResponses::NoResponse
                 }
