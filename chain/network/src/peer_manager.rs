@@ -176,8 +176,8 @@ impl PeerManagerActor {
     }
 
     /// Get a random peer we are not connected to from the known list.
-    fn sample_random_peer(&self) -> Option<PeerInfo> {
-        let unconnected_peers = self.peer_store.unconnected_peers();
+    fn sample_random_peer(&self, ignore_list: &HashSet<PeerId>) -> Option<PeerInfo> {
+        let unconnected_peers = self.peer_store.unconnected_peers(ignore_list);
         let index = thread_rng().gen_range(0, std::cmp::max(unconnected_peers.len(), 1));
 
         unconnected_peers
@@ -214,7 +214,8 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            if let Some(peer_info) = self.sample_random_peer() {
+            if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
+                self.outgoing_peers.insert(peer_info.id);
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
                 // Query current peers for more peers.
@@ -373,7 +374,6 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", "Connected to {}", msg.peer_info);
-                            act.outgoing_peers.insert(msg.peer_info.id);
                             act.connect_peer(
                                 ctx.address(),
                                 stream,
@@ -384,11 +384,13 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                         }
                         Err(err) => {
                             info!(target: "network", "Error connecting to {}: {}", addr, err);
+                            act.outgoing_peers.remove(&msg.peer_info.id);
                             actix::fut::err(())
                         }
                     },
                     Err(err) => {
                         info!(target: "network", "Error connecting to {}: {}", addr, err);
+                        act.outgoing_peers.remove(&msg.peer_info.id);
                         actix::fut::err(())
                     }
                 })
