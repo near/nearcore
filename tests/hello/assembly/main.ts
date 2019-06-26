@@ -2,7 +2,7 @@ import { context, storage, ContractPromise, ContractPromiseResult, near } from "
 
 import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model.near";
 
-import { u128 } from "./node_modules/bignum/assembly/integer/u128";
+import { u128 } from "./bignum/integer/u128";
 
 export function hello(name: string): string {
 
