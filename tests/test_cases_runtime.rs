@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod test {
     use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::alice_account;
+    use testlib::runtime_utils::alice_account_id;
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
-        RuntimeNode::new(&alice_account())
+        RuntimeNode::new(&alice_account_id())
     }
 
     #[test]

@@ -23,7 +23,7 @@ use near_primitives::types::{
 };
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
-    system_account,
+    system_account_id,
 };
 use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
 use near_verifier::{TransactionVerifier, VerificationData};
@@ -86,21 +86,23 @@ impl Runtime {
             Some(b'_') => {
                 return Err(format!(
                     "Account {} tries to call a private method {}",
-                    transaction.originator,
+                    transaction.originator_id,
                     std::str::from_utf8(&transaction.method_name)
                         .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
                 ))
             }
             None if transaction.amount == 0 => {
-                return Err(format!("Account {} tries to send 0 tokens", transaction.originator,))
+                return Err(
+                    format!("Account {} tries to send 0 tokens", transaction.originator_id,),
+                )
             }
             _ => (),
         };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
-            set(state_update, key_for_account(&transaction.originator), sender);
+            set(state_update, key_for_account(&transaction.originator_id), sender);
             let receipt = ReceiptTransaction::new(
-                transaction.originator.clone(),
+                transaction.originator_id.clone(),
                 transaction.contract_id.clone(),
                 create_nonce_with_nonce(&hash, 0),
                 ReceiptBody::NewCall(AsyncCall::new(
@@ -108,7 +110,7 @@ impl Runtime {
                     transaction.args.clone(),
                     transaction.amount,
                     refund_account_id.clone(),
-                    transaction.originator.clone(),
+                    transaction.originator_id.clone(),
                     public_key,
                 )),
             );
@@ -117,7 +119,7 @@ impl Runtime {
             Err(
                 format!(
                     "Account {} tries to call some contract with the amount {}, but has staked {} and only has {}",
-                    transaction.originator,
+                    transaction.originator_id,
                     transaction.amount,
                     sender.staked,
                     sender.amount
@@ -141,7 +143,7 @@ impl Runtime {
             Some(b'_') => {
                 return Err(format!(
                     "Account {} tries to call a private method {}",
-                    transaction.originator,
+                    transaction.originator_id,
                     std::str::from_utf8(&transaction.method_name)
                         .unwrap_or_else(|_| "NON_UTF8_METHOD_NAME"),
                 ))
@@ -149,19 +151,19 @@ impl Runtime {
             None => {
                 return Err(format!(
                     "Account {} tries to call itself with empty method name",
-                    transaction.originator,
+                    transaction.originator_id,
                 ))
             }
             _ => (),
         };
         if account.amount >= transaction.amount {
             account.amount -= transaction.amount;
-            set(state_update, key_for_account(&transaction.originator), account);
+            set(state_update, key_for_account(&transaction.originator_id), account);
         } else {
             return Err(
                 format!(
                     "Account {} tries to call itself with the amount {}, but has staked {} and only has {}",
-                    transaction.originator,
+                    transaction.originator_id,
                     transaction.amount,
                     account.staked,
                     account.amount
@@ -178,11 +180,11 @@ impl Runtime {
                 transaction.args.clone(),
                 transaction.amount,
                 refund_account_id.clone(),
-                transaction.originator.clone(),
+                transaction.originator_id.clone(),
                 public_key.clone(),
             ),
-            &transaction.originator,
-            &transaction.originator,
+            &transaction.originator_id,
+            &transaction.originator_id,
             &hash,
             account,
             &mut leftover_balance,
@@ -192,7 +194,7 @@ impl Runtime {
 
         if leftover_balance > 0 {
             account.amount += leftover_balance;
-            set(state_update, key_for_account(&transaction.originator), account);
+            set(state_update, key_for_account(&transaction.originator_id), account);
         }
         res
     }
@@ -345,7 +347,7 @@ impl Runtime {
         if let Some(callback_res) = callback_res {
             let new_receipt = ReceiptTransaction::new(
                 receiver_id.clone(),
-                callback_info.receiver.clone(),
+                callback_info.receiver_id.clone(),
                 runtime_ext.create_nonce(),
                 ReceiptBody::Callback(callback_res),
             );
@@ -389,7 +391,7 @@ impl Runtime {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
                 receiver_id,
-                &async_call.refund_account,
+                &async_call.refund_account_id,
                 nonce,
                 self.ethash_provider.clone(),
                 &async_call.originator_id,
@@ -467,14 +469,14 @@ impl Runtime {
                     let mut runtime_ext = RuntimeExt::new(
                         state_update,
                         receiver_id,
-                        &callback.refund_account,
+                        &callback.refund_account_id,
                         nonce,
                         self.ethash_provider.clone(),
                         &callback.originator_id,
                         &callback.public_key,
                     );
 
-                    *refund_account = callback.refund_account.clone();
+                    *refund_account = callback.refund_account_id.clone();
                     needs_removal = true;
                     executor::execute(
                         &code,
@@ -557,7 +559,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
-        let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver));
+        let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver_id));
         let receiver_exists = receiver.is_some();
         let mut amount = 0;
         let mut callback_info = None;
@@ -568,7 +570,7 @@ impl Runtime {
             Some(mut receiver) => match &receipt.body {
                 ReceiptBody::NewCall(async_call) => {
                     amount = async_call.amount;
-                    refund_account = async_call.refund_account.clone();
+                    refund_account = async_call.refund_account_id.clone();
                     callback_info = async_call.callback.clone();
                     if async_call.method_name.is_empty() {
                         transaction_result.result = Some(vec![]);
@@ -576,18 +578,18 @@ impl Runtime {
                             state_update,
                             async_call.amount,
                             &async_call.callback,
-                            &receipt.receiver,
+                            &receipt.receiver_id,
                             &receipt.nonce,
                             &mut receiver,
                         )
                     } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                        Err(format!("Account {} already exists", receipt.receiver))
+                        Err(format!("Account {} already exists", receipt.receiver_id))
                     } else {
                         self.apply_async_call(
                             state_update,
                             &async_call,
-                            &receipt.originator,
-                            &receipt.receiver,
+                            &receipt.sender_id,
+                            &receipt.receiver_id,
                             &receipt.nonce,
                             &mut receiver,
                             &mut leftover_balance,
@@ -599,8 +601,8 @@ impl Runtime {
                 ReceiptBody::Callback(callback_res) => self.apply_callback(
                     state_update,
                     &callback_res,
-                    &receipt.originator,
-                    &receipt.receiver,
+                    &receipt.sender_id,
+                    &receipt.receiver_id,
                     &receipt.nonce,
                     &mut receiver,
                     &mut leftover_balance,
@@ -610,16 +612,16 @@ impl Runtime {
                 ),
                 ReceiptBody::Refund(amount) => {
                     receiver.amount += amount;
-                    set(state_update, key_for_account(&receipt.receiver), &receiver);
+                    set(state_update, key_for_account(&receipt.receiver_id), &receiver);
                     Ok(vec![])
                 }
             },
             _ => {
-                let err = Err(format!("receiver {} does not exist", receipt.receiver));
+                let err = Err(format!("receiver {} does not exist", receipt.receiver_id));
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                        system_create_account(state_update, &call, &receipt.receiver)
+                        system_create_account(state_update, &call, &receipt.receiver_id)
                     } else {
                         err
                     }
@@ -635,11 +637,14 @@ impl Runtime {
             }
             Err(s) => {
                 if amount > 0 {
-                    let receiver =
-                        if receiver_exists { receipt.receiver.clone() } else { system_account() };
+                    let receiver = if receiver_exists {
+                        receipt.receiver_id.clone()
+                    } else {
+                        system_account_id()
+                    };
                     let new_receipt = ReceiptTransaction::new(
                         receiver,
-                        receipt.originator.clone(),
+                        receipt.sender_id.clone(),
                         create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                         ReceiptBody::Refund(amount),
                     );
@@ -647,8 +652,8 @@ impl Runtime {
                 }
                 if let Some(callback_info) = callback_info {
                     let new_receipt = ReceiptTransaction::new(
-                        receipt.receiver.clone(),
-                        callback_info.receiver.clone(),
+                        receipt.receiver_id.clone(),
+                        callback_info.receiver_id.clone(),
                         create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                         ReceiptBody::Callback(CallbackResult::new(callback_info, None)),
                     );
@@ -659,7 +664,7 @@ impl Runtime {
         };
         if leftover_balance > 0 {
             let new_receipt = ReceiptTransaction::new(
-                receipt.receiver.clone(),
+                receipt.receiver_id.clone(),
                 refund_account,
                 create_nonce_with_nonce(&receipt.nonce, new_receipts.len() as u64),
                 ReceiptBody::Refund(leftover_balance),
@@ -727,7 +732,7 @@ impl Runtime {
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
-        if account_to_shard_id(&receipt.receiver) == shard_id {
+        if account_to_shard_id(&receipt.receiver_id) == shard_id {
             let mut tmp_new_receipts = vec![];
             let apply_result = self.apply_receipt(
                 state_update,
@@ -869,7 +874,7 @@ mod tests {
     use near_primitives::hash::hash;
     use near_primitives::types::MerkleHash;
     use near_store::test_utils::create_trie;
-    use testlib::runtime_utils::bob_account;
+    use testlib::runtime_utils::bob_account_id;
 
     use super::*;
 
@@ -880,7 +885,7 @@ mod tests {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
-        let account_id = bob_account();
+        let account_id = bob_account_id();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
         assert_eq!(test_account, get_res);
@@ -892,7 +897,7 @@ mod tests {
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
-        let account_id = bob_account();
+        let account_id = bob_account_id();
         set(&mut state_update, key_for_account(&account_id), &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();

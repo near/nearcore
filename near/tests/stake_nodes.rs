@@ -32,7 +32,7 @@ fn test_stake_nodes() {
 
     let tx = TransactionBody::Stake(StakeTransaction {
         nonce: 1,
-        originator: "near.1".to_string(),
+        originator_id: "near.1".to_string(),
         amount: 50_000_000,
         public_key: near2.block_producer.clone().unwrap().signer.public_key().to_base(),
     })

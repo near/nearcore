@@ -23,7 +23,7 @@ fn test_check_tx_error_log() {
     let signer = InMemorySigner::from_seed("alice.near", "alice.near");
     let tx = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: 1,
-        originator: "bob.near".to_string(),
+        originator_id: "bob.near".to_string(),
         new_account_id: "test.near".to_string(),
         amount: 1_000,
         public_key: signer.public_key.0[..].to_vec(),
@@ -43,7 +43,7 @@ fn test_deliver_tx_error_log() {
     let signer = InMemorySigner::from_seed("alice.near", "alice.near");
     let tx = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: 1,
-        originator: "alice.near".to_string(),
+        originator_id: "alice.near".to_string(),
         new_account_id: "test.near".to_string(),
         amount: TESTING_INIT_BALANCE + 1,
         public_key: signer.public_key.0[..].to_vec(),

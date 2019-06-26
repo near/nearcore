@@ -6,7 +6,7 @@ import "uint128.proto";
 
 message CreateAccountTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     string new_account_id = 3;
     Uint128 amount = 4;
     bytes public_key = 5;
@@ -20,7 +20,7 @@ message DeployContractTransaction {
 
 message FunctionCallTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     string contract_id = 3;
     bytes method_name = 4;
     bytes args = 5;
@@ -29,14 +29,14 @@ message FunctionCallTransaction {
 
 message SendMoneyTransaction {
     uint64 nonce = 1;
-    string originator = 2;
-    string receiver = 3;
+    string originator_id = 2;
+    string receiver_id = 3;
     Uint128 amount = 4;
 }
 
 message StakeTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     Uint128 amount = 3;
     string public_key = 4;
     string bls_public_key = 5;
@@ -44,21 +44,21 @@ message StakeTransaction {
 
 message SwapKeyTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     bytes cur_key = 3;
     bytes new_key = 4;
 }
 
 message AddKeyTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     bytes new_key = 3;
     AccessKey access_key = 4;
 }
 
 message DeleteKeyTransaction {
     uint64 nonce = 1;
-    string originator = 2;
+    string originator_id = 2;
     bytes cur_key = 3;
 }
 

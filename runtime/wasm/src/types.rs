@@ -310,8 +310,8 @@ pub struct RuntimeContext<'a> {
     pub initial_balance: Balance,
     /// The amount sent by the Sender.
     pub received_amount: Balance,
-    /// Originator's Account ID.
-    pub originator_id: &'a AccountId,
+    /// Senders's Account ID. (Immediate predecessor)
+    pub sender_id: &'a AccountId,
     /// Current Account ID.
     pub account_id: &'a AccountId,
     /// Storage that the account is already using.
@@ -322,11 +322,10 @@ pub struct RuntimeContext<'a> {
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.
     pub free_of_charge: bool,
-    /// TODO(#1017): Rename to originator_id
     /// Account ID of the account who signed the initial transaction.
-    pub tx_originator_id: AccountId,
+    pub originator_id: &'a AccountId,
     /// The public key used to sign the initial transaction.
-    pub public_key: PublicKey,
+    pub public_key: &'a PublicKey,
 }
 
 impl<'a> RuntimeContext<'a> {
@@ -339,20 +338,20 @@ impl<'a> RuntimeContext<'a> {
         block_index: BlockIndex,
         random_seed: Vec<u8>,
         free_of_charge: bool,
-        originator_id: &AccountId,
-        public_key: &PublicKey,
+        originator_id: &'a AccountId,
+        public_key: &'a PublicKey,
     ) -> RuntimeContext<'a> {
         RuntimeContext {
             initial_balance,
             received_amount,
-            originator_id: sender_id,
+            sender_id,
             account_id,
             storage_usage,
             block_index,
             random_seed,
             free_of_charge,
-            tx_originator_id: originator_id.clone(),
-            public_key: public_key.clone(),
+            originator_id,
+            public_key,
         }
     }
 }

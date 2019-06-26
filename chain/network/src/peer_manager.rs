@@ -403,7 +403,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     if let Some(account_id) = &self.config.account_id {
                         self.send_message_to_account(
                             ctx,
-                            approval.target,
+                            approval.receiver_id,
                             SendMessage {
                                 message: PeerMessage::BlockApproval(
                                     account_id.clone(),

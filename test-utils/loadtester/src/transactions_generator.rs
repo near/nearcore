@@ -75,7 +75,7 @@ impl Generator {
         let value = rand::random::<usize>() % 1_000;
         let t = FunctionCallTransaction {
             nonce,
-            originator: acc_from.clone(),
+            originator_id: acc_from.clone(),
             contract_id: acc_from,
             method_name: b"setKeyValue".to_vec(),
             args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_bytes().to_vec(),
@@ -98,7 +98,7 @@ impl Generator {
 
         let t = FunctionCallTransaction {
             nonce,
-            originator: acc_from.clone(),
+            originator_id: acc_from.clone(),
             contract_id: acc_from,
             method_name: b"heavy_storage_blocks".to_vec(),
             args: "{\"n\":1000}".as_bytes().to_vec(),

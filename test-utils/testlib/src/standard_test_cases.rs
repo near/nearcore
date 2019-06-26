@@ -15,7 +15,7 @@ use near_primitives::utils::key_for_callback;
 use near_store::set;
 
 use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use crate::runtime_utils::{bob_account_id, default_code_hash, encode_int, eve_account_id};
 use crate::test_helpers::wait;
 use crate::user::User;
 
@@ -60,7 +60,7 @@ fn add_access_key(
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
         access_key: Some(access_key.clone()),
     })
@@ -92,8 +92,8 @@ pub fn test_smart_contract_simple(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: b"run_test".to_vec(),
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -112,7 +112,7 @@ pub fn test_smart_contract_self_call(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         contract_id: account_id.clone(),
         method_name: b"run_test".to_vec(),
         args: vec![],
@@ -132,8 +132,8 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: b"_run_test".to_vec(),
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -157,8 +157,8 @@ pub fn test_smart_contract_empty_method_name_with_no_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: vec![],
         args: vec![],
         amount: 0,
@@ -182,8 +182,8 @@ pub fn test_smart_contract_empty_method_name_with_tokens(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: vec![],
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -202,8 +202,8 @@ pub fn test_smart_contract_with_args(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: b"run_test".to_vec(),
         args: (2..4).flat_map(|x| encode_int(x).to_vec()).collect(),
         amount: FUNCTION_CALL_AMOUNT,
@@ -222,8 +222,8 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let nonce = hash(&[1, 2, 3]);
     let receipt = ReceiptTransaction {
-        originator: account_id.clone(),
-        receiver: bob_account(),
+        sender_id: account_id.clone(),
+        receiver_id: bob_account_id(),
         nonce,
         body: ReceiptBody::NewCall(AsyncCall::new(
             b"run_test".to_vec(),
@@ -277,7 +277,7 @@ pub fn test_async_call_with_callback(node: impl Node) {
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
-        bob_account(),
+        bob_account_id(),
         hash(&[1, 2, 3]),
         ReceiptBody::NewCall(async_call),
     );
@@ -293,8 +293,8 @@ pub fn test_async_call_with_callback(node: impl Node) {
     assert_eq!(transaction_result.receipts.len(), 2);
 
     let receipt_info = node_user.get_receipt_info(&transaction_result.receipts[0]).unwrap();
-    assert_eq!(receipt_info.receipt.originator, bob_account());
-    assert_eq!(receipt_info.receipt.receiver, account_id.clone());
+    assert_eq!(receipt_info.receipt.sender_id, bob_account_id());
+    assert_eq!(receipt_info.receipt.receiver_id, account_id.clone());
     let callback_res = CallbackResult::new(callback_info.clone(), Some(encode_int(10).to_vec()));
     assert_eq!(receipt_info.receipt.body, ReceiptBody::Callback(callback_res));
 
@@ -302,8 +302,8 @@ pub fn test_async_call_with_callback(node: impl Node) {
     assert_eq!(receipt_result.receipts.len(), 0);
 
     let receipt_info = node_user.get_receipt_info(&transaction_result.receipts[1]).unwrap();
-    assert_eq!(receipt_info.receipt.originator, bob_account());
-    assert_eq!(receipt_info.receipt.receiver, account_id.clone());
+    assert_eq!(receipt_info.receipt.sender_id, bob_account_id());
+    assert_eq!(receipt_info.receipt.receiver_id, account_id.clone());
     // TODO: Check refund receipt.
 }
 
@@ -311,8 +311,8 @@ pub fn test_async_call_with_logs(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let nonce = hash(&[1, 2, 3]);
     let receipt = ReceiptTransaction {
-        originator: account_id.clone(),
-        receiver: bob_account(),
+        sender_id: account_id.clone(),
+        receiver_id: bob_account_id(),
         nonce,
         body: ReceiptBody::NewCall(AsyncCall::new(
             b"log_something".to_vec(),
@@ -367,7 +367,7 @@ pub fn test_deposit_with_callback(node: impl Node) {
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
-        bob_account(),
+        bob_account_id(),
         hash(&[1, 2, 3]),
         ReceiptBody::NewCall(async_call),
     );
@@ -381,8 +381,8 @@ pub fn test_deposit_with_callback(node: impl Node) {
     assert_eq!(transaction_result.result, Some(vec![]));
 
     let receipt_info = node_user.get_receipt_info(&transaction_result.receipts[0]).unwrap();
-    assert_eq!(receipt_info.receipt.originator, bob_account());
-    assert_eq!(receipt_info.receipt.receiver, account_id.clone());
+    assert_eq!(receipt_info.receipt.sender_id, bob_account_id());
+    assert_eq!(receipt_info.receipt.receiver_id, account_id.clone());
     let callback_res = CallbackResult::new(callback_info.clone(), Some(vec![]));
     assert_eq!(receipt_info.receipt.body, ReceiptBody::Callback(callback_res));
 }
@@ -415,7 +415,7 @@ pub fn test_callback(node: RuntimeNode) {
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
-        bob_account(),
+        bob_account_id(),
         hash(&[1, 2, 3]),
         ReceiptBody::Callback(CallbackResult::new(callback_info, None)),
     );
@@ -464,7 +464,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     let receipt = ReceiptTransaction::new(
         account_id.clone(),
-        bob_account(),
+        bob_account_id(),
         hash(&[1, 2, 3]),
         ReceiptBody::Callback(CallbackResult::new(callback_info, None)),
     );
@@ -515,7 +515,7 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
-        &bob_account(),
+        &bob_account_id(),
         TESTING_INIT_BALANCE + 1,
     )
     .sign(&*node.signer());
@@ -539,8 +539,8 @@ pub fn test_upload_contract(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: 10,
     })
@@ -554,7 +554,7 @@ pub fn test_upload_contract(node: impl Node) {
     let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
     let transaction = TransactionBody::DeployContract(DeployContractTransaction {
         nonce: 1,
-        contract_id: eve_account(),
+        contract_id: eve_account_id(),
         wasm_byte_array: wasm_binary.to_vec(),
     })
     .sign(&*node.signer());
@@ -569,7 +569,7 @@ pub fn test_upload_contract(node: impl Node) {
     assert!(transaction_result.receipts.is_empty());
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-    let account = node_user.view_account(&eve_account()).unwrap();
+    let account = node_user.view_account(&eve_account_id()).unwrap();
     assert_eq!(account.code_hash, hash(wasm_binary));
 }
 
@@ -604,7 +604,7 @@ pub fn test_send_money(node: impl Node) {
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
-        &bob_account(),
+        &bob_account_id(),
         money_used,
     )
     .sign(&*node.signer());
@@ -630,13 +630,13 @@ pub fn test_send_money(node: impl Node) {
             code_hash: default_code_hash(),
         }
     );
-    let result2 = node_user.view_account(&bob_account()).unwrap();
+    let result2 = node_user.view_account(&bob_account_id()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account_id: bob_account(),
+            account_id: bob_account_id(),
             public_keys,
             amount: TESTING_INIT_BALANCE + money_used,
             stake: TESTING_INIT_STAKE,
@@ -652,7 +652,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
-        &bob_account(),
+        &bob_account_id(),
         money_used,
     )
     .sign(&*node.signer());
@@ -679,13 +679,13 @@ pub fn test_send_money_over_balance(node: impl Node) {
             code_hash: default_code_hash(),
         }
     );
-    let result2 = node_user.view_account(&bob_account()).unwrap();
+    let result2 = node_user.view_account(&bob_account_id()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account_id: bob_account(),
+            account_id: bob_account_id(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -701,7 +701,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let transaction = TransactionBody::send_money(
         node.get_account_nonce(account_id).unwrap_or_default() + 1,
         account_id,
-        &eve_account(),
+        &eve_account_id(),
         money_used,
     )
     .sign(&*node.signer());
@@ -735,7 +735,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
             code_hash: default_code_hash(),
         }
     );
-    let result2 = node_user.view_account(&eve_account());
+    let result2 = node_user.view_account(&eve_account_id());
     assert!(result2.is_err());
 }
 
@@ -746,8 +746,8 @@ pub fn test_create_account(node: impl Node) {
     let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
@@ -778,13 +778,13 @@ pub fn test_create_account(node: impl Node) {
         }
     );
 
-    let result2 = node_user.view_account(&eve_account()).unwrap();
+    let result2 = node_user.view_account(&eve_account_id()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account_id: eve_account(),
+            account_id: eve_account_id(),
             public_keys,
             amount: money_used,
             stake: 0,
@@ -799,8 +799,8 @@ pub fn test_create_account_again(node: impl Node) {
     let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
@@ -822,13 +822,13 @@ pub fn test_create_account_again(node: impl Node) {
         }
     );
 
-    let result2 = node_user.view_account(&eve_account()).unwrap();
+    let result2 = node_user.view_account(&eve_account_id()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account_id: eve_account(),
+            account_id: eve_account_id(),
             public_keys,
             amount: money_used,
             stake: 0,
@@ -838,8 +838,8 @@ pub fn test_create_account_again(node: impl Node) {
 
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
@@ -893,7 +893,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
     {
         let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-            originator: account_id.clone(),
+            originator_id: account_id.clone(),
             new_account_id: invalid_account_name.to_string(),
             public_key: node.signer().public_key().0[..].to_vec(),
             amount: money_used,
@@ -930,8 +930,8 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: bob_account(),
+        originator_id: account_id.clone(),
+        new_account_id: bob_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
@@ -966,13 +966,13 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         }
     );
 
-    let result2 = node_user.view_account(&bob_account()).unwrap();
+    let result2 = node_user.view_account(&bob_account_id()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountViewCallResult {
             nonce: 0,
-            account_id: bob_account(),
+            account_id: bob_account_id(),
             public_keys,
             amount: TESTING_INIT_BALANCE,
             stake: TESTING_INIT_STAKE,
@@ -989,8 +989,8 @@ pub fn test_swap_key(node: impl Node) {
     let money_used = 10;
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: money_used,
     })
@@ -1002,8 +1002,8 @@ pub fn test_swap_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
     let transaction = TransactionBody::SwapKey(SwapKeyTransaction {
-        nonce: node.get_account_nonce(&eve_account()).unwrap_or_default() + 1,
-        originator: eve_account(),
+        nonce: node.get_account_nonce(&eve_account_id()).unwrap_or_default() + 1,
+        originator_id: eve_account_id(),
         cur_key: node.signer().public_key().0[..].to_vec(),
         new_key: signer2.public_key.0[..].to_vec(),
     })
@@ -1018,7 +1018,7 @@ pub fn test_swap_key(node: impl Node) {
     let new_root1 = node_user.get_state_root();
     assert_ne!(new_root, new_root1);
 
-    let account = node_user.view_account(&eve_account()).unwrap();
+    let account = node_user.view_account(&eve_account_id()).unwrap();
     assert_eq!(account.public_keys, vec![signer2.public_key]);
 }
 
@@ -1029,7 +1029,7 @@ pub fn test_add_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
         access_key: None,
     })
@@ -1055,7 +1055,7 @@ pub fn test_add_existing_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         new_key: node.signer().public_key().0[..].to_vec(),
         access_key: None,
     })
@@ -1081,7 +1081,7 @@ pub fn test_delete_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::AddKey(AddKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         new_key: signer2.public_key.0[..].to_vec(),
         access_key: None,
     })
@@ -1098,7 +1098,7 @@ pub fn test_delete_key(node: impl Node) {
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1125,7 +1125,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: signer2.public_key.0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1150,7 +1150,7 @@ pub fn test_delete_key_last(node: impl Node) {
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1194,7 +1194,7 @@ pub fn test_delete_access_key(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: signer2.public_key.0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1247,7 +1247,7 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
     let root = node_user.get_state_root();
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: signer2.public_key.0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1273,7 +1273,7 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
 pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     let access_key = AccessKey {
         amount: 10,
-        balance_owner: Some(bob_account()),
+        balance_owner: Some(bob_account_id()),
         contract_id: None,
         method_name: None,
     };
@@ -1282,14 +1282,14 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
-    let bob_account_result = node_user.view_account(&bob_account()).unwrap();
+    let bob_account_result = node_user.view_account(&bob_account_id()).unwrap();
     let bobs_initial_balance = bob_account_result.amount;
     add_access_key(&node, &node_user, &access_key, &signer2);
 
     let root = node_user.get_state_root();
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: signer2.public_key.0[..].to_vec(),
     })
     .sign(&*node.signer());
@@ -1316,7 +1316,7 @@ pub fn test_delete_access_key_with_bob_refund(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    let bob_account_result = node_user.view_account(&bob_account()).unwrap();
+    let bob_account_result = node_user.view_account(&bob_account_id()).unwrap();
     assert_eq!(bob_account_result.amount, bobs_initial_balance + 10);
 }
 
@@ -1324,7 +1324,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let access_key = AccessKey {
         amount: FUNCTION_CALL_AMOUNT,
         balance_owner: None,
-        contract_id: Some(bob_account()),
+        contract_id: Some(bob_account_id()),
         method_name: None,
     };
     let node_user = node.user();
@@ -1334,8 +1334,8 @@ pub fn test_access_key_smart_contract(node: impl Node) {
 
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: b"run_test".to_vec(),
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -1353,7 +1353,7 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     let access_key = AccessKey {
         amount: 0,
         balance_owner: None,
-        contract_id: Some(bob_account()),
+        contract_id: Some(bob_account_id()),
         method_name: Some(b"log_something".to_vec()),
     };
     let node_user = node.user();
@@ -1363,8 +1363,8 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
 
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
+        originator_id: account_id.clone(),
+        contract_id: bob_account_id(),
         method_name: b"run_test".to_vec(),
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -1386,7 +1386,7 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     let access_key = AccessKey {
         amount: 0,
         balance_owner: None,
-        contract_id: Some(bob_account()),
+        contract_id: Some(bob_account_id()),
         method_name: None,
     };
     let node_user = node.user();
@@ -1396,8 +1396,8 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
 
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: eve_account(),
+        originator_id: account_id.clone(),
+        contract_id: eve_account_id(),
         method_name: b"run_test".to_vec(),
         args: vec![],
         amount: FUNCTION_CALL_AMOUNT,
@@ -1425,7 +1425,7 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
     let transaction = TransactionBody::DeleteKey(DeleteKeyTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         cur_key: node.signer().public_key().0[..].to_vec(),
     })
     .sign(&signer2);

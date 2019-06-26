@@ -6,7 +6,7 @@ import "uint128.proto";
 message CallbackInfo {
     bytes id = 1;
     uint64 result_index = 2;
-    string receiver = 3;
+    string receiver_id = 3;
 }
 
 message AsyncCall {
@@ -14,7 +14,7 @@ message AsyncCall {
     bytes method_name = 3;
     bytes args = 4;
     CallbackInfo callback = 5;
-    string refund_account = 7;
+    string refund_account_id = 7;
     // Account ID of the account who signed the initial transaction.
     string originator_id = 8;
     // The public key used to sign the initial transaction.
@@ -32,8 +32,8 @@ message CallbackResult {
 }
 
 message ReceiptTransaction {
-    string originator = 1;
-    string receiver = 2;
+    string sender_id = 1;
+    string receiver_id = 2;
     bytes nonce = 3;
     oneof body {
         AsyncCall new_call = 4;

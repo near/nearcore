@@ -176,13 +176,13 @@ impl Tip {
 pub struct BlockApproval {
     pub hash: CryptoHash,
     pub signature: Signature,
-    pub target: AccountId,
+    pub receiver_id: AccountId,
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn EDSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn EDSigner, receiver_id: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
-        BlockApproval { hash, signature, target }
+        BlockApproval { hash, signature, receiver_id }
     }
 }
 

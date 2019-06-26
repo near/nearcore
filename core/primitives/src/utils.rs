@@ -18,14 +18,14 @@ pub mod col {
     pub const ACCESS_KEY: &[u8] = &[3];
 }
 
-fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
+fn key_for_column_account_id(column: &[u8], account_id: &AccountId) -> Vec<u8> {
     let mut key = column.to_vec();
-    key.append(&mut account_key.clone().into_bytes());
+    key.append(&mut account_id.clone().into_bytes());
     key
 }
 
-pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::ACCOUNT, account_key)
+pub fn key_for_account(account_id: &AccountId) -> Vec<u8> {
+    key_for_column_account_id(col::ACCOUNT, account_id)
 }
 
 pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
@@ -41,8 +41,8 @@ pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec
     key
 }
 
-pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
-    key_for_column_account_id(col::CODE, account_key)
+pub fn key_for_code(account_id: &AccountId) -> Vec<u8> {
+    key_for_column_account_id(col::CODE, account_id)
 }
 
 pub fn key_for_callback(id: &[u8]) -> Vec<u8> {
@@ -74,12 +74,12 @@ lazy_static! {
 }
 
 /// const does not allow function call, so have to resort to this
-pub fn system_account() -> AccountId {
+pub fn system_account_id() -> AccountId {
     "system".to_string()
 }
 
 pub fn is_valid_account_id(account_id: &AccountId) -> bool {
-    if *account_id == system_account() {
+    if *account_id == system_account_id() {
         return false;
     }
     VALID_ACCOUNT_ID.is_match(account_id)

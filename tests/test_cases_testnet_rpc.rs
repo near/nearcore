@@ -8,7 +8,7 @@ mod test {
 
     use near_primitives::test_utils::init_test_module_logger;
     use testlib::node::{create_nodes_from_seeds, Node, NodeConfig, ThreadNode};
-    use testlib::runtime_utils::alice_account;
+    use testlib::runtime_utils::alice_account_id;
     use testlib::standard_test_cases::*;
     use testlib::test_helpers::heavy_test;
 
@@ -29,7 +29,7 @@ mod test {
             .collect();
         let account_names: Vec<_> = nodes.iter().map(|node| node.account_id().unwrap()).collect();
 
-        assert_eq!(account_names[0], alice_account());
+        assert_eq!(account_names[0], alice_account_id());
         for i in 0..nodes.len() {
             nodes[i].start();
         }

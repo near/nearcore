@@ -187,7 +187,7 @@ mod tests {
 
     use near_primitives::types::AccountId;
     use testlib::runtime_utils::{
-        alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
+        alice_account_id, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
 
     use super::*;
@@ -198,7 +198,7 @@ mod tests {
 
         let mut logs = vec![];
         let result =
-            viewer.call_function(root, 1, &alice_account(), "run_test", &vec![], &mut logs);
+            viewer.call_function(root, 1, &alice_account_id(), "run_test", &vec![], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -228,7 +228,7 @@ mod tests {
         let result = viewer.call_function(
             root,
             1,
-            &alice_account(),
+            &alice_account_id(),
             "run_test_with_storage_change",
             &vec![],
             &mut logs,
@@ -243,7 +243,7 @@ mod tests {
         let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect::<Vec<_>>();
         let mut logs = vec![];
         let view_call_result =
-            viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
+            viewer.call_function(root, 1, &alice_account_id(), "sum_with_input", &args, &mut logs);
         assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
     }
 
@@ -258,7 +258,8 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
+        state_update
+            .set(account_suffix(&alice_account_id(), b"test123"), DBValue::from_slice(b"123"));
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
@@ -266,7 +267,7 @@ mod tests {
         let ethash_provider =
             EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
         let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
-        let result = trie_viewer.view_state(&state_update, &alice_account()).unwrap();
+        let result = trie_viewer.view_state(&state_update, &alice_account_id()).unwrap();
         assert_eq!(
             result.values,
             [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()

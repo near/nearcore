@@ -4,20 +4,20 @@ use byteorder::{ByteOrder, LittleEndian};
 use tempdir::TempDir;
 
 use near::GenesisConfig;
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, MerkleHash};
-use near_store::{Trie, TrieUpdate};
 use near_store::test_utils::create_trie;
-use node_runtime::{Runtime, state_viewer::TrieViewer};
+use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
+use node_runtime::{state_viewer::TrieViewer, Runtime};
 
-pub fn alice_account() -> AccountId {
+pub fn alice_account_id() -> AccountId {
     "alice.near".to_string()
 }
-pub fn bob_account() -> AccountId {
+pub fn bob_account_id() -> AccountId {
     "bob.near".to_string()
 }
-pub fn eve_account() -> AccountId {
+pub fn eve_account_id() -> AccountId {
     "eve.near".to_string()
 }
 
@@ -36,8 +36,28 @@ pub fn get_runtime_and_trie_from_genesis(
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         trie_update,
-        &genesis_config.accounts.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
-        &genesis_config.validators.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
+        &genesis_config
+            .accounts
+            .iter()
+            .map(|account_info| {
+                (
+                    account_info.account_id.clone(),
+                    account_info.public_key.clone(),
+                    account_info.amount,
+                )
+            })
+            .collect::<Vec<_>>(),
+        &genesis_config
+            .validators
+            .iter()
+            .map(|account_info| {
+                (
+                    account_info.account_id.clone(),
+                    account_info.public_key.clone(),
+                    account_info.amount,
+                )
+            })
+            .collect::<Vec<_>>(),
         &genesis_config.contracts,
     );
     store_update.commit().unwrap();
@@ -45,7 +65,8 @@ pub fn get_runtime_and_trie_from_genesis(
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let genesis_config = GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+    let genesis_config =
+        GenesisConfig::test(vec![&alice_account_id(), &bob_account_id(), "carol.near"]);
     get_runtime_and_trie_from_genesis(&genesis_config)
 }
 

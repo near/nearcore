@@ -566,7 +566,7 @@ impl<'a> Runtime<'a> {
     ) -> Result<u32> {
         let tmp_vec;
         let buf = match data_type_index {
-            DATA_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.originator_id.as_bytes(),
+            DATA_TYPE_ORIGINATOR_ACCOUNT_ID => self.context.sender_id.as_bytes(),
             DATA_TYPE_CURRENT_ACCOUNT_ID => self.context.account_id.as_bytes(),
             DATA_TYPE_STORAGE => {
                 let key = self.memory_get(key as usize, key_len as usize)?;

@@ -41,7 +41,7 @@ impl RuntimeNode {
         let nonce = self.get_account_nonce(&account_id).unwrap_or_default() + 1;
         let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
             nonce,
-            originator: account_id.to_string(),
+            originator_id: account_id.to_string(),
             contract_id: contract_id.to_string(),
             method_name: method_name.as_bytes().to_vec(),
             args,

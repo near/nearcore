@@ -36,8 +36,8 @@ impl TransactionBody {
     pub fn send_money(nonce: Nonce, originator: &str, receiver: &str, amount: Balance) -> Self {
         TransactionBody::SendMoney(SendMoneyTransaction {
             nonce,
-            originator: originator.to_string(),
-            receiver: receiver.to_string(),
+            originator_id: originator.to_string(),
+            receiver_id: receiver.to_string(),
             amount,
         })
     }
@@ -46,7 +46,7 @@ impl TransactionBody {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CreateAccountTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     pub new_account_id: AccountId,
     pub amount: Balance,
     pub public_key: Vec<u8>,
@@ -58,7 +58,7 @@ impl TryFrom<transaction_proto::CreateAccountTransaction> for CreateAccountTrans
     fn try_from(t: transaction_proto::CreateAccountTransaction) -> Result<Self, Self::Error> {
         Ok(CreateAccountTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             new_account_id: t.new_account_id,
             amount: t.amount.unwrap_or_default().try_into()?,
             public_key: t.public_key,
@@ -70,7 +70,7 @@ impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransact
     fn from(t: CreateAccountTransaction) -> transaction_proto::CreateAccountTransaction {
         transaction_proto::CreateAccountTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             new_account_id: t.new_account_id,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
@@ -83,7 +83,7 @@ impl fmt::Debug for CreateAccountTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("CreateAccountTransaction")
             .field("nonce", &format_args!("{}", &self.nonce))
-            .field("originator", &format_args!("{}", &self.originator))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
             .field("new_account_id", &format_args!("{}", &self.new_account_id))
             .field("amount", &format_args!("{}", &self.amount))
             .field("public_key", &format_args!("{}", logging::pretty_utf8(&self.public_key)))
@@ -135,7 +135,7 @@ impl From<DeployContractTransaction> for transaction_proto::DeployContractTransa
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     pub contract_id: AccountId,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
@@ -148,7 +148,7 @@ impl TryFrom<transaction_proto::FunctionCallTransaction> for FunctionCallTransac
     fn try_from(t: transaction_proto::FunctionCallTransaction) -> Result<Self, Self::Error> {
         Ok(FunctionCallTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
@@ -161,7 +161,7 @@ impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransactio
     fn from(t: FunctionCallTransaction) -> Self {
         transaction_proto::FunctionCallTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             contract_id: t.contract_id,
             method_name: t.method_name,
             args: t.args,
@@ -175,7 +175,7 @@ impl fmt::Debug for FunctionCallTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("FunctionCallTransaction")
             .field("nonce", &format_args!("{}", &self.nonce))
-            .field("originator", &format_args!("{}", &self.originator))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
             .field("contract_id", &format_args!("{}", &self.contract_id))
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
@@ -187,8 +187,8 @@ impl fmt::Debug for FunctionCallTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct SendMoneyTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
-    pub receiver: AccountId,
+    pub originator_id: AccountId,
+    pub receiver_id: AccountId,
     pub amount: Balance,
 }
 
@@ -198,8 +198,8 @@ impl TryFrom<transaction_proto::SendMoneyTransaction> for SendMoneyTransaction {
     fn try_from(t: transaction_proto::SendMoneyTransaction) -> Result<Self, Self::Error> {
         Ok(SendMoneyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
-            receiver: t.receiver,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
             amount: t.amount.unwrap_or_default().try_into()?,
         })
     }
@@ -209,18 +209,18 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
     fn from(t: SendMoneyTransaction) -> Self {
         transaction_proto::SendMoneyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
-            receiver: t.receiver,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
             amount: SingularPtrField::some(t.amount.into()),
             ..Default::default()
         }
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct StakeTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     pub amount: Balance,
     pub public_key: String,
 }
@@ -231,7 +231,7 @@ impl TryFrom<transaction_proto::StakeTransaction> for StakeTransaction {
     fn try_from(t: transaction_proto::StakeTransaction) -> Result<Self, Self::Error> {
         Ok(StakeTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             amount: t.amount.unwrap_or_default().try_into()?,
             public_key: t.public_key,
         })
@@ -242,7 +242,7 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
     fn from(t: StakeTransaction) -> transaction_proto::StakeTransaction {
         transaction_proto::StakeTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
             ..Default::default()
@@ -250,10 +250,21 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
     }
 }
 
+impl fmt::Debug for StakeTransaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("StakeTransaction")
+            .field("nonce", &format_args!("{}", &self.nonce))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
+            .field("amount", &format_args!("{}", &self.amount))
+            .field("public_key", &format_args!("{}", logging::pretty_hash(&self.public_key)))
+            .finish()
+    }
+}
+
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct SwapKeyTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     // one of the current keys to the account that will be swapped out
     pub cur_key: Vec<u8>,
     pub new_key: Vec<u8>,
@@ -263,7 +274,7 @@ impl From<transaction_proto::SwapKeyTransaction> for SwapKeyTransaction {
     fn from(t: transaction_proto::SwapKeyTransaction) -> Self {
         SwapKeyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             cur_key: t.cur_key,
             new_key: t.new_key,
         }
@@ -274,7 +285,7 @@ impl From<SwapKeyTransaction> for transaction_proto::SwapKeyTransaction {
     fn from(t: SwapKeyTransaction) -> transaction_proto::SwapKeyTransaction {
         transaction_proto::SwapKeyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             cur_key: t.cur_key,
             new_key: t.new_key,
             ..Default::default()
@@ -286,7 +297,7 @@ impl fmt::Debug for SwapKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("SwapKeyTransaction")
             .field("nonce", &format_args!("{}", &self.nonce))
-            .field("originator", &format_args!("{}", &self.originator))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
             .field("cur_key", &format_args!("{}", logging::pretty_utf8(&self.cur_key)))
             .field("new_key", &format_args!("{}", logging::pretty_utf8(&self.new_key)))
             .finish()
@@ -296,7 +307,7 @@ impl fmt::Debug for SwapKeyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct AddKeyTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     pub new_key: Vec<u8>,
     pub access_key: Option<AccessKey>,
 }
@@ -307,7 +318,7 @@ impl TryFrom<transaction_proto::AddKeyTransaction> for AddKeyTransaction {
     fn try_from(t: transaction_proto::AddKeyTransaction) -> Result<Self, Self::Error> {
         Ok(AddKeyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             new_key: t.new_key,
             access_key: t
                 .access_key
@@ -321,7 +332,7 @@ impl From<AddKeyTransaction> for transaction_proto::AddKeyTransaction {
     fn from(t: AddKeyTransaction) -> transaction_proto::AddKeyTransaction {
         transaction_proto::AddKeyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             new_key: t.new_key,
             access_key: SingularPtrField::from_option(t.access_key.map(std::convert::Into::into)),
             ..Default::default()
@@ -333,7 +344,7 @@ impl fmt::Debug for AddKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("AddKeyTransaction")
             .field("nonce", &format_args!("{}", &self.nonce))
-            .field("originator", &format_args!("{}", &self.originator))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
             .field("new_key", &format_args!("{}", logging::pretty_utf8(&self.new_key)))
             .finish()
     }
@@ -342,13 +353,13 @@ impl fmt::Debug for AddKeyTransaction {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeleteKeyTransaction {
     pub nonce: Nonce,
-    pub originator: AccountId,
+    pub originator_id: AccountId,
     pub cur_key: Vec<u8>,
 }
 
 impl From<transaction_proto::DeleteKeyTransaction> for DeleteKeyTransaction {
     fn from(t: transaction_proto::DeleteKeyTransaction) -> Self {
-        DeleteKeyTransaction { nonce: t.nonce, originator: t.originator, cur_key: t.cur_key }
+        DeleteKeyTransaction { nonce: t.nonce, originator_id: t.originator_id, cur_key: t.cur_key }
     }
 }
 
@@ -356,7 +367,7 @@ impl From<DeleteKeyTransaction> for transaction_proto::DeleteKeyTransaction {
     fn from(t: DeleteKeyTransaction) -> transaction_proto::DeleteKeyTransaction {
         transaction_proto::DeleteKeyTransaction {
             nonce: t.nonce,
-            originator: t.originator,
+            originator_id: t.originator_id,
             cur_key: t.cur_key,
             ..Default::default()
         }
@@ -367,7 +378,7 @@ impl fmt::Debug for DeleteKeyTransaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("DeleteKeyTransaction")
             .field("nonce", &format_args!("{}", &self.nonce))
-            .field("originator", &format_args!("{}", &self.originator))
+            .field("originator_id", &format_args!("{}", &self.originator_id))
             .field("cur_key", &format_args!("{}", logging::pretty_utf8(&self.cur_key)))
             .finish()
     }
@@ -389,14 +400,14 @@ impl TransactionBody {
 
     pub fn get_originator(&self) -> AccountId {
         match self {
-            TransactionBody::Stake(t) => t.originator.clone(),
-            TransactionBody::SendMoney(t) => t.originator.clone(),
+            TransactionBody::Stake(t) => t.originator_id.clone(),
+            TransactionBody::SendMoney(t) => t.originator_id.clone(),
             TransactionBody::DeployContract(t) => t.contract_id.clone(),
-            TransactionBody::FunctionCall(t) => t.originator.clone(),
-            TransactionBody::CreateAccount(t) => t.originator.clone(),
-            TransactionBody::SwapKey(t) => t.originator.clone(),
-            TransactionBody::AddKey(t) => t.originator.clone(),
-            TransactionBody::DeleteKey(t) => t.originator.clone(),
+            TransactionBody::FunctionCall(t) => t.originator_id.clone(),
+            TransactionBody::CreateAccount(t) => t.originator_id.clone(),
+            TransactionBody::SwapKey(t) => t.originator_id.clone(),
+            TransactionBody::AddKey(t) => t.originator_id.clone(),
+            TransactionBody::DeleteKey(t) => t.originator_id.clone(),
         }
     }
 
@@ -406,7 +417,7 @@ impl TransactionBody {
             TransactionBody::CreateAccount(_) => None,
             TransactionBody::DeployContract(t) => Some(t.contract_id.clone()),
             TransactionBody::FunctionCall(t) => Some(t.contract_id.clone()),
-            TransactionBody::SendMoney(t) => Some(t.receiver.clone()),
+            TransactionBody::SendMoney(t) => Some(t.receiver_id.clone()),
             TransactionBody::Stake(_) => None,
             TransactionBody::SwapKey(_) => None,
             TransactionBody::AddKey(_) => None,
@@ -481,8 +492,8 @@ impl SignedTransaction {
     pub fn empty() -> SignedTransaction {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
-            originator: AccountId::default(),
-            receiver: AccountId::default(),
+            originator_id: AccountId::default(),
+            receiver_id: AccountId::default(),
             amount: 0,
         });
         SignedTransaction {
@@ -616,7 +627,7 @@ pub struct AsyncCall {
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
-    pub refund_account: AccountId,
+    pub refund_account_id: AccountId,
     /// Account ID of the account who signed the initial transaction.
     pub originator_id: AccountId,
     /// The public key used to sign the initial transaction.
@@ -632,7 +643,7 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
             method_name: proto.method_name,
             args: proto.args,
             callback: proto.callback.into_option().map(std::convert::Into::into),
-            refund_account: proto.refund_account,
+            refund_account_id: proto.refund_account_id,
             originator_id: proto.originator_id,
             public_key: PublicKey::try_from(&proto.public_key as &[u8])?,
         })
@@ -646,7 +657,7 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
             method_name: call.method_name,
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
-            refund_account: call.refund_account,
+            refund_account_id: call.refund_account_id,
             originator_id: call.originator_id,
             public_key: call.public_key.as_ref().to_vec(),
             ..Default::default()
@@ -659,7 +670,7 @@ impl AsyncCall {
         method_name: Vec<u8>,
         args: Vec<u8>,
         amount: Balance,
-        refund_account: AccountId,
+        refund_account_id: AccountId,
         originator_id: AccountId,
         public_key: PublicKey,
     ) -> Self {
@@ -668,7 +679,7 @@ impl AsyncCall {
             method_name,
             args,
             callback: None,
-            refund_account,
+            refund_account_id,
             originator_id,
             public_key,
         }
@@ -682,7 +693,7 @@ impl fmt::Debug for AsyncCall {
             .field("method_name", &format_args!("{}", logging::pretty_utf8(&self.method_name)))
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("callback", &self.callback)
-            .field("refund_account", &self.refund_account)
+            .field("refund_account_id", &self.refund_account_id)
             .field("originator_id", &self.originator_id)
             .field("public_key", &self.public_key)
             .finish()
@@ -697,7 +708,7 @@ pub struct Callback {
     pub amount: Balance,
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
-    pub refund_account: AccountId,
+    pub refund_account_id: AccountId,
     /// Account ID of the account who signed the initial transaction.
     pub originator_id: AccountId,
     /// The public key used to sign the initial transaction.
@@ -709,7 +720,7 @@ impl Callback {
         method_name: Vec<u8>,
         args: Vec<u8>,
         amount: Balance,
-        refund_account: AccountId,
+        refund_account_id: AccountId,
         originator_id: AccountId,
         public_key: PublicKey,
     ) -> Self {
@@ -720,7 +731,7 @@ impl Callback {
             amount,
             callback: None,
             result_counter: 0,
-            refund_account,
+            refund_account_id,
             originator_id,
             public_key,
         }
@@ -736,7 +747,7 @@ impl fmt::Debug for Callback {
             .field("amount", &format_args!("{}", &self.amount))
             .field("callback", &self.callback)
             .field("result_counter", &format_args!("{}", &self.result_counter))
-            .field("refund_account", &self.refund_account)
+            .field("refund_account_id", &self.refund_account_id)
             .field("originator_id", &self.originator_id)
             .field("public_key", &self.public_key)
             .finish()
@@ -750,7 +761,7 @@ pub struct CallbackInfo {
     // index to write to
     pub result_index: usize,
     // receiver
-    pub receiver: AccountId,
+    pub receiver_id: AccountId,
 }
 
 impl From<receipt_proto::CallbackInfo> for CallbackInfo {
@@ -758,7 +769,7 @@ impl From<receipt_proto::CallbackInfo> for CallbackInfo {
         CallbackInfo {
             id: proto.id,
             result_index: proto.result_index as usize,
-            receiver: proto.receiver,
+            receiver_id: proto.receiver_id,
         }
     }
 }
@@ -768,15 +779,15 @@ impl From<CallbackInfo> for receipt_proto::CallbackInfo {
         receipt_proto::CallbackInfo {
             id: info.id,
             result_index: info.result_index as u64,
-            receiver: info.receiver,
+            receiver_id: info.receiver_id,
             ..Default::default()
         }
     }
 }
 
 impl CallbackInfo {
-    pub fn new(id: CallbackId, result_index: usize, receiver: AccountId) -> Self {
-        CallbackInfo { id, result_index, receiver }
+    pub fn new(id: CallbackId, result_index: usize, receiver_id: AccountId) -> Self {
+        CallbackInfo { id, result_index, receiver_id: receiver_id }
     }
 }
 
@@ -785,7 +796,7 @@ impl fmt::Debug for CallbackInfo {
         f.debug_struct("CallbackInfo")
             .field("id", &format_args!("{}", logging::pretty_utf8(&self.id)))
             .field("result_index", &format_args!("{}", self.result_index))
-            .field("receiver", &format_args!("{}", self.receiver))
+            .field("receiver_id", &format_args!("{}", self.receiver_id))
             .finish()
     }
 }
@@ -843,9 +854,9 @@ impl fmt::Debug for CallbackResult {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
-    // sender is the immediate predecessor
-    pub originator: AccountId,
-    pub receiver: AccountId,
+    // sender_id is the immediate predecessor
+    pub sender_id: AccountId,
+    pub receiver_id: AccountId,
     // nonce will be a hash
     pub nonce: CryptoHash,
     pub body: ReceiptBody,
@@ -869,8 +880,8 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
         };
         match body {
             Ok(body) => Ok(ReceiptTransaction {
-                originator: proto.originator,
-                receiver: proto.receiver,
+                sender_id: proto.sender_id,
+                receiver_id: proto.receiver_id,
                 nonce: proto.nonce.try_into()?,
                 body,
             }),
@@ -893,8 +904,8 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             }
         };
         receipt_proto::ReceiptTransaction {
-            originator: t.originator,
-            receiver: t.receiver,
+            sender_id: t.sender_id,
+            receiver_id: t.receiver_id,
             nonce: t.nonce.into(),
             body: Some(body),
             ..Default::default()
@@ -910,16 +921,16 @@ impl Borrow<CryptoHash> for ReceiptTransaction {
 
 impl ReceiptTransaction {
     pub fn new(
-        originator: AccountId,
-        receiver: AccountId,
+        sender_id: AccountId,
+        receiver_id: AccountId,
         nonce: CryptoHash,
         body: ReceiptBody,
     ) -> Self {
-        ReceiptTransaction { originator, receiver, nonce, body }
+        ReceiptTransaction { sender_id, receiver_id, nonce, body }
     }
 
     pub fn shard_id(&self) -> ShardId {
-        account_to_shard_id(&self.receiver)
+        account_to_shard_id(&self.receiver_id)
     }
 
     pub fn get_hash(&self) -> CryptoHash {

@@ -33,10 +33,10 @@ pub fn send_money(
     }
     if sender.amount >= transaction.amount {
         sender.amount -= transaction.amount;
-        set(state_update, key_for_account(&transaction.originator), sender);
+        set(state_update, key_for_account(&transaction.originator_id), sender);
         let receipt = ReceiptTransaction::new(
-            transaction.originator.clone(),
-            transaction.receiver.clone(),
+            transaction.originator_id.clone(),
+            transaction.receiver_id.clone(),
             create_nonce_with_nonce(&hash, 0),
             ReceiptBody::NewCall(AsyncCall::new(
                 // Empty method name is used for deposit
@@ -44,7 +44,7 @@ pub fn send_money(
                 vec![],
                 transaction.amount,
                 refund_account_id.clone(),
-                transaction.originator.clone(),
+                transaction.originator_id.clone(),
                 public_key,
             )),
         );
@@ -52,7 +52,7 @@ pub fn send_money(
     } else {
         Err(format!(
             "Account {} tries to send {}, but has staked {} and only has {}",
-            transaction.originator, transaction.amount, sender.staked, sender.amount,
+            transaction.originator_id, transaction.amount, sender.staked, sender.amount,
         ))
     }
 }
@@ -88,7 +88,7 @@ pub fn staking(
     } else {
         let err_msg = format!(
             "Account {} tries to stake {}, but has staked {} and only has {}",
-            body.originator, body.amount, sender.staked, sender.amount,
+            body.originator_id, body.amount, sender.staked, sender.amount,
         );
         Err(err_msg)
     }
@@ -107,7 +107,7 @@ pub fn deposit(
         let new_nonce = create_nonce_with_nonce(&nonce, 0);
         let new_receipt = ReceiptTransaction::new(
             receiver_id.clone(),
-            callback_info.receiver.clone(),
+            callback_info.receiver_id.clone(),
             new_nonce,
             ReceiptBody::Callback(CallbackResult::new(callback_info.clone(), Some(vec![]))),
         );
@@ -134,10 +134,10 @@ pub fn create_account(
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
-        set(state_update, key_for_account(&body.originator), &sender);
+        set(state_update, key_for_account(&body.originator_id), &sender);
         let new_nonce = create_nonce_with_nonce(&hash, 0);
         let receipt = ReceiptTransaction::new(
-            body.originator.clone(),
+            body.originator_id.clone(),
             body.new_account_id.clone(),
             new_nonce,
             ReceiptBody::NewCall(AsyncCall::new(
@@ -145,7 +145,7 @@ pub fn create_account(
                 body.public_key.clone(),
                 body.amount,
                 refund_account_id.clone(),
-                body.originator.clone(),
+                body.originator_id.clone(),
                 public_key,
             )),
         );
@@ -153,7 +153,7 @@ pub fn create_account(
     } else {
         Err(format!(
             "Account {} tries to create new account with {}, but only has {}",
-            body.originator, body.amount, sender.amount
+            body.originator_id, body.amount, sender.amount
         ))
     }
 }
@@ -182,10 +182,10 @@ pub fn swap_key(
     let num_keys = account.public_keys.len();
     account.public_keys.retain(|&x| x != cur_key);
     if account.public_keys.len() == num_keys {
-        return Err(format!("Account {} does not have public key {}", body.originator, cur_key));
+        return Err(format!("Account {} does not have public key {}", body.originator_id, cur_key));
     }
     account.public_keys.push(new_key);
-    set(state_update, key_for_account(&body.originator), &account);
+    set(state_update, key_for_account(&body.originator_id), &account);
     Ok(vec![])
 }
 
@@ -200,19 +200,20 @@ pub fn add_key(
     if account.public_keys.len() < num_keys {
         return Err("Cannot add a public key that already exists on the account".to_string());
     }
-    if get::<AccessKey>(&state_update, &key_for_access_key(&body.originator, &new_key)).is_some() {
+    if get::<AccessKey>(&state_update, &key_for_access_key(&body.originator_id, &new_key)).is_some()
+    {
         return Err("Cannot add a public key that already used for an access key".to_string());
     }
     if let Some(access_key) = &body.access_key {
         if account.amount >= access_key.amount {
             if access_key.amount > 0 {
                 account.amount -= access_key.amount;
-                set(state_update, key_for_account(&body.originator), &account);
+                set(state_update, key_for_account(&body.originator_id), &account);
             }
         } else {
             return Err(format!(
                 "Account {} tries to create new access key with {} amount, but only has {}",
-                body.originator, access_key.amount, account.amount
+                body.originator_id, access_key.amount, account.amount
             ));
         }
         if let Some(ref balance_owner) = access_key.balance_owner {
@@ -225,10 +226,10 @@ pub fn add_key(
                 return Err("Invalid account ID for contract ID in the access key".to_string());
             }
         }
-        set(state_update, key_for_access_key(&body.originator, &new_key), access_key);
+        set(state_update, key_for_access_key(&body.originator_id, &new_key), access_key);
     } else {
         account.public_keys.push(new_key);
-        set(state_update, key_for_account(&body.originator), &account);
+        set(state_update, key_for_account(&body.originator_id), &account);
     }
     Ok(vec![])
 }
@@ -244,19 +245,21 @@ pub fn delete_key(
     let mut new_receipts = vec![];
     account.public_keys.retain(|&x| x != cur_key);
     if account.public_keys.len() == num_keys {
-        let access_key: AccessKey = get(
-            &state_update,
-            &key_for_access_key(&body.originator, &cur_key),
-        )
-        .ok_or_else(|| {
-            format!("Account {} tries to remove a public key that it does not own", body.originator)
-        })?;
+        let access_key: AccessKey =
+            get(&state_update, &key_for_access_key(&body.originator_id, &cur_key)).ok_or_else(
+                || {
+                    format!(
+                        "Account {} tries to remove a public key that it does not own",
+                        body.originator_id
+                    )
+                },
+            )?;
         if access_key.amount > 0 {
             let balance_owner_id: &AccountId =
-                access_key.balance_owner.as_ref().unwrap_or(&body.originator);
-            if balance_owner_id != &body.originator {
+                access_key.balance_owner.as_ref().unwrap_or(&body.originator_id);
+            if balance_owner_id != &body.originator_id {
                 let new_receipt = ReceiptTransaction::new(
-                    body.originator.clone(),
+                    body.originator_id.clone(),
                     balance_owner_id.clone(),
                     create_nonce_with_nonce(&nonce, 0),
                     ReceiptBody::Refund(access_key.amount),
@@ -264,13 +267,13 @@ pub fn delete_key(
                 new_receipts.push(new_receipt);
             } else {
                 account.amount += access_key.amount;
-                set(state_update, key_for_account(&body.originator), &account);
+                set(state_update, key_for_account(&body.originator_id), &account);
             }
         }
         // Remove access key
-        state_update.remove(&key_for_access_key(&body.originator, &cur_key));
+        state_update.remove(&key_for_access_key(&body.originator_id, &cur_key));
     } else {
-        set(state_update, key_for_account(&body.originator), &account);
+        set(state_update, key_for_account(&body.originator_id), &account);
     }
     Ok(new_receipts)
 }
