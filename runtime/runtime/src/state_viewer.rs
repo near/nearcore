@@ -105,15 +105,20 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let code = Runtime::get_code(&state_update, contract_id)?;
+        // TODO(#1015): Add ability to pass public key and originator_id
+        let originator_id = contract_id;
+        let public_key = PublicKey::empty();
         let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    contract_id,
+                    originator_id,
                     &empty_hash,
                     self.ethash_provider.clone(),
+                    originator_id,
+                    &public_key,
                 );
                 executor::execute(
                     &code,
@@ -125,13 +130,14 @@ impl TrieViewer {
                     &RuntimeContext::new(
                         account.amount,
                         0,
-                        contract_id,
+                        originator_id,
                         contract_id,
                         0,
                         block_index,
                         root.as_ref().into(),
                         true,
-                        None,
+                        originator_id,
+                        &public_key,
                     ),
                 )
             }

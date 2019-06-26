@@ -124,6 +124,7 @@ mod tests {
     use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
+    use near_primitives::crypto::signature::PublicKey;
 
     fn infinite_initializer_contract() -> Vec<u8> {
         wabt::wat2wasm(
@@ -200,11 +201,7 @@ mod tests {
         LittleEndian::read_u128(val)
     }
 
-    fn runtime_context(
-        balance: u128,
-        amount: u128,
-        storage_usage: StorageUsage,
-    ) -> RuntimeContext {
+    fn runtime_context(balance: u128, amount: u128, storage_usage: StorageUsage) -> RuntimeContext {
         RuntimeContext::new(
             balance.into(),
             amount.into(),
@@ -214,7 +211,8 @@ mod tests {
             123,
             b"yolo".to_vec(),
             false,
-            None,
+            &"alice.near".to_string(),
+            &PublicKey::empty(),
         )
     }
 
@@ -324,8 +322,8 @@ mod tests {
     fn test_frozen_balance() {
         let input_data = [0u8; 0];
 
-        let outcome =
-            run(b"test_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
+        let outcome = run(b"test_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0))
+            .expect("ok");
 
         // The frozen balance is not used for the runtime deductions.
         println!("{:?}", outcome);
