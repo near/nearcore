@@ -46,6 +46,8 @@ cache:
 # Test all but expensive integration tests.
 test_cargo:
     stage: rust
+    tags:
+    - gcloud
     before_script:
     - *setup_rust
     #- rustup component add clippy
