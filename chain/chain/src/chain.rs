@@ -695,8 +695,7 @@ impl<'a> ChainUpdate<'a> {
 
         if !all_known {
             // Validate header and then add to the chain. If validation of subsequent fails, headers won't be committed to the database.
-            for (i, header) in headers.iter().enumerate() {
-                println!("{} Header: {}", i, header.height);
+            for header in headers.iter() {
                 self.validate_header(header, &Provenance::SYNC)?;
                 self.chain_store_update.save_block_header(header.clone());
 
