@@ -748,6 +748,7 @@ impl ClientActor {
             info!(target: "info", "{} {} {} {}",
                 match act.sync_status {
                     SyncStatus::NoSync => Yellow.bold().paint(format!("#{:>8} {}", head.height, head.last_block_hash)),
+                    SyncStatus::AwaitingPeers => Yellow.bold().paint(format!("Waiting for more peers")),
                     _ => {
                         if let Some(full_peer_info) = most_weight_peer(&act.network_info.most_weight_peers) {
                             Yellow.bold().paint(format!("Syncing {}..{}", head.height, full_peer_info.chain_info.height))

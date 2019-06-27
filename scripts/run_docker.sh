@@ -19,5 +19,5 @@ fi
 
 echo "Bootnodes: ${BOOT_NODES}"
 
-near --home=${NEAR_HOME} run --boot-nodes="${BOOT_NODES}"
+near --home=${NEAR_HOME} run --boot-nodes=${BOOT_NODES}
 

@@ -85,7 +85,7 @@ def run_docker(image, home_dir, boot_nodes):
     # Start nearcore container, mapping home folder and ports.
     subprocess.call(['docker', 'run',
                     '-d', '-p', '3030:3030', '-p', '26656:26656', '-v', '%s:/srv/near' % home_dir,
-                    '--name', 'nearcore', '--restart', 'unless-stopped', '-e', 'BOOT_NODES="%s"' % boot_nodes, image])
+                    '--name', 'nearcore', '--restart', 'unless-stopped', '-e', 'BOOT_NODES=%s' % boot_nodes, image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
     subprocess.call(['docker', 'run',
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
