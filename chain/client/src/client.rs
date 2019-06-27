@@ -481,7 +481,13 @@ impl ClientActor {
                 NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
             }
             Err(ref err) if err.is_error() => {
-                error!(target: "client", "Error on receival of block: {}", err);
+                if self.sync_status.is_syncing() {
+                    // While syncing, we may receive blocks that are older or from next epochs.
+                    // This leads to Old Block or EpochOutOfBounds errors.
+                    info!(target: "client", "Error on receival of block: {}", err);
+                } else {
+                    error!(target: "client", "Error on receival of block: {}", err);
+                }
                 NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {

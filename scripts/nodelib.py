@@ -28,8 +28,9 @@ def docker_init(image, home_dir, init_flags):
 
 
 """Inits the node configuration using local build."""
-def local_init(home_dir, init_flags):
-    subprocess.call(['target/release/near',
+def local_init(home_dir, is_release, init_flags):
+    target = './target/%s/near' % ('release' if is_release else 'debug')
+    subprocess.call([target,
         '--home=%s' % home_dir, 'init'] + init_flags)
 
 
@@ -58,7 +59,7 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
         account_id = input("Enter your account ID (leave empty if not going to be a validator): ")
         init_flags.append('--account-id=%s' % account_id)
     if is_local:
-        local_init(home_dir, init_flags)
+        local_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
 
@@ -76,16 +77,19 @@ def print_staking_key(home_dir):
 
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
-def run_docker(image, home_dir, boot_nodes):
+def run_docker(image, home_dir, boot_nodes, verbose):
     print("Starting NEAR client and Watchtower dockers...")
     subprocess.call(['docker', 'stop', 'watchtower'])
     subprocess.call(['docker', 'rm', 'watchtower'])
     subprocess.call(['docker', 'stop', 'nearcore'])
     subprocess.call(['docker', 'rm', 'nearcore'])
     # Start nearcore container, mapping home folder and ports.
+    envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
+    if verbose:
+        envs.extend(['-e', 'VERBOSE=1'])
     subprocess.call(['docker', 'run',
-                    '-d', '-p', '3030:3030', '-p', '26656:26656', '-v', '%s:/srv/near' % home_dir,
-                    '--name', 'nearcore', '--restart', 'unless-stopped', '-e', 'BOOT_NODES=%s' % boot_nodes, image])
+                    '-d', '--network=host', '-v', '%s:/srv/near' % home_dir,
+                    '--name', 'nearcore', '--restart', 'unless-stopped'] + envs [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
     subprocess.call(['docker', 'run',
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
@@ -94,28 +98,30 @@ def run_docker(image, home_dir, boot_nodes):
 
 
 """Runs NEAR core locally."""
-def run_local(home_dir, boot_nodes, release):
+def run_local(home_dir, is_release, boot_nodes, verbose):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for local run")
-    if release:
-        subprocess.call(['./target/release/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
-    else:
-        subprocess.call(['./target/debug/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
+    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd.extend(['--home', home_dir])
+    if verbose:
+        cmd.append('--verbose')
+    cmd.append('run')
+    cmd.extend(['--boot-nodes=%s' % boot_nodes])
+    subprocess.call(cmd)
 
 
-
-def setup_and_run(local, release, image, home_dir, init_flags, boot_nodes):
+def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
     if local:
         install_cargo()
     else:
         subprocess.call(['docker', 'pull', image])
         subprocess.call(['docker', 'pull', 'v2tec/watchtower'])
 
-    check_and_setup(local, release, image, home_dir, init_flags)
+    check_and_setup(local, is_release, image, home_dir, init_flags)
 
     print_staking_key(home_dir)
 
     if not local:
-        run_docker(image, home_dir, boot_nodes)
+        run_docker(image, home_dir, boot_nodes, verbose)
     else:
-        run_local(home_dir, boot_nodes, release)
+        run_local(home_dir, is_release, boot_nodes, verbose)
