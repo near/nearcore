@@ -47,7 +47,7 @@ mod tests {
         let x = uint128_proto::Uint128 { number: vec![], ..Default::default() };
         let y: Result<u128, _> = x.try_into();
         assert!(y.is_err());
-        let x = uint128_proto::Uint128 { number: vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ..Default::default() };
+        let x = uint128_proto::Uint128 { number: vec![0; 20], ..Default::default() };
         let y: Result<u128, _> = x.try_into();
         assert!(y.is_err());
     }
