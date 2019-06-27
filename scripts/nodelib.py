@@ -57,7 +57,7 @@ def check_and_setup(is_local, image, home_dir, init_flags):
         local_init(home_dir, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
-        
+
 
 def print_staking_key(home_dir):
     key_path = os.path.join(home_dir, 'validator_key.json')

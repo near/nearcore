@@ -28,7 +28,8 @@ fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
 fn sync_nodes() {
     init_test_logger();
 
-    let genesis_config = GenesisConfig::test(vec!["other"]);
+    let mut genesis_config = GenesisConfig::test(vec!["other"]);
+    genesis_config.epoch_length = 5;
     let genesis_header = genesis_header(genesis_config.clone());
 
     let mut near1 = load_test_config("test1", 25123, &genesis_config);

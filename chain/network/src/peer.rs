@@ -65,7 +65,7 @@ impl Peer {
     }
 
     fn send_message(&mut self, msg: PeerMessage) {
-        debug!(target: "network", "Sending {:?} message to peer {}", msg, self.peer_info);
+        debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
         self.framed.write(msg.into());
     }
 
@@ -167,7 +167,7 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        debug!(target: "network", "Peer {:?} {:?} started", self.peer_addr, self.peer_type);
+        debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
         ctx.run_later(self.handshake_timeout, move |act, ctx| {
             if act.peer_status != PeerStatus::Ready {
@@ -183,7 +183,7 @@ impl Actor for Peer {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        debug!(target: "network", "Peer {} disconnected.", self.peer_info);
+        debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
                 self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
@@ -201,7 +201,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
     fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
         match (self.peer_type, self.peer_status, msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
-                debug!(target: "network", "{:?} received handshake {:?}", self.node_info.id, handshake);
+                debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
@@ -224,7 +224,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                     .then(move |res, act, ctx| {
                         match res {
                             Ok(true) => {
-                                debug!(target: "network", "Peer {:?} successfully consolidated", act.peer_addr);
+                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id, act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -234,7 +234,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                                 actix::fut::ok(())
                             },
                             _ => {
-                                info!(target: "network", "Peer with handshake {:?} wasn't consolidated, disconnecting.", handshake);
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id, handshake);
                                 ctx.stop();
                                 actix::fut::err(())
                             }
