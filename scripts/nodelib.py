@@ -28,8 +28,9 @@ def docker_init(image, home_dir, init_flags):
 
 
 """Inits the node configuration using local build."""
-def local_init(home_dir, init_flags):
-    subprocess.call(['target/release/near',
+def local_init(home_dir, is_release, init_flags):
+    target = './target/%s/near' % ('release' if is_release else 'debug')
+    subprocess.call([target,
         '--home=%s' % home_dir, 'init'] + init_flags)
 
 
@@ -58,7 +59,7 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
         account_id = input("Enter your account ID (leave empty if not going to be a validator): ")
         init_flags.append('--account-id=%s' % account_id)
     if is_local:
-        local_init(home_dir, init_flags)
+        local_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
 
@@ -94,28 +95,25 @@ def run_docker(image, home_dir, boot_nodes):
 
 
 """Runs NEAR core locally."""
-def run_local(home_dir, boot_nodes, release):
+def run_local(home_dir, is_release, boot_nodes):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for local run")
-    if release:
-        subprocess.call(['./target/release/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
-    else:
-        subprocess.call(['./target/debug/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
+    target = './target/%s/near' % ('release' if is_release else 'debug')
+    subprocess.call([target, '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
 
 
-
-def setup_and_run(local, release, image, home_dir, init_flags, boot_nodes):
+def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes):
     if local:
         install_cargo()
     else:
         subprocess.call(['docker', 'pull', image])
         subprocess.call(['docker', 'pull', 'v2tec/watchtower'])
 
-    check_and_setup(local, release, image, home_dir, init_flags)
+    check_and_setup(local, is_release, image, home_dir, init_flags)
 
     print_staking_key(home_dir)
 
     if not local:
         run_docker(image, home_dir, boot_nodes)
     else:
-        run_local(home_dir, boot_nodes, release)
+        run_local(home_dir, is_release, boot_nodes)
