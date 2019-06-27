@@ -39,12 +39,14 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
     if is_local:
         subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
             'default', 'nightly'])
+        flags = ['-p', 'near']
         if is_release:
-            subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
-                'build', '--release', '-p', 'near'])
-        else:
-            subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
-                'build', '-p', 'near'])
+            flags = ['--release'] + flags
+        code = subprocess.call(
+            [os.path.expanduser('~/.cargo/bin/cargo'), 'build'] + flags)
+        if code != 0:
+            print("Compilation failed, aborting")
+            exit(code)
 
     if os.path.exists(os.path.join(home_dir, 'config.json')):
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -118,10 +117,10 @@ impl Peer {
     fn send_message(&mut self, msg: PeerMessage) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
-        match msg {
-            PeerMessage::Block(b) if self.tracking.has_received(b.hash()) => return,
-            PeerMessage::BlockHeaderAnnounrce(h) if self.tracking.has_received(h.hash()) => return,
-            PeerMessage::BlockRequest(h) => self.tracker.push_request(h),
+        match &msg {
+            PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
+            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
+            PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
             _ => (),
         };
         debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
@@ -166,13 +165,13 @@ impl Peer {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 // TODO: add tracking of requests here.
-                let block_hash = b.hash();
-                self.tracker.push_recevied(block_hash);
+                let block_hash = block.hash();
+                self.tracker.push_received(block_hash);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
-                let block_hash = b.hash();
-                self.tracker.push_recevied(block_hash);
+                let block_hash = header.hash();
+                self.tracker.push_received(block_hash);
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
