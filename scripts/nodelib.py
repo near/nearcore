@@ -77,16 +77,19 @@ def print_staking_key(home_dir):
 
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
-def run_docker(image, home_dir, boot_nodes):
+def run_docker(image, home_dir, boot_nodes, verbose):
     print("Starting NEAR client and Watchtower dockers...")
     subprocess.call(['docker', 'stop', 'watchtower'])
     subprocess.call(['docker', 'rm', 'watchtower'])
     subprocess.call(['docker', 'stop', 'nearcore'])
     subprocess.call(['docker', 'rm', 'nearcore'])
     # Start nearcore container, mapping home folder and ports.
+    envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
+    if verbose:
+        envs.extend(['-e', 'VERBOSE=1'])
     subprocess.call(['docker', 'run',
                     '-d', '--network=host', '-v', '%s:/srv/near' % home_dir,
-                    '--name', 'nearcore', '--restart', 'unless-stopped', '-e', 'BOOT_NODES=%s' % boot_nodes, image])
+                    '--name', 'nearcore', '--restart', 'unless-stopped'] + envs [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
     subprocess.call(['docker', 'run',
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
@@ -95,14 +98,19 @@ def run_docker(image, home_dir, boot_nodes):
 
 
 """Runs NEAR core locally."""
-def run_local(home_dir, is_release, boot_nodes):
+def run_local(home_dir, is_release, boot_nodes, verbose):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for local run")
-    target = './target/%s/near' % ('release' if is_release else 'debug')
-    subprocess.call([target, '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
+    cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
+    cmd.extend(['--home', home_dir])
+    if verbose:
+        cmd.append('--verbose')
+    cmd.append('run')
+    cmd.extend(['--boot-nodes=%s' % boot_nodes])
+    subprocess.call(cmd)
 
 
-def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes):
+def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
     if local:
         install_cargo()
     else:
@@ -114,6 +122,6 @@ def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes):
     print_staking_key(home_dir)
 
     if not local:
-        run_docker(image, home_dir, boot_nodes)
+        run_docker(image, home_dir, boot_nodes, verbose)
     else:
-        run_local(home_dir, is_release, boot_nodes)
+        run_local(home_dir, is_release, boot_nodes, verbose)
