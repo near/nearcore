@@ -164,7 +164,6 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                // TODO: add tracking of requests here.
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
