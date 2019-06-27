@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -11,6 +12,7 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
 use crate::codec::Codec;
@@ -19,6 +21,51 @@ use crate::types::{
     PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
+
+/// Maximum number of requests and responses to track.
+const MAX_TRACK_SIZE: usize = 30;
+
+/// Keeps track of requests and received hashes of transactions and blocks.
+pub struct Tracker {
+    /// Sent requests.
+    requested: Vec<CryptoHash>,
+    /// Received elements.
+    received: Vec<CryptoHash>,
+}
+
+impl Default for Tracker {
+    fn default() -> Self {
+        Tracker { requested: Default::default(), received: Default::default() }
+    }
+}
+
+impl Tracker {
+    fn has_received(&self, hash: CryptoHash) -> bool {
+        self.received.contains(&hash)
+    }
+
+    fn push_received(&mut self, hash: CryptoHash) {
+        if self.received.len() > MAX_TRACK_SIZE {
+            self.received.truncate(MAX_TRACK_SIZE)
+        }
+        if !self.received.contains(&hash) {
+            self.received.insert(0, hash);
+        }
+    }
+
+    fn has_request(&self, hash: CryptoHash) -> bool {
+        self.requested.contains(&hash)
+    }
+
+    fn push_request(&mut self, hash: CryptoHash) {
+        if self.requested.len() > MAX_TRACK_SIZE {
+            self.requested.truncate(MAX_TRACK_SIZE);
+        }
+        if !self.requested.contains(&hash) {
+            self.requested.insert(0, hash);
+        }
+    }
+}
 
 pub struct Peer {
     /// This node's id and address (either listening or socket address).
@@ -37,7 +84,10 @@ pub struct Peer {
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
     peer_manager_addr: Addr<PeerManagerActor>,
+    /// Addr for client to send messages related to the chain.
     client_addr: Recipient<NetworkClientMessages>,
+    /// Tracker for requests and responses.
+    tracker: Tracker,
 }
 
 impl Peer {
@@ -61,10 +111,19 @@ impl Peer {
             handshake_timeout,
             peer_manager_addr,
             client_addr,
+            tracker: Default::default(),
         }
     }
 
     fn send_message(&mut self, msg: PeerMessage) {
+        // Skip sending block and headers if we received it or header from this peer.
+        // Record block requests in tracker.
+        match msg {
+            PeerMessage::Block(b) if self.tracking.has_received(b.hash()) => return,
+            PeerMessage::BlockHeaderAnnounrce(h) if self.tracking.has_received(h.hash()) => return,
+            PeerMessage::BlockRequest(h) => self.tracker.push_request(h),
+            _ => (),
+        };
         debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
         self.framed.write(msg.into());
     }
@@ -107,9 +166,13 @@ impl Peer {
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
                 // TODO: add tracking of requests here.
-                NetworkClientMessages::Block(block, peer_id, false)
+                let block_hash = b.hash();
+                self.tracker.push_recevied(block_hash);
+                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
+                let block_hash = b.hash();
+                self.tracker.push_recevied(block_hash);
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
