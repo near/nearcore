@@ -14,7 +14,7 @@ use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, Epoch, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
@@ -33,6 +33,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
 
+    store: Arc<Store>,
     pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     runtime: Runtime,
@@ -48,6 +49,7 @@ impl NightshadeRuntime {
         let runtime = Runtime::new(ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
         let initial_epoch_config = ValidatorEpochConfig {
+            epoch_length: genesis_config.epoch_length,
             rng_seed: [0; 32],
             num_shards: genesis_config.block_producers_per_shard.len() as ShardId,
             num_block_producers: genesis_config.num_block_producers,
@@ -67,25 +69,21 @@ impl NightshadeRuntime {
                         amount: account_info.amount,
                     })
                     .collect(),
-                store,
+                store.clone(),
             )
             .expect("Failed to start Validator Manager"),
         );
-        NightshadeRuntime { genesis_config, trie, runtime, trie_viewer, validator_manager }
-    }
-
-    /// Returns current epoch and position in the epoch for given height.
-    fn height_to_epoch(&self, height: BlockIndex) -> (Epoch, BlockIndex) {
-        (height / self.genesis_config.epoch_length, height % self.genesis_config.epoch_length)
+        NightshadeRuntime { genesis_config, store, trie, runtime, trie_viewer, validator_manager }
     }
 
     fn get_block_proposer_info(
         &self,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
         let mut cur_seats = 0;
         for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
@@ -99,50 +97,56 @@ impl NightshadeRuntime {
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash) {
-        let accounts = self
-            .genesis_config
-            .accounts
-            .iter()
-            .filter_map(|account_info| {
-                if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
-                    Some((
-                        account_info.account_id.clone(),
-                        account_info.public_key.clone(),
-                        account_info.amount,
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        let validators = self
-            .genesis_config
-            .validators
-            .iter()
-            .filter_map(|account_info| {
-                if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
-                    Some((
-                        account_info.account_id.clone(),
-                        account_info.public_key.clone(),
-                        account_info.amount,
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        let contracts = self
-            .genesis_config
-            .contracts
-            .iter()
-            .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
-            .cloned()
-            .collect::<Vec<_>>();
-        let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
-        let (store_update, state_root) =
-            self.runtime.apply_genesis_state(state_update, &accounts, &validators, &contracts);
-        (store_update, state_root)
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+        let mut store_update = self.store.store_update();
+        let mut state_roots = vec![];
+        for shard_id in 0..self.genesis_config.block_producers_per_shard.len() as ShardId {
+            let accounts = self
+                .genesis_config
+                .accounts
+                .iter()
+                .filter_map(|account_info| {
+                    if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                        Some((
+                            account_info.account_id.clone(),
+                            account_info.public_key.clone(),
+                            account_info.amount,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            let validators = self
+                .genesis_config
+                .validators
+                .iter()
+                .filter_map(|account_info| {
+                    if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
+                        Some((
+                            account_info.account_id.clone(),
+                            account_info.public_key.clone(),
+                            account_info.amount,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            let contracts = self
+                .genesis_config
+                .contracts
+                .iter()
+                .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
+            let (shard_store_update, state_root) =
+                self.runtime.apply_genesis_state(state_update, &accounts, &validators, &contracts);
+            store_update.merge(shard_store_update);
+            state_roots.push(state_root);
+        }
+        (store_update, state_roots)
     }
 
     fn compute_block_weight(
@@ -151,7 +155,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let validator = self
-            .get_block_proposer_info(header.height)
+            .get_block_proposer_info(header.prev_hash, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -161,11 +165,12 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        let (epoch, _) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, _) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         Ok(validator_assignemnt
             .block_producers
             .iter()
@@ -178,19 +183,21 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_block_proposer(
         &self,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.get_block_proposer_info(height)?.account_id)
+        Ok(self.get_block_proposer_info(parent_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let (epoch, idx) = self.height_to_epoch(height);
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let validator_assignemnt = vm.get_validators(epoch)?;
+        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
         let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
             .iter()
             .map(|(_, seats)| seats)
@@ -235,6 +242,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(ValidTransaction { transaction })
     }
 
+    fn add_validator_proposals(
+        &self,
+        parent_hash: CryptoHash,
+        current_hash: CryptoHash,
+        block_index: BlockIndex,
+        proposals: Vec<ValidatorStake>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Deal with validator proposals and epoch finishing.
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        // TODO: don't commit here, instead contribute to upstream store update.
+        vm.add_proposals(parent_hash, current_hash, block_index, proposals)?
+            .commit()
+            .map_err(|err| err.into())
+    }
+
     fn apply_transactions(
         &self,
         shard_id: ShardId,
@@ -244,7 +266,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     > {
         let apply_state = ApplyState {
@@ -257,36 +279,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
 
-        // Deal with validator proposals and epoch finishing.
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        vm.add_proposals(
-            state_root.clone(),
-            apply_result.root.clone(),
-            apply_result.validator_proposals,
-        );
-        // If epoch changed, finalize previous epoch.
-        // TODO: right now at least one block per epoch is required.
-        let (epoch, _) = self.height_to_epoch(block_index);
-        if vm.last_epoch() != epoch {
-            // TODO(779): provide source of randomness here.
-            let mut rng_seed = [0; 32];
-            rng_seed.copy_from_slice(prev_block_hash.as_ref());
-            // TODO(973): calculate number of shards for dynamic resharding.
-            let epoch_config = ValidatorEpochConfig {
-                rng_seed,
-                num_shards: self.genesis_config.block_producers_per_shard.len() as ShardId,
-                num_block_producers: self.genesis_config.num_block_producers,
-                block_producers_per_shard: self.genesis_config.block_producers_per_shard.clone(),
-                avg_fisherman_per_shard: self.genesis_config.avg_fisherman_per_shard.clone(),
-            };
-            vm.finalize_epoch(epoch - 1, epoch_config, apply_result.root.clone())?;
-        }
-
         Ok((
             WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             apply_result.root,
             apply_result.tx_result,
             apply_result.new_receipts,
+            apply_result.validator_proposals
         ))
     }
 

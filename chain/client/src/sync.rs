@@ -14,7 +14,7 @@ use near_primitives::types::BlockIndex;
 use crate::types::SyncStatus;
 
 /// Maximum number of block headers send over the network.
-pub const MAX_BLOCK_HEADERS: u64 = 512;
+pub const MAX_BLOCK_HEADERS: u64 = 256;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 

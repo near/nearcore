@@ -44,9 +44,6 @@ pub type Balance = u128;
 pub type ReceiptId = Vec<u8>;
 pub type CallbackId = Vec<u8>;
 
-/// Epoch for rotating validators.
-pub type Epoch = u64;
-
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum PromiseId {
     Receipt(ReceiptId),

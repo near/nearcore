@@ -6,7 +6,7 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -45,9 +45,9 @@ pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Initialize state to genesis state and returns StoreUpdate and state root.
+    /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self, shard_id: ShardId) -> (StoreUpdate, MerkleHash);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -60,12 +60,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -73,6 +75,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -93,6 +96,15 @@ pub trait RuntimeAdapter: Send + Sync {
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, String>;
 
+    /// Add proposals for validators.
+    fn add_validator_proposals(
+        &self,
+        parent_hash: CryptoHash,
+        current_hash: CryptoHash,
+        block_index: BlockIndex,
+        proposals: Vec<ValidatorStake>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
@@ -104,7 +116,7 @@ pub trait RuntimeAdapter: Send + Sync {
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     >;
 
@@ -124,7 +136,7 @@ pub trait RuntimeAdapter: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
-    pub height: u64,
+    pub height: BlockIndex,
     /// Last block pushed to the fork
     pub last_block_hash: CryptoHash,
     /// Previous block
@@ -162,11 +174,13 @@ impl BlockApproval {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+
     use near_primitives::crypto::signer::InMemorySigner;
 
     use super::*;
-    use chrono::Utc;
-    use std::sync::Arc;
 
     #[test]
     fn test_block_produce() {
