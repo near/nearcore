@@ -57,6 +57,11 @@ impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
         ReadablePublicKey(self.to_string())
     }
+    pub fn empty() -> Self {
+        let array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        PublicKey(public_key)
+    }
 }
 
 impl Hash for PublicKey {

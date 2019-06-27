@@ -12,3 +12,4 @@ near-primitives = { path = "../../../core/primitives" }
 
 [dev-dependencies]
 wabt = "0.7.4"
+testlib = { path = "../../../test-utils/testlib"}
