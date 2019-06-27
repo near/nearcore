@@ -34,16 +34,16 @@ def local_init(home_dir, init_flags):
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
-def check_and_setup(is_local, is_debug, image, home_dir, init_flags):
+def check_and_setup(is_local, is_release, image, home_dir, init_flags):
     if is_local:
         subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
             'default', 'nightly'])
-        if is_debug:
-            subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
-                'build', '-p', 'near'])
-        else:
+        if is_release:
             subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
                 'build', '--release', '-p', 'near'])
+        else:
+            subprocess.call([os.path.expanduser('~/.cargo/bin/cargo'),
+                'build', '-p', 'near'])
 
     if os.path.exists(os.path.join(home_dir, 'config.json')):
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
@@ -94,28 +94,28 @@ def run_docker(image, home_dir, boot_nodes):
 
 
 """Runs NEAR core locally."""
-def run_local(home_dir, boot_nodes, debug):
+def run_local(home_dir, boot_nodes, release):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for local run")
-    if debug:
-        subprocess.call(['./target/debug/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
-    else:
+    if release:
         subprocess.call(['./target/release/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
+    else:
+        subprocess.call(['./target/debug/near', '--home', home_dir, 'run', '--boot-nodes=%s' % boot_nodes])
 
 
 
-def setup_and_run(local, debug, image, home_dir, init_flags, boot_nodes):
+def setup_and_run(local, release, image, home_dir, init_flags, boot_nodes):
     if local:
         install_cargo()
     else:
         subprocess.call(['docker', 'pull', image])
         subprocess.call(['docker', 'pull', 'v2tec/watchtower'])
 
-    check_and_setup(local, debug, image, home_dir, init_flags)
+    check_and_setup(local, release, image, home_dir, init_flags)
 
     print_staking_key(home_dir)
 
     if not local:
         run_docker(image, home_dir, boot_nodes)
     else:
-        run_local(home_dir, boot_nodes, debug)
+        run_local(home_dir, boot_nodes, release)
