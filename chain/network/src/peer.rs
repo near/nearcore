@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -19,7 +20,7 @@ use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    SendMessage, Unregister
+    SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -204,11 +205,17 @@ impl Peer {
             PeerMessage::Block(block) => {
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
+                self.chain_info.height = max(self.chain_info.height, block.header.height);
+                self.chain_info.total_weight =
+                    max(self.chain_info.total_weight, block.header.total_weight);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
                 let block_hash = header.hash();
                 self.tracker.push_received(block_hash);
+                self.chain_info.height = max(self.chain_info.height, header.height);
+                self.chain_info.total_weight =
+                    max(self.chain_info.total_weight, header.total_weight);
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
@@ -320,6 +327,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: handshake.account_id.clone(),
                 };
+                self.chain_info = handshake.chain_info;
                 self.peer_manager_addr
                     .send(Consolidate {
                         actor: ctx.address(),

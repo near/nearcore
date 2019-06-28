@@ -222,7 +222,9 @@ impl PeerManagerActor {
                 .into_actor(self)
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
                 .and_then(move |res, act, _| {
-                    if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
+                    if res.is_abusive {
+                        act.ban_peer(&peer_id1, ReasonForBan::Abusive);
+                    } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
                         active_peer.sent_bytes_per_sec = res.sent_bytes_per_sec;
                         active_peer.received_bytes_per_sec = res.received_bytes_per_sec;

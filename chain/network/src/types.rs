@@ -557,6 +557,7 @@ pub enum ReasonForBan {
     HeightFraud = 3,
     BadHandshake = 4,
     BadBlockApproval = 5,
+    Abusive = 6,
 }
 
 #[derive(Message)]
@@ -691,6 +692,7 @@ impl Message for NetworkClientMessages {
 pub struct QueryPeerStats {}
 
 /// Peer stats result
+#[derive(Debug)]
 pub struct PeerStatsResult {
     /// Chain info.
     pub chain_info: PeerChainInfo,

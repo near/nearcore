@@ -274,10 +274,20 @@ impl ClientActor {
         }
     }
 
+    fn get_block_proposer(&self, parent_hash: CryptoHash, height: BlockIndex) -> Result<AccountId, Error> {
+        let hash = if parent_hash == self.chain.genesis().hash() { CryptoHash::default() } else { parent_hash };
+        self.runtime_adapter.get_block_proposer(hash, height).map_err(|err| Error::Other(err.to_string()))
+    }
+
+    fn get_epoch_block_proposers(&self, parent_hash: CryptoHash, height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Error> {
+        let hash = if parent_hash == self.chain.genesis().hash() { CryptoHash::default() } else { parent_hash };
+        self.runtime_adapter.get_epoch_block_proposers(hash, height).map_err(|err| Error::Other(err.to_string()))
+    }
+
     /// Create approval for given block or return none if not a block producer.
     fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
         let next_block_producer_account =
-            self.runtime_adapter.get_block_proposer(block.header.hash(), block.header.height + 1);
+            self.get_block_proposer(block.header.hash(), block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
@@ -311,7 +321,7 @@ impl ClientActor {
     ) {
         // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
         let next_block_producer_account = unwrap_or_return!(
-            self.runtime_adapter.get_block_proposer(block_hash, check_height + 1),
+            self.get_block_proposer(block_hash, check_height + 1),
             ()
         );
         if let Some(block_producer) = &self.block_producer {
@@ -385,10 +395,7 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self
-            .runtime_adapter
-            .get_block_proposer(head.last_block_hash, next_height)
-            .map_err(|err| Error::Other(err.to_string()))?;
+        let next_block_proposer = self.get_block_proposer(head.last_block_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -767,7 +774,7 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head(), ());
-            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
@@ -815,7 +822,7 @@ impl ClientActor {
 
         // If given account is not current block proposer.
         let position =
-            match self.runtime_adapter.get_epoch_block_proposers(header.prev_hash, header.height) {
+            match self.get_epoch_block_proposers(header.prev_hash, header.height) {
                 Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
                 Err(err) => {
                     error!(target: "client", "Error: {}", err);
