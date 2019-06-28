@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import argparse
+import os
 import subprocess
 
 from nodelib import setup_and_run
@@ -17,7 +18,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("Starting unittest nodes with test.near account and seed key of alice.near")
-    subprocess.call(['rm', '-rf', 'testdir'])
-    setup_and_run(args.local, args.release, args.image, 'testdir',
+    home_dir = os.path.join(os.getcwd(), 'testdir')
+    subprocess.call(['rm', '-rf', home_dir])
+    setup_and_run(args.local, args.release, args.image, home_dir,
                   ['--chain-id=', '--test-seed=alice.near', '--account-id=test.near', '--fast'], '',
                   args.verbose)
