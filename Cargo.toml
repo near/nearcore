@@ -16,6 +16,7 @@ members = [
     "runtime/wasm",
     "runtime/wasm/runtest",
     "chain/chain",
+    "chain/chunks",
     "chain/pool",
     "chain/client",
     "chain/network",

@@ -13,4 +13,4 @@ mod chain;
 mod error;
 mod store;
 pub mod test_utils;
-mod types;
+pub mod types;

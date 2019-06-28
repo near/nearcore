@@ -5,17 +5,21 @@ use std::sync::Arc;
 use cached::SizedCache;
 use log::debug;
 
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash_struct, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCK_HEADER,
-    COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
+    COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_ONE_PARTS, COL_RECEIPTS, COL_STATE_REF,
+    COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, Tip};
+use crate::types::{Block, BlockHeader, ShardFullChunkOrOnePart, Tip};
+use crate::RuntimeAdapter;
+use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk, ShardChunkHeader};
+use std::collections::hash_map::Entry;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -41,18 +45,33 @@ pub trait ChainStoreAccess {
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
+    /// Get full chunk.
+    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error>;
+    /// Get a collection of chunks and chunk_one_parts for a given height
+    fn get_chunks_or_one_parts(
+        &mut self,
+        me: &Option<AccountId>,
+        parent_hash: CryptoHash,
+        height: u64,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        headers: &Vec<ShardChunkHeader>,
+    ) -> Result<Vec<ShardFullChunkOrOnePart>, Error>;
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error>;
+    fn get_post_state_root(&mut self, h: &ChunkHash) -> Result<&MerkleHash, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
     /// Returns resulting receipt for given block.
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error>;
+    fn get_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error>;
     /// Returns transaction result for given tx hash.
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error>;
 }
@@ -64,6 +83,10 @@ pub struct ChainStore {
     headers: SizedCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
+    /// Cache with chunks
+    chunks: HashMap<ChunkHash, ShardChunk>,
+    /// Cache with chunk one parts
+    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
     /// Cache with state roots.
     post_state_roots: SizedCache<Vec<u8>, MerkleHash>,
     // Cache with index to hash on the main chain.
@@ -72,6 +95,12 @@ pub struct ChainStore {
     receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, TransactionResult>,
+}
+
+pub struct ChunksStoreUpdate {
+    store: Arc<Store>,
+    new_chunks: Vec<ShardChunk>,
+    new_chunk_one_parts: Vec<ChunkOnePart>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -88,6 +117,8 @@ impl ChainStore {
             store,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
+            chunks: HashMap::new(),
+            chunk_one_parts: HashMap::new(),
             post_state_roots: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
             receipts: SizedCache::with_size(CACHE_SIZE),
@@ -97,6 +128,10 @@ impl ChainStore {
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<Self> {
         ChainStoreUpdate::new(self)
+    }
+
+    pub fn chunks_store_update(&self) -> ChunksStoreUpdate {
+        ChunksStoreUpdate::new(self.store.clone())
     }
 }
 
@@ -137,6 +172,112 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    /// Get full block.
+    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error> {
+        let entry = self.chunks.entry(h.clone());
+        match entry {
+            Entry::Occupied(s) => Ok(s.into_mut()),
+            Entry::Vacant(s) => {
+                if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, h.as_ref()) {
+                    Ok(s.insert(chunk))
+                } else {
+                    Err(ErrorKind::ChunksMissing(vec![]).into())
+                }
+            }
+        }
+    }
+
+    fn get_chunks_or_one_parts(
+        &mut self,
+        me: &Option<AccountId>,
+        parent_hash: CryptoHash,
+        height: u64,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        headers: &Vec<ShardChunkHeader>,
+    ) -> Result<Vec<ShardFullChunkOrOnePart>, Error> {
+        let mut ret = vec![];
+        let mut missing = vec![];
+
+        // First find missing ShardChunk's and ChunkOnePart's in the cache and fetch them
+        for (shard_id, chunk_header) in headers.iter().enumerate() {
+            let shard_id = shard_id as ShardId;
+            if chunk_header.height_included == height {
+                let chunk_hash = chunk_header.chunk_hash();
+                if me.as_ref().map_or_else(
+                    || false,
+                    |me| {
+                        runtime_adapter.cares_about_shard(
+                            me,
+                            parent_hash,
+                            chunk_header.height_included,
+                            shard_id,
+                        )
+                    },
+                ) {
+                    let entry = self.chunks.entry(chunk_hash.clone());
+                    match entry {
+                        Entry::Occupied(_) => (),
+                        Entry::Vacant(s) => {
+                            if let Ok(Some(chunk)) =
+                                self.store.get_ser(COL_CHUNKS, chunk_hash.as_ref())
+                            {
+                                Some(s.insert(chunk));
+                            } else {
+                                missing.push((shard_id, chunk_hash.clone()));
+                            }
+                        }
+                    };
+                } else {
+                    let entry = self.chunk_one_parts.entry(chunk_hash.clone());
+                    match entry {
+                        Entry::Occupied(_) => (),
+                        Entry::Vacant(s) => {
+                            if let Ok(Some(chunk_one_part)) =
+                                self.store.get_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref())
+                            {
+                                Some(s.insert(chunk_one_part));
+                            } else {
+                                missing.push((shard_id, chunk_hash.clone()));
+                            }
+                        }
+                    };
+                }
+            }
+        }
+
+        if !missing.is_empty() {
+            return Err(ErrorKind::ChunksMissing(missing).into());
+        }
+
+        // The get all the data from the cache
+        for (shard_id, chunk_header) in headers.iter().enumerate() {
+            let shard_id = shard_id as ShardId;
+            if chunk_header.height_included != height {
+                ret.push(ShardFullChunkOrOnePart::NoChunk);
+            } else if me.as_ref().map_or_else(
+                || false,
+                |me| {
+                    runtime_adapter.cares_about_shard(
+                        &me,
+                        parent_hash,
+                        chunk_header.height_included,
+                        shard_id,
+                    )
+                },
+            ) {
+                ret.push(ShardFullChunkOrOnePart::FullChunk(
+                    self.chunks.get(&chunk_header.chunk_hash()).unwrap(),
+                ));
+            } else {
+                ret.push(ShardFullChunkOrOnePart::OnePart(
+                    self.chunk_one_parts.get(&chunk_header.chunk_hash()).unwrap(),
+                ));
+            }
+        }
+
+        Ok(ret)
+    }
+
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
@@ -148,10 +289,10 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error> {
+    fn get_post_state_root(&mut self, h: &ChunkHash) -> Result<&MerkleHash, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, COL_STATE_REF, &mut self.post_state_roots, h.as_ref()),
-            &format!("STATE ROOT: {}", h),
+            &format!("STATE ROOT: {}", h.0),
         )
     }
 
@@ -181,9 +322,18 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+    fn get_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error> {
         option_to_not_found(
-            read_with_cache(&*self.store, COL_RECEIPTS, &mut self.receipts, hash.as_ref()),
+            read_with_cache(
+                &*self.store,
+                COL_RECEIPTS,
+                &mut self.receipts,
+                hash_struct(&(hash, shard_id)).as_ref(),
+            ),
             &format!("RECEIPT: {}", hash),
         )
     }
@@ -210,9 +360,9 @@ pub struct ChainStoreUpdate<'a, T> {
     blocks: HashMap<CryptoHash, Block>,
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    post_state_roots: HashMap<CryptoHash, MerkleHash>,
+    post_state_roots: HashMap<ChunkHash, MerkleHash>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
-    receipts: HashMap<CryptoHash, Vec<ReceiptTransaction>>,
+    receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
     transaction_results: HashMap<CryptoHash, TransactionResult>,
     head: Option<Tip>,
     tail: Option<Tip>,
@@ -307,7 +457,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, hash: &CryptoHash) -> Result<&MerkleHash, Error> {
+    fn get_post_state_root(&mut self, hash: &ChunkHash) -> Result<&MerkleHash, Error> {
         if let Some(post_state_root) = self.post_state_roots.get(hash) {
             Ok(post_state_root)
         } else {
@@ -330,16 +480,35 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get receipts produced for block with givien hash.
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
-        if let Some(receipts) = self.receipts.get(hash) {
+    fn get_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error> {
+        if let Some(receipts) = self.receipts.get(&(*hash, shard_id)) {
             Ok(receipts)
         } else {
-            self.chain_store.get_receipts(hash)
+            self.chain_store.get_receipts(hash, shard_id)
         }
     }
 
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
         self.chain_store.get_transaction_result(hash)
+    }
+
+    fn get_chunks_or_one_parts(
+        &mut self,
+        me: &Option<String>,
+        parent_hash: CryptoHash,
+        height: u64,
+        runtime_adapter: Arc<dyn RuntimeAdapter>,
+        headers: &Vec<ShardChunkHeader>,
+    ) -> Result<Vec<ShardFullChunkOrOnePart>, Error> {
+        self.chain_store.get_chunks_or_one_parts(me, parent_hash, height, runtime_adapter, headers)
+    }
+
+    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error> {
+        self.chain_store.get_chunk(h)
     }
 }
 
@@ -406,8 +575,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     }
 
     /// Save post applying block state root.
-    pub fn save_post_state_root(&mut self, hash: &CryptoHash, state_root: &CryptoHash) {
-        self.post_state_roots.insert(*hash, *state_root);
+    pub fn save_post_state_root(&mut self, hash: &ChunkHash, state_root: &CryptoHash) {
+        self.post_state_roots.insert(hash.clone(), *state_root);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -418,8 +587,13 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.headers.insert(header.hash(), header);
     }
 
-    pub fn save_receipt(&mut self, hash: &CryptoHash, receipt: Vec<ReceiptTransaction>) {
-        self.receipts.insert(*hash, receipt);
+    pub fn save_receipt(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+        receipt: Vec<ReceiptTransaction>,
+    ) {
+        self.receipts.insert((*hash, shard_id), receipt);
     }
 
     pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionResult) {
@@ -506,8 +680,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(height));
             }
         }
-        for (hash, receipt) in self.receipts.drain() {
-            store_update.set_ser(COL_RECEIPTS, hash.as_ref(), &receipt)?;
+        for (hash_and_shard, receipt) in self.receipts.drain() {
+            store_update.set_ser(COL_RECEIPTS, hash_struct(&hash_and_shard).as_ref(), &receipt)?;
         }
         for (hash, tx_result) in self.transaction_results.drain() {
             store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
@@ -527,5 +701,27 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn commit(self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit().map_err(|e| e.into())
+    }
+}
+
+impl ChunksStoreUpdate {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self { store, new_chunks: Vec::new(), new_chunk_one_parts: Vec::new() }
+    }
+    pub fn merge(&self) -> Result<(), io::Error> {
+        let mut store_update = self.store.store_update();
+        for chunk in self.new_chunks.iter() {
+            store_update.set_ser(COL_CHUNKS, chunk.chunk_hash.as_ref(), &chunk)?;
+        }
+
+        for chunk_one_part in self.new_chunk_one_parts.iter() {
+            store_update.set_ser(
+                COL_CHUNK_ONE_PARTS,
+                chunk_one_part.chunk_hash.as_ref(),
+                &chunk_one_part,
+            )?;
+        }
+
+        Ok(())
     }
 }

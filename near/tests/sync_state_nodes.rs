@@ -11,6 +11,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::ShardId;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
@@ -48,7 +49,11 @@ fn sync_state_nodes() {
     let mut prev = &genesis_header;
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
     for _ in 0..=100 {
-        let block = Block::empty(prev, signer.clone());
+        let block = Block::empty(
+            prev,
+            signer.clone(),
+            genesis_config.block_producers_per_shard.len() as ShardId,
+        );
         let _ = client1.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,

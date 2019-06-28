@@ -1,17 +1,18 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{GenesisConfig, load_test_config, NightshadeRuntime, start_with_config};
+use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::{ClientActor, GetBlock};
-use near_network::{NetworkClientMessages, PeerInfo};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::ShardId;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
@@ -29,11 +30,12 @@ fn add_blocks(
     client: Addr<ClientActor>,
     num: usize,
     signer: Arc<InMemorySigner>,
+    num_shards: ShardId,
 ) -> BlockHeader {
     let mut blocks = vec![];
     let mut prev = start;
     for _ in 0..num {
-        let block = Block::empty(prev, signer.clone());
+        let block = Block::empty(prev, signer.clone(), num_shards);
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
@@ -66,7 +68,13 @@ fn sync_nodes() {
     let (client1, _) = start_with_config(dir1.path(), near1);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let _ = add_blocks(&genesis_header, client1, 11, signer);
+    let _ = add_blocks(
+        &genesis_header,
+        client1,
+        11,
+        signer,
+        genesis_config.block_producers_per_shard.len() as ShardId,
+    );
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
     let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -114,9 +122,16 @@ fn sync_after_sync_nodes() {
     let (_, view_client2) = start_with_config(dir2.path(), near2);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let last_block = add_blocks(&genesis_header, client1.clone(), 11, signer.clone());
+    let last_block = add_blocks(
+        &genesis_header,
+        client1.clone(),
+        11,
+        signer.clone(),
+        genesis_config.block_producers_per_shard.len() as ShardId,
+    );
 
     let next_step = Arc::new(AtomicBool::new(false));
+    let num_shards = genesis_config.block_producers_per_shard.len() as ShardId;
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             let last_block1 = last_block.clone();
@@ -127,7 +142,7 @@ fn sync_after_sync_nodes() {
                 match &res {
                     Ok(Ok(b)) if b.header.height == 11 => {
                         if !next_step1.load(Ordering::Relaxed) {
-                            let _ = add_blocks(&last_block1, client11, 11, signer1);
+                            let _ = add_blocks(&last_block1, client11, 11, signer1, num_shards);
                             next_step1.store(true, Ordering::Relaxed);
                         }
                     }

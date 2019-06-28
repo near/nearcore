@@ -20,3 +20,7 @@ near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
+near-chunks = { path = "../chunks" }
+
+[features]
+expensive_tests = []

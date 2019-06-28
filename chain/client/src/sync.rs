@@ -10,7 +10,7 @@ use near_chain::{Chain, Tip};
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 
 use crate::types::{ShardSyncStatus, SyncStatus};
 
@@ -148,10 +148,11 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
-                                    self.network_recipient.do_send(NetworkRequests::BanPeer {
-                                        peer_id: peer.peer_info.id.clone(),
-                                        ban_reason: ReasonForBan::HeightFraud,
-                                    });
+                                    let _ =
+                                        self.network_recipient.do_send(NetworkRequests::BanPeer {
+                                            peer_id: peer.peer_info.id.clone(),
+                                            ban_reason: ReasonForBan::HeightFraud,
+                                        });
                                 }
                             }
                             _ => (),
@@ -420,6 +421,7 @@ impl StateSync {
 
     pub fn run(
         &mut self,
+        me: &Option<AccountId>,
         sync_status: &mut SyncStatus,
         chain: &mut Chain,
         highest_height: BlockIndex,
@@ -472,7 +474,7 @@ impl StateSync {
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.
-            chain.check_orphans(height + 1, |_, _, _| {});
+            chain.check_orphans(me, height + 1, |_, _, _| {});
 
             *sync_status = SyncStatus::BodySync { current_height: 0, highest_height: 0 };
             self.prev_state_sync.clear();
@@ -539,7 +541,7 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Option<FullPeerInfo> {
         if let Some(peer) = most_weight_peer(most_weight_peers) {
-            self.network_recipient.do_send(NetworkRequests::StateRequest {
+            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest {
                 shard_id,
                 hash,
                 peer_id: peer.peer_info.id,

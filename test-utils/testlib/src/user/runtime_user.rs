@@ -69,7 +69,7 @@ impl RuntimeUser {
     pub fn apply_all(
         &self,
         apply_state: ApplyState,
-        prev_receipts: Vec<Vec<ReceiptTransaction>>,
+        prev_receipts: Vec<ReceiptTransaction>,
         transactions: Vec<SignedTransaction>,
     ) {
         let mut cur_apply_state = apply_state;
@@ -81,7 +81,7 @@ impl RuntimeUser {
             let mut apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
             let mut counter = 0;
-            for (i, receipt) in receipts.iter().flatten().enumerate() {
+            for (i, receipt) in receipts.iter().enumerate() {
                 counter += 1;
                 let transaction_result = apply_result.tx_result[i].clone();
                 self.transaction_results.borrow_mut().insert(receipt.nonce, transaction_result);
@@ -106,7 +106,7 @@ impl RuntimeUser {
             for receipt in new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.nonce, receipt.clone());
             }
-            receipts = vec![new_receipts];
+            receipts = new_receipts;
             txs = vec![];
         }
     }
@@ -183,7 +183,7 @@ impl User for RuntimeUser {
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
         };
-        self.apply_all(apply_state, vec![vec![receipt]], vec![]);
+        self.apply_all(apply_state, vec![receipt], vec![]);
         Ok(())
     }
 

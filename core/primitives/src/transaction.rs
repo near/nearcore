@@ -477,13 +477,17 @@ impl SignedTransaction {
         self.hash
     }
 
-    // this is for tests
+    // The following functions are for tests
     pub fn empty() -> SignedTransaction {
+        Self::create_payment_tx(AccountId::default(), AccountId::default(), 0)
+    }
+
+    pub fn create_payment_tx(from: AccountId, to: AccountId, amount: u128) -> SignedTransaction {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
             nonce: 0,
-            originator: AccountId::default(),
-            receiver: AccountId::default(),
-            amount: 0,
+            originator: from,
+            receiver: to,
+            amount,
         });
         SignedTransaction {
             signature: DEFAULT_SIGNATURE,

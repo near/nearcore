@@ -15,16 +15,15 @@ use log::{debug, error, info, warn};
 
 use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
-    Tip, ValidTransaction,
+    Tip,
 };
 use near_network::types::{PeerId, ReasonForBan};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_pool::TransactionPool;
 use near_primitives::crypto::signature::Signature;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::Store;
 
@@ -34,6 +33,8 @@ use crate::types::{
     SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use near_chunks::ShardsManager;
+use near_primitives::sharding::ShardChunkHeader;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -49,7 +50,7 @@ pub struct ClientActor {
     sync_status: SyncStatus,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    tx_pool: TransactionPool,
+    shards_mgr: ShardsManager,
     network_actor: Recipient<NetworkRequests>,
     block_producer: Option<BlockProducer>,
     network_info: NetworkInfo,
@@ -81,8 +82,13 @@ impl ClientActor {
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
         // TODO(991): Wait until genesis.
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
-        let tx_pool = TransactionPool::new();
+        let mut chain = Chain::new(store.clone(), runtime_adapter.clone(), genesis_time)?;
+        let mut shards_mgr = ShardsManager::new(
+            block_producer.as_ref().map(|x| x.account_id.clone()),
+            runtime_adapter.clone(),
+            network_actor.clone(),
+            store.clone(),
+        );
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone(), config.block_fetch_horizon);
@@ -90,12 +96,27 @@ impl ClientActor {
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
+
+        // Populate post-state-roots for chunks
+        let head = chain.head()?;
+        let head_block = chain.get_block(&head.last_block_hash)?;
+        let mut chunk_hashes = vec![];
+
+        for chunk_header in head_block.chunks.iter() {
+            chunk_hashes.push(chunk_header.chunk_hash().clone());
+        }
+
+        for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
+            let shard_id = shard_id as ShardId;
+            shards_mgr.set_state_root(shard_id, chain.get_post_state_root(&chunk_hash)?.clone());
+        }
+
         Ok(ClientActor {
             config,
             sync_status,
             chain,
             runtime_adapter,
-            tx_pool,
+            shards_mgr,
             network_actor,
             block_producer,
             network_info: NetworkInfo {
@@ -137,13 +158,21 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
-                Ok(valid_transaction) => {
-                    self.tx_pool.insert_transaction(valid_transaction);
-                    NetworkClientResponses::ValidTx
+            NetworkClientMessages::Transaction(tx) => {
+                let runtime_adapter = self.runtime_adapter.clone();
+                let shard_id = runtime_adapter.account_id_to_shard_id(&tx.body.get_originator());
+                if let Some(state_root) = self.shards_mgr.get_state_root(shard_id) {
+                    match self.runtime_adapter.validate_tx(shard_id, state_root, tx) {
+                        Ok(valid_transaction) => {
+                            self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                            NetworkClientResponses::ValidTx
+                        }
+                        Err(err) => NetworkClientResponses::InvalidTx(err),
+                    }
+                } else {
+                    NetworkClientResponses::NoResponse
                 }
-                Err(err) => NetworkClientResponses::InvalidTx(err),
-            },
+            }
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -231,6 +260,60 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::ChunkPartRequest(part_request_msg, peer_id) => {
+                let _ = self.shards_mgr.process_chunk_part_request(part_request_msg, peer_id);
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::ChunkPart(part_msg) => {
+                if let Ok(Some(height)) = self.shards_mgr.process_chunk_part(part_msg) {
+                    self.process_blocks_with_missing_chunks(ctx, height);
+                }
+                NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::ChunkOnePart(one_part_msg) => {
+                let prev_block_hash = one_part_msg.header.prev_block_hash;
+                let height = one_part_msg.header.height_created;
+                if let Ok(ret) = self.shards_mgr.process_chunk_one_part(one_part_msg.clone()) {
+                    if ret {
+                        // If the chunk builds on top of the current head, get all the remaining parts
+                        // TODO: if the bp receives the chunk before they receive the block, they will
+                        //     not collect the parts currently. It will result in chunk not included
+                        //     in the next block.
+                        if self.block_producer.as_ref().map_or_else(
+                            || false,
+                            |bp| {
+                                self.runtime_adapter.cares_about_shard(
+                                    &bp.account_id,
+                                    prev_block_hash,
+                                    height,
+                                    one_part_msg.shard_id,
+                                )
+                            },
+                        ) && self
+                            .chain
+                            .head()
+                            .map(|head| head.last_block_hash == one_part_msg.header.prev_block_hash)
+                            .unwrap_or(false)
+                        {
+                            self.shards_mgr.request_chunks(
+                                prev_block_hash,
+                                height,
+                                vec![(one_part_msg.shard_id, one_part_msg.header.chunk_hash())],
+                            );
+                        } else {
+                            // We are getting here either because we don't care about the shard, or
+                            //    because we see the one part before we see the block.
+                            // In the latter case we will request parts once the block is received
+                            /*info!("MOO Not requesting remaining parts of the chunk after receipt of one_part, tip: {}, prev_hash: {}, I'm {}",
+                                   self.chain.head().map(|head| head.last_block_hash).unwrap_or(CryptoHash::default()), one_part_msg.header.prev_block_hash, self.block_producer.as_ref().unwrap().account_id.clone());
+                            debug!("Not requesting remaining parts of the chunk after receipt of one_part, tip: {}, prev_hash: {}",
+                                    self.chain.head().map(|head| head.last_block_hash).unwrap_or(CryptoHash::default()), one_part_msg.header.prev_block_hash);*/
+                        }
+                        self.process_blocks_with_missing_chunks(ctx, height);
+                    }
+                }
+                NetworkClientResponses::NoResponse
+            }
         }
     }
 }
@@ -243,8 +326,6 @@ impl Handler<Status> for ClientActor {
         let prev_header =
             self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
         let latest_block_time = prev_header.timestamp.clone();
-        let state_root =
-            self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         let validators = self
             .runtime_adapter
             .get_epoch_block_proposers(head.last_block_hash, head.height)
@@ -259,7 +340,7 @@ impl Handler<Status> for ClientActor {
             sync_info: StatusSyncInfo {
                 latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
-                latest_state_root: state_root.clone(),
+                latest_state_root: prev_header.prev_state_root.clone(),
                 latest_block_time,
                 syncing: self.sync_status.is_syncing(),
             },
@@ -314,11 +395,169 @@ impl ClientActor {
             );
         }
 
-        // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
-        // This may be slow and we do not want to delay block propagation.
-        // We only want to reconcile the txpool against the new block *if* total weight has increased.
-        if status == BlockStatus::Next || status == BlockStatus::Reorg {
-            self.tx_pool.reconcile_block(&block);
+        if let Some(bp) = self.block_producer.clone() {
+            // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
+            // This may be slow and we do not want to delay block propagation.
+            match status {
+                BlockStatus::Next => {
+                    // If this block immediately follows the current tip, remove transactions
+                    //    from the txpool
+                    self.remove_transactions_for_block(bp.account_id.clone(), &block);
+
+                    // It's enough to update the state root for updated chunks only
+                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+                        let shard_id = shard_id as ShardId;
+                        if block.header.height == chunk_header.height_included {
+                            if self.runtime_adapter.cares_about_shard(
+                                &bp.account_id,
+                                block.header.prev_hash,
+                                chunk_header.height_included,
+                                shard_id,
+                            ) {
+                                self.shards_mgr.set_state_root(
+                                    shard_id,
+                                    *self
+                                        .chain
+                                        .get_post_state_root(&chunk_header.chunk_hash())
+                                        .unwrap(),
+                                );
+                            }
+                        }
+                    }
+                }
+                BlockStatus::Fork => {
+                    // If it's a fork, no need to reconcile transactions or produce chunks
+                    return;
+                }
+                BlockStatus::Reorg(prev_head) => {
+                    debug!("MOO reorg, I'm {:?}", bp.account_id);
+                    // If a reorg happened, reintroduce transactions from the previous chain and
+                    //    remove transactions from the new chain
+                    let mut reintroduce_head =
+                        self.chain.get_block_header(&prev_head).unwrap().clone();
+                    let mut remove_head = block.header.clone();
+                    assert_ne!(remove_head.hash(), reintroduce_head.hash());
+
+                    let mut to_remove = vec![];
+                    let mut to_reintroduce = vec![];
+
+                    while remove_head.hash() != reintroduce_head.hash() {
+                        while remove_head.height > reintroduce_head.height {
+                            to_remove.push(remove_head.hash());
+                            remove_head = self
+                                .chain
+                                .get_block_header(&remove_head.prev_hash)
+                                .unwrap()
+                                .clone();
+                        }
+                        while reintroduce_head.height > remove_head.height
+                            || reintroduce_head.height == remove_head.height
+                                && reintroduce_head.hash() != remove_head.hash()
+                        {
+                            to_reintroduce.push(reintroduce_head.hash());
+                            reintroduce_head = self
+                                .chain
+                                .get_block_header(&reintroduce_head.prev_hash)
+                                .unwrap()
+                                .clone();
+                        }
+                    }
+
+                    for to_reintroduce_hash in to_reintroduce {
+                        let block = self.chain.get_block(&to_reintroduce_hash).unwrap().clone();
+                        self.reintroduce_transactions_for_block(bp.account_id.clone(), &block);
+                    }
+
+                    for to_remove_hash in to_remove {
+                        let block = self.chain.get_block(&to_remove_hash).unwrap().clone();
+                        self.remove_transactions_for_block(bp.account_id.clone(), &block);
+                    }
+
+                    // It's necessary to update the state root for all the shards we care about
+                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+                        let shard_id = shard_id as ShardId;
+                        if self.runtime_adapter.cares_about_shard(
+                            &bp.account_id,
+                            block.header.prev_hash,
+                            chunk_header.height_included,
+                            shard_id,
+                        ) {
+                            self.shards_mgr.set_state_root(
+                                shard_id,
+                                *self
+                                    .chain
+                                    .get_post_state_root(&chunk_header.chunk_hash())
+                                    .unwrap(),
+                            );
+                        }
+                    }
+                }
+            };
+
+            if provenance != Provenance::SYNC {
+                // Produce new chunks
+                for shard_id in 0..self.runtime_adapter.num_shards() {
+                    {
+                        if let Ok(chunk_proposer) = self.runtime_adapter.get_chunk_proposer(
+                            block.header.hash(),
+                            block.header.height + 1,
+                            shard_id,
+                        ) {
+                            if chunk_proposer == *bp.account_id {
+                                if let Err(err) = self.produce_chunk(
+                                    ctx,
+                                    block.hash(),
+                                    block.chunks[shard_id as usize].clone(),
+                                    block.header.height + 1,
+                                    shard_id,
+                                ) {
+                                    error!(target: "client", "Error producing chunk {:?}", err);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+        for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+            let shard_id = shard_id as ShardId;
+            if block.header.height == chunk_header.height_included {
+                if self.runtime_adapter.cares_about_shard(
+                    &me,
+                    block.header.prev_hash,
+                    chunk_header.height_included,
+                    shard_id,
+                ) {
+                    self.shards_mgr.remove_transactions(
+                        shard_id,
+                        // By now the chunk must be in store, otherwise the block would have been orphaned
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                    );
+                }
+            }
+        }
+    }
+
+    fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+        for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+            let shard_id = shard_id as ShardId;
+            if block.header.height == chunk_header.height_included {
+                if self.runtime_adapter.cares_about_shard(
+                    &me,
+                    block.header.prev_hash,
+                    chunk_header.height_included,
+                    shard_id,
+                ) {
+                    self.shards_mgr.reintroduce_transactions(
+                        shard_id,
+                        // By now the chunk must be in store, otherwise the block would have been orphaned
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                    );
+                }
+            }
         }
     }
 
@@ -434,6 +673,104 @@ impl ClientActor {
         }
     }
 
+    fn produce_chunk(
+        &mut self,
+        _ctx: &mut Context<ClientActor>, // TODO: remove?
+        prev_block_hash: CryptoHash,
+        last_header: ShardChunkHeader,
+        next_height: BlockIndex,
+        shard_id: ShardId,
+    ) -> Result<(), Error> {
+        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
+            Error::ChunkProducer("Called without block producer info.".to_string())
+        })?;
+
+        let chunk_proposer = self
+            .runtime_adapter
+            .get_chunk_proposer(prev_block_hash, next_height, shard_id)
+            .map_err(|err| Error::Other(err.to_string()))?;
+        if block_producer.account_id != chunk_proposer {
+            debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
+            return Ok(());
+        }
+
+        debug!(
+            target: "client",
+            "Producing chunk at height {} for shard {}, I'm {}",
+            next_height,
+            shard_id,
+            block_producer.account_id
+        );
+
+        let state_root = self
+            .shards_mgr
+            .get_state_root(shard_id)
+            .ok_or_else(|| Error::ChunkProducer("No state root available".to_string()))?;
+
+        let transactions =
+            self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
+        info!("Creating a chunk with {} transactions for shard {}", transactions.len(), shard_id);
+
+        let mut receipts = vec![];
+        let mut receipts_block_hash = prev_block_hash.clone();
+        loop {
+            let block_header = self.chain.get_block_header(&receipts_block_hash)?;
+
+            assert!(
+                block_header.height < last_header.height_created
+                    || block_header.height >= last_header.height_included
+            );
+            if block_header.height + 1 < last_header.height_created {
+                assert!(false);
+                break;
+            }
+
+            let last_iteration = (block_header.height <= last_header.height_created);
+
+            let next_receipts_block_hash = block_header.prev_hash.clone();
+
+            if let Ok(cur_receipts) = self.chain.get_receipts(&receipts_block_hash, shard_id) {
+                receipts.extend_from_slice(cur_receipts);
+            }
+
+            if last_iteration {
+                break;
+            }
+
+            receipts_block_hash = next_receipts_block_hash;
+        }
+
+        let encoded_chunk = self
+            .shards_mgr
+            .create_encoded_shard_chunk(
+                prev_block_hash,
+                state_root,
+                next_height,
+                shard_id,
+                &transactions,
+                &receipts,
+                block_producer.signer.clone(),
+            )
+            .map_err(|_e| {
+                Error::ChunkProducer("Can't create encoded chunk, serialization error.".to_string())
+            })?;
+
+        debug!(
+            target: "client",
+            "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
+            next_height,
+            shard_id,
+            transactions.len(),
+            receipts.len(),
+            block_producer.account_id,
+            encoded_chunk.chunk_hash().0,
+        );
+
+        self.shards_mgr.distribute_encoded_chunk(shard_id, encoded_chunk, receipts);
+
+        Ok(())
+    }
+
     /// Produce block if we are block producer for given `next_height` index.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
     fn produce_block_err(
@@ -456,9 +793,7 @@ impl ClientActor {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
         }
-        let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
-        let has_receipts =
-            self.chain.get_receipts(&head.last_block_hash).map(|r| r.len() > 0).unwrap_or(false);
+        let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let validators = self
@@ -489,9 +824,10 @@ impl ClientActor {
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         // Also produce at least one block per epoch (produce a block even if empty if the last height was more than an epoch ago).
+        let new_chunks = self.shards_mgr.prepare_chunks(prev.hash());
+
         if !self.config.produce_empty_blocks
-            && self.tx_pool.len() == 0
-            && !has_receipts
+            && new_chunks.is_empty()
             && next_height - last_height < self.config.epoch_length
         {
             self.handle_scheduling_block_production(
@@ -503,14 +839,22 @@ impl ClientActor {
             return Ok(());
         }
 
+        let prev_block = self.chain.get_block(&head.last_block_hash)?;
+        let mut chunks = prev_block.chunks.clone();
+
+        for (shard_id, mut chunk_header) in new_chunks {
+            chunk_header.height_included = next_height;
+            chunks[shard_id as usize] = chunk_header;
+        }
+
         let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Take transactions from the pool.
-        let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
+        let transactions = vec![];
         let block = Block::produce(
             &prev_header,
             next_height,
-            state_root,
+            chunks,
             transactions,
             self.approvals.drain().collect(),
             vec![],
@@ -518,6 +862,30 @@ impl ClientActor {
         );
 
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
+    }
+
+    /// Check if any block with missing chunks is ready to be processed
+    fn process_blocks_with_missing_chunks(&mut self, ctx: &mut Context<ClientActor>, height: u64) {
+        // We need to process all heights after and including the height, since the
+        //    chunk could have been included in a later block
+        for height_key in self.chain.all_heights_with_missing_chunks() {
+            if height_key >= height {
+                let height = height_key;
+
+                let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                let me = self
+                    .block_producer
+                    .as_ref()
+                    .map(|block_producer| block_producer.account_id.clone());
+                self.chain.check_blocks_with_missing_chunks(&me, height, |block, status, provenance| {
+                    debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
+                    accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
+                });
+                for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
+                    self.on_block_accepted(ctx, hash, status, provenance);
+                }
+            }
+        }
     }
 
     /// Process block and execute callbacks.
@@ -531,7 +899,11 @@ impl ClientActor {
         // TODO: replace to channels or cross beams here?
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
         let result = {
-            self.chain.process_block(block, provenance, |block, status, provenance| {
+            let me = self
+                .block_producer
+                .as_ref()
+                .map(|block_producer| block_producer.account_id.clone());
+            self.chain.process_block(&me, block, provenance, |block, status, provenance| {
                 accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
             })
         };
@@ -551,7 +923,8 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_id);
+        let height = block.header.height;
+        debug!(target: "client", "Received block {} <- {} at {} from {}", hash, block.header.prev_hash, block.header.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -575,6 +948,16 @@ impl ClientActor {
                     if !self.chain.is_orphan(&prev_hash) && !self.sync_status.is_syncing() {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
+                    NetworkClientResponses::NoResponse
+                }
+                near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
+                    info!(
+                        "MOO Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}",
+                        hash.clone(),
+                        self.block_producer.as_ref().unwrap().account_id.clone(),
+                        missing_chunks.clone()
+                    );
+                    self.shards_mgr.request_chunks(prev_hash, height, missing_chunks);
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -667,17 +1050,6 @@ impl ClientActor {
             }
         }
         Ok(headers)
-    }
-
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, String> {
-        let head = self.chain.head().map_err(|err| err.to_string())?;
-        let state_root = self
-            .chain
-            .get_post_state_root(&head.last_block_hash)
-            .map_err(|err| err.to_string())?
-            .clone();
-        self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 
     /// Check whether need to (continue) sync.
@@ -794,6 +1166,7 @@ impl ClientActor {
                 };
                 if sync_state {
                     unwrap_or_run_later!(self.state_sync.run(
+                        &self.block_producer.as_ref().map(|x| x.account_id.clone()),
                         &mut self.sync_status,
                         &mut self.chain,
                         highest_height,
@@ -885,13 +1258,14 @@ impl ClientActor {
         let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(header.prev_hash, header.height) {
-            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
-        };
+        let position =
+            match self.runtime_adapter.get_epoch_block_proposers(header.prev_hash, header.height) {
+                Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+                Err(err) => {
+                    error!(target: "client", "Error: {}", err);
+                    return false;
+                }
+            };
         if position.is_none() {
             return false;
         }
@@ -910,12 +1284,12 @@ impl ClientActor {
         hash: CryptoHash,
     ) -> Result<(Vec<u8>, Vec<ReceiptTransaction>), near_chain::Error> {
         let header = self.chain.get_block_header(&hash)?;
-        let prev_hash = header.prev_hash;
         let payload = self
             .runtime_adapter
             .dump_state(shard_id, header.prev_state_root)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
-        let receipts = self.chain.get_receipts(&prev_hash)?.clone();
+        // TODO XXX receipts
+        let receipts = vec![]; //self.chain.get_receipts(&prev_hash)?.clone();
         Ok((payload, receipts))
     }
 }

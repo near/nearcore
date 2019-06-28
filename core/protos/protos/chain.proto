@@ -21,7 +21,19 @@ message BlockHeader {
     bytes signature = 2;
 }
 
+message ShardChunkHeader {
+    bytes prev_block_hash = 1;
+    bytes prev_state_root = 2;
+    bytes encoded_merkle_root = 3;
+    uint64 encoded_length = 4;
+    uint64 height_created = 5;
+    uint64 height_included = 6;
+    uint64 shard_id = 7;
+    bytes signature = 8;
+}
+
 message Block {
     BlockHeader header = 1;
-    repeated SignedTransaction transactions = 2;
+    repeated ShardChunkHeader chunks = 2;
+    repeated SignedTransaction transactions = 3;
 }

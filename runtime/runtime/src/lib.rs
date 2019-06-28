@@ -764,7 +764,7 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
-        prev_receipts: &[Vec<ReceiptTransaction>],
+        prev_receipts: &Vec<ReceiptTransaction>,
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, Box<dyn std::error::Error>> {
         let mut new_receipts = HashMap::new();
@@ -773,7 +773,7 @@ impl Runtime {
         let block_index = apply_state.block_index;
         let mut tx_result = vec![];
         let mut largest_tx_nonce = HashMap::new();
-        for receipt in prev_receipts.iter().flatten() {
+        for receipt in prev_receipts.iter() {
             tx_result.push(self.process_receipt(
                 &mut state_update,
                 shard_id,

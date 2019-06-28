@@ -50,13 +50,13 @@ pub fn query_client(
     adapter: &dyn RuntimeAdapter,
     state_root: MerkleHash,
     height: BlockIndex,
-    path: &str,
+    path_parts: Vec<&str>,
     data: &[u8],
 ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-    let path_parts: Vec<&str> = path.split('/').collect();
     if path_parts.is_empty() {
         return Err("Path must contain at least single token".into());
     }
+    debug!("PATH[0] = {}", path_parts[0]);
     match path_parts[0] {
         "account" => match adapter.view_account(state_root, &AccountId::from(path_parts[1])) {
             Ok(r) => Ok(QueryResponse::ViewAccount(r)),
@@ -103,6 +103,6 @@ pub fn query_client(
                 }
             }
         }
-        _ => Err(format!("Unknown path {}", path).into()),
+        _ => Err(format!("Unknown path {}", path_parts[0]).into()),
     }
 }

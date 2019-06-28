@@ -6,6 +6,7 @@ use actix::System;
 use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
+use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
@@ -13,6 +14,7 @@ use near_network::types::{FullPeerInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::MerkleHash;
@@ -44,7 +46,7 @@ fn produce_two_blocks() {
 /// Runs block producing client and sends it a transaction.
 #[test]
 fn produce_blocks_with_tx() {
-    let count = Arc::new(AtomicUsize::new(0));
+    let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
         let (client, _) = setup_mock(
@@ -52,16 +54,33 @@ fn produce_blocks_with_tx() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::Block { block } = msg {
-                    count.fetch_add(block.transactions.len(), Ordering::Relaxed);
-                    if count.load(Ordering::Relaxed) >= 1 {
-                        System::current().stop();
+                if let NetworkRequests::ChunkOnePart { account_id: _, header_and_part } = msg {
+                    let height = header_and_part.header.height_created as usize;
+                    assert!(encoded_chunks.len() + 2 >= height);
+                    if encoded_chunks.len() + 2 == height {
+                        encoded_chunks.push(EncodedShardChunk::from_header(
+                            header_and_part.header.clone(),
+                            48, // must match total_parts in KeyValueRuntimeAdapter
+                        ));
+                    }
+                    encoded_chunks[height - 2].content.parts[header_and_part.part_id as usize] =
+                        Some(header_and_part.part.clone());
+
+                    if let ChunkStatus::Complete(_) =
+                        ShardsManager::check_chunk_complete(16, 48, &mut encoded_chunks[height - 2])
+                    {
+                        let chunk =
+                            ShardsManager::decode_chunk(16, &encoded_chunks[height - 2]).unwrap();
+                        if chunk.transactions.len() > 0 {
+                            System::current().stop();
+                        }
                     }
                 }
                 NetworkResponses::NoResponse
             }),
         );
         client.do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -90,7 +109,7 @@ fn receive_network_block() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
+                last_block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -138,7 +157,7 @@ fn receive_network_block_header() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
+                last_block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -179,7 +198,7 @@ fn produce_block_with_approvals() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
+                last_block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -211,7 +230,13 @@ fn invalid_blocks() {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval } => {
                         assert_eq!(header.height, 1);
-                        assert_eq!(header.prev_state_root, MerkleHash::default());
+                        assert_eq!(
+                            header.prev_state_root,
+                            Block::compute_state_root(&Block::genesis_chunks(
+                                vec![MerkleHash::default()], // must match RuntimeAdapter::genesis_state second return value
+                                1
+                            ))
+                        );
                         assert_eq!(*approval, None);
                         System::current().stop();
                     }
@@ -224,15 +249,16 @@ fn invalid_blocks() {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             // Send invalid state root.
-            let block = Block::produce(
+            let mut block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                hash(&[0]),
+                last_block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],
                 signer.clone(),
             );
+            block.header.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -242,7 +268,7 @@ fn invalid_blocks() {
             let block2 = Block::produce(
                 &block.header,
                 block.header.height + 1,
-                hash(&[1]),
+                block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -253,7 +279,7 @@ fn invalid_blocks() {
             let block3 = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
+                last_block.chunks.clone(),
                 vec![],
                 HashMap::default(),
                 vec![],

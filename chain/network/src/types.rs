@@ -11,6 +11,7 @@ use actix::{Actor, Addr, Message};
 use chrono::{DateTime, Utc};
 use protobuf::well_known_types::UInt32Value;
 use protobuf::{RepeatedField, SingularPtrField};
+use reed_solomon_erasure::Shard;
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
@@ -18,13 +19,15 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
-use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::{SignedTransaction, ReceiptTransaction};
+use near_primitives::serialize::{BaseEncode, Decode, Encode};
+use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
+use near_primitives::merkle::MerklePath;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -283,6 +286,9 @@ pub enum PeerMessage {
 
     StateRequest(ShardId, CryptoHash),
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    ChunkPartRequest(ChunkPartRequestMsg),
+    ChunkPart(ChunkPartMsg),
+    ChunkOnePart(ChunkOnePart),
 }
 
 impl fmt::Display for PeerMessage {
@@ -300,6 +306,9 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
+            PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
+            PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
+            PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
         }
     }
 }
@@ -371,9 +380,45 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     state_response.shard_id,
                     state_response.hash.try_into()?,
                     state_response.payload,
-                    state_response.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?,
+                    state_response
+                        .receipts
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
+                chunk_part_request,
+            )) => Ok(PeerMessage::ChunkPartRequest(ChunkPartRequestMsg {
+                shard_id: chunk_part_request.shard_id,
+                chunk_hash: ChunkHash(chunk_part_request.chunk_hash.try_into()?),
+                height: chunk_part_request.height,
+                part_id: chunk_part_request.part_id,
+            })),
+            Some(network_proto::PeerMessage_oneof_message_type::chunk_part(chunk_part)) => {
+                Ok(PeerMessage::ChunkPart(ChunkPartMsg {
+                    shard_id: chunk_part.shard_id,
+                    chunk_hash: ChunkHash(chunk_part.chunk_hash.try_into()?),
+                    part_id: chunk_part.part_id,
+                    part: chunk_part.part.into_boxed_slice(),
+                    merkle_path: MerklePath::decode(chunk_part.merkle_path.as_slice())?,
+                }))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::chunk_header_and_part(
+                chunk_header_and_part,
+            )) => Ok(PeerMessage::ChunkOnePart(ChunkOnePart {
+                shard_id: chunk_header_and_part.shard_id,
+                chunk_hash: ChunkHash(chunk_header_and_part.chunk_hash.try_into()?),
+                header: proto_to_type(chunk_header_and_part.header)?,
+                part_id: chunk_header_and_part.part_id,
+                part: chunk_header_and_part.part.into_boxed_slice(),
+                receipts: chunk_header_and_part
+                    .receipts
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()?,
+                merkle_path: MerklePath::decode(chunk_header_and_part.merkle_path.as_slice())?,
+            })),
             None => unreachable!(),
         }
     }
@@ -454,11 +499,50 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     shard_id,
                     hash: hash.into(),
                     payload,
-                    receipts: RepeatedField::from_iter(receipts.into_iter().map(std::convert::Into::into)),
+                    receipts: RepeatedField::from_iter(
+                        receipts.into_iter().map(std::convert::Into::into),
+                    ),
                     cached_size: Default::default(),
                     unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
+            }
+            PeerMessage::ChunkPartRequest(chunk_part_request) => {
+                let chunk_part_request = network_proto::ChunkPartRequest {
+                    shard_id: chunk_part_request.shard_id,
+                    chunk_hash: chunk_part_request.chunk_hash.0.into(),
+                    height: chunk_part_request.height,
+                    part_id: chunk_part_request.part_id,
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
+                    chunk_part_request,
+                ))
+            }
+            PeerMessage::ChunkPart(chunk_part) => {
+                let chunk_part = network_proto::ChunkPart {
+                    shard_id: chunk_part.shard_id,
+                    chunk_hash: chunk_part.chunk_hash.0.into(),
+                    part_id: chunk_part.part_id,
+                    part: (*chunk_part.part).to_vec(),
+                    merkle_path: MerklePath::encode(&chunk_part.merkle_path).unwrap(),
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::chunk_part(chunk_part))
+            }
+            PeerMessage::ChunkOnePart(chunk_header_and_part) => {
+                let chunk_header_and_part = network_proto::ChunkOnePart {
+                    shard_id: chunk_header_and_part.shard_id,
+                    chunk_hash: chunk_header_and_part.chunk_hash.0.into(),
+                    header: SingularPtrField::some(chunk_header_and_part.header.into()),
+                    part_id: chunk_header_and_part.part_id,
+                    part: (*chunk_header_and_part.part).to_vec(),
+                    merkle_path: MerklePath::encode(&chunk_header_and_part.merkle_path).unwrap(),
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::chunk_header_and_part(
+                    chunk_header_and_part,
+                ))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -650,6 +734,22 @@ pub enum NetworkRequests {
         peer_id: PeerId,
         ban_reason: ReasonForBan,
     },
+
+    /// Request chunk part
+    ChunkPartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
+    /// A chunk part
+    ChunkPart {
+        peer_id: PeerId,
+        part: ChunkPartMsg,
+    },
+    /// A chunk header and one part
+    ChunkOnePart {
+        account_id: AccountId,
+        header_and_part: ChunkOnePart,
+    },
 }
 
 /// Combines peer address info and chain information.
@@ -708,6 +808,13 @@ pub enum NetworkClientMessages {
     StateRequest(ShardId, CryptoHash),
     /// State response.
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+
+    /// Request chunk part
+    ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    /// A chunk part
+    ChunkPart(ChunkPartMsg),
+    /// A chunk header and one part
+    ChunkOnePart(ChunkOnePart),
 }
 
 pub enum NetworkClientResponses {
@@ -726,7 +833,12 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<ReceiptTransaction> },
+    StateResponse {
+        shard_id: ShardId,
+        hash: CryptoHash,
+        payload: Vec<u8>,
+        receipts: Vec<ReceiptTransaction>,
+    },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -777,4 +889,21 @@ where
 
 impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChunkPartRequestMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub height: BlockIndex,
+    pub part_id: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChunkPartMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub part_id: u64,
+    pub part: Shard,
+    pub merkle_path: MerklePath,
 }

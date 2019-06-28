@@ -438,7 +438,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::StateRequest(shard_id, hash) });
+                    active_peer.addr.do_send(SendMessage {
+                        message: PeerMessage::StateRequest(shard_id, hash),
+                    });
                 }
                 NetworkResponses::NoResponse
             }
@@ -447,6 +449,28 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     // TODO: send stop signal to the addr.
                 }
                 self.ban_peer(&peer_id, ban_reason);
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkPartRequest { account_id, part_request } => {
+                self.send_message_to_account(
+                    ctx,
+                    account_id,
+                    SendMessage { message: PeerMessage::ChunkPartRequest(part_request) },
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkPart { peer_id, part } => {
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkOnePart { account_id, header_and_part } => {
+                self.send_message_to_account(
+                    ctx,
+                    account_id,
+                    SendMessage { message: PeerMessage::ChunkOnePart(header_and_part) },
+                );
                 NetworkResponses::NoResponse
             }
         }

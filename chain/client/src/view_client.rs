@@ -13,6 +13,7 @@ use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, TransactionLogs, TransactionResult,
     TransactionStatus,
 };
+use near_primitives::types::AccountId;
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
@@ -89,10 +90,21 @@ impl Handler<Query> for ViewClientActor {
 
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
-        let state_root =
-            self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
+        let path_parts: Vec<&str> = msg.path.split('/').collect();
+        let account_id = AccountId::from(path_parts[1]);
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+        let head_block = self
+            .chain
+            .get_block(&head.last_block_hash)
+            .map_err(|_e| "Failed to fetch head block while executing request")?;
+        let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
+        let state_root = self
+            .chain
+            .get_post_state_root(&chunk_hash)
+            .map_err(|_e| "Failed to fetch the chunk while executing request")?;
+
         self.runtime_adapter
-            .query(*state_root, head.height, &msg.path, &msg.data)
+            .query(*state_root, head.height, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }

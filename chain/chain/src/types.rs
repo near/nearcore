@@ -10,6 +10,7 @@ use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, Validat
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum BlockStatus {
@@ -19,7 +20,7 @@ pub enum BlockStatus {
     Fork,
     /// Block updates the chain head via a (potentially disruptive) "reorg".
     /// Previous block was not our previous chain head.
-    Reorg,
+    Reorg(CryptoHash),
 }
 
 /// Options for block origin.
@@ -41,6 +42,15 @@ pub struct ValidTransaction {
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 
+pub enum ShardFullChunkOrOnePart<'a> {
+    // The validator follows the shard, and has the full chunk
+    FullChunk(&'a ShardChunk),
+    // The validator doesn't follow the shard, and only has one part
+    OnePart(&'a ChunkOnePart),
+    // The chunk for particular shard is not present in the block
+    NoChunk,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
@@ -55,6 +65,8 @@ pub trait RuntimeAdapter: Send + Sync {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
+
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> bool;
 
     /// Epoch block proposers with number of seats they have for given shard.
     /// Returns error if height is outside of known boundaries.
@@ -74,9 +86,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_proposer(
         &self,
-        shard_id: ShardId,
         parent_hash: CryptoHash,
         height: BlockIndex,
+        shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     /// Check validator's signature.
@@ -85,8 +97,25 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
+    fn num_total_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize;
+    fn num_data_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize;
+
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+    fn get_part_owner(
+        &self,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+        part_id: u64,
+    ) -> Result<AccountId, Box<dyn std::error::Error>>;
+
+    fn cares_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+        shard_id: ShardId,
+    ) -> bool;
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(
@@ -114,7 +143,7 @@ pub trait RuntimeAdapter: Send + Sync {
         merkle_hash: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
-        receipts: &Vec<Vec<ReceiptTransaction>>,
+        receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (
@@ -132,7 +161,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
-        path: &str,
+        path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
@@ -198,12 +227,13 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let genesis = Block::genesis(MerkleHash::default(), Utc::now());
+        let num_shards = 32;
+        let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::produce(
             &genesis.header,
             1,
-            MerkleHash::default(),
+            Block::genesis_chunks(vec![Block::genesis_hash()], num_shards),
             vec![],
             HashMap::default(),
             vec![],
@@ -214,15 +244,7 @@ mod tests {
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::produce(
-            &b1.header,
-            2,
-            MerkleHash::default(),
-            vec![],
-            approvals,
-            vec![],
-            signer.clone(),
-        );
+        let b2 = Block::produce(&b1.header, 2, vec![], vec![], approvals, vec![], signer.clone());
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

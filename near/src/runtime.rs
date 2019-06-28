@@ -10,7 +10,7 @@ use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
@@ -26,6 +26,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
 use kvdb::DBValue;
+use near_primitives::sharding::ShardChunkHeader;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -91,6 +92,29 @@ impl NightshadeRuntime {
         for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
             if cur_seats + seats > idx % total_seats {
                 return Ok(validator_assignemnt.validators[i].clone());
+            }
+            cur_seats += seats;
+        }
+        unreachable!()
+    }
+
+    fn get_chunk_proposer_info(
+        &self,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+        shard_id: ShardId,
+    ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignemnt = vm.get_validators(epoch_hash)?;
+        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
+            .iter()
+            .map(|(_, seats)| seats)
+            .sum();
+        let mut cur_seats = 0;
+        for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
+            if cur_seats + seats > idx % total_seats {
+                return Ok(validator_assignemnt.validators[*index].clone());
             }
             cur_seats += seats;
         }
@@ -165,6 +189,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> bool {
+        let public_key = &self
+            .get_chunk_proposer_info(header.prev_block_hash, header.height_created, header.shard_id)
+            .map(|vs| vs.public_key);
+        if let Ok(public_key) = public_key {
+            verify(header.chunk_hash().0.as_ref(), &header.signature, public_key)
+        } else {
+            false
+        }
+    }
+
     fn get_epoch_block_proposers(
         &self,
         parent_hash: CryptoHash,
@@ -193,25 +228,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_chunk_proposer(
         &self,
-        shard_id: ShardId,
         parent_hash: CryptoHash,
         height: BlockIndex,
+        shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
-        let validator_assignemnt = vm.get_validators(epoch_hash)?;
-        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
-            .iter()
-            .map(|(_, seats)| seats)
-            .sum();
-        let mut cur_seats = 0;
-        for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
-            if cur_seats + seats > idx % total_seats {
-                return Ok(validator_assignemnt.validators[*index].account_id.clone());
-            }
-            cur_seats += seats;
-        }
-        unreachable!()
+        Ok(self.get_chunk_proposer_info(parent_hash, height, shard_id)?.account_id)
     }
 
     fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
@@ -223,10 +244,71 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.genesis_config.block_producers_per_shard.len() as ShardId
     }
 
+    fn num_total_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, height).unwrap();
+        if let Ok(validator_assignment) = vm.get_validators(epoch_hash) {
+            let ret = validator_assignment.validators.len();
+            if ret > 1 {
+                ret
+            } else {
+                2
+            }
+        } else {
+            2
+        }
+    }
+
+    fn num_data_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize {
+        let total_parts = self.num_total_parts(parent_hash, height);
+        if total_parts <= 3 {
+            1
+        } else {
+            (total_parts - 1) / 3
+        }
+    }
+
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
-        cursor.read_u64::<LittleEndian>().expect("Must not happened")
-            % (self.genesis_config.block_producers_per_shard.len() as ShardId)
+        cursor.read_u64::<LittleEndian>().expect("Must not happened") % (self.num_shards())
+    }
+
+    fn get_part_owner(
+        &self,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+        part_id: u64,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let validator_assignment = vm.get_validators(epoch_hash)?;
+
+        return Ok(validator_assignment.validators
+            [part_id as usize % validator_assignment.validators.len()]
+        .account_id
+        .clone());
+    }
+
+    fn cares_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+        shard_id: ShardId,
+    ) -> bool {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let (epoch_hash, _idx) = match vm.get_epoch_offset(parent_hash, height) {
+            Ok(tuple) => tuple,
+            Err(_) => return false,
+        };
+        if let Ok(validator_assignment) = vm.get_validators(epoch_hash) {
+            for (index, _seats) in validator_assignment.chunk_producers[shard_id as usize].iter() {
+                if validator_assignment.validators[*index].account_id == *account_id {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn validate_tx(
@@ -266,7 +348,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
-        receipts: &Vec<Vec<ReceiptTransaction>>,
+        receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (
@@ -301,10 +383,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
-        path: &str,
+        path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        query_client(self, state_root, height, path, data)
+        query_client(self, state_root, height, path_parts, data)
     }
 
     fn dump_state(
@@ -328,7 +410,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn set_state(&self, shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_state(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let payload_len = payload.len();

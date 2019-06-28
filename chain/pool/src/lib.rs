@@ -1,7 +1,7 @@
 use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 
-use near_chain::{Block, ValidTransaction};
+use near_chain::ValidTransaction;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 
@@ -51,8 +51,8 @@ impl TransactionPool {
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
-    pub fn reconcile_block(&mut self, block: &Block) {
-        for transaction in block.transactions.iter() {
+    pub fn remove_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
             let account = transaction.body.get_originator();
             let nonce = transaction.body.get_nonce();
             let mut remove_map = false;
@@ -64,6 +64,14 @@ impl TransactionPool {
                 self.num_transactions -= 1;
                 self.transactions.remove(&account);
             }
+        }
+    }
+
+    /// Reintroduce transactions back during the reorg
+    pub fn reintroduce_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
+            let transaction = transaction.clone();
+            self.insert_transaction(ValidTransaction { transaction });
         }
     }
 
@@ -90,7 +98,9 @@ mod tests {
     fn test_order_nonce() {
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
         let mut transactions: Vec<_> = (1..10)
-            .map(|i| TransactionBody::send_money(i, "alice.near", "bob.near", i as Balance).sign(&signer))
+            .map(|i| {
+                TransactionBody::send_money(i, "alice.near", "bob.near", i as Balance).sign(&signer)
+            })
             .collect();
         let mut pool = TransactionPool::new();
         let mut rng = thread_rng();

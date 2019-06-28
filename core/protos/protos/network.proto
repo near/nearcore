@@ -55,6 +55,29 @@ message StateResponse {
     repeated ReceiptTransaction receipts = 4;
 }
 
+message ChunkPartRequest{
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    uint64 height = 3;
+    uint64 part_id = 4;
+}
+message ChunkPart {
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    uint64 part_id = 3;
+    bytes part = 4;
+    bytes merkle_path = 5;
+}
+message ChunkOnePart {
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    ShardChunkHeader header = 3;
+    uint64 part_id = 4;
+    bytes part = 5;
+    repeated ReceiptTransaction receipts = 6;
+    bytes merkle_path = 7;
+}
+
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
@@ -69,5 +92,9 @@ message PeerMessage {
         SignedTransaction transaction = 10;
         StateRequest state_request = 11;
         StateResponse state_response = 12;
+
+        ChunkPartRequest chunk_part_request = 13;
+        ChunkPart chunk_part = 14;
+        ChunkOnePart chunk_header_and_part = 15;
     }
 }

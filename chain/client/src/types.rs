@@ -20,6 +20,7 @@ pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
     BlockProducer(String),
+    ChunkProducer(String),
     Other(String),
 }
 
@@ -29,6 +30,7 @@ impl std::fmt::Display for Error {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Pool(err) => write!(f, "Pool: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
+            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
             Error::Other(err) => write!(f, "Other: {}", err),
         }
     }
@@ -100,12 +102,12 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn test(skip_sync_wait: bool) -> Self {
+    pub fn test(skip_sync_wait: bool, block_prod_time: u64) -> Self {
         ClientConfig {
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
-            min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(300),
+            min_block_production_delay: Duration::from_millis(block_prod_time),
+            max_block_production_delay: Duration::from_millis(3 * block_prod_time),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),

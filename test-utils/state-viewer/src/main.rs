@@ -112,7 +112,7 @@ fn main() {
             let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config);
             let head = chain_store.head().unwrap();
             let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
-            let state_root = chain_store.get_post_state_root(&head.last_block_hash).unwrap();
+            let state_root = &last_header.prev_state_root;
             let trie = TrieIterator::new(&runtime.trie, state_root).unwrap();
 
             println!("Storage root is {}, block height is {}", state_root, last_header.height);

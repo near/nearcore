@@ -12,8 +12,10 @@ use near_protos::chain as chain_proto;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
+use crate::merkle::merklize;
+use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
+use crate::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -216,20 +218,53 @@ pub struct Bytes(Vec<u8>);
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
+    pub chunks: Vec<ShardChunkHeader>,
     pub transactions: Vec<SignedTransaction>,
 }
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        Block { header: BlockHeader::genesis(state_root, timestamp), transactions: vec![] }
+    pub fn genesis(
+        state_roots: Vec<MerkleHash>,
+        timestamp: DateTime<Utc>,
+        num_shards: ShardId,
+    ) -> Self {
+        let chunks = Block::genesis_chunks(state_roots, num_shards);
+        Block {
+            header: BlockHeader::genesis(Block::compute_state_root(&chunks), timestamp),
+            chunks,
+            transactions: vec![],
+        }
+    }
+
+    pub fn genesis_hash() -> CryptoHash {
+        hash(&[42])
+    }
+
+    pub fn genesis_chunks(
+        state_roots: Vec<CryptoHash>,
+        num_shards: ShardId,
+    ) -> Vec<ShardChunkHeader> {
+        assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+        (0..num_shards)
+            .map(|i| ShardChunkHeader {
+                prev_block_hash: Block::genesis_hash(),
+                prev_state_root: state_roots[i as usize % state_roots.len()],
+                encoded_merkle_root: Block::genesis_hash(),
+                encoded_length: 0,
+                height_created: 0,
+                height_included: 0,
+                shard_id: i,
+                signature: DEFAULT_SIGNATURE,
+            })
+            .collect()
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
     pub fn produce(
         prev: &BlockHeader,
         height: BlockIndex,
-        state_root: MerkleHash,
+        chunks: Vec<ShardChunkHeader>,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
@@ -250,7 +285,7 @@ impl Block {
             header: BlockHeader::new(
                 height,
                 prev.hash(),
-                state_root,
+                Block::compute_state_root(&chunks),
                 tx_root,
                 Utc::now(),
                 approval_mask,
@@ -259,8 +294,13 @@ impl Block {
                 validator_proposal,
                 signer,
             ),
+            chunks,
             transactions,
         }
+    }
+
+    pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+        merklize(&chunks.iter().map(|chunk| chunk.prev_state_root).collect::<Vec<CryptoHash>>()).0
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -268,11 +308,11 @@ impl Block {
     }
 
     // for tests
-    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
+    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>, num_shards: ShardId) -> Self {
         Block::produce(
             prev,
             prev.height + 1,
-            prev.prev_state_root,
+            Block::genesis_chunks(vec![Block::genesis_hash()], num_shards),
             vec![],
             HashMap::default(),
             vec![],
@@ -287,7 +327,9 @@ impl TryFrom<chain_proto::Block> for Block {
     fn try_from(proto: chain_proto::Block) -> Result<Self, Self::Error> {
         let transactions =
             proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
-        Ok(Block { header: proto_to_type(proto.header)?, transactions })
+        let chunks =
+            proto.chunks.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        Ok(Block { header: proto_to_type(proto.header)?, chunks, transactions })
     }
 }
 
@@ -295,6 +337,7 @@ impl From<Block> for chain_proto::Block {
     fn from(block: Block) -> Self {
         chain_proto::Block {
             header: SingularPtrField::some(block.header.into()),
+            chunks: block.chunks.into_iter().map(std::convert::Into::into).collect(),
             transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
             ..Default::default()
         }
