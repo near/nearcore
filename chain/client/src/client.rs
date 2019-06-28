@@ -97,6 +97,8 @@ impl ClientActor {
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
+                received_bytes_per_sec: 0,
+                sent_bytes_per_sec: 0,
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
@@ -738,10 +740,14 @@ impl ClientActor {
                     num_active_peers,
                     peer_max_count,
                     most_weight_peers,
+                    sent_bytes_per_sec,
+                    received_bytes_per_sec,
                 }) => {
                     act.network_info.num_active_peers = num_active_peers;
                     act.network_info.peer_max_count = peer_max_count;
                     act.network_info.most_weight_peers = most_weight_peers;
+                    act.network_info.sent_bytes_per_sec = sent_bytes_per_sec;
+                    act.network_info.received_bytes_per_sec = received_bytes_per_sec;
                     actix::fut::ok(())
                 }
                 _ => {
@@ -771,7 +777,7 @@ impl ClientActor {
             // Block#, Block Hash, is validator/# validators, active/max peers.
             let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
             let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
-            info!(target: "info", "{} {} {} {}",
+            info!(target: "info", "{} {} {} {} {}",
                 match act.sync_status {
                     SyncStatus::NoSync => Yellow.bold().paint(format!("#{:>8} {}", head.height, head.last_block_hash)),
                     SyncStatus::AwaitingPeers => Yellow.bold().paint(format!("Waiting for more peers")),
@@ -785,6 +791,7 @@ impl ClientActor {
                 },
                   White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
                   Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", act.network_info.num_active_peers, act.network_info.most_weight_peers.len(), act.network_info.peer_max_count)),
+                  Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(act.network_info.received_bytes_per_sec), pretty_bytes_per_sec(act.network_info.sent_bytes_per_sec))),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
             );
             act.started = Instant::now();
@@ -825,5 +832,18 @@ impl ClientActor {
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position.unwrap(), signature.clone());
         true
+    }
+}
+
+/// Format bytes per second in a nice way.
+fn pretty_bytes_per_sec(num: u64) -> String {
+    if num < 100 {
+        // Under 0.1 kiB, display in bytes.
+        format!("{} B/s", num)
+    } else if num < 1024 * 1024 {
+        // Under 1.0 MiB/sec display in kiB/sec.
+        format!("{:.1}kiB/s", num as f64 / 1024.0)
+    } else {
+        format!("{:.1}MiB/s", num as f64 / (1024.0 * 1024.0))
     }
 }

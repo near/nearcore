@@ -312,6 +312,8 @@ fn client_sync() {
                         peer_info: peer_info1.clone(),
                         chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
                     }],
+                    sent_bytes_per_sec: 0,
+                    received_bytes_per_sec: 0,
                 },
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);

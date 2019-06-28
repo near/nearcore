@@ -14,11 +14,12 @@ use tokio::net::TcpStream;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
-use crate::codec::{Codec, peer_message_to_bytes, bytes_to_peer_message};
+use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    SendMessage, Unregister
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -109,6 +110,8 @@ pub struct Peer {
     client_addr: Recipient<NetworkClientMessages>,
     /// Tracker for requests and responses.
     tracker: Tracker,
+    /// Latest chain info from the peer.
+    chain_info: PeerChainInfo,
 }
 
 impl Peer {
@@ -133,6 +136,7 @@ impl Peer {
             peer_manager_addr,
             client_addr,
             tracker: Default::default(),
+            chain_info: Default::default(),
         }
     }
 
@@ -140,11 +144,6 @@ impl Peer {
     fn is_abusive(&self) -> bool {
         self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
             || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
-    }
-
-    /// Number of bytes sent and received to the peer.
-    fn last_min_bytes(&self) -> (u64, u64) {
-        (self.tracker.sent_bytes.bytes_per_min(), self.tracker.received_bytes.bytes_per_min())
     }
 
     fn send_message(&mut self, msg: PeerMessage) {
@@ -382,5 +381,18 @@ impl Handler<SendMessage> for Peer {
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         self.send_message(msg.message);
+    }
+}
+
+impl Handler<QueryPeerStats> for Peer {
+    type Result = PeerStatsResult;
+
+    fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        PeerStatsResult {
+            chain_info: self.chain_info,
+            received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
+            sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
+            is_abusive: self.is_abusive(),
+        }
     }
 }
