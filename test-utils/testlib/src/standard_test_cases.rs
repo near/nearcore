@@ -108,6 +108,26 @@ pub fn test_smart_contract_simple(node: impl Node) {
     validate_tx_result(node_user, root, &hash, 2);
 }
 
+pub fn test_smart_contract_self_call(node: impl Node) {
+    let account_id = &node.account_id().unwrap();
+    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
+        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+        originator: account_id.clone(),
+        contract_id: account_id.clone(),
+        method_name: b"run_test".to_vec(),
+        args: vec![],
+        amount: FUNCTION_CALL_AMOUNT,
+    })
+    .sign(&*node.signer());
+
+    let node_user = node.user();
+    let hash = transaction.get_hash();
+    let root = node_user.get_state_root();
+    node_user.add_transaction(transaction).unwrap();
+    wait_for_transaction(&node_user, &hash);
+    validate_tx_result(node_user, root, &hash, 0);
+}
+
 pub fn test_smart_contract_bad_method_name(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
@@ -116,7 +136,7 @@ pub fn test_smart_contract_bad_method_name(node: impl Node) {
         contract_id: bob_account(),
         method_name: b"_run_test".to_vec(),
         args: vec![],
-        amount: 0,
+        amount: FUNCTION_CALL_AMOUNT,
     })
     .sign(&*node.signer());
 
@@ -210,6 +230,8 @@ pub fn test_async_call_with_no_callback(node: impl Node) {
             vec![],
             FUNCTION_CALL_AMOUNT,
             account_id.clone(),
+            account_id.clone(),
+            node.signer().public_key().clone(),
         )),
     };
 
@@ -238,11 +260,19 @@ pub fn test_async_call_with_callback(node: impl Node) {
         args,
         FUNCTION_CALL_AMOUNT,
         refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
     );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call =
-        AsyncCall::new(b"run_test".to_vec(), vec![], FUNCTION_CALL_AMOUNT, refund_account.clone());
+    let mut async_call = AsyncCall::new(
+        b"run_test".to_vec(),
+        vec![],
+        FUNCTION_CALL_AMOUNT,
+        refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
+    );
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -289,6 +319,8 @@ pub fn test_async_call_with_logs(node: impl Node) {
             vec![],
             FUNCTION_CALL_AMOUNT,
             account_id.clone(),
+            account_id.clone(),
+            node.signer().public_key().clone(),
         )),
     };
 
@@ -313,10 +345,24 @@ pub fn test_deposit_with_callback(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let args = (7..9).flat_map(|x| encode_int(x).to_vec()).collect();
     let refund_account = account_id;
-    let mut callback = Callback::new(b"sum_with_input".to_vec(), args, 0, refund_account.clone());
+    let mut callback = Callback::new(
+        b"sum_with_input".to_vec(),
+        args,
+        0,
+        refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
+    );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
-    let mut async_call = AsyncCall::new(vec![], vec![], 0, refund_account.clone());
+    let mut async_call = AsyncCall::new(
+        vec![],
+        vec![],
+        0,
+        refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
+    );
     let callback_info = CallbackInfo::new(callback_id.clone(), 0, account_id.clone());
     async_call.callback = Some(callback_info.clone());
     let receipt = ReceiptTransaction::new(
@@ -350,6 +396,8 @@ pub fn test_callback(node: RuntimeNode) {
         vec![],
         FUNCTION_CALL_AMOUNT,
         refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
     );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();
@@ -398,6 +446,8 @@ pub fn test_callback_failure(node: RuntimeNode) {
         vec![],
         0,
         refund_account.clone(),
+        account_id.clone(),
+        node.signer().public_key().clone(),
     );
     callback.results.resize(1, None);
     let callback_id = [0; 32].to_vec();

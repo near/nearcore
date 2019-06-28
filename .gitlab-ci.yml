@@ -46,6 +46,8 @@ cache:
 # Test all but expensive integration tests.
 test_cargo:
     stage: rust
+    tags:
+    - gcloud
     before_script:
     - *setup_rust
     #- rustup component add clippy
@@ -98,6 +100,8 @@ test_cases_testnet_rpc:
 
 release_build:
    stage: rust
+   tags:
+   - gcloud
    before_script:
    - *setup_rust
    - *setup_cache
@@ -120,6 +124,8 @@ release_build:
 #
 test_nearlib:
    stage: libs
+   tags:
+   - gcloud
    before_script:
    - *setup_rust
    - *setup_cache

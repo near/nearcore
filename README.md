@@ -42,51 +42,15 @@ High level milestones:
 
  - [x] DevNet: a tool with fully working State Transition + WebAssembly.
  - [x] AlphaNet: Multi-node smart-contract platform.
- - [ ] BetaNet: Added economics and enchanced security.
- - [ ] TestNet: added governance module, ready to launch as MVB
- - [ ] MainNet: Launched as Minimum Viable Blockchain.
- - [ ] Shard chains: Support for scalable sharding.
-
+ - [X] BetaNet: Added economics and enhanced security.
+ - [ ] (In progress) Nightshade: Added sharding and staking.
+ - [ ] TestNet: Added governance module, ready to launch as MainNet
+ - [ ] MainNet: Launched full blockchain.
+ 
 ## Running 
 
 Checkout the [Running Locally](https://github.com/nearprotocol/nearcore/tree/master/ops#running-locally) and [Running Remotely](https://github.com/nearprotocol/nearcore/tree/master/ops#running-remotely) sections.
 
 ## Developing
 
-Checkout the [Developing NEAR Runtime](https://github.com/nearprotocol/nearcore/tree/master/ops#developing-near-runtime) and [Building and Pushing Docker Image](https://github.com/nearprotocol/nearcore/tree/master/ops#building-and-pushing-docker-image) sections.
-
-### Logging
-
-For runnable apps (devnet, nearcore, etc.), you can use
-the `--log-level` option to configure the log level across all internal crates.
-You can also use the `RUST_LOG` environment variable, with `env_logger`
-[semantics](https://docs.rs/env_logger/0.6.0/env_logger/#enabling-logging)
-to override the log level for specific targets. `RUST_LOG` can also be used in
-integration tests which spawn runnable apps.
-
-Example:
-```bash
-$ RUST_LOG=runtime=debug cargo run -- --log-level warn
-```
-
-To add new target (e.g. `info!(target: "my target", "hello")`), 
-add the desired target to the list in `node/cli/src/service.rs` in `configure_logging` function.
-
-### Contributions
-
-If you are planning to contribute, there are few more things to setup
-
-#### Setup git hooks
-
-```bash
-./scripts/setup_hooks.sh
-```
-
-#### Setup rustfmt for your editor (optional)
-Installation instructions [here](https://github.com/rust-lang-nursery/rustfmt#running-rustfmt-from-your-editor)
-
-#### Lints
-We currently use [clippy](https://github.com/rust-lang-nursery/rust-clippy) to enforce certain standards.
-This check is run automatically during CI builds, and in a `pre-commit`
-hook. You can run do a clippy check with `./scripts/run_clippy.sh`.
-
+Checkout the [Developing NEARCore](https://docs.nearprotocol.com/v/nighshade/development/nearcore) section of documentation.

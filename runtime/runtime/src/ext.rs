@@ -17,6 +17,7 @@ use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
 use crate::POISONED_LOCK_ERR;
+use near_primitives::crypto::signature::PublicKey;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
@@ -25,22 +26,26 @@ pub struct RuntimeExt<'a> {
     storage_prefix: Vec<u8>,
     pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
     pub callbacks: HashMap<CallbackId, Callback>,
-    account_id: AccountId,
-    refund_account_id: AccountId,
+    account_id: &'a AccountId,
+    refund_account_id: &'a AccountId,
     nonce: Nonce,
     transaction_hash: &'a CryptoHash,
     iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
     last_iter_id: u32,
     ethash_provider: Arc<Mutex<EthashProvider>>,
+    originator_id: &'a AccountId,
+    public_key: &'a PublicKey,
 }
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
-        account_id: &AccountId,
-        refund_account_id: &AccountId,
+        account_id: &'a AccountId,
+        refund_account_id: &'a AccountId,
         transaction_hash: &'a CryptoHash,
         ethash_provider: Arc<Mutex<EthashProvider>>,
+        originator_id: &'a AccountId,
+        public_key: &'a PublicKey,
     ) -> Self {
         let mut prefix = key_for_account(account_id);
         prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
@@ -49,13 +54,15 @@ impl<'a> RuntimeExt<'a> {
             storage_prefix: prefix,
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
-            account_id: account_id.clone(),
-            refund_account_id: refund_account_id.clone(),
+            account_id,
+            refund_account_id,
             nonce: 0,
             transaction_hash,
             iters: HashMap::new(),
             last_iter_id: 0,
             ethash_provider,
+            originator_id,
+            public_key,
         }
     }
 
@@ -169,6 +176,8 @@ impl<'a> External for RuntimeExt<'a> {
                 arguments,
                 amount,
                 self.refund_account_id.clone(),
+                self.originator_id.clone(),
+                self.public_key.clone(),
             )),
         );
         let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
@@ -189,8 +198,14 @@ impl<'a> External for RuntimeExt<'a> {
             PromiseId::Joiner(rs) => rs,
             PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
         };
-        let mut callback =
-            Callback::new(method_name, arguments, amount, self.refund_account_id.clone());
+        let mut callback = Callback::new(
+            method_name,
+            arguments,
+            amount,
+            self.refund_account_id.clone(),
+            self.originator_id.clone(),
+            self.public_key.clone(),
+        );
         callback.results.resize(receipt_ids.len(), None);
         for (index, receipt_id) in receipt_ids.iter().enumerate() {
             let receipt = match self.receipts.get_mut(receipt_id) {

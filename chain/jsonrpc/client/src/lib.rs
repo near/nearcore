@@ -4,12 +4,12 @@ use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
 
-use near_chain::Block;
-use near_client::StatusResponse;
-use near_primitives::rpc::QueryResponse;
+use near_primitives::block::Block;
+use near_primitives::rpc::{QueryResponse, StatusResponse};
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::BlockIndex;
 
+pub mod message;
 use crate::message::{from_slice, Message};
 
 /// Timeout for establishing connection.

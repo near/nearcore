@@ -10,8 +10,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account,
-    key_for_code,
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
 };
 use near_store::{get, set, TrieUpdate};
 use wasm::types::ContractCode;
@@ -27,6 +26,7 @@ pub fn send_money(
     hash: CryptoHash,
     sender: &mut Account,
     refund_account_id: &AccountId,
+    public_key: PublicKey,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if transaction.amount == 0 {
         return Err("Sending 0 tokens".to_string());
@@ -44,6 +44,8 @@ pub fn send_money(
                 vec![],
                 transaction.amount,
                 refund_account_id.clone(),
+                transaction.originator.clone(),
+                public_key,
             )),
         );
         Ok(vec![receipt])
@@ -115,6 +117,7 @@ pub fn create_account(
     hash: CryptoHash,
     sender: &mut Account,
     refund_account_id: &AccountId,
+    public_key: PublicKey,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if !is_valid_account_id(&body.new_account_id) {
         return Err(format!("Account name {} {}", body.new_account_id, INVALID_ACCOUNT_ID));
@@ -132,6 +135,8 @@ pub fn create_account(
                 body.public_key.clone(),
                 body.amount,
                 refund_account_id.clone(),
+                body.originator.clone(),
+                public_key,
             )),
         );
         Ok(vec![receipt])

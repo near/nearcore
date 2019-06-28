@@ -29,3 +29,4 @@ near-chain = { path = "../chain" }
 near-client = { path = "../client" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
+near-jsonrpc-client = { path = "client" }

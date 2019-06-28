@@ -18,15 +18,15 @@ use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{BaseEncode, from_base};
+use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
-use crate::message::{Request, RpcError};
+use message::{Request, RpcError};
 
-pub mod client;
-mod message;
+pub use near_jsonrpc_client as client;
+use near_jsonrpc_client::message as message;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
@@ -74,6 +74,10 @@ fn from_base_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
     from_base(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))
 }
 
+fn from_base64_or_parse_err(encoded: String) -> Result<Vec<u8>, RpcError> {
+    from_base64(&encoded).map_err(|err| RpcError::parse_error(err.to_string()))
+}
+
 fn parse_params<T: DeserializeOwned>(value: Option<Value>) -> Result<T, RpcError> {
     if let Some(value) = value {
         serde_json::from_value(value)
@@ -96,7 +100,7 @@ fn jsonify<T: serde::Serialize>(
 
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
-    let bytes = from_base_or_parse_err(encoded)?;
+    let bytes = from_base64_or_parse_err(encoded)?;
     let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
         RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
     })?;

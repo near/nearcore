@@ -2,7 +2,6 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -36,11 +35,11 @@ use crate::types::{
 use crate::{sync, StatusResponse};
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr) => (match $obj {
+macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
     Ok(value) => value,
     Err(err) => {
         error!(target: "client", "Error: {:?}", err);
-        return
+        return $ret;
     }
 }));
 
@@ -102,6 +101,8 @@ impl ClientActor {
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
+                received_bytes_per_sec: 0,
+                sent_bytes_per_sec: 0,
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
@@ -197,14 +198,14 @@ impl Handler<Status> for ClientActor {
 
     fn handle(&mut self, _: Status, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
-        let last_header =
+        let prev_header =
             self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
-        let latest_block_time = last_header.timestamp.clone();
+        let latest_block_time = prev_header.timestamp.clone();
         let state_root =
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(head.height)
+            .get_epoch_block_proposers(head.last_block_hash, head.height)
             .map_err(|err| err.to_string())?
             .drain(..)
             .map(|(account_id, _)| account_id)
@@ -262,7 +263,12 @@ impl ClientActor {
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
-            self.handle_scheduling_block_production(ctx, block.header.height, block.header.height);
+            self.handle_scheduling_block_production(
+                ctx,
+                block.hash(),
+                block.header.height,
+                block.header.height,
+            );
         }
 
         // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
@@ -273,17 +279,27 @@ impl ClientActor {
         }
     }
 
+    fn get_block_proposer(&self, parent_hash: CryptoHash, height: BlockIndex) -> Result<AccountId, Error> {
+        let hash = if parent_hash == self.chain.genesis().hash() { CryptoHash::default() } else { parent_hash };
+        self.runtime_adapter.get_block_proposer(hash, height).map_err(|err| Error::Other(err.to_string()))
+    }
+
+    fn get_epoch_block_proposers(&self, parent_hash: CryptoHash, height: BlockIndex) -> Result<Vec<(AccountId, u64)>, Error> {
+        let hash = if parent_hash == self.chain.genesis().hash() { CryptoHash::default() } else { parent_hash };
+        self.runtime_adapter.get_epoch_block_proposers(hash, height).map_err(|err| Error::Other(err.to_string()))
+    }
+
     /// Create approval for given block or return none if not a block producer.
     fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
         let next_block_producer_account =
-            self.runtime_adapter.get_block_proposer(block.header.height + 1);
+            self.get_block_proposer(block.header.hash(), block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
                 if let Ok(validators) = self
                     .runtime_adapter
-                    .get_epoch_block_proposers(block.header.height)
+                    .get_epoch_block_proposers(block.header.prev_hash, block.header.height)
                     .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
                 {
                     if validators.contains(&block_producer.account_id) {
@@ -304,16 +320,19 @@ impl ClientActor {
     fn handle_scheduling_block_production(
         &mut self,
         ctx: &mut Context<ClientActor>,
+        block_hash: CryptoHash,
         last_height: BlockIndex,
         check_height: BlockIndex,
     ) {
         // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
-        let next_block_producer_account =
-            unwrap_or_return!(self.runtime_adapter.get_block_proposer(check_height + 1));
+        let next_block_producer_account = unwrap_or_return!(
+            self.get_block_proposer(block_hash, check_height + 1),
+            ()
+        );
         if let Some(block_producer) = &self.block_producer {
             if block_producer.account_id.clone() == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
-                    act.produce_block(ctx, last_height, check_height + 1);
+                    act.produce_block(ctx, block_hash, last_height, check_height + 1);
                 });
             } else {
                 // Otherwise, schedule timeout to check if the next block was produced.
@@ -334,7 +353,7 @@ impl ClientActor {
         last_height: BlockIndex,
         check_height: BlockIndex,
     ) {
-        let head = unwrap_or_return!(self.chain.head());
+        let head = unwrap_or_return!(self.chain.head(), ());
         // If height changed since we scheduled this, exit.
         if head.height != last_height {
             return;
@@ -342,19 +361,25 @@ impl ClientActor {
         debug!(target: "client", "Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
-        self.handle_scheduling_block_production(ctx, last_height, check_height + 1);
+        self.handle_scheduling_block_production(
+            ctx,
+            head.last_block_hash,
+            last_height,
+            check_height + 1,
+        );
     }
 
     /// Produce block if we are block producer for given block. If error happens, retry.
     fn produce_block(
         &mut self,
         ctx: &mut Context<ClientActor>,
+        block_hash: CryptoHash,
         last_height: BlockIndex,
         next_height: BlockIndex,
     ) {
         if let Err(err) = self.produce_block_err(ctx, last_height, next_height) {
             error!(target: "client", "Block production failed: {:?}", err);
-            self.handle_scheduling_block_production(ctx, last_height, next_height - 1);
+            self.handle_scheduling_block_production(ctx, block_hash, last_height, next_height - 1);
         }
     }
 
@@ -375,10 +400,7 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self
-            .runtime_adapter
-            .get_block_proposer(next_height)
-            .map_err(|err| Error::Other(err.to_string()))?;
+        let next_block_proposer = self.get_block_proposer(head.last_block_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -386,20 +408,21 @@ impl ClientActor {
         let state_root = self.chain.get_post_state_root(&head.last_block_hash)?.clone();
         let has_receipts =
             self.chain.get_receipts(&head.last_block_hash).map(|r| r.len() > 0).unwrap_or(false);
-        let prev = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(next_height)
+            .get_epoch_block_proposers(head.last_block_hash, next_height)
             .map_err(|err| Error::Other(err.to_string()))?;
         let total_validators = validators.len();
         let prev_same_bp = self
             .runtime_adapter
-            .get_block_proposer(next_height - 1)
+            .get_block_proposer(head.prev_block_hash, last_height)
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
-        let total_approvals = total_validators - if prev_same_bp { 1 } else { 2 };
+        // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
+        let total_approvals =
+            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
@@ -407,7 +430,7 @@ impl ClientActor {
             ctx.run_later(
                 self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
                 move |act, ctx| {
-                    act.produce_block(ctx, last_height, next_height);
+                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
                 },
             );
             return Ok(());
@@ -415,15 +438,26 @@ impl ClientActor {
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         // Also produce at least one block per epoch (produce a block even if empty if the last height was more than an epoch ago).
-        if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 && !has_receipts && next_height - last_height < self.config.epoch_length {
-            self.handle_scheduling_block_production(ctx, head.height, next_height);
+        if !self.config.produce_empty_blocks
+            && self.tx_pool.len() == 0
+            && !has_receipts
+            && next_height - last_height < self.config.epoch_length
+        {
+            self.handle_scheduling_block_production(
+                ctx,
+                head.last_block_hash,
+                head.height,
+                next_height,
+            );
             return Ok(());
         }
+
+        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
         let block = Block::produce(
-            &prev,
+            &prev_header,
             next_height,
             state_root,
             transactions,
@@ -467,28 +501,28 @@ impl ClientActor {
     ) -> NetworkClientResponses {
         let hash = block.hash();
         debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_id);
-        let previous = self.chain.get_previous_header(&block.header).map(Clone::clone);
+        let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
             Ok(_) => NetworkClientResponses::NoResponse,
-            Err(ref e) if e.is_bad_data() => {
+            Err(ref err) if err.is_bad_data() => {
                 NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
             }
-            Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of block: {}", e.description());
+            Err(ref err) if err.is_error() => {
+                if self.sync_status.is_syncing() {
+                    // While syncing, we may receive blocks that are older or from next epochs.
+                    // This leads to Old Block or EpochOutOfBounds errors.
+                    info!(target: "client", "Error on receival of block: {}", err);
+                } else {
+                    error!(target: "client", "Error on receival of block: {}", err);
+                }
                 NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
-                    if let Ok(previous) = previous {
-                        if !self.chain.is_orphan(&previous.hash()) {
-                            debug!(
-                                "Process block: received an orphan block, checking the parent: {}",
-                                previous.hash()
-                            );
-                            self.request_block_by_hash(previous.hash(), peer_id)
-                        }
+                    if !self.chain.is_orphan(&prev_hash) && !self.sync_status.is_syncing() {
+                        self.request_block_by_hash(prev_hash, peer_id)
                     }
                     NetworkClientResponses::NoResponse
                 }
@@ -678,7 +712,12 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
-                self.handle_scheduling_block_production(ctx, head.height, head.height);
+                self.handle_scheduling_block_production(
+                    ctx,
+                    head.last_block_hash,
+                    head.height,
+                    head.height,
+                );
             }
             wait_period = self.config.sync_check_period;
         } else {
@@ -716,10 +755,14 @@ impl ClientActor {
                     num_active_peers,
                     peer_max_count,
                     most_weight_peers,
+                    sent_bytes_per_sec,
+                    received_bytes_per_sec,
                 }) => {
                     act.network_info.num_active_peers = num_active_peers;
                     act.network_info.peer_max_count = peer_max_count;
                     act.network_info.most_weight_peers = most_weight_peers;
+                    act.network_info.sent_bytes_per_sec = sent_bytes_per_sec;
+                    act.network_info.received_bytes_per_sec = received_bytes_per_sec;
                     actix::fut::ok(())
                 }
                 _ => {
@@ -738,8 +781,8 @@ impl ClientActor {
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
-            let head = unwrap_or_return!(act.chain.head());
-            let validators = unwrap_or_return!(act.runtime_adapter.get_epoch_block_proposers(head.height)).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let head = unwrap_or_return!(act.chain.head(), ());
+            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
@@ -749,9 +792,10 @@ impl ClientActor {
             // Block#, Block Hash, is validator/# validators, active/max peers.
             let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
             let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
-            info!(target: "info", "{} {} {} {}",
+            info!(target: "info", "{} {} {} {} {}",
                 match act.sync_status {
                     SyncStatus::NoSync => Yellow.bold().paint(format!("#{:>8} {}", head.height, head.last_block_hash)),
+                    SyncStatus::AwaitingPeers => Yellow.bold().paint(format!("Waiting for more peers")),
                     _ => {
                         if let Some(full_peer_info) = most_weight_peer(&act.network_info.most_weight_peers) {
                             Yellow.bold().paint(format!("Syncing {}..{}", head.height, full_peer_info.chain_info.height))
@@ -761,7 +805,8 @@ impl ClientActor {
                     }
                 },
                   White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
-                  Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
+                  Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", act.network_info.num_active_peers, act.network_info.most_weight_peers.len(), act.network_info.peer_max_count)),
+                  Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(act.network_info.received_bytes_per_sec), pretty_bytes_per_sec(act.network_info.sent_bytes_per_sec))),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
             );
             act.started = Instant::now();
@@ -780,21 +825,18 @@ impl ClientActor {
         signature: &Signature,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
-        let header = match self.chain.get_block_header(&hash) {
-            Ok(header) => header,
-            Err(_) => {
-                // TODO: This header is missing, should collect for later? should have better way to verify then.
-                return true;
-            }
-        };
+        // TODO: This header is missing, should collect for later? should have better way to verify then.
+        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
+
         // If given account is not current block proposer.
-        let position = match self.runtime_adapter.get_epoch_block_proposers(header.height) {
-            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
-        };
+        let position =
+            match self.get_epoch_block_proposers(header.prev_hash, header.height) {
+                Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+                Err(err) => {
+                    error!(target: "client", "Error: {}", err);
+                    return false;
+                }
+            };
         if position.is_none() {
             return false;
         }
@@ -805,5 +847,18 @@ impl ClientActor {
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position.unwrap(), signature.clone());
         true
+    }
+}
+
+/// Format bytes per second in a nice way.
+fn pretty_bytes_per_sec(num: u64) -> String {
+    if num < 100 {
+        // Under 0.1 kiB, display in bytes.
+        format!("{} B/s", num)
+    } else if num < 1024 * 1024 {
+        // Under 1.0 MiB/sec display in kiB/sec.
+        format!("{:.1}kiB/s", num as f64 / 1024.0)
+    } else {
+        format!("{:.1}MiB/s", num as f64 / (1024.0 * 1024.0))
     }
 }

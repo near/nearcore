@@ -57,6 +57,11 @@ impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {
         ReadablePublicKey(self.to_string())
     }
+    pub fn empty() -> Self {
+        let array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        PublicKey(public_key)
+    }
 }
 
 impl Hash for PublicKey {
@@ -100,7 +105,7 @@ impl TryFrom<&str> for PublicKey {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
-            format!("Failed to convert public key from base64: {}", e).into()
+            format!("Failed to convert public key from base58: {}", e).into()
         })?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for public key", s).into());
@@ -132,7 +137,7 @@ impl TryFrom<&str> for SecretKey {
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::SECRETKEYBYTES];
         let bytes = from_base(s).map_err::<Self::Error, _>(|e| {
-            format!("Failed to convert secret key from base64: {}", e).into()
+            format!("Failed to convert secret key from base58: {}", e).into()
         })?;
         if bytes.len() != array.len() {
             return Err(format!("decoded {} is not long enough for secret key", s).into());
@@ -268,95 +273,6 @@ impl fmt::Display for Signature {
         write!(f, "{}", String::from(self))
     }
 }
-//
-//pub mod bs64_pub_key_format {
-//    use std::convert::TryInto;
-//
-//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-//
-//    use super::PublicKey;
-//
-//    pub fn serialize<S>(public_key: &PublicKey, serializer: S) -> Result<S::Ok, S::Error>
-//    where
-//        S: Serializer,
-//    {
-//        serializer.serialize_str(String::from(public_key).as_str())
-//    }
-//
-//    pub fn deserialize<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
-//    where
-//        D: Deserializer<'de>,
-//    {
-//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-//    }
-//}
-//
-//pub mod bs64_secret_key_format {
-//    use std::convert::TryInto;
-//
-//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-//
-//    use super::SecretKey;
-//
-//    pub fn serialize<S>(secret_key: &SecretKey, serializer: S) -> Result<S::Ok, S::Error>
-//    where
-//        S: Serializer,
-//    {
-//        serializer.serialize_str(String::from(secret_key).as_str())
-//    }
-//
-//    pub fn deserialize<'de, D>(deserializer: D) -> Result<SecretKey, D::Error>
-//    where
-//        D: Deserializer<'de>,
-//    {
-//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-//    }
-//}
-//
-//pub mod bs64_signature_format {
-//    use std::convert::TryInto;
-//
-//    use serde::{de::Error, Deserialize, Deserializer, Serializer};
-//
-//    use super::Signature;
-//
-//    pub fn serialize<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
-//    where
-//        S: Serializer,
-//    {
-//        serializer.serialize_str(String::from(signature).as_str())
-//    }
-//
-//    pub fn deserialize<'de, D>(deserializer: D) -> Result<Signature, D::Error>
-//    where
-//        D: Deserializer<'de>,
-//    {
-//        String::deserialize(deserializer)?.as_str().try_into().map_err(Error::custom)
-//    }
-//}
-//
-//pub mod bs64_serializer {
-//    use serde::{Deserialize, Deserializer, Serializer};
-//
-//    use crate::serialize::BaseEncoded;
-//
-//    pub fn serialize<T, S>(t: &T, serializer: S) -> Result<S::Ok, S::Error>
-//    where
-//        T: BaseEncoded,
-//        S: Serializer,
-//    {
-//        serializer.serialize_str(&t.to_base())
-//    }
-//
-//    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<T, D::Error>
-//    where
-//        T: BaseEncoded,
-//        D: Deserializer<'de>,
-//    {
-//        let s = String::deserialize(deserializer)?;
-//        Ok(T::from_base(&s).unwrap())
-//    }
-//}
 
 #[cfg(test)]
 mod tests {

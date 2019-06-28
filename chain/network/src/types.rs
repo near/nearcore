@@ -149,7 +149,7 @@ impl From<PeerInfo> for network_proto::PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Last known chain height of the peer.
     pub height: BlockIndex,
@@ -433,6 +433,8 @@ pub struct NetworkConfig {
     pub peer_expiration_duration: Duration,
     /// Maximum number of peer addresses we should ever send.
     pub max_send_peers: u32,
+    /// Duration for checking on stats from the peers.
+    pub peer_stats_period: Duration,
 }
 
 /// Status of the known peers.
@@ -555,6 +557,7 @@ pub enum ReasonForBan {
     HeightFraud = 3,
     BadHandshake = 4,
     BadBlockApproval = 5,
+    Abusive = 6,
 }
 
 #[derive(Message)]
@@ -607,7 +610,13 @@ pub struct FullPeerInfo {
 
 pub enum NetworkResponses {
     NoResponse,
-    Info { num_active_peers: usize, peer_max_count: u32, most_weight_peers: Vec<FullPeerInfo> },
+    Info {
+        num_active_peers: usize,
+        peer_max_count: u32,
+        most_weight_peers: Vec<FullPeerInfo>,
+        sent_bytes_per_sec: u64,
+        received_bytes_per_sec: u64,
+    },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -677,4 +686,38 @@ where
 
 impl Message for NetworkClientMessages {
     type Result = NetworkClientResponses;
+}
+
+/// Peer stats query.
+pub struct QueryPeerStats {}
+
+/// Peer stats result
+#[derive(Debug)]
+pub struct PeerStatsResult {
+    /// Chain info.
+    pub chain_info: PeerChainInfo,
+    /// Number of bytes we've received from the peer.
+    pub received_bytes_per_sec: u64,
+    /// Number of bytes we've sent to the peer.
+    pub sent_bytes_per_sec: u64,
+    /// Returns if this peer is abusive and should be banned.
+    pub is_abusive: bool,
+    /// Counts of incoming/outgoing messages from given peer.
+    pub message_counts: (u64, u64),
+}
+
+impl<A, M> MessageResponse<A, M> for PeerStatsResult
+where
+    A: Actor,
+    M: Message<Result = PeerStatsResult>,
+{
+    fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
+        if let Some(tx) = tx {
+            tx.send(self)
+        }
+    }
+}
+
+impl Message for QueryPeerStats {
+    type Result = PeerStatsResult;
 }

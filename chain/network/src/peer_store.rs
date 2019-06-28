@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Iter, HashMap};
+use std::collections::{hash_map::Iter, HashMap, HashSet};
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -119,9 +119,12 @@ impl PeerStore {
     }
 
     /// Return unconnected or peers with unknown status that we can try to connect to.
-    pub fn unconnected_peers(&self) -> Vec<PeerInfo> {
+    pub fn unconnected_peers(&self, ignore_list: &HashSet<PeerId>) -> Vec<PeerInfo> {
         self.find_peers(
-            |p| p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown,
+            |p| {
+                (p.status == KnownPeerStatus::NotConnected || p.status == KnownPeerStatus::Unknown)
+                    && !ignore_list.contains(&p.peer_info.id)
+            },
             0,
         )
     }

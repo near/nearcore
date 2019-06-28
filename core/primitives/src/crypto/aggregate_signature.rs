@@ -269,7 +269,7 @@ impl Error for LengthError {
 
 impl fmt::Display for LengthError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{}, expected {}, got {}", self.description(), self.0, self.1)
+        write!(f, "{}, expected {}, got {}", self, self.0, self.1)
     }
 }
 

@@ -617,6 +617,10 @@ pub struct AsyncCall {
     pub args: Vec<u8>,
     pub callback: Option<CallbackInfo>,
     pub refund_account: AccountId,
+    /// Account ID of the account who signed the initial transaction.
+    pub originator_id: AccountId,
+    /// The public key used to sign the initial transaction.
+    pub public_key: PublicKey,
 }
 
 impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
@@ -629,6 +633,8 @@ impl TryFrom<receipt_proto::AsyncCall> for AsyncCall {
             args: proto.args,
             callback: proto.callback.into_option().map(std::convert::Into::into),
             refund_account: proto.refund_account,
+            originator_id: proto.originator_id,
+            public_key: PublicKey::try_from(&proto.public_key as &[u8])?,
         })
     }
 }
@@ -641,6 +647,8 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
             args: call.args,
             callback: SingularPtrField::from_option(call.callback.map(std::convert::Into::into)),
             refund_account: call.refund_account,
+            originator_id: call.originator_id,
+            public_key: call.public_key.as_ref().to_vec(),
             ..Default::default()
         }
     }
@@ -652,8 +660,18 @@ impl AsyncCall {
         args: Vec<u8>,
         amount: Balance,
         refund_account: AccountId,
+        originator_id: AccountId,
+        public_key: PublicKey,
     ) -> Self {
-        AsyncCall { amount, method_name, args, callback: None, refund_account }
+        AsyncCall {
+            amount,
+            method_name,
+            args,
+            callback: None,
+            refund_account,
+            originator_id,
+            public_key,
+        }
     }
 }
 
@@ -665,6 +683,8 @@ impl fmt::Debug for AsyncCall {
             .field("args", &format_args!("{}", logging::pretty_utf8(&self.args)))
             .field("callback", &self.callback)
             .field("refund_account", &self.refund_account)
+            .field("originator_id", &self.originator_id)
+            .field("public_key", &self.public_key)
             .finish()
     }
 }
@@ -678,6 +698,10 @@ pub struct Callback {
     pub callback: Option<CallbackInfo>,
     pub result_counter: usize,
     pub refund_account: AccountId,
+    /// Account ID of the account who signed the initial transaction.
+    pub originator_id: AccountId,
+    /// The public key used to sign the initial transaction.
+    pub public_key: PublicKey,
 }
 
 impl Callback {
@@ -686,6 +710,8 @@ impl Callback {
         args: Vec<u8>,
         amount: Balance,
         refund_account: AccountId,
+        originator_id: AccountId,
+        public_key: PublicKey,
     ) -> Self {
         Callback {
             method_name,
@@ -695,6 +721,8 @@ impl Callback {
             callback: None,
             result_counter: 0,
             refund_account,
+            originator_id,
+            public_key,
         }
     }
 }
@@ -709,6 +737,8 @@ impl fmt::Debug for Callback {
             .field("callback", &self.callback)
             .field("result_counter", &format_args!("{}", &self.result_counter))
             .field("refund_account", &self.refund_account)
+            .field("originator_id", &self.originator_id)
+            .field("public_key", &self.public_key)
             .finish()
     }
 }
