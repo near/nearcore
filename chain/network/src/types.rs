@@ -151,6 +151,8 @@ impl From<PeerInfo> for network_proto::PeerInfo {
 /// Peer chain information.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
+    /// Genesis hash.
+    pub genesis: CryptoHash,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
@@ -161,7 +163,11 @@ impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::PeerChainInfo) -> Result<Self, Self::Error> {
-        Ok(PeerChainInfo { height: proto.height, total_weight: proto.total_weight.into() })
+        Ok(PeerChainInfo {
+            genesis: proto.genesis.try_into()?,
+            height: proto.height,
+            total_weight: proto.total_weight.into(),
+        })
     }
 }
 
@@ -665,7 +671,7 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { height: BlockIndex, total_weight: Weight },
+    ChainInfo { genesis: CryptoHash, height: BlockIndex, total_weight: Weight },
     /// Block response.
     Block(Block),
     /// Headers response.

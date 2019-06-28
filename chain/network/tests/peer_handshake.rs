@@ -27,6 +27,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         match msg {
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
+                    genesis: Default::default(),
                     height: 1,
                     total_weight: 1.into(),
                 }))

@@ -172,12 +172,12 @@ impl Peer {
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { height, total_weight }) => {
+                Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id,
                         act.node_info.account_id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { height, total_weight },
+                        PeerChainInfo { genesis, height, total_weight },
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
                     actix::fut::ok(())
@@ -317,6 +317,10 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
+                if handshake.chain_info.genesis != self.chain_info.genesis {
+                    info!(target: "network", "Received connection from node with different genesis.");
+                    ctx.stop();
+                }
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();

@@ -12,8 +12,9 @@ message PeerInfo {
 }
 
 message PeerChainInfo {
-    uint64 height = 1;
-    uint64 total_weight = 2;
+    bytes genesis = 1;
+    uint64 height = 2;
+    uint64 total_weight = 3;
 }
 
 message Handshake {

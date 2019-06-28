@@ -165,6 +165,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::GetChainInfo => match self.chain.head() {
                 Ok(head) => NetworkClientResponses::ChainInfo {
+                    genesis: self.chain.genesis().hash(),
                     height: head.height,
                     total_weight: head.total_weight,
                 },

@@ -93,7 +93,11 @@ mod test {
             peer_id: peer_info.id,
             account_id: Some("alice.near".to_string()),
             listen_port: None,
-            chain_info: PeerChainInfo { height: 0, total_weight: 0.into() },
+            chain_info: PeerChainInfo {
+                genesis: Default::default(),
+                height: 0,
+                total_weight: 0.into(),
+            },
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);
