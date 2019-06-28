@@ -7,7 +7,7 @@ pub use types::{
 mod codec;
 mod peer;
 mod peer_manager;
-mod peer_store;
+pub mod peer_store;
 pub mod types;
 mod rate_counter;
 

@@ -31,6 +31,19 @@ pub fn get_store_path(base_path: &Path) -> String {
     store_path.to_str().unwrap().to_owned()
 }
 
+pub fn get_default_home() -> String {
+    match std::env::var("NEAR_HOME") {
+        Ok(home) => home,
+        Err(_) => match dirs::home_dir() {
+            Some(mut home) => {
+                home.push(".near");
+                home.as_path().to_str().unwrap().to_string()
+            }
+            None => "".to_string(),
+        },
+    }
+}
+
 pub fn start_with_config(
     home_dir: &Path,
     config: NearConfig,
