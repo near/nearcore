@@ -2,27 +2,12 @@ use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
 
 use bytes::{BufMut, BytesMut};
-use protobuf::{parse_from_bytes, Message, ProtobufError};
+use protobuf::{parse_from_bytes, Message};
 use tokio::codec::{Decoder, Encoder};
 
 use near_protos::network::PeerMessage as ProtoMessage;
 
 use crate::types::PeerMessage;
-
-// we could write our custom error type. For now we just
-// use io::Error
-fn convert_protobuf_error(err: ProtobufError) -> Error {
-    match err {
-        ProtobufError::IoError(e) => e,
-        ProtobufError::MessageNotInitialized { message } => {
-            Error::new(ErrorKind::InvalidInput, format!("protobuf not initialized: {}", message))
-        }
-        ProtobufError::Utf8(e) => Error::new(ErrorKind::InvalidInput, format!("Utf8 error: {}", e)),
-        ProtobufError::WireError(e) => {
-            Error::new(ErrorKind::InvalidInput, format!("WireError: {:?}", e))
-        }
-    }
-}
 
 pub struct Codec {
     max_length: u32,
@@ -35,29 +20,27 @@ impl Codec {
 }
 
 impl Encoder for Codec {
-    type Item = PeerMessage;
+    type Item = Vec<u8>;
     type Error = Error;
 
-    fn encode(&mut self, item: PeerMessage, buf: &mut BytesMut) -> Result<(), Error> {
-        let proto: ProtoMessage = item.into();
-        let bytes = proto.write_to_bytes().map_err(convert_protobuf_error)?;
-        // first four bytes is the length of the buffer
-        buf.reserve(bytes.len() + 4);
-        if bytes.len() > self.max_length as usize {
+    fn encode(&mut self, item: Self::Item, buf: &mut BytesMut) -> Result<(), Error> {
+        if item.len() > self.max_length as usize {
             Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         } else {
-            buf.put_u32_le(bytes.len() as u32);
-            buf.put(bytes);
+            // First four bytes is the length of the buffer.
+            buf.reserve(item.len() + 4);
+            buf.put_u32_le(item.len() as u32);
+            buf.put(item);
             Ok(())
         }
     }
 }
 
 impl Decoder for Codec {
-    type Item = PeerMessage;
+    type Item = Vec<u8>;
     type Error = Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<PeerMessage>, Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Vec<u8>>, Error> {
         if buf.len() < 4 {
             // not enough bytes to start decoding
             return Ok(None);
@@ -69,16 +52,23 @@ impl Decoder for Codec {
             // not enough bytes, keep waiting
             Ok(None)
         } else {
-            let res: ProtoMessage =
-                parse_from_bytes(&buf[4..4 + len as usize]).map_err(convert_protobuf_error)?;
+            let res = Some(buf[4..4 + len as usize].to_vec());
             buf.advance(4 + len as usize);
-            res.try_into()
-                .map_err(|e: Box<dyn std::error::Error>| {
-                    Error::new(ErrorKind::InvalidData, e.to_string())
-                })
-                .map(Some)
+            Ok(res)
         }
     }
+}
+
+pub fn peer_message_to_bytes(
+    peer_message: PeerMessage,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let proto: ProtoMessage = peer_message.into();
+    proto.write_to_bytes().map_err(|err| err.into())
+}
+
+pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, Box<dyn std::error::Error>> {
+    let proto: ProtoMessage = parse_from_bytes(bytes)?;
+    proto.try_into()
 }
 
 #[cfg(test)]
@@ -90,9 +80,9 @@ mod test {
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();
-        codec.encode(msg.clone(), &mut buffer).unwrap();
+        codec.encode(peer_message_to_bytes(msg.clone()).unwrap(), &mut buffer).unwrap();
         let decoded = codec.decode(&mut buffer).unwrap().unwrap();
-        assert_eq!(decoded, msg);
+        assert_eq!(bytes_to_peer_message(&decoded).unwrap(), msg);
     }
 
     #[test]

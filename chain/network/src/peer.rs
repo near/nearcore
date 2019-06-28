@@ -14,7 +14,8 @@ use tokio::net::TcpStream;
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
-use crate::codec::Codec;
+use crate::codec::{Codec, peer_message_to_bytes, bytes_to_peer_message};
+use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
@@ -24,8 +25,16 @@ use crate::{NetworkClientResponses, PeerManagerActor};
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
 
+/// Maximum number of messages per minute from single peer.
+const MAX_PEER_MSG_PER_MIN: u64 = 500;
+
 /// Keeps track of requests and received hashes of transactions and blocks.
+/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
 pub struct Tracker {
+    /// Bytes we've sent.
+    sent_bytes: RateCounter,
+    /// Bytes we've received.
+    received_bytes: RateCounter,
     /// Sent requests.
     requested: Vec<CryptoHash>,
     /// Received elements.
@@ -34,11 +43,24 @@ pub struct Tracker {
 
 impl Default for Tracker {
     fn default() -> Self {
-        Tracker { requested: Default::default(), received: Default::default() }
+        Tracker {
+            sent_bytes: RateCounter::new(),
+            received_bytes: RateCounter::new(),
+            requested: Default::default(),
+            received: Default::default(),
+        }
     }
 }
 
 impl Tracker {
+    fn increment_received(&mut self, size: u64) {
+        self.received_bytes.increment(size);
+    }
+
+    fn increment_sent(&mut self, size: u64) {
+        self.sent_bytes.increment(size);
+    }
+
     fn has_received(&self, hash: CryptoHash) -> bool {
         self.received.contains(&hash)
     }
@@ -114,6 +136,17 @@ impl Peer {
         }
     }
 
+    /// Whether the peer is considered abusive due to sending too many messages.
+    fn is_abusive(&self) -> bool {
+        self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
+            || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
+    }
+
+    /// Number of bytes sent and received to the peer.
+    fn last_min_bytes(&self) -> (u64, u64) {
+        (self.tracker.sent_bytes.bytes_per_min(), self.tracker.received_bytes.bytes_per_min())
+    }
+
     fn send_message(&mut self, msg: PeerMessage) {
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
@@ -124,7 +157,13 @@ impl Peer {
             _ => (),
         };
         debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
-        self.framed.write(msg.into());
+        match peer_message_to_bytes(msg) {
+            Ok(bytes) => {
+                self.tracker.increment_sent(bytes.len() as u64);
+                self.framed.write(bytes);
+            }
+            Err(err) => error!(target: "network", "Error converting proto to bytes: {}", err),
+        };
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
@@ -258,9 +297,17 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<PeerMessage, io::Error> for Peer {
-    fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
-        match (self.peer_type, self.peer_status, msg) {
+impl StreamHandler<Vec<u8>, io::Error> for Peer {
+    fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        self.tracker.increment_received(msg.len() as u64);
+        let peer_msg = match bytes_to_peer_message(&msg) {
+            Ok(peer_msg) => peer_msg,
+            Err(err) => {
+                error!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                return;
+            }
+        };
+        match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
                 if handshake.peer_id == self.node_info.id {
@@ -302,6 +349,10 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                         }
                     })
                     .wait(ctx);
+            }
+            (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
+                // Received handshake after already have seen handshake from this peer.
+                debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
             }
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {

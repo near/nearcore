@@ -256,7 +256,12 @@ impl ClientActor {
             }
 
             // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
-            self.handle_scheduling_block_production(ctx, block.hash(), block.header.height, block.header.height);
+            self.handle_scheduling_block_production(
+                ctx,
+                block.hash(),
+                block.header.height,
+                block.header.height,
+            );
         }
 
         // Reconcile the txpool against the new block *after* we have broadcast it too our peers.
@@ -339,7 +344,12 @@ impl ClientActor {
         debug!(target: "client", "Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
-        self.handle_scheduling_block_production(ctx, head.last_block_hash, last_height, check_height + 1);
+        self.handle_scheduling_block_production(
+            ctx,
+            head.last_block_hash,
+            last_height,
+            check_height + 1,
+        );
     }
 
     /// Produce block if we are block producer for given block. If error happens, retry.
@@ -419,7 +429,12 @@ impl ClientActor {
             && !has_receipts
             && next_height - last_height < self.config.epoch_length
         {
-            self.handle_scheduling_block_production(ctx, head.last_block_hash, head.height, next_height);
+            self.handle_scheduling_block_production(
+                ctx,
+                head.last_block_hash,
+                head.height,
+                next_height,
+            );
             return Ok(());
         }
 
@@ -683,7 +698,12 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
-                self.handle_scheduling_block_production(ctx, head.last_block_hash, head.height, head.height);
+                self.handle_scheduling_block_production(
+                    ctx,
+                    head.last_block_hash,
+                    head.height,
+                    head.height,
+                );
             }
             wait_period = self.config.sync_check_period;
         } else {
@@ -764,7 +784,7 @@ impl ClientActor {
                     }
                 },
                   White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
-                  Cyan.bold().paint(format!("{:2}/{:2} peers", act.network_info.num_active_peers, act.network_info.peer_max_count)),
+                  Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", act.network_info.num_active_peers, act.network_info.most_weight_peers.len(), act.network_info.peer_max_count)),
                   Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
             );
             act.started = Instant::now();
@@ -788,8 +808,7 @@ impl ClientActor {
 
         // If given account is not current block proposer.
         let position =
-            match self.runtime_adapter.get_epoch_block_proposers(header.prev_hash, header.height)
-            {
+            match self.runtime_adapter.get_epoch_block_proposers(header.prev_hash, header.height) {
                 Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
                 Err(err) => {
                     error!(target: "client", "Error: {}", err);
