@@ -37,6 +37,7 @@ impl NetworkConfig {
             ban_window: Duration::from_secs(1),
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
+            peer_stats_period: Duration::from_secs(5),
         }
     }
 }

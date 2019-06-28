@@ -7,7 +7,7 @@ use clap::{App, Arg, SubCommand};
 use log::{info, LevelFilter};
 
 use near::config::init_testnet_configs;
-use near::{get_store_path, init_configs, load_config, start_with_config};
+use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 
 fn init_logging(verbose: bool) {
     if verbose {
@@ -24,19 +24,6 @@ fn init_logging(verbose: bool) {
             .filter(Some("info"), LevelFilter::Info)
             .filter(None, LevelFilter::Warn)
             .init();
-    }
-}
-
-fn get_default_home() -> String {
-    match std::env::var("NEAR_HOME") {
-        Ok(home) => home,
-        Err(_) => match dirs::home_dir() {
-            Some(mut home) => {
-                home.push(".near");
-                home.as_path().to_str().unwrap().to_string()
-            }
-            None => "".to_string(),
-        },
     }
 }
 
@@ -110,11 +97,11 @@ fn main() {
             }
             if let Some(boot_nodes) = args.value_of("boot-nodes") {
                 if !boot_nodes.is_empty() {
-                near_config.network_config.boot_nodes = boot_nodes
-                    .to_string()
-                    .split(",")
-                    .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
-                    .collect();
+                    near_config.network_config.boot_nodes = boot_nodes
+                        .to_string()
+                        .split(",")
+                        .map(|chunk| chunk.try_into().expect("Failed to parse PeerInfo"))
+                        .collect();
                 }
             }
             if let Some(min_peers) = args

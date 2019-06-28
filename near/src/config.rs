@@ -219,6 +219,7 @@ impl NearConfig {
                 ban_window: config.network.ban_window,
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
+                peer_stats_period: Duration::from_secs(5),
             },
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),

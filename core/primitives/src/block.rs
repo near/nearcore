@@ -302,7 +302,7 @@ impl From<Block> for chain_proto::Block {
 }
 
 /// The weight is defined as the number of unique validators approving this fork.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Default)]
 pub struct Weight {
     num: u64,
 }

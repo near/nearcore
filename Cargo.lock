@@ -3227,6 +3227,7 @@ dependencies = [
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.2.3",
  "near-chain 0.1.0",
+ "near-network 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "node-runtime 0.0.1",

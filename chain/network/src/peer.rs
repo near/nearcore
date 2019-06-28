@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -11,14 +12,83 @@ use log::{debug, error, info, warn};
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
 
+use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
 
-use crate::codec::Codec;
+use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
+use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatus, PeerType, PeersRequest, PeersResponse, SendMessage, Unregister,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
+
+/// Maximum number of requests and responses to track.
+const MAX_TRACK_SIZE: usize = 30;
+
+/// Maximum number of messages per minute from single peer.
+const MAX_PEER_MSG_PER_MIN: u64 = 3000;
+
+/// Keeps track of requests and received hashes of transactions and blocks.
+/// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
+pub struct Tracker {
+    /// Bytes we've sent.
+    sent_bytes: RateCounter,
+    /// Bytes we've received.
+    received_bytes: RateCounter,
+    /// Sent requests.
+    requested: Vec<CryptoHash>,
+    /// Received elements.
+    received: Vec<CryptoHash>,
+}
+
+impl Default for Tracker {
+    fn default() -> Self {
+        Tracker {
+            sent_bytes: RateCounter::new(),
+            received_bytes: RateCounter::new(),
+            requested: Default::default(),
+            received: Default::default(),
+        }
+    }
+}
+
+impl Tracker {
+    fn increment_received(&mut self, size: u64) {
+        self.received_bytes.increment(size);
+    }
+
+    fn increment_sent(&mut self, size: u64) {
+        self.sent_bytes.increment(size);
+    }
+
+    fn has_received(&self, hash: CryptoHash) -> bool {
+        self.received.contains(&hash)
+    }
+
+    fn push_received(&mut self, hash: CryptoHash) {
+        if self.received.len() > MAX_TRACK_SIZE {
+            self.received.truncate(MAX_TRACK_SIZE)
+        }
+        if !self.received.contains(&hash) {
+            self.received.insert(0, hash);
+        }
+    }
+
+    fn has_request(&self, hash: CryptoHash) -> bool {
+        self.requested.contains(&hash)
+    }
+
+    fn push_request(&mut self, hash: CryptoHash) {
+        if self.requested.len() > MAX_TRACK_SIZE {
+            self.requested.truncate(MAX_TRACK_SIZE);
+        }
+        if !self.requested.contains(&hash) {
+            self.requested.insert(0, hash);
+        }
+    }
+}
 
 pub struct Peer {
     /// This node's id and address (either listening or socket address).
@@ -37,7 +107,12 @@ pub struct Peer {
     handshake_timeout: Duration,
     /// Peer manager recipient to break the dependency loop.
     peer_manager_addr: Addr<PeerManagerActor>,
+    /// Addr for client to send messages related to the chain.
     client_addr: Recipient<NetworkClientMessages>,
+    /// Tracker for requests and responses.
+    tracker: Tracker,
+    /// Latest chain info from the peer.
+    chain_info: PeerChainInfo,
 }
 
 impl Peer {
@@ -61,12 +136,34 @@ impl Peer {
             handshake_timeout,
             peer_manager_addr,
             client_addr,
+            tracker: Default::default(),
+            chain_info: Default::default(),
         }
     }
 
+    /// Whether the peer is considered abusive due to sending too many messages.
+    fn is_abusive(&self) -> bool {
+        self.tracker.received_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
+            || self.tracker.sent_bytes.count_per_min() > MAX_PEER_MSG_PER_MIN
+    }
+
     fn send_message(&mut self, msg: PeerMessage) {
+        // Skip sending block and headers if we received it or header from this peer.
+        // Record block requests in tracker.
+        match &msg {
+            PeerMessage::Block(b) if self.tracker.has_received(b.hash()) => return,
+            PeerMessage::BlockHeaderAnnounce(h) if self.tracker.has_received(h.hash()) => return,
+            PeerMessage::BlockRequest(h) => self.tracker.push_request(*h),
+            _ => (),
+        };
         debug!(target: "network", "{:?}: Sending {:?} message to peer {}", self.node_info.id, msg, self.peer_info);
-        self.framed.write(msg.into());
+        match peer_message_to_bytes(msg) {
+            Ok(bytes) => {
+                self.tracker.increment_sent(bytes.len() as u64);
+                self.framed.write(bytes);
+            }
+            Err(err) => error!(target: "network", "Error converting proto to bytes: {}", err),
+        };
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
@@ -106,10 +203,19 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
-                // TODO: add tracking of requests here.
-                NetworkClientMessages::Block(block, peer_id, false)
+                let block_hash = block.hash();
+                self.tracker.push_received(block_hash);
+                self.chain_info.height = max(self.chain_info.height, block.header.height);
+                self.chain_info.total_weight =
+                    max(self.chain_info.total_weight, block.header.total_weight);
+                NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
+                let block_hash = header.hash();
+                self.tracker.push_received(block_hash);
+                self.chain_info.height = max(self.chain_info.height, header.height);
+                self.chain_info.total_weight =
+                    max(self.chain_info.total_weight, header.total_weight);
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
@@ -197,9 +303,17 @@ impl Actor for Peer {
 
 impl WriteHandler<io::Error> for Peer {}
 
-impl StreamHandler<PeerMessage, io::Error> for Peer {
-    fn handle(&mut self, msg: PeerMessage, ctx: &mut Self::Context) {
-        match (self.peer_type, self.peer_status, msg) {
+impl StreamHandler<Vec<u8>, io::Error> for Peer {
+    fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        self.tracker.increment_received(msg.len() as u64);
+        let peer_msg = match bytes_to_peer_message(&msg) {
+            Ok(peer_msg) => peer_msg,
+            Err(err) => {
+                error!(target: "network", "Received invalid data {:?} from {}: {}", msg, self.peer_info, err);
+                return;
+            }
+        };
+        match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
                 if handshake.peer_id == self.node_info.id {
@@ -213,6 +327,7 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
                     account_id: handshake.account_id.clone(),
                 };
+                self.chain_info = handshake.chain_info;
                 self.peer_manager_addr
                     .send(Consolidate {
                         actor: ctx.address(),
@@ -242,6 +357,10 @@ impl StreamHandler<PeerMessage, io::Error> for Peer {
                     })
                     .wait(ctx);
             }
+            (_, PeerStatus::Ready, PeerMessage::Handshake(_)) => {
+                // Received handshake after already have seen handshake from this peer.
+                debug!(target: "network", "Duplicate handshake from {}", self.peer_info);
+            }
             (_, PeerStatus::Ready, PeerMessage::PeersRequest) => {
                 self.peer_manager_addr.send(PeersRequest {}).into_actor(self).then(|res, act, _ctx| {
                     if let Ok(peers) = res {
@@ -270,5 +389,19 @@ impl Handler<SendMessage> for Peer {
 
     fn handle(&mut self, msg: SendMessage, _: &mut Self::Context) {
         self.send_message(msg.message);
+    }
+}
+
+impl Handler<QueryPeerStats> for Peer {
+    type Result = PeerStatsResult;
+
+    fn handle(&mut self, _: QueryPeerStats, _: &mut Self::Context) -> Self::Result {
+        PeerStatsResult {
+            chain_info: self.chain_info,
+            received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
+            sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
+            is_abusive: self.is_abusive(),
+            message_counts: (self.tracker.sent_bytes.count_per_min(), self.tracker.received_bytes.count_per_min()),
+        }
     }
 }

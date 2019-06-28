@@ -187,6 +187,8 @@ pub struct NetworkInfo {
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub most_weight_peers: Vec<FullPeerInfo>,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
 }
 
 /// Actor message requesting block by id or hash.
