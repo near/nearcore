@@ -702,6 +702,8 @@ pub struct PeerStatsResult {
     pub sent_bytes_per_sec: u64,
     /// Returns if this peer is abusive and should be banned.
     pub is_abusive: bool,
+    /// Counts of incoming/outgoing messages from given peer.
+    pub message_counts: (u64, u64),
 }
 
 impl<A, M> MessageResponse<A, M> for PeerStatsResult

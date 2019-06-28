@@ -28,7 +28,7 @@ use crate::{NetworkClientResponses, PeerManagerActor};
 const MAX_TRACK_SIZE: usize = 30;
 
 /// Maximum number of messages per minute from single peer.
-const MAX_PEER_MSG_PER_MIN: u64 = 500;
+const MAX_PEER_MSG_PER_MIN: u64 = 3000;
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
@@ -401,6 +401,7 @@ impl Handler<QueryPeerStats> for Peer {
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
             sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
             is_abusive: self.is_abusive(),
+            message_counts: (self.tracker.sent_bytes.count_per_min(), self.tracker.received_bytes.count_per_min()),
         }
     }
 }

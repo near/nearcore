@@ -223,6 +223,7 @@ impl PeerManagerActor {
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
                 .and_then(move |res, act, _| {
                     if res.is_abusive {
+                        warn!(target: "network", "Banning peer {} for abuse ({} sent, {} recv)", peer_id1, res.message_counts.0, res.message_counts.1);
                         act.ban_peer(&peer_id1, ReasonForBan::Abusive);
                     } else if let Some(active_peer) = act.active_peers.get_mut(&peer_id1) {
                         active_peer.full_peer_info.chain_info = res.chain_info;
@@ -312,7 +313,9 @@ impl PeerManagerActor {
     ) {
         if let Some(peer_id) = self.account_peers.get(&account_id) {
             if let Some(active_peer) = self.active_peers.get(peer_id) {
-                active_peer.addr.send(msg)
+                active_peer
+                    .addr
+                    .send(msg)
                     .into_actor(self)
                     .map_err(|e, _, _| error!("Failed sending message: {}", e))
                     .and_then(|_, _, _| actix::fut::ok(()))
@@ -360,7 +363,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     sent_bytes_per_sec,
                     received_bytes_per_sec,
                 }
-            },
+            }
             NetworkRequests::Block { block } => {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });
                 NetworkResponses::NoResponse
@@ -389,13 +392,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::BlockRequest { hash, peer_id } => {
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
+                    active_peer
+                        .addr
+                        .do_send(SendMessage { message: PeerMessage::BlockRequest(hash) });
                 }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
+                    active_peer
+                        .addr
+                        .do_send(SendMessage { message: PeerMessage::BlockHeadersRequest(hashes) });
                 }
                 NetworkResponses::NoResponse
             }
