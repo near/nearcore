@@ -1,15 +1,15 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
+use near::{GenesisConfig, load_test_config, NightshadeRuntime, start_with_config};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::{ClientActor, GetBlock};
-use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
+use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
@@ -54,10 +54,11 @@ fn sync_nodes() {
     genesis_config.epoch_length = 5;
     let genesis_header = genesis_header(genesis_config.clone());
 
-    let mut near1 = load_test_config("test1", 25123, &genesis_config);
-    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let mut near2 = load_test_config("test2", 25124, &genesis_config);
-    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
+    let (port1, port2) = (open_port(), open_port());
+    let mut near1 = load_test_config("test1", port1, &genesis_config);
+    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    let mut near2 = load_test_config("test2", port2, &genesis_config);
+    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
 
     let system = System::new("NEAR");
 
@@ -98,10 +99,11 @@ fn sync_after_sync_nodes() {
     genesis_config.epoch_length = 5;
     let genesis_header = genesis_header(genesis_config.clone());
 
-    let mut near1 = load_test_config("test1", 25123, &genesis_config);
-    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", 25124)]);
-    let mut near2 = load_test_config("test2", 25124, &genesis_config);
-    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", 25123)]);
+    let (port1, port2) = (open_port(), open_port());
+    let mut near1 = load_test_config("test1", port1, &genesis_config);
+    near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
+    let mut near2 = load_test_config("test2", port2, &genesis_config);
+    near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
 
     let system = System::new("NEAR");
 
