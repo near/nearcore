@@ -358,7 +358,7 @@ impl Chain {
     }
 
     /// Check for orphans, once a block is successfully added.
-    fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
+    pub fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
@@ -498,6 +498,12 @@ impl Chain {
     #[inline]
     pub fn store(&self) -> &ChainStore {
         &self.store
+    }
+
+    /// Returns mutable ChainStore.
+    #[inline]
+    pub fn mut_store(&mut self) -> &mut ChainStore {
+        &mut self.store
     }
 
     /// Returns genesis block header.

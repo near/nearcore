@@ -189,7 +189,7 @@ pub enum SyncStatus {
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockIndex, highest_height: BlockIndex },
     /// State sync, with different states of state sync for different shards.
-    StateSync(HashMap<ShardId, ShardSyncStatus>),
+    StateSync(CryptoHash, HashMap<ShardId, ShardSyncStatus>),
     /// Sync state across all shards is done.
     StateSyncDone,
     /// Catch up on blocks.

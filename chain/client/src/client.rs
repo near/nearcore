@@ -200,8 +200,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(shard_id, hash, payload) => {
-                if let SyncStatus::StateSync(sharded_statuses) = &mut self.sync_status {
-                    if let Ok(header) = self.chain.get_block_header(&hash) {
+                if let SyncStatus::StateSync(sync_hash, sharded_statuses) = &mut self.sync_status {
+                    if hash != *sync_hash {
+                        error!(target: "client", "Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash);
+                    } else if let Ok(header) = self.chain.get_block_header(&hash) {
                         if let Err(err) = self.runtime_adapter.set_state(shard_id, header.prev_state_root, payload) {
                             error!(target: "client", "Failed to set state for {} @ {}: {}", shard_id, hash, err);
                         } else {
@@ -770,10 +772,11 @@ impl ClientActor {
             ));
             // Only body / state sync if header height is latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
+            println!("Sync: {:?}, {}", self.sync_status, header_head.height);
             if header_head.height == highest_height {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
-                    SyncStatus::StateSync(_) => true,
+                    SyncStatus::StateSync(_, _) => true,
                     _ => unwrap_or_run_later!(self.block_sync.run(
                         &mut self.sync_status,
                         &mut self.chain,
@@ -908,7 +911,7 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                 if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
             format!("#{:>8} Downloading blocks {}%", head.height, percent)
         }
-        SyncStatus::StateSync(shard_statuses) => {
+        SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
             for (shard_id, shard_status) in shard_statuses {
                 res = res + format!(

@@ -402,6 +402,16 @@ impl StateSync {
         StateSync { network_recipient, syncing_peers: Default::default(), prev_state_sync: Default::default() }
     }
 
+    fn find_sync_hash(&self, chain: &mut Chain) -> Result<CryptoHash, near_chain::Error> {
+        let header_head = chain.header_head()?;
+        let mut sync_hash = header_head.prev_block_hash;
+        // TODO: identify this threashold based on configuration.
+        for _ in 0..5 {
+            sync_hash = chain.get_block_header(&sync_hash)?.prev_hash;
+        }
+        Ok(sync_hash)
+    }
+
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
@@ -413,14 +423,14 @@ impl StateSync {
         let header_head = chain.header_head()?;
         let mut sync_need_restart = HashSet::new();
 
-        let mut new_shard_sync = match &sync_status {
-            SyncStatus::StateSync(shard_sync) => shard_sync.clone(),
-            _ => HashMap::default(),
+        let (sync_hash, mut new_shard_sync) = match &sync_status {
+            SyncStatus::StateSync(sync_hash, shard_sync) => (sync_hash.clone(), shard_sync.clone()),
+            _ => (self.find_sync_hash(chain)?, HashMap::default()),
         };
 
         // Check syncing peer connection status.
         let mut all_done = false;
-        if let SyncStatus::StateSync(shard_statuses) = sync_status {
+        if let SyncStatus::StateSync(_, shard_statuses) = sync_status {
             all_done = true;
             for (shard_id, shard_status) in shard_statuses.iter() {
                 all_done = all_done && ShardSyncStatus::StateDone == *shard_status;
@@ -437,7 +447,24 @@ impl StateSync {
 
         if all_done {
             info!(target: "sync", "State sync: all shards are done");
+
+            // TODO: this code belongs in chain, but waiting to see where chunks will fit.
+
+            // Get header we were syncing into.
+            let header = chain.get_block_header(&sync_hash)?;
+            let height = header.height;
+            let tip = Tip::from_header(header);
+            // Update related heads now.
+            let mut chain_store_update = chain.mut_store().store_update();
+            chain_store_update.save_body_head(&tip);
+            chain_store_update.save_body_tail(&tip);
+            chain_store_update.commit()?;
+
+            // Check if thare are any orphans unlocked by this state sync.
+            chain.check_orphans(height + 1, |_, _, _| {});
+
             *sync_status = SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+            self.prev_state_sync.clear();
             self.syncing_peers.clear();
             return Ok(());
         }
@@ -461,7 +488,7 @@ impl StateSync {
                 }
 
                 if go || download_timeout {
-                    match self.request_state(shard_id, chain, &header_head, most_weight_peers) {
+                    match self.request_state(shard_id, chain, sync_hash, most_weight_peers) {
                         Some(peer) => {
                             self.syncing_peers.insert(shard_id, peer);
                         },
@@ -476,15 +503,14 @@ impl StateSync {
             }
         }
         if update_sync_status {
-            *sync_status = SyncStatus::StateSync(new_shard_sync);
+            *sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync);
         }
         Ok(())
     }
 
-    fn request_state(&mut self, shard_id: ShardId, _chain: &Chain, header_head: &Tip, most_weight_peers: &Vec<FullPeerInfo>,) -> Option<FullPeerInfo> {
+    fn request_state(&mut self, shard_id: ShardId, _chain: &Chain, hash: CryptoHash, most_weight_peers: &Vec<FullPeerInfo>,) -> Option<FullPeerInfo> {
         if let Some(peer) = most_weight_peer(most_weight_peers) {
-            // TODO: walk back a bit?
-            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest { shard_id, hash: header_head.last_block_hash, peer_id: peer.peer_info.id });
+            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest { shard_id, hash, peer_id: peer.peer_info.id });
             return Some(peer)
         }
         None
