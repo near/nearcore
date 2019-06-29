@@ -20,7 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
@@ -174,6 +174,7 @@ impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
 impl From<PeerChainInfo> for network_proto::PeerChainInfo {
     fn from(chain_peer_info: PeerChainInfo) -> network_proto::PeerChainInfo {
         network_proto::PeerChainInfo {
+            genesis: chain_peer_info.genesis.into(),
             height: chain_peer_info.height,
             total_weight: chain_peer_info.total_weight.to_num(),
             ..Default::default()
@@ -279,6 +280,9 @@ pub enum PeerMessage {
     BlockApproval(AccountId, CryptoHash, Signature),
 
     Transaction(SignedTransaction),
+
+    StateRequest(ShardId, CryptoHash),
+    StateResponse(ShardId, CryptoHash, Vec<u8>),
 }
 
 impl fmt::Display for PeerMessage {
@@ -294,6 +298,8 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
+            PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
+            PeerMessage::StateResponse(_, _, _) => f.write_str("StateResponse"),
         }
     }
 }
@@ -354,6 +360,19 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request)) => {
+                Ok(PeerMessage::StateRequest(
+                    state_request.shard_id,
+                    state_request.hash.try_into()?,
+                ))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::state_response(
+                state_response,
+            )) => Ok(PeerMessage::StateResponse(
+                state_response.shard_id,
+                state_response.hash.try_into()?,
+                state_response.payload,
+            )),
             None => unreachable!(),
         }
     }
@@ -415,6 +434,15 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
+            }
+            PeerMessage::StateRequest(shard_id, hash) => {
+                let state_request = network_proto::StateRequest { shard_id, hash: hash.into(), cached_size: Default::default(), unknown_fields: Default::default() };
+                Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request))
+            }
+            PeerMessage::StateResponse(shard_id, hash, payload) => {
+                let state_response =
+                    network_proto::StateResponse { shard_id, hash: hash.into(), payload, cached_size: Default::default(), unknown_fields: Default::default() };
+                Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -598,7 +626,8 @@ pub enum NetworkRequests {
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
-        state_root: MerkleHash,
+        hash: CryptoHash,
+        peer_id: PeerId,
     },
     /// Ban given peer.
     BanPeer {
@@ -608,7 +637,7 @@ pub enum NetworkRequests {
 }
 
 /// Combines peer address info and chain information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
@@ -659,6 +688,10 @@ pub enum NetworkClientMessages {
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
     BlockRequest(CryptoHash),
+    /// State request.
+    StateRequest(ShardId, CryptoHash),
+    /// State response.
+    StateResponse(ShardId, CryptoHash, Vec<u8>),
 }
 
 pub enum NetworkClientResponses {
@@ -676,6 +709,8 @@ pub enum NetworkClientResponses {
     Block(Block),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
+    /// Response to state request.
+    StateResponse{ shard_id: ShardId, hash: CryptoHash, payload: Vec<u8> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

@@ -35,7 +35,7 @@ use crate::types::{
 };
 
 /// How often to request peers from active peers.
-const REQUEST_PEERS_SECS: i64 = 10;
+const REQUEST_PEERS_SECS: i64 = 60;
 
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
@@ -436,8 +436,10 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id: _, state_root: _ } => {
-                // TODO: implement state sync.
+            NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage { message: PeerMessage::StateRequest(shard_id, hash) });
+                }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {

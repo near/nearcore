@@ -86,7 +86,9 @@ fn peers_connect_all() {
                     let flags1 = flags.clone();
                     actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
                         if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
-                            if num_active_peers > 4 && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0 {
+                            if num_active_peers > 4
+                                && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                            {
                                 println!("Peer {}: {}", i, num_active_peers);
                                 flags1.fetch_add(1 << i, Ordering::Relaxed);
                             }

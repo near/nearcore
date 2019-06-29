@@ -1,17 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use actix::Message;
+use chrono::{DateTime, Utc};
 
 use near_chain::Block;
 use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
-use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex};
-
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
+use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -161,6 +162,23 @@ impl From<Arc<InMemorySigner>> for BlockProducer {
     }
 }
 
+/// Various status of syncing a specific shard.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ShardSyncStatus {
+    /// Downloading state for fast sync.
+    StateDownload {
+        start_time: DateTime<Utc>,
+        prev_update_time: DateTime<Utc>,
+        prev_downloaded_size: u64,
+        downloaded_size: u64,
+        total_size: u64,
+    },
+    /// Validating the full state.
+    StateValidation,
+    /// Finalizing state sync.
+    StateDone,
+}
+
 /// Various status sync can be in, whether it's fast sync or archival.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SyncStatus {
@@ -170,12 +188,10 @@ pub enum SyncStatus {
     NoSync,
     /// Downloading block headers for fast sync.
     HeaderSync { current_height: BlockIndex, highest_height: BlockIndex },
-    /// Downloading state for fast sync.
-    StateDownload,
-    /// Validating the full state.
-    StateValidation,
-    /// Finalizing state sync.
-    StateDone,
+    /// State sync, with different states of state sync for different shards.
+    StateSync(HashMap<ShardId, ShardSyncStatus>),
+    /// Sync state across all shards is done.
+    StateSyncDone,
     /// Catch up on blocks.
     BodySync { current_height: BlockIndex, highest_height: BlockIndex },
 }

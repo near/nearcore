@@ -632,7 +632,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     let mut config = Config::default();
     config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
-    config.rpc.addr = format!("0.0.0.0:{}", port + 100);
+    config.rpc.addr = format!("0.0.0.0:{}", open_port());
     config.consensus.min_block_production_delay = Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay = Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
