@@ -145,6 +145,9 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    runtime_adapter
+                        .add_validator_proposals(CryptoHash::default(), genesis.hash(), 0, vec![])
+                        .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
                         .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
                     store_update.save_block_header(genesis.header.clone());
@@ -187,12 +190,8 @@ impl Chain {
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update = ChainUpdate::new(
-            self.genesis.hash(),
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-        );
+        let mut chain_update =
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -220,12 +219,8 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
-        let mut chain_update = ChainUpdate::new(
-            self.genesis.hash(),
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-        );
+        let mut chain_update =
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         chain_update.sync_block_headers(headers)?;
         chain_update.commit()
     }
@@ -316,12 +311,8 @@ impl Chain {
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let prev_head = self.store.head()?;
-        let mut chain_update = ChainUpdate::new(
-            self.genesis.hash(),
-            &mut self.store,
-            self.runtime_adapter.clone(),
-            &self.orphans,
-        );
+        let mut chain_update =
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -576,7 +567,6 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
-    genesis_hash: CryptoHash,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
@@ -584,13 +574,12 @@ struct ChainUpdate<'a> {
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        genesis_hash: CryptoHash,
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
     ) -> Self {
         let chain_store_update = store.store_update();
-        ChainUpdate { genesis_hash, runtime_adapter, chain_store_update, orphans }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans }
     }
 
     /// Commit changes to the chain into the database.
@@ -676,12 +665,7 @@ impl<'a> ChainUpdate<'a> {
         // If block checks out, record validator proposals for given block.
         self.runtime_adapter
             .add_validator_proposals(
-                // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-                if block.header.prev_hash != self.genesis_hash {
-                    block.header.prev_hash
-                } else {
-                    CryptoHash::default()
-                },
+                block.header.prev_hash,
                 block.hash(),
                 block.header.height,
                 validator_proposals,
@@ -755,12 +739,7 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
-                        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-                        if header.prev_hash != self.genesis_hash {
-                            header.prev_hash
-                        } else {
-                            CryptoHash::default()
-                        },
+                        header.prev_hash,
                         header.hash(),
                         header.height,
                         header.validator_proposal.clone(),

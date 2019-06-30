@@ -205,14 +205,26 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts) => {
                 if let SyncStatus::StateSync(sync_hash, sharded_statuses) = &mut self.sync_status {
                     if hash != *sync_hash {
-                        sharded_statuses.insert(shard_id, ShardSyncStatus::Error(format!("Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash)));
+                        sharded_statuses.insert(
+                            shard_id,
+                            ShardSyncStatus::Error(format!(
+                                "Incorrect hash of the state response, expected: {}, got: {}",
+                                sync_hash, hash
+                            )),
+                        );
                     } else {
                         match self.chain.set_shard_state(shard_id, hash, payload, receipts) {
                             Ok(()) => {
                                 sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
                             }
                             Err(err) => {
-                                sharded_statuses.insert(shard_id, ShardSyncStatus::Error(format!("Failed to set state for {} @ {}: {}", shard_id, hash, err)));
+                                sharded_statuses.insert(
+                                    shard_id,
+                                    ShardSyncStatus::Error(format!(
+                                        "Failed to set state for {} @ {}: {}",
+                                        shard_id, hash, err
+                                    )),
+                                );
                             }
                         }
                     }
@@ -315,14 +327,8 @@ impl ClientActor {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
-        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-        let hash = if parent_hash == self.chain.genesis().hash() {
-            CryptoHash::default()
-        } else {
-            parent_hash
-        };
         self.runtime_adapter
-            .get_block_proposer(hash, height)
+            .get_block_proposer(parent_hash, height)
             .map_err(|err| Error::Other(err.to_string()))
     }
 
@@ -331,14 +337,8 @@ impl ClientActor {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Error> {
-        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-        let hash = if parent_hash == self.chain.genesis().hash() {
-            CryptoHash::default()
-        } else {
-            parent_hash
-        };
         self.runtime_adapter
-            .get_epoch_block_proposers(hash, height)
+            .get_epoch_block_proposers(parent_hash, height)
             .map_err(|err| Error::Other(err.to_string()))
     }
 
