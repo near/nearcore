@@ -95,6 +95,8 @@ pub struct ClientConfig {
     pub epoch_length: BlockIndex,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
+    /// Horizon to step from the latest block when fetching state.
+    pub state_fetch_horizon: BlockIndex,
 }
 
 impl ClientConfig {
@@ -116,6 +118,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             block_fetch_horizon: 50,
+            state_fetch_horizon: 5,
         }
     }
 }
@@ -139,6 +142,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             block_fetch_horizon: 50,
+            state_fetch_horizon: 5,
         }
     }
 }
@@ -177,6 +181,8 @@ pub enum ShardSyncStatus {
     StateValidation,
     /// Finalizing state sync.
     StateDone,
+    /// Syncing errored out, restart.
+    Error(String),
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.

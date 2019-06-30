@@ -198,8 +198,9 @@ impl NearConfig {
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
-                // TODO: this should be adjusted depending on the speed of sync of state.
+                // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
+                state_fetch_horizon: 5,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -440,7 +441,9 @@ pub fn init_configs(
         let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file));
         panic!("Found existing config in {} with chain-id = {}. Use unsafe_reset_all to clear the folder.", dir.to_str().unwrap(), genesis_config.chain_id);
     }
-    let chain_id = chain_id.and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) }).unwrap_or(random_chain_id());
+    let chain_id = chain_id
+        .and_then(|c| if c.is_empty() { None } else { Some(c.to_string()) })
+        .unwrap_or(random_chain_id());
     match chain_id.as_ref() {
         "mainnet" => {
             // TODO:
@@ -454,7 +457,9 @@ pub fn init_configs(
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
-            if let Some(account_id) = account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) }) {
+            if let Some(account_id) =
+                account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
+            {
                 let signer = InMemorySigner::new(account_id.clone());
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
@@ -471,12 +476,17 @@ pub fn init_configs(
             let mut config = Config::default();
             config.network.skip_sync_wait = true;
             if fast {
-                config.consensus.min_block_production_delay = Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
-                config.consensus.max_block_production_delay = Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+                config.consensus.min_block_production_delay =
+                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                config.consensus.max_block_production_delay =
+                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
-            let account_id = account_id.and_then(|x| if x.is_empty() { None } else { Some(x) }).unwrap_or("test.near").to_string();
+            let account_id = account_id
+                .and_then(|x| if x.is_empty() { None } else { Some(x) })
+                .unwrap_or("test.near")
+                .to_string();
 
             let signer = if let Some(test_seed) = test_seed {
                 InMemorySigner::from_seed(&account_id, test_seed)
@@ -619,7 +629,8 @@ pub fn load_config(dir: &Path) -> NearConfig {
     let config = Config::from_file(&dir.join(CONFIG_FILENAME));
     let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
     let block_producer = if dir.join(config.validator_key_file.clone()).exists() {
-        let signer = Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
+        let signer =
+            Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
         Some(BlockProducer::from(signer))
     } else {
         None
@@ -633,8 +644,10 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
-    config.consensus.min_block_production_delay = Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
-    config.consensus.max_block_production_delay = Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+    config.consensus.min_block_production_delay =
+        Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+    config.consensus.max_block_production_delay =
+        Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
     let block_producer = BlockProducer::from(signer.clone());
     NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))

@@ -64,7 +64,6 @@ fn sync_state_nodes() {
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
-                println!(">>> {:?}", res);
                 match &res {
                     Ok(Ok(b)) if b.header.height >= 101 => System::current().stop(),
                     Err(_) => return futures::future::err(()),

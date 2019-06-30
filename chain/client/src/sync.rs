@@ -179,7 +179,6 @@ impl HeaderSync {
     fn request_headers(&mut self, chain: &Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            // TODO: actix::spawn?
             let _ = self.network_recipient.do_send(NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
                 peer_id: peer.peer_info.id.clone(),
@@ -392,15 +391,20 @@ impl BlockSync {
 /// Helper to track state sync.
 pub struct StateSync {
     network_recipient: Recipient<NetworkRequests>,
+    state_fetch_horizon: BlockIndex,
 
     syncing_peers: HashMap<ShardId, FullPeerInfo>,
     prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
 }
 
 impl StateSync {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+    pub fn new(
+        network_recipient: Recipient<NetworkRequests>,
+        state_fetch_horizon: BlockIndex,
+    ) -> Self {
         StateSync {
             network_recipient,
+            state_fetch_horizon,
             syncing_peers: Default::default(),
             prev_state_sync: Default::default(),
         }
@@ -409,8 +413,7 @@ impl StateSync {
     fn find_sync_hash(&self, chain: &mut Chain) -> Result<CryptoHash, near_chain::Error> {
         let header_head = chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
-        // TODO: identify this threashold based on configuration.
-        for _ in 0..5 {
+        for _ in 0..self.state_fetch_horizon {
             sync_hash = chain.get_block_header(&sync_hash)?.prev_hash;
         }
         Ok(sync_hash)
@@ -438,7 +441,10 @@ impl StateSync {
             all_done = true;
             for (shard_id, shard_status) in shard_statuses.iter() {
                 all_done = all_done && ShardSyncStatus::StateDone == *shard_status;
-                if let Some(ref peer) = self.syncing_peers.get(shard_id) {
+                if let ShardSyncStatus::Error(error) = shard_status {
+                    error!(target: "sync", "State sync: shard {} sync failed: {}", shard_id, error);
+                    sync_need_restart.insert(shard_id);
+                } else if let Some(ref peer) = self.syncing_peers.get(shard_id) {
                     if let ShardSyncStatus::StateDownload { .. } = shard_status {
                         if !most_weight_peers.contains(peer) {
                             sync_need_restart.insert(shard_id);
@@ -495,22 +501,21 @@ impl StateSync {
                     match self.request_state(shard_id, chain, sync_hash, most_weight_peers) {
                         Some(peer) => {
                             self.syncing_peers.insert(shard_id, peer);
+                            new_shard_sync.insert(
+                                shard_id,
+                                ShardSyncStatus::StateDownload {
+                                    start_time: now,
+                                    prev_update_time: now,
+                                    prev_downloaded_size: 0,
+                                    downloaded_size: 0,
+                                    total_size: 0,
+                                },
+                            );
                         }
                         None => {
-                            // TODO: error
+                            new_shard_sync.insert(shard_id, ShardSyncStatus::Error(format!("Failed to find peer with state for shard {}", shard_id)));
                         }
                     }
-
-                    new_shard_sync.insert(
-                        shard_id,
-                        ShardSyncStatus::StateDownload {
-                            start_time: now,
-                            prev_update_time: now,
-                            prev_downloaded_size: 0,
-                            downloaded_size: 0,
-                            total_size: 0,
-                        },
-                    );
                     update_sync_status = true;
                 }
             }

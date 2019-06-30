@@ -755,6 +755,7 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
+                        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
                         if header.prev_hash != self.genesis_hash {
                             header.prev_hash
                         } else {

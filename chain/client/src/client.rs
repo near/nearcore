@@ -80,13 +80,13 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-        // TODO: Wait until genesis.
+        // TODO(991): Wait until genesis.
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone(), config.block_fetch_horizon);
-        let state_sync = StateSync::new(network_actor.clone());
+        let state_sync = StateSync::new(network_actor.clone(), config.state_fetch_horizon);
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
@@ -205,16 +205,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts) => {
                 if let SyncStatus::StateSync(sync_hash, sharded_statuses) = &mut self.sync_status {
                     if hash != *sync_hash {
-                        // TODO: set shard sync state to error. Ban peer?
-                        error!(target: "client", "Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash);
+                        sharded_statuses.insert(shard_id, ShardSyncStatus::Error(format!("Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash)));
                     } else {
                         match self.chain.set_shard_state(shard_id, hash, payload, receipts) {
                             Ok(()) => {
                                 sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
                             }
                             Err(err) => {
-                                // TODO: set shard sync state to error. Ban peer?
-                                error!(target: "client", "Failed to set state for {} @ {}: {}", shard_id, hash, err);
+                                sharded_statuses.insert(shard_id, ShardSyncStatus::Error(format!("Failed to set state for {} @ {}: {}", shard_id, hash, err)));
                             }
                         }
                     }
@@ -317,6 +315,7 @@ impl ClientActor {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
+        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
         let hash = if parent_hash == self.chain.genesis().hash() {
             CryptoHash::default()
         } else {
@@ -332,6 +331,7 @@ impl ClientActor {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Error> {
+        // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
         let hash = if parent_hash == self.chain.genesis().hash() {
             CryptoHash::default()
         } else {
@@ -951,6 +951,7 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                             } => format!("download"),
                             ShardSyncStatus::StateValidation => format!("validation"),
                             ShardSyncStatus::StateDone => format!("done"),
+                            ShardSyncStatus::Error(error) => format!("error {}", error),
                         }
                     )
                     .as_str();
