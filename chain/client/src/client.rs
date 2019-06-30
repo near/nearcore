@@ -781,7 +781,6 @@ impl ClientActor {
             ));
             // Only body / state sync if header height is latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            println!("Sync: {:?}, {}", self.sync_status, header_head.height);
             if header_head.height == highest_height {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
