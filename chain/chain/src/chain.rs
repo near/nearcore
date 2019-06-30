@@ -187,8 +187,12 @@ impl Chain {
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            self.genesis.hash(),
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+        );
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -216,14 +220,21 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
-        let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            self.genesis.hash(),
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+        );
         chain_update.sync_block_headers(headers)?;
         chain_update.commit()
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    pub fn check_state_needed(&mut self, block_fetch_horizon: BlockIndex) -> Result<(bool, Vec<CryptoHash>), Error> {
+    pub fn check_state_needed(
+        &mut self,
+        block_fetch_horizon: BlockIndex,
+    ) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
@@ -305,8 +316,12 @@ impl Chain {
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let prev_head = self.store.head()?;
-        let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            self.genesis.hash(),
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+        );
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -634,13 +649,19 @@ impl<'a> ChainUpdate<'a> {
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
         // If block checks out, record validator proposals for given block.
-        self.runtime_adapter.add_validator_proposals(
-            // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-            if block.header.prev_hash != self.genesis_hash { block.header.prev_hash } else { CryptoHash::default() },
-            block.hash(),
-            block.header.height,
-            validator_proposals,
-        ).map_err(|err| ErrorKind::Other(err.to_string()))?;
+        self.runtime_adapter
+            .add_validator_proposals(
+                // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
+                if block.header.prev_hash != self.genesis_hash {
+                    block.header.prev_hash
+                } else {
+                    CryptoHash::default()
+                },
+                block.hash(),
+                block.header.height,
+                validator_proposals,
+            )
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         self.chain_store_update.save_trie_changes(trie_changes);
         // Save state root after applying transactions.
@@ -709,7 +730,11 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
-                        if header.prev_hash != self.genesis_hash { header.prev_hash } else { CryptoHash::default() },
+                        if header.prev_hash != self.genesis_hash {
+                            header.prev_hash
+                        } else {
+                            CryptoHash::default()
+                        },
                         header.hash(),
                         header.height,
                         header.validator_proposal.clone(),

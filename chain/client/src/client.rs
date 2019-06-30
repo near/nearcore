@@ -193,7 +193,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
                 if let Ok(header) = self.chain.get_block_header(&hash) {
-                    if let Ok(payload) = self.runtime_adapter.dump_state(shard_id, header.prev_state_root) {
+                    if let Ok(payload) =
+                        self.runtime_adapter.dump_state(shard_id, header.prev_state_root)
+                    {
                         return NetworkClientResponses::StateResponse { shard_id, hash, payload };
                     }
                 }
@@ -204,7 +206,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     if hash != *sync_hash {
                         error!(target: "client", "Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash);
                     } else if let Ok(header) = self.chain.get_block_header(&hash) {
-                        if let Err(err) = self.runtime_adapter.set_state(shard_id, header.prev_state_root, payload) {
+                        if let Err(err) = self.runtime_adapter.set_state(
+                            shard_id,
+                            header.prev_state_root,
+                            payload,
+                        ) {
                             error!(target: "client", "Failed to set state for {} @ {}: {}", shard_id, hash, err);
                         } else {
                             sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
@@ -270,10 +276,11 @@ impl ClientActor {
         // Update when last block was processed.
         self.last_block_processed = Instant::now();
 
-        if provenance != Provenance::SYNC {
-            self.num_blocks_processed += 1;
-            self.num_tx_processed += block.transactions.len() as u64;
+        // Count blocks and transactions processed both in SYNC and regular modes.
+        self.num_blocks_processed += 1;
+        self.num_tx_processed += block.transactions.len() as u64;
 
+        if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
             if provenance == Provenance::PRODUCED {
@@ -848,8 +855,8 @@ impl ClientActor {
                 false
             };
             // Block#, Block Hash, is validator/# validators, active/max peers.
-            let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_secs() as f64);
-            let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_secs() as f64);
+            let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_millis() as f64) * 1000.0;
+            let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_millis() as f64) * 1000.0;
             info!(target: "info", "{} {} {} {} {}",
                   Yellow.bold().paint(display_sync_status(&act.sync_status, &head)),
                   White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
@@ -914,25 +921,27 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");
             for (shard_id, shard_status) in shard_statuses {
-                res = res + format!(
-                    "{}: {}",
-                    shard_id,
-                    match shard_status {
-                        ShardSyncStatus::StateDownload {
-                            start_time: _,
-                            prev_update_time: _,
-                            prev_downloaded_size: _,
-                            downloaded_size: _,
-                            total_size: _,
-                        } => format!("download"),
-                        ShardSyncStatus::StateValidation => format!("validation"),
-                        ShardSyncStatus::StateDone => format!("done"),
-                    }
-                ).as_str();
+                res = res
+                    + format!(
+                        "{}: {}",
+                        shard_id,
+                        match shard_status {
+                            ShardSyncStatus::StateDownload {
+                                start_time: _,
+                                prev_update_time: _,
+                                prev_downloaded_size: _,
+                                downloaded_size: _,
+                                total_size: _,
+                            } => format!("download"),
+                            ShardSyncStatus::StateValidation => format!("validation"),
+                            ShardSyncStatus::StateDone => format!("done"),
+                        }
+                    )
+                    .as_str();
             }
             res
         }
-        SyncStatus::StateSyncDone => format!("State sync donee")
+        SyncStatus::StateSyncDone => format!("State sync donee"),
     }
 }
 

@@ -136,7 +136,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionResult>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+        ),
         Box<dyn std::error::Error>,
     > {
         let mut tx_results = vec![];
@@ -153,7 +159,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             *state_root,
             tx_results,
             HashMap::default(),
-            vec![]
+            vec![],
         ))
     }
 
@@ -175,11 +181,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         }))
     }
 
-    fn dump_state(&self, _shard_id: ShardId, _state_root: MerkleHash) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    fn dump_state(
+        &self,
+        _shard_id: ShardId,
+        _state_root: MerkleHash,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         Ok(vec![])
     }
 
-    fn set_state(&self, _shard_id: ShardId, _state_root: MerkleHash, _payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_state(
+        &self,
+        _shard_id: ShardId,
+        _state_root: MerkleHash,
+        _payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
 }

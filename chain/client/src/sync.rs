@@ -4,15 +4,15 @@ use std::collections::{HashMap, HashSet};
 use actix::Recipient;
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
-use rand::{Rng, thread_rng};
+use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, Tip};
-use near_network::{FullPeerInfo, NetworkRequests};
 use near_network::types::ReasonForBan;
+use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
 
-use crate::types::{SyncStatus, ShardSyncStatus};
+use crate::types::{ShardSyncStatus, SyncStatus};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 256;
@@ -78,9 +78,9 @@ impl HeaderSync {
         }
 
         let enable_header_sync = match sync_status {
-            SyncStatus::HeaderSync { .. } | SyncStatus::BodySync { .. } | SyncStatus::StateSyncDone => {
-                true
-            }
+            SyncStatus::HeaderSync { .. }
+            | SyncStatus::BodySync { .. }
+            | SyncStatus::StateSyncDone => true,
             SyncStatus::NoSync | SyncStatus::AwaitingPeers => {
                 let sync_head = chain.sync_head()?;
                 debug!(target: "sync", "Sync: initial transition to Header sync. Sync head: {} at {}, resetting to {} at {}",
@@ -399,7 +399,11 @@ pub struct StateSync {
 
 impl StateSync {
     pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
-        StateSync { network_recipient, syncing_peers: Default::default(), prev_state_sync: Default::default() }
+        StateSync {
+            network_recipient,
+            syncing_peers: Default::default(),
+            prev_state_sync: Default::default(),
+        }
     }
 
     fn find_sync_hash(&self, chain: &mut Chain) -> Result<CryptoHash, near_chain::Error> {
@@ -452,12 +456,17 @@ impl StateSync {
 
             // Get header we were syncing into.
             let header = chain.get_block_header(&sync_hash)?;
-            let height = header.height;
-            let tip = Tip::from_header(header);
+            let (hash, state_root) = (header.prev_hash, header.prev_state_root);
+            let prev_header = chain.get_block_header(&hash)?;
+            let height = prev_header.height;
+            let tip = Tip::from_header(prev_header);
             // Update related heads now.
             let mut chain_store_update = chain.mut_store().store_update();
             chain_store_update.save_body_head(&tip);
             chain_store_update.save_body_tail(&tip);
+            chain_store_update.save_post_state_root(&hash, &state_root);
+            // TODO: receive receipts for given shards.
+            chain_store_update.save_receipt(&hash, vec![]);
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.
@@ -477,10 +486,8 @@ impl StateSync {
                     None => {
                         self.prev_state_sync.insert(shard_id, now);
                         (true, false)
-                    },
-                    Some(prev) => {
-                        (false, now - *prev > Duration::minutes(STATE_SYNC_TIMEOUT))
                     }
+                    Some(prev) => (false, now - *prev > Duration::minutes(STATE_SYNC_TIMEOUT)),
                 };
 
                 if download_timeout {
@@ -491,13 +498,22 @@ impl StateSync {
                     match self.request_state(shard_id, chain, sync_hash, most_weight_peers) {
                         Some(peer) => {
                             self.syncing_peers.insert(shard_id, peer);
-                        },
+                        }
                         None => {
                             // TODO: error
                         }
                     }
 
-                    new_shard_sync.insert(shard_id, ShardSyncStatus::StateDownload { start_time: now, prev_update_time: now, prev_downloaded_size: 0, downloaded_size: 0, total_size: 0 });
+                    new_shard_sync.insert(
+                        shard_id,
+                        ShardSyncStatus::StateDownload {
+                            start_time: now,
+                            prev_update_time: now,
+                            prev_downloaded_size: 0,
+                            downloaded_size: 0,
+                            total_size: 0,
+                        },
+                    );
                     update_sync_status = true;
                 }
             }
@@ -508,10 +524,20 @@ impl StateSync {
         Ok(())
     }
 
-    fn request_state(&mut self, shard_id: ShardId, _chain: &Chain, hash: CryptoHash, most_weight_peers: &Vec<FullPeerInfo>,) -> Option<FullPeerInfo> {
+    fn request_state(
+        &mut self,
+        shard_id: ShardId,
+        _chain: &Chain,
+        hash: CryptoHash,
+        most_weight_peers: &Vec<FullPeerInfo>,
+    ) -> Option<FullPeerInfo> {
         if let Some(peer) = most_weight_peer(most_weight_peers) {
-            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest { shard_id, hash, peer_id: peer.peer_info.id });
-            return Some(peer)
+            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest {
+                shard_id,
+                hash,
+                peer_id: peer.peer_info.id,
+            });
+            return Some(peer);
         }
         None
     }

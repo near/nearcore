@@ -366,13 +366,13 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     state_request.hash.try_into()?,
                 ))
             }
-            Some(network_proto::PeerMessage_oneof_message_type::state_response(
-                state_response,
-            )) => Ok(PeerMessage::StateResponse(
-                state_response.shard_id,
-                state_response.hash.try_into()?,
-                state_response.payload,
-            )),
+            Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response)) => {
+                Ok(PeerMessage::StateResponse(
+                    state_response.shard_id,
+                    state_response.hash.try_into()?,
+                    state_response.payload,
+                ))
+            }
             None => unreachable!(),
         }
     }
@@ -436,12 +436,22 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
             }
             PeerMessage::StateRequest(shard_id, hash) => {
-                let state_request = network_proto::StateRequest { shard_id, hash: hash.into(), cached_size: Default::default(), unknown_fields: Default::default() };
+                let state_request = network_proto::StateRequest {
+                    shard_id,
+                    hash: hash.into(),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
+                };
                 Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request))
             }
             PeerMessage::StateResponse(shard_id, hash, payload) => {
-                let state_response =
-                    network_proto::StateResponse { shard_id, hash: hash.into(), payload, cached_size: Default::default(), unknown_fields: Default::default() };
+                let state_response = network_proto::StateResponse {
+                    shard_id,
+                    hash: hash.into(),
+                    payload,
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
+                };
                 Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
             }
         };
@@ -710,7 +720,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse{ shard_id: ShardId, hash: CryptoHash, payload: Vec<u8> },
+    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
