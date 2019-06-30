@@ -452,11 +452,11 @@ impl StateSync {
         if all_done {
             info!(target: "sync", "State sync: all shards are done");
 
-            // TODO: this code belongs in chain, but waiting to see where chunks will fit.
+            // TODO(1046): this code belongs in chain, but waiting to see where chunks will fit.
 
             // Get header we were syncing into.
             let header = chain.get_block_header(&sync_hash)?;
-            let (hash, state_root) = (header.prev_hash, header.prev_state_root);
+            let hash = header.prev_hash;
             let prev_header = chain.get_block_header(&hash)?;
             let height = prev_header.height;
             let tip = Tip::from_header(prev_header);
@@ -464,9 +464,6 @@ impl StateSync {
             let mut chain_store_update = chain.mut_store().store_update();
             chain_store_update.save_body_head(&tip);
             chain_store_update.save_body_tail(&tip);
-            chain_store_update.save_post_state_root(&hash, &state_root);
-            // TODO: receive receipts for given shards.
-            chain_store_update.save_receipt(&hash, vec![]);
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.

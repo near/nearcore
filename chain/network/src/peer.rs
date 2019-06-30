@@ -255,8 +255,8 @@ impl Peer {
             PeerMessage::StateRequest(shard_id, hash) => {
                 NetworkClientMessages::StateRequest(shard_id, hash)
             },
-            PeerMessage::StateResponse(shard_id, hash, payload) => {
-                NetworkClientMessages::StateResponse(shard_id, hash, payload)
+            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
+                NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
             _ => unreachable!(),
         };
@@ -280,8 +280,8 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload }) => {
-                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload))
+                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload, receipts }) => {
+                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload, receipts))
                     }
                     Err(err) => {
                         error!(

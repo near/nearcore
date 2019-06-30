@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::types::{BlockIndex, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -421,6 +421,31 @@ impl Chain {
         }
 
         maybe_new_head
+    }
+
+    pub fn set_shard_state(
+        &mut self,
+        shard_id: ShardId,
+        hash: CryptoHash,
+        payload: Vec<u8>,
+        receipts: Vec<ReceiptTransaction>,
+    ) -> Result<(), Error> {
+        // TODO(1046): update this with any required changes for chunks support.
+        let header = self.get_block_header(&hash)?;
+        let (prev_hash, state_root) = (header.prev_hash, header.prev_state_root);
+
+        // Save state in the runtime, will also check it's validity.
+        self.runtime_adapter
+            .set_state(shard_id, state_root, payload)
+            .map_err(|err| ErrorKind::InvalidStatePayload(err.to_string()))?;
+
+        // Update pointers to state root and receipts.
+        let mut chain_store_update = self.store.store_update();
+        chain_store_update.save_post_state_root(&prev_hash, &state_root);
+        chain_store_update.save_receipt(&prev_hash, receipts);
+        chain_store_update.commit()?;
+
+        Ok(())
     }
 }
 

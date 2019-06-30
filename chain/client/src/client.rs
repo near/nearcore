@@ -14,8 +14,8 @@ use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
 use near_chain::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Chain, Provenance, RuntimeAdapter, Tip,
-    ValidTransaction,
+    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
+    Tip, ValidTransaction,
 };
 use near_network::types::{PeerId, ReasonForBan};
 use near_network::{
@@ -24,8 +24,8 @@ use near_network::{
 use near_pool::TransactionPool;
 use near_primitives::crypto::signature::Signature;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
@@ -192,28 +192,30 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
-                if let Ok(header) = self.chain.get_block_header(&hash) {
-                    if let Ok(payload) =
-                        self.runtime_adapter.dump_state(shard_id, header.prev_state_root)
-                    {
-                        return NetworkClientResponses::StateResponse { shard_id, hash, payload };
-                    }
+                if let Ok((payload, receipts)) = self.state_request(shard_id, hash) {
+                    return NetworkClientResponses::StateResponse {
+                        shard_id,
+                        hash,
+                        payload,
+                        receipts,
+                    };
                 }
                 NetworkClientResponses::NoResponse
             }
-            NetworkClientMessages::StateResponse(shard_id, hash, payload) => {
+            NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts) => {
                 if let SyncStatus::StateSync(sync_hash, sharded_statuses) = &mut self.sync_status {
                     if hash != *sync_hash {
+                        // TODO: set shard sync state to error. Ban peer?
                         error!(target: "client", "Incorrect hash of the state response, expected: {}, got: {}", sync_hash, hash);
-                    } else if let Ok(header) = self.chain.get_block_header(&hash) {
-                        if let Err(err) = self.runtime_adapter.set_state(
-                            shard_id,
-                            header.prev_state_root,
-                            payload,
-                        ) {
-                            error!(target: "client", "Failed to set state for {} @ {}: {}", shard_id, hash, err);
-                        } else {
-                            sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
+                    } else {
+                        match self.chain.set_shard_state(shard_id, hash, payload, receipts) {
+                            Ok(()) => {
+                                sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
+                            }
+                            Err(err) => {
+                                // TODO: set shard sync state to error. Ban peer?
+                                error!(target: "client", "Failed to set state for {} @ {}: {}", shard_id, hash, err);
+                            }
                         }
                     }
                 }
@@ -901,6 +903,21 @@ impl ClientActor {
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position.unwrap(), signature.clone());
         true
+    }
+
+    fn state_request(
+        &mut self,
+        shard_id: ShardId,
+        hash: CryptoHash,
+    ) -> Result<(Vec<u8>, Vec<ReceiptTransaction>), near_chain::Error> {
+        let header = self.chain.get_block_header(&hash)?;
+        let prev_hash = header.prev_hash;
+        let payload = self
+            .runtime_adapter
+            .dump_state(shard_id, header.prev_state_root)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+        let receipts = self.chain.get_receipts(&prev_hash)?.clone();
+        Ok((payload, receipts))
     }
 }
 
