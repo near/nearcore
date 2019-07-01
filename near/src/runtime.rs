@@ -310,7 +310,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: MerkleHash,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // TODO: make sure state_root is present in the trie.
+        // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
         let mut result = vec![];
         let mut cursor = Cursor::new(&mut result);
@@ -321,7 +321,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_u32::<LittleEndian>(value.len() as u32)?;
             cursor.write_all(value.as_ref())?;
         }
-        // TODO: archive it?
+        // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
         info!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
         Ok(result)
     }

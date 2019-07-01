@@ -148,11 +148,10 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
-                                    let _ =
-                                        self.network_recipient.do_send(NetworkRequests::BanPeer {
-                                            peer_id: peer.peer_info.id.clone(),
-                                            ban_reason: ReasonForBan::HeightFraud,
-                                        });
+                                    self.network_recipient.do_send(NetworkRequests::BanPeer {
+                                        peer_id: peer.peer_info.id.clone(),
+                                        ban_reason: ReasonForBan::HeightFraud,
+                                    });
                                 }
                             }
                             _ => (),
@@ -513,7 +512,13 @@ impl StateSync {
                             );
                         }
                         None => {
-                            new_shard_sync.insert(shard_id, ShardSyncStatus::Error(format!("Failed to find peer with state for shard {}", shard_id)));
+                            new_shard_sync.insert(
+                                shard_id,
+                                ShardSyncStatus::Error(format!(
+                                    "Failed to find peer with state for shard {}",
+                                    shard_id
+                                )),
+                            );
                         }
                     }
                     update_sync_status = true;
@@ -534,7 +539,7 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Option<FullPeerInfo> {
         if let Some(peer) = most_weight_peer(most_weight_peers) {
-            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest {
+            self.network_recipient.do_send(NetworkRequests::StateRequest {
                 shard_id,
                 hash,
                 peer_id: peer.peer_info.id,

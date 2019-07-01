@@ -175,7 +175,7 @@ impl Peer {
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { genesis, height: _, total_weight: _ }) => {
+                Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
                     act.genesis = genesis;
                     actix::fut::ok(())
                 }

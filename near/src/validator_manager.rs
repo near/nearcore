@@ -279,11 +279,7 @@ impl ValidatorManager {
         parent_hash: CryptoHash,
         index: BlockIndex,
     ) -> Result<(CryptoHash, BlockIndex), ValidatorError> {
-        // TODO: handle that config epoch length can change over time from runtime.
-        // First two epochs are special - they are referring to genesis block.
-        //        if index < self.config.epoch_length * 2 + 1 {
-        //            return Ok((CryptoHash::default(), index % self.config.epoch_length));
-        //        }
+        // TODO(1049): handle that config epoch length can change over time from runtime.
         let parent_info =
             self.get_index_info(parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
         let (epoch_start_index, epoch_start_parent_hash) =
