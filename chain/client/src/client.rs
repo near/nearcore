@@ -72,15 +72,11 @@ pub struct ClientActor {
 
 }
 
-fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), OutOfRangeError> {
+fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), Error> {
         let now : DateTime<Utc> = Utc::now();
         let duration = now.signed_duration_since(*genesis_time);
-        if duration.num_hours > 0 ||  duration.num_minutes > 0 || duration.num_seconds > 0 {
-            //translate to std::duration and 
-            //td::time::{Duration
-            let std_duration =  duration.to_std()?;
-            thread::sleep(std_duration);
-        } 
+        let std_duration = duration.to_std()?;
+        thread::sleep(std_duration);
         Ok(())
 }
 
