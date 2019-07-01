@@ -72,7 +72,7 @@ pub struct ClientActor {
 
 }
 
-fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), Error> {
+fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), OutOfRangeError> {
         let now : DateTime<Utc> = Utc::now();
         let duration = now.signed_duration_since(*genesis_time);
         let std_duration = duration.to_std()?;
