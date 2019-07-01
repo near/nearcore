@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant, OutOfRangeError};
+use std::thread;
+
 
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
@@ -27,6 +29,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex};
 use near_store::Store;
+
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync};
 use crate::types::{
@@ -65,6 +68,20 @@ pub struct ClientActor {
     num_blocks_processed: u64,
     /// Total number of transactions processed.
     num_tx_processed: u64,
+
+
+}
+
+fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), OutOfRangeError> {
+        let now : DateTime<Utc> = Utc::now();
+        let duration = now.signed_duration_since(*genesis_time);
+        if duration.num_hours > 0 ||  duration.num_minutes > 0 || duration.num_seconds > 0 {
+            //translate to std::duration and 
+            //td::time::{Duration
+            let std_duration =  duration.to_std()?;
+            thread::sleep(std_duration);
+        } 
+        Ok(())
 }
 
 impl ClientActor {
@@ -76,7 +93,13 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
+
         // TODO: Wait until genesis.
+
+         //think about it
+        let _ = wait_until_genesis(&genesis_time)?;
+
+
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
