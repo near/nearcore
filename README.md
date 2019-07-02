@@ -49,8 +49,8 @@ High level milestones:
  
 ## Running 
 
-Checkout the [Running Locally](https://github.com/nearprotocol/nearcore/tree/master/ops#running-locally) and [Running Remotely](https://github.com/nearprotocol/nearcore/tree/master/ops#running-remotely) sections.
+Checkout the [Running Locally](https://docs.nearprotocol.com/v/nightshade/running-a-node#running-official-testnet-locally) and [Running Remotely](https://docs.nearprotocol.com/v/nightshade/running-a-node#running-official-testnet-on-gcp) sections.
 
 ## Developing
 
-Checkout the [Developing NEARCore](https://docs.nearprotocol.com/v/nighshade/development/nearcore) section of documentation.
+Checkout the [Developing NEARCore](https://docs.nearprotocol.com/v/nightshade/contribution/nearcore) section of documentation. You can see the most recently pushed code running at [neartest.com](https://neartest.com). Disclaimer: *Do not publish critical contracts on neartest.com.* This has a very high likelihood of being broken.
