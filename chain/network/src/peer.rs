@@ -29,7 +29,7 @@ const MAX_TRACK_SIZE: usize = 30;
 
 /// Maximum number of messages per minute from single peer.
 // TODO: current limit is way to high due to us sending lots of messages during sync.
-const MAX_PEER_MSG_PER_MIN: u64 = 20000;
+const MAX_PEER_MSG_PER_MIN: u64 = 50000;
 
 /// Keeps track of requests and received hashes of transactions and blocks.
 /// Also keeps track of number of bytes sent and received from this peer to prevent abuse.
@@ -112,6 +112,8 @@ pub struct Peer {
     client_addr: Recipient<NetworkClientMessages>,
     /// Tracker for requests and responses.
     tracker: Tracker,
+    /// This node genesis hash.
+    genesis: CryptoHash,
     /// Latest chain info from the peer.
     chain_info: PeerChainInfo,
 }
@@ -138,6 +140,7 @@ impl Peer {
             peer_manager_addr,
             client_addr,
             tracker: Default::default(),
+            genesis: Default::default(),
             chain_info: Default::default(),
         }
     }
@@ -167,17 +170,34 @@ impl Peer {
         };
     }
 
+    fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
+        ctx.wait(self.client_addr
+            .send(NetworkClientMessages::GetChainInfo)
+            .into_actor(self)
+            .then(move |res, act, _ctx| match res {
+                Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
+                    act.genesis = genesis;
+                    actix::fut::ok(())
+                }
+                Err(err) => {
+                    error!(target: "network", "Failed sending GetChain to client: {}", err);
+                    actix::fut::err(())
+                }
+                _ => actix::fut::err(()),
+            }));
+    }
+
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
         self.client_addr
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkClientResponses::ChainInfo { height, total_weight }) => {
+                Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id,
                         act.node_info.account_id.clone(),
                         act.node_info.addr_port(),
-                        PeerChainInfo { height, total_weight },
+                        PeerChainInfo { genesis, height, total_weight },
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
                     actix::fut::ok(())
@@ -232,6 +252,12 @@ impl Peer {
             PeerMessage::BlockHeaders(headers) => {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
+            PeerMessage::StateRequest(shard_id, hash) => {
+                NetworkClientMessages::StateRequest(shard_id, hash)
+            },
+            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
+                NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
+            }
             _ => unreachable!(),
         };
         self.client_addr
@@ -254,6 +280,9 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
+                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload, receipts }) => {
+                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload, receipts))
+                    }
                     Err(err) => {
                         error!(
                             target: "network",
@@ -274,6 +303,9 @@ impl Actor for Peer {
     type Context = Context<Peer>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // Fetch genesis hash from the client.
+        self.fetch_client_chain_info(ctx);
+
         debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
         ctx.run_later(self.handshake_timeout, move |act, ctx| {
@@ -317,6 +349,10 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
+                if handshake.chain_info.genesis != self.genesis {
+                    info!(target: "network", "Received connection from node with different genesis.");
+                    ctx.stop();
+                }
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
@@ -402,7 +438,10 @@ impl Handler<QueryPeerStats> for Peer {
             received_bytes_per_sec: self.tracker.received_bytes.bytes_per_min() / 60,
             sent_bytes_per_sec: self.tracker.sent_bytes.bytes_per_min() / 60,
             is_abusive: self.is_abusive(),
-            message_counts: (self.tracker.sent_bytes.count_per_min(), self.tracker.received_bytes.count_per_min()),
+            message_counts: (
+                self.tracker.sent_bytes.count_per_min(),
+                self.tracker.received_bytes.count_per_min(),
+            ),
         }
     }
 }

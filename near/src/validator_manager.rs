@@ -170,7 +170,7 @@ fn proposals_to_assignments(
         last_index = (last_index + num_seats) % epoch_config.num_block_producers;
     }
 
-    // TODO: implement fishermen allocation.
+    // TODO(1050): implement fishermen allocation.
 
     Ok(ValidatorAssignment {
         validators: ordered_proposals,
@@ -279,19 +279,16 @@ impl ValidatorManager {
         parent_hash: CryptoHash,
         index: BlockIndex,
     ) -> Result<(CryptoHash, BlockIndex), ValidatorError> {
-        // TODO: handle that config epoch length can change over time from runtime.
-        // First two epochs are special - they are referring to genesis block.
-        if index < self.config.epoch_length * 2 + 1 {
-            return Ok((CryptoHash::default(), index % self.config.epoch_length));
-        }
+        // TODO(1049): handle that config epoch length can change over time from runtime.
         let parent_info =
             self.get_index_info(parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
-        let (epoch_start_index, epoch_start_parent_hash) = if parent_hash == parent_info.epoch_start_hash {
-            (parent_info.index, parent_info.prev_hash)
-        } else {
-            let epoch_start_info = self.get_index_info(parent_info.epoch_start_hash)?;
-            (epoch_start_info.index, epoch_start_info.prev_hash)
-        };
+        let (epoch_start_index, epoch_start_parent_hash) =
+            if parent_hash == parent_info.epoch_start_hash {
+                (parent_info.index, parent_info.prev_hash)
+            } else {
+                let epoch_start_info = self.get_index_info(parent_info.epoch_start_hash)?;
+                (epoch_start_info.index, epoch_start_info.prev_hash)
+            };
 
         if epoch_start_index + self.config.epoch_length <= index {
             // If this is next epoch index, return parent's epoch hash and 0 as offset.
@@ -367,7 +364,7 @@ impl ValidatorManager {
             // TODO: keep track of size here to make sure we can't be spammed storing non interesting forks.
             let parent_info = self.get_index_info(prev_hash)?;
             let epoch_start_hash = if prev_hash == CryptoHash::default() {
-                // If this is first block after genesis, we also save genesis validators for these epoch.
+                // If this genesis block, we save genesis validators for it.
                 let mut store_update = self.store.store_update();
                 let genesis_validators = self.get_validators(CryptoHash::default())?;
                 store_update.set_ser(COL_VALIDATORS, current_hash.as_ref(), genesis_validators)?;
@@ -508,14 +505,16 @@ mod test {
         let validators = vec![stake("test1", 1_000_000)];
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
+
+        let (h0, h1, h2, h3) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]), hash(&vec![3]));
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![]).unwrap().commit().unwrap();
+
         let expected0 = assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![]);
-        let (h0, h1, h2, h3) =
-            (CryptoHash::default(), hash(&vec![1]), hash(&vec![2]), hash(&vec![3]));
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h0, 1).unwrap().0).unwrap(), &expected0);
-        assert_eq!(vm.get_validators(vm.get_epoch_offset(h1, 2).unwrap().0).unwrap(), &expected0);
-        assert_eq!(vm.get_epoch_offset(h2, 3), Err(ValidatorError::EpochOutOfBounds));
         assert_eq!(vm.get_validators(h1), Err(ValidatorError::EpochOutOfBounds));
         vm.add_proposals(h0, h1, 1, vec![stake("test2", 1_000_000)]).unwrap().commit().unwrap();
+        assert_eq!(vm.get_validators(vm.get_epoch_offset(h1, 2).unwrap().0).unwrap(), &expected0);
+        assert_eq!(vm.get_epoch_offset(h2, 3), Err(ValidatorError::EpochOutOfBounds));
         vm.add_proposals(h1, h2, 2, vec![]).unwrap().commit().unwrap();
         let expected = assignment(
             vec![("test2", 1_000_000), ("test1", 1_000_000)],
@@ -534,9 +533,9 @@ mod test {
 
     /// Test handling forks across the epoch finalization.
     /// Fork with one BP in one chain and 2 BPs in another chain.
-    ///     /- 1 --------|-4---------|-7---
-    ///   0
-    ///     \-----2---3--|----5---6--|----8
+    ///     |  /- 1 ----|----4-----|----7---
+    ///   x-|-0
+    ///     |  \-----2--|-3-----5--|-6-----8
     /// In upper fork, only test1 left + new validator test4.
     /// In lower fork, test2 and test3 are left.
     #[test]
@@ -548,7 +547,7 @@ mod test {
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (h0, h1, h2, h3, h4, h5, h6, h7, h8) = (
-            CryptoHash::default(),
+            hash(&vec![0]),
             hash(&vec![1]),
             hash(&vec![2]),
             hash(&vec![3]),
@@ -559,22 +558,34 @@ mod test {
             hash(&vec![8]),
         );
 
-        // First 2 * epoch_length blocks are all epoch "0".
-        for i in 0..6 {
-            assert_eq!(vm.get_epoch_offset(h0, i).unwrap().0, h0);
-        }
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![]).unwrap().commit().unwrap();
+        // First epoch_length blocks are all epoch 0x0000.
+        assert_eq!(vm.get_epoch_offset(h0, 1).unwrap().0, CryptoHash::default());
+        assert_eq!(vm.get_epoch_offset(h0, 2).unwrap().0, CryptoHash::default());
 
         vm.add_proposals(h0, h1, 1, vec![stake("test4", 1_000_000)]).unwrap().commit().unwrap();
         vm.add_proposals(h0, h2, 2, vec![]).unwrap().commit().unwrap();
+
+        // Second epoch_length blocks are all epoch <genesis>.
+        assert_eq!(vm.get_epoch_offset(h2, 3).unwrap().0, h0);
+        assert_eq!(vm.get_epoch_offset(h1, 4).unwrap().0, h0);
+        assert_eq!(vm.get_epoch_offset(h2, 5).unwrap().0, h0);
+
         vm.add_proposals(h2, h3, 3, vec![]).unwrap().commit().unwrap();
+
+        // Block #5 with the real parent #3.
+        assert_eq!(vm.get_epoch_offset(h3, 5).unwrap().0, h0);
+
         vm.add_proposals(h1, h4, 4, vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h3, h5, 5, vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h5, h6, 6, vec![]).unwrap().commit().unwrap();
 
-        // For block 7, epoch is defined by block 1.
-        assert_eq!(vm.get_epoch_offset(h4, 7).unwrap(), (h4, 0));
+        // Block #3 has been processed, so ready for next epoch defined by #3.
+        assert_eq!(vm.get_epoch_offset(h5, 6).unwrap().0, h3);
+        // For block #7, epoch is defined by block #4.
+        assert_eq!(vm.get_epoch_offset(h4, 7).unwrap().0, h4);
         // For block 8, epoch is defined by block 2.
-        assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h5, 0));
+        assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h3, 2));
 
         assert_eq!(
             vm.get_validators(h0).unwrap(),
@@ -601,7 +612,7 @@ mod test {
             )
         );
         assert_eq!(
-            vm.get_validators(h5).unwrap(),
+            vm.get_validators(h6).unwrap(),
             &assignment(
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![1, 1, 1],
@@ -615,7 +626,7 @@ mod test {
         vm.add_proposals(h6, h8, 8, vec![]).unwrap().commit().unwrap();
 
         assert_eq!(vm.get_epoch_offset(h7, 10).unwrap().0, h7);
-        assert_eq!(vm.get_epoch_offset(h8, 11).unwrap().0, h8);
+        assert_eq!(vm.get_epoch_offset(h8, 11).unwrap().0, h6);
 
         // Add the same slot second time already after epoch is finalized should do nothing.
         vm.add_proposals(h0, h2, 2, vec![]).unwrap().commit().unwrap();

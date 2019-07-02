@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::types::{BlockIndex, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -145,6 +145,9 @@ impl Chain {
             }
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
+                    runtime_adapter
+                        .add_validator_proposals(CryptoHash::default(), genesis.hash(), 0, vec![])
+                        .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
                         .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
                     store_update.save_block_header(genesis.header.clone());
@@ -188,7 +191,7 @@ impl Chain {
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
         let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -217,13 +220,16 @@ impl Chain {
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
         let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         chain_update.sync_block_headers(headers)?;
         chain_update.commit()
     }
 
     /// Check if state download is required, otherwise return hashes of blocks to fetch.
-    pub fn check_state_needed(&mut self) -> Result<(bool, Vec<CryptoHash>), Error> {
+    pub fn check_state_needed(
+        &mut self,
+        block_fetch_horizon: BlockIndex,
+    ) -> Result<(bool, Vec<CryptoHash>), Error> {
         let block_head = self.head()?;
         let header_head = self.header_head()?;
         let mut hashes = vec![];
@@ -233,7 +239,7 @@ impl Chain {
         }
 
         // Find common block between header chain and block chain.
-        let mut _oldest_height = 0;
+        let mut oldest_height = 0;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.height <= block_head.height {
@@ -242,14 +248,15 @@ impl Chain {
                 }
             }
 
-            _oldest_height = header.height;
+            oldest_height = header.height;
             hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
 
-        // TODO: calcaulate if the oldest height is too far from header_head.height
-        // let sync_head = self.sync_head()?;
-        // and return Ok(true) to download state instead.
+        let sync_head = self.sync_head()?;
+        if oldest_height < sync_head.height.saturating_sub(block_fetch_horizon) {
+            return Ok((true, vec![]));
+        }
         Ok((false, hashes))
     }
 
@@ -305,7 +312,7 @@ impl Chain {
     {
         let prev_head = self.store.head()?;
         let mut chain_update =
-            ChainUpdate::new(self.genesis.hash(), &mut self.store, self.runtime_adapter.clone(), &self.orphans);
+            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -357,7 +364,7 @@ impl Chain {
     }
 
     /// Check for orphans, once a block is successfully added.
-    fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
+    pub fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
@@ -405,6 +412,31 @@ impl Chain {
         }
 
         maybe_new_head
+    }
+
+    pub fn set_shard_state(
+        &mut self,
+        shard_id: ShardId,
+        hash: CryptoHash,
+        payload: Vec<u8>,
+        receipts: Vec<ReceiptTransaction>,
+    ) -> Result<(), Error> {
+        // TODO(1046): update this with any required changes for chunks support.
+        let header = self.get_block_header(&hash)?;
+        let (prev_hash, state_root) = (header.prev_hash, header.prev_state_root);
+
+        // Save state in the runtime, will also check it's validity.
+        self.runtime_adapter
+            .set_state(shard_id, state_root, payload)
+            .map_err(|err| ErrorKind::InvalidStatePayload(err.to_string()))?;
+
+        // Update pointers to state root and receipts.
+        let mut chain_store_update = self.store.store_update();
+        chain_store_update.save_post_state_root(&prev_hash, &state_root);
+        chain_store_update.save_receipt(&prev_hash, receipts);
+        chain_store_update.commit()?;
+
+        Ok(())
     }
 }
 
@@ -499,6 +531,12 @@ impl Chain {
         &self.store
     }
 
+    /// Returns mutable ChainStore.
+    #[inline]
+    pub fn mut_store(&mut self) -> &mut ChainStore {
+        &mut self.store
+    }
+
     /// Returns genesis block header.
     #[inline]
     pub fn genesis(&self) -> &BlockHeader {
@@ -529,7 +567,6 @@ impl Chain {
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 struct ChainUpdate<'a> {
-    genesis_hash: CryptoHash,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
@@ -537,13 +574,12 @@ struct ChainUpdate<'a> {
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        genesis_hash: CryptoHash,
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
     ) -> Self {
         let chain_store_update = store.store_update();
-        ChainUpdate { genesis_hash, runtime_adapter, chain_store_update, orphans }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans }
     }
 
     /// Commit changes to the chain into the database.
@@ -627,13 +663,14 @@ impl<'a> ChainUpdate<'a> {
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
         // If block checks out, record validator proposals for given block.
-        self.runtime_adapter.add_validator_proposals(
-            // Because runtime doesn't know about genesis hash, we use CryptoHash::default instead.
-            if block.header.prev_hash != self.genesis_hash { block.header.prev_hash } else { CryptoHash::default() },
-            block.hash(),
-            block.header.height,
-            validator_proposals,
-        ).map_err(|err| ErrorKind::Other(err.to_string()))?;
+        self.runtime_adapter
+            .add_validator_proposals(
+                block.header.prev_hash,
+                block.hash(),
+                block.header.height,
+                validator_proposals,
+            )
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         self.chain_store_update.save_trie_changes(trie_changes);
         // Save state root after applying transactions.
@@ -702,7 +739,7 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
-                        if header.prev_hash != self.genesis_hash { header.prev_hash } else { CryptoHash::default() },
+                        header.prev_hash,
                         header.hash(),
                         header.height,
                         header.validator_proposal.clone(),

@@ -128,6 +128,13 @@ pub trait RuntimeAdapter: Send + Sync {
         path: &str,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
+
+    /// Read state as byte array from given state root.
+    fn dump_state(&self, shard_id: ShardId, state_root: MerkleHash) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+
+    /// Set state that expected to be given state root with provided payload.
+    /// Returns error if failed to parse or if the resulting tree doesn't match the expected root.
+    fn set_state(&self, _shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

@@ -1,10 +1,10 @@
 use std::convert::TryFrom;
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
-use byteorder::{LittleEndian, ReadBytesExt};
-use log::debug;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use log::{debug, info};
 
 use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
@@ -25,6 +25,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
+use kvdb::DBValue;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -223,7 +224,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
         let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
-        cursor.read_u32::<LittleEndian>().expect("Must not happened")
+        cursor.read_u64::<LittleEndian>().expect("Must not happened")
             % (self.genesis_config.block_producers_per_shard.len() as ShardId)
     }
 
@@ -266,7 +267,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionResult>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+        ),
         Box<dyn std::error::Error>,
     > {
         let apply_state = ApplyState {
@@ -284,7 +291,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             apply_result.root,
             apply_result.tx_result,
             apply_result.new_receipts,
-            apply_result.validator_proposals
+            apply_result.validator_proposals,
         ))
     }
 
@@ -296,6 +303,49 @@ impl RuntimeAdapter for NightshadeRuntime {
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         query_client(self, state_root, height, path, data)
+    }
+
+    fn dump_state(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        // TODO(1052): make sure state_root is present in the trie.
+        // create snapshot.
+        let mut result = vec![];
+        let mut cursor = Cursor::new(&mut result);
+        for item in self.trie.iter(&state_root)? {
+            let (key, value) = item?;
+            cursor.write_u32::<LittleEndian>(key.len() as u32)?;
+            cursor.write_all(&key)?;
+            cursor.write_u32::<LittleEndian>(value.len() as u32)?;
+            cursor.write_all(value.as_ref())?;
+        }
+        // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
+        info!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
+        Ok(result)
+    }
+
+    fn set_state(&self, shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+        info!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
+        let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
+        let payload_len = payload.len();
+        let mut cursor = Cursor::new(payload);
+        while cursor.position() < payload_len as u64 {
+            let key_len = cursor.read_u32::<LittleEndian>()? as usize;
+            let mut key = vec![0; key_len];
+            cursor.read_exact(&mut key)?;
+            let value_len = cursor.read_u32::<LittleEndian>()? as usize;
+            let mut value = vec![0; value_len];
+            cursor.read_exact(&mut value)?;
+            state_update.set(key, DBValue::from_slice(&value));
+        }
+        let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
+        if root != state_root {
+            return Err("Invalid state root".into());
+        }
+        store_update.commit()?;
+        Ok(())
     }
 }
 

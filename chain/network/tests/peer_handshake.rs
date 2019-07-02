@@ -27,6 +27,7 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         match msg {
             NetworkClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkClientResponses::ChainInfo {
+                    genesis: Default::default(),
                     height: 1,
                     total_weight: 1.into(),
                 }))
@@ -85,7 +86,9 @@ fn peers_connect_all() {
                     let flags1 = flags.clone();
                     actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
                         if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
-                            if num_active_peers > 4 && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0 {
+                            if num_active_peers > 4
+                                && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                            {
                                 println!("Peer {}: {}", i, num_active_peers);
                                 flags1.fetch_add(1 << i, Ordering::Relaxed);
                             }
