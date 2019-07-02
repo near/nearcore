@@ -68,8 +68,6 @@ pub struct ClientActor {
     num_blocks_processed: u64,
     /// Total number of transactions processed.
     num_tx_processed: u64,
-
-
 }
 
 fn wait_until_genesis(genesis_time: &DateTime<utc>) -> Result<(), OutOfRangeError> {
@@ -89,13 +87,7 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-
-        // TODO: Wait until genesis.
-
-         //think about it
-        let _ = wait_until_genesis(&genesis_time)?;
-
-
+        wait_until_genesis(&genesis_time)?;
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
