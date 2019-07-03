@@ -57,6 +57,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-cors"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "actix-service 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-web 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "derive_more 0.14.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.1.27 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "actix-http"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2015,6 +2026,7 @@ name = "near-jsonrpc"
 version = "0.1.0"
 dependencies = [
  "actix 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-cors 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-utils 0.1.0",
@@ -4048,6 +4060,7 @@ dependencies = [
 "checksum actix 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)" = "671ce3d27313f236827a5dd153a1073ad03ef31fc77f562020263e7830cf1ef7"
 "checksum actix-codec 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9f2c11af4b06dc935d8e1b1491dad56bfb32febc49096a91e773f8535c176453"
 "checksum actix-connect 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d7fbab0d79b2f3415a79570e3db12eaa75c26239541e613b832655145a5e9488"
+"checksum actix-cors 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "66e5b071c68ac8ab182e7b7717167ef29ea93e166bc26391f678f19ac08ed129"
 "checksum actix-http 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)" = "81aa906e74d2cd5f219f596003b0fd94d05e75a4a448b12afea66e7658b6c9e1"
 "checksum actix-router 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "23224bb527e204261d0291102cb9b52713084def67d94f7874923baefe04ccf7"
 "checksum actix-rt 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ed0424cdf6542a43b32a8885c7c5099bf4110fad9b50d7fb220ab9c038ecf5ec"
