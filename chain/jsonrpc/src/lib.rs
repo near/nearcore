@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
-use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, middleware, web};
+use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
 use protobuf::parse_from_bytes;
@@ -50,7 +50,7 @@ impl Default for RpcPollingConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
-    pub cors_allowed_origin: String,
+    pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
 }
 
@@ -58,7 +58,7 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
-            cors_allowed_origin: "*".to_owned(),
+            cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
         }
     }
@@ -244,15 +244,28 @@ fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = Http
     response.boxed().compat()
 }
 
+fn get_cors(cors_allowed_origins: &[String]) -> Cors {
+    let mut cors = Cors::new();
+    if cors_allowed_origins != ["*".to_string()] {
+        for origin in cors_allowed_origins {
+            cors = cors.allowed_origin(&origin);
+        }
+    }
+    cors.allowed_methods(vec!["GET", "POST"])
+        .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
+        .allowed_header(http::header::CONTENT_TYPE)
+        .max_age(3600)
+}
+
 pub fn start_http(
     config: RpcConfig,
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, polling_config, cors_allowed_origin } = config;
+    let RpcConfig { addr, polling_config, cors_allowed_origins } = config;
     HttpServer::new(move || {
         App::new()
-            .wrap(Cors::new().allowed_origin(&cors_allowed_origin))
+            .wrap(get_cors(&cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
