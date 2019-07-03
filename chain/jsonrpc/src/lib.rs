@@ -252,6 +252,8 @@ pub fn start_http(
     let RpcConfig { addr, polling_config, .. } = config;
     HttpServer::new(move || {
         App::new()
+            .configure(|app| Cors::for_app(app)
+                .allowed_origin(config.cors_allowed_origins))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),
