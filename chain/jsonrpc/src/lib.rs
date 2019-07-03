@@ -50,7 +50,7 @@ impl Default for RpcPollingConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
-    pub cors_allowed_origin: String,
+    pub cors_allowed_origins: Vec<String>,
     pub polling_config: RpcPollingConfig,
 }
 
@@ -58,7 +58,7 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
-            cors_allowed_origin: "*".to_owned(),
+            cors_allowed_origins: vec!["*".to_owned()],
             polling_config: Default::default(),
         }
     }
