@@ -84,6 +84,14 @@ fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), OutOfRangeError> 
         Ok(())
 }
 
+fn wait_until_genesis(genesis_time: &DateTime<utc>) -> Result<(), OutOfRangeError> {
+        let now : DateTime<Utc> = Utc::now();
+        let duration = now.signed_duration_since(*genesis_time);
+        let std_duration = duration.to_std()?;
+        thread::sleep(std_duration);
+        Ok(())
+}
+
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
@@ -93,13 +101,7 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-
-        // TODO: Wait until genesis.
-
-         //think about it
-        let _ = wait_until_genesis(&genesis_time)?;
-
-
+        wait_until_genesis(&genesis_time)?;
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
