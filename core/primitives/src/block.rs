@@ -237,7 +237,7 @@ impl Block {
         }
     }
 
-    pub fn genesis_hash() -> CryptoHash {
+    pub fn chunk_genesis_hash() -> CryptoHash {
         hash(&[42])
     }
 
@@ -248,9 +248,9 @@ impl Block {
         assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
         (0..num_shards)
             .map(|i| ShardChunkHeader {
-                prev_block_hash: Block::genesis_hash(),
+                prev_block_hash: Block::chunk_genesis_hash(),
                 prev_state_root: state_roots[i as usize % state_roots.len()],
-                encoded_merkle_root: Block::genesis_hash(),
+                encoded_merkle_root: Block::chunk_genesis_hash(),
                 encoded_length: 0,
                 height_created: 0,
                 height_included: 0,
@@ -312,7 +312,7 @@ impl Block {
         Block::produce(
             prev,
             prev.height + 1,
-            Block::genesis_chunks(vec![Block::genesis_hash()], num_shards),
+            Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
             vec![],
             HashMap::default(),
             vec![],

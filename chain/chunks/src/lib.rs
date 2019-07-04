@@ -46,6 +46,8 @@ pub struct ShardsManager {
     merkle_paths: HashMap<(ChunkHash, u64), MerklePath>,
     block_hash_to_chunk_headers: HashMap<CryptoHash, Vec<(ShardId, ShardChunkHeader)>>,
 
+    requested_chunks: HashSet<CryptoHash>,
+
     requests_fifo: VecDeque<(ShardId, ChunkHash, PeerId, u64)>,
     requests: HashMap<(ShardId, ChunkHash), HashSet<(PeerId, u64)>>,
 }
@@ -67,6 +69,7 @@ impl ShardsManager {
             encoded_chunks: HashMap::new(),
             merkle_paths: HashMap::new(),
             block_hash_to_chunk_headers: HashMap::new(),
+            requested_chunks: HashSet::new(),
             requests_fifo: VecDeque::new(),
             requests: HashMap::new(),
         }
@@ -83,11 +86,16 @@ impl ShardsManager {
         }
     }
     pub fn request_chunks(
-        &self,
+        &mut self,
         parent_hash: CryptoHash,
         height: BlockIndex,
         chunks_to_request: Vec<(ShardId, ChunkHash)>,
     ) {
+        if self.requested_chunks.contains(&parent_hash) {
+            return;
+        }
+        self.requested_chunks.insert(parent_hash);
+
         for (shard_id, chunk_hash) in chunks_to_request {
             for part_id in 0..self.runtime_adapter.num_total_parts(parent_hash, height) {
                 let part_id = part_id as u64;
@@ -282,13 +290,6 @@ impl ShardsManager {
                                 store_update.commit()?;
                                 // ... and include into the block if we are the producer
                                 if cares_about_shard {
-                                    info!(
-                                        "MOO inserting PROPER chunk, decoded, {}, I'm {:?}; CHH: {}, SI: {}",
-                                        chunk.header.prev_block_hash.clone(),
-                                        self.me,
-                                        chunk.header.chunk_hash().0,
-                                        chunk.header.shard_id,
-                                    );
                                     self.block_hash_to_chunk_headers
                                         .entry(chunk.header.prev_block_hash)
                                         .or_insert_with(|| vec![])
@@ -393,10 +394,9 @@ impl ShardsManager {
         self.merkle_paths
             .insert((one_part.chunk_hash.clone(), one_part.part_id), one_part.merkle_path.clone());
 
+        let mut store_update = self.store.store_update();
         if ret {
-            let mut store_update = self.store.store_update();
             store_update.set_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref(), &one_part)?;
-            store_update.commit()?;
         }
 
         // If we do not follow this shard, having the one part is sufficient to include the chunk in the block
@@ -411,17 +411,12 @@ impl ShardsManager {
                 )
             },
         ) {
-            /*info!(
-                "MOO inserting IMPROPER chunk for shard {}, decoded, {}, I'm {:?}",
-                one_part.header.shard_id,
-                one_part.header.prev_block_hash.clone(),
-                self.me
-            );*/
             self.block_hash_to_chunk_headers
                 .entry(one_part.header.prev_block_hash)
                 .or_insert_with(|| vec![])
                 .push((one_part.shard_id, one_part.header.clone()));
         }
+        store_update.commit()?;
 
         self.encoded_chunks
             .get_mut(&one_part.chunk_hash)

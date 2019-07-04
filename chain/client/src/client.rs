@@ -304,10 +304,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             // We are getting here either because we don't care about the shard, or
                             //    because we see the one part before we see the block.
                             // In the latter case we will request parts once the block is received
-                            /*info!("MOO Not requesting remaining parts of the chunk after receipt of one_part, tip: {}, prev_hash: {}, I'm {}",
-                                   self.chain.head().map(|head| head.last_block_hash).unwrap_or(CryptoHash::default()), one_part_msg.header.prev_block_hash, self.block_producer.as_ref().unwrap().account_id.clone());
-                            debug!("Not requesting remaining parts of the chunk after receipt of one_part, tip: {}, prev_hash: {}",
-                                    self.chain.head().map(|head| head.last_block_hash).unwrap_or(CryptoHash::default()), one_part_msg.header.prev_block_hash);*/
                         }
                         self.process_blocks_with_missing_chunks(ctx, height);
                     }
@@ -430,7 +426,6 @@ impl ClientActor {
                     return;
                 }
                 BlockStatus::Reorg(prev_head) => {
-                    debug!("MOO reorg, I'm {:?}", bp.account_id);
                     // If a reorg happened, reintroduce transactions from the previous chain and
                     //    remove transactions from the new chain
                     let mut reintroduce_head =
@@ -720,24 +715,15 @@ impl ClientActor {
                 block_header.height < last_header.height_created
                     || block_header.height >= last_header.height_included
             );
-            if block_header.height + 1 < last_header.height_created {
-                assert!(false);
+
+            if block_header.height == last_header.height_included {
+                if let Ok(cur_receipts) = self.chain.get_receipts(&receipts_block_hash, shard_id) {
+                    receipts.extend_from_slice(cur_receipts);
+                }
                 break;
+            } else {
+                receipts_block_hash = block_header.prev_hash.clone();
             }
-
-            let last_iteration = (block_header.height <= last_header.height_created);
-
-            let next_receipts_block_hash = block_header.prev_hash.clone();
-
-            if let Ok(cur_receipts) = self.chain.get_receipts(&receipts_block_hash, shard_id) {
-                receipts.extend_from_slice(cur_receipts);
-            }
-
-            if last_iteration {
-                break;
-            }
-
-            receipts_block_hash = next_receipts_block_hash;
         }
 
         let encoded_chunk = self
@@ -873,6 +859,7 @@ impl ClientActor {
                 let height = height_key;
 
                 let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
                 let me = self
                     .block_producer
                     .as_ref()
@@ -880,9 +867,18 @@ impl ClientActor {
                 self.chain.check_blocks_with_missing_chunks(&me, height, |block, status, provenance| {
                     debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
                     accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
-                });
+                }, |block, missing_chunks| blocks_missing_chunks.write().unwrap().push((block.header.clone(), missing_chunks)));
                 for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
                     self.on_block_accepted(ctx, hash, status, provenance);
+                }
+                for (block_header, missing_chunks) in
+                    blocks_missing_chunks.write().unwrap().drain(..)
+                {
+                    self.shards_mgr.request_chunks(
+                        block_header.prev_hash,
+                        block_header.height,
+                        missing_chunks,
+                    );
                 }
             }
         }
@@ -898,18 +894,37 @@ impl ClientActor {
         // XXX: this is bad, there is no multithreading here, what is the better way to handle this callback?
         // TODO: replace to channels or cross beams here?
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
+        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
         let result = {
             let me = self
                 .block_producer
                 .as_ref()
                 .map(|block_producer| block_producer.account_id.clone());
-            self.chain.process_block(&me, block, provenance, |block, status, provenance| {
-                accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
-            })
+            self.chain.process_block(
+                &me,
+                block,
+                provenance,
+                |block, status, provenance| {
+                    accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
+                },
+                |block, missing_chunks| {
+                    blocks_missing_chunks
+                        .write()
+                        .unwrap()
+                        .push((block.header.clone(), missing_chunks))
+                },
+            )
         };
         // Process all blocks that were accepted.
         for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
             self.on_block_accepted(ctx, hash, status, provenance);
+        }
+        for (block_header, missing_chunks) in blocks_missing_chunks.write().unwrap().drain(..) {
+            self.shards_mgr.request_chunks(
+                block_header.prev_hash,
+                block_header.height,
+                missing_chunks,
+            );
         }
         result
     }
@@ -951,8 +966,8 @@ impl ClientActor {
                     NetworkClientResponses::NoResponse
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
-                    info!(
-                        "MOO Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}",
+                    debug!(
+                        "Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}",
                         hash.clone(),
                         self.block_producer.as_ref().unwrap().account_id.clone(),
                         missing_chunks.clone()

@@ -474,7 +474,8 @@ impl StateSync {
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.
-            chain.check_orphans(me, height + 1, |_, _, _| {});
+            // TODO XXX check_orhpans must request chunks when blocks are rejected
+            chain.check_orphans(me, height + 1, |_, _, _| {}, |_, _| {});
 
             *sync_status = SyncStatus::BodySync { current_height: 0, highest_height: 0 };
             self.prev_state_sync.clear();

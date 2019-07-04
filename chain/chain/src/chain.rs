@@ -224,20 +224,25 @@ impl Chain {
 
     /// Process a received or produced block, and unroll any orphans that may depend on it.
     /// Changes current state, and calls `block_accepted` callback in case block was successfully applied.
-    pub fn process_block<F>(
+    pub fn process_block<F, F2>(
         &mut self,
         me: &Option<AccountId>,
         block: Block,
         provenance: Provenance,
         block_accepted: F,
+        block_misses_chunks: F2,
     ) -> Result<Option<Tip>, Error>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
     {
         let height = block.header.height;
-        let res = self.process_block_single(me, block, provenance, block_accepted);
+        let res =
+            self.process_block_single(me, block, provenance, block_accepted, block_misses_chunks);
         if res.is_ok() {
-            if let Some(new_res) = self.check_orphans(me, height + 1, block_accepted) {
+            if let Some(new_res) =
+                self.check_orphans(me, height + 1, block_accepted, block_misses_chunks)
+            {
                 return Ok(Some(new_res));
             }
         }
@@ -337,15 +342,17 @@ impl Chain {
         }
     }
 
-    fn process_block_single<F>(
+    fn process_block_single<F, F2>(
         &mut self,
         me: &Option<AccountId>,
         block: Block,
         provenance: Provenance,
         mut block_accepted: F,
+        mut block_misses_chunks: F2,
     ) -> Result<Option<Tip>, Error>
     where
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
+        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
     {
         if block.chunks.len() != self.runtime_adapter.num_shards() as usize {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
@@ -395,14 +402,15 @@ impl Chain {
                 }
                 ErrorKind::ChunksMissing(missing_chunks) => {
                     let block_hash = block.hash();
+                    block_misses_chunks(&block, missing_chunks.clone());
                     let orphan = Orphan { block, provenance, added: Instant::now() };
 
                     self.blocks_with_missing_chunks.add(orphan);
 
                     debug!(
                         target: "chain",
-                        "Process block: missing chunks: {:?}",
-                        block_hash,
+                        "Process block: missing chunks. Block hash: {:?}. Missing chunks: {:?}",
+                        block_hash, missing_chunks,
                     );
                     Err(ErrorKind::ChunksMissing(missing_chunks).into())
                 }
@@ -422,45 +430,54 @@ impl Chain {
     }
 
     /// Check if any block with missing chunk is ready to be processed
-    pub fn check_blocks_with_missing_chunks<F>(
+    pub fn check_blocks_with_missing_chunks<F, F2>(
         &mut self,
         me: &Option<AccountId>,
         height: BlockIndex,
         block_accepted: F,
+        block_misses_chunks: F2,
     ) where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
     {
         let mut new_blocks_accepted = false;
         if let Some(orphans) = self.blocks_with_missing_chunks.remove_by_height(height) {
             for orphan in orphans.into_iter() {
-                let res =
-                    self.process_block_single(me, orphan.block, orphan.provenance, block_accepted);
+                let res = self.process_block_single(
+                    me,
+                    orphan.block,
+                    orphan.provenance,
+                    block_accepted,
+                    block_misses_chunks,
+                );
                 match res {
                     Ok(_) => {
                         debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
                         new_blocks_accepted = true;
                     }
-                    Err(err) => {
-                        debug!(target: "chain", "Block with missing chunks is declined: {}; me: {:?}", err, me);
+                    Err(_) => {
+                        debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
                     }
                 }
             }
         };
 
         if new_blocks_accepted {
-            self.check_orphans(me, height + 1, block_accepted);
+            self.check_orphans(me, height + 1, block_accepted, block_misses_chunks);
         }
     }
 
     /// Check for orphans, once a block is successfully added.
-    pub fn check_orphans<F>(
+    pub fn check_orphans<F, F2>(
         &mut self,
         me: &Option<AccountId>,
         mut height: BlockIndex,
         block_accepted: F,
+        block_misses_chunks: F2,
     ) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
     {
         let initial_height = height;
 
@@ -478,14 +495,15 @@ impl Chain {
                         orphan.block,
                         orphan.provenance,
                         block_accepted,
+                        block_misses_chunks,
                     );
                     match res {
                         Ok(maybe_tip) => {
                             maybe_new_head = maybe_tip;
                             orphan_accepted = true;
                         }
-                        Err(err) => {
-                            debug!(target: "chain", "Orphan declined: {}", err);
+                        Err(_) => {
+                            debug!(target: "chain", "Orphan declined");
                         }
                     }
                 }
@@ -597,7 +615,7 @@ impl Chain {
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptTransaction>, Error> {
-        self.store.get_receipts(hash, shard_id)
+        self.store.get_outgoing_receipts(hash, shard_id)
     }
 
     /// Returns block header from the current chain for given height if present.
@@ -727,6 +745,44 @@ impl<'a> ChainUpdate<'a> {
         })
     }
 
+    pub fn save_incoming_receipts_from_block(
+        &mut self,
+        me: &Option<AccountId>,
+        parent_hash: CryptoHash,
+        block: &Block,
+    ) -> Result<(), Error> {
+        let all_chunks_or_oneparts: Vec<ShardFullChunkOrOnePart> =
+            self.chain_store_update.get_chunks_or_one_parts(
+                me,
+                parent_hash,
+                block.header.height,
+                self.runtime_adapter.clone(),
+                block.chunks.as_ref(),
+            )?;
+
+        let mut receipts_by_shard_id = HashMap::new();
+
+        let all_receipts = all_chunks_or_oneparts
+            .iter()
+            .map(|chunk_or_onepart| match chunk_or_onepart {
+                ShardFullChunkOrOnePart::FullChunk(chunk) => chunk.receipts.clone(),
+                ShardFullChunkOrOnePart::OnePart(onepart) => onepart.receipts.clone(),
+                ShardFullChunkOrOnePart::NoChunk => vec![],
+            })
+            .flatten();
+
+        for receipt in all_receipts {
+            let shard_id = self.runtime_adapter.account_id_to_shard_id(&receipt.receiver);
+            receipts_by_shard_id.entry(shard_id).or_insert_with(Vec::new).push(receipt);
+        }
+
+        for (shard_id, receipts) in receipts_by_shard_id {
+            self.chain_store_update.save_incoming_receipt(&block.hash(), shard_id, receipts);
+        }
+
+        Ok(())
+    }
+
     /// Runs the block processing, including validation and finding a place for the new block in the chain.
     /// Returns new head if chain head updated.
     fn process_block(
@@ -766,37 +822,21 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
-        let all_chunks_or_oneparts: Vec<ShardFullChunkOrOnePart> =
-            self.chain_store_update.get_chunks_or_one_parts(
-                me,
-                block.header.prev_hash,
-                block.header.height,
-                self.runtime_adapter.clone(),
-                block.chunks.as_ref(),
-            )?;
+        // Add validated block to the db, even if it's not the selected fork.
+        self.chain_store_update.save_block(block.clone());
 
-        let mut receipts_by_shard_id = HashMap::new();
+        let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
-        let all_receipts = all_chunks_or_oneparts
-            .iter()
-            .map(|chunk_or_onepart| match chunk_or_onepart {
-                ShardFullChunkOrOnePart::FullChunk(chunk) => chunk.receipts.clone(),
-                ShardFullChunkOrOnePart::OnePart(onepart) => onepart.receipts.clone(),
-                ShardFullChunkOrOnePart::NoChunk => vec![],
-            })
-            .flatten();
+        self.save_incoming_receipts_from_block(me, prev_hash, &block)?;
 
-        for receipt in all_receipts {
-            let shard_id = self.runtime_adapter.account_id_to_shard_id(&receipt.receiver);
-            receipts_by_shard_id.entry(shard_id).or_insert_with(Vec::new).push(receipt);
-        }
-
-        let no_receipts = vec![];
-        for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+        for (shard_id, (chunk_header, prev_chunk_header)) in
+            (block.chunks.iter().zip(prev_block.chunks.iter())).enumerate()
+        {
             let shard_id = shard_id as ShardId;
-            let receipts: &Vec<ReceiptTransaction> =
-                receipts_by_shard_id.get(&shard_id).unwrap_or(&no_receipts);
             if chunk_header.height_included == block.header.height {
+                if chunk_header.prev_block_hash != block.header.prev_hash {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
                 let chunk_hash = chunk_header.chunk_hash();
                 if me.as_ref().map_or_else(
                     || false,
@@ -809,6 +849,11 @@ impl<'a> ChainUpdate<'a> {
                         )
                     },
                 ) {
+                    let receipts = self.chain_store_update.get_incoming_receipts_for_shard(
+                        shard_id,
+                        block.hash(),
+                        prev_chunk_header,
+                    )?;
                     let chunk = self.chain_store_update.get_chunk(&chunk_hash)?;
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
@@ -828,7 +873,7 @@ impl<'a> ChainUpdate<'a> {
                             &chunk.header.prev_state_root,
                             chunk_header.height_included,
                             &chunk_header.prev_block_hash,
-                            receipts,
+                            &receipts,
                             &chunk.transactions,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
@@ -852,7 +897,11 @@ impl<'a> ChainUpdate<'a> {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
                         //    since they are later retrieved by the chunk producer of the source
                         //    shard to be distributed to the recipients.
-                        self.chain_store_update.save_receipt(&block.hash(), shard_id, receipts);
+                        self.chain_store_update.save_outgoing_receipt(
+                            &block.hash(),
+                            shard_id,
+                            receipts,
+                        );
                     }
                     // Save receipt and transaction results.
                     for (i, tx_result) in tx_results.drain(..).enumerate() {
@@ -867,11 +916,12 @@ impl<'a> ChainUpdate<'a> {
                         }
                     }
                 }
+            } else {
+                if prev_chunk_header != chunk_header {
+                    return Err(ErrorKind::InvalidChunk.into());
+                }
             }
         }
-
-        // Add validated block to the db, even if it's not the selected fork.
-        self.chain_store_update.save_block(block.clone());
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;

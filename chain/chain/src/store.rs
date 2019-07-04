@@ -11,8 +11,8 @@ use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCK_HEADER,
-    COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_ONE_PARTS, COL_RECEIPTS, COL_STATE_REF,
-    COL_TRANSACTION_RESULT,
+    COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS,
+    COL_OUTGOING_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
@@ -67,7 +67,12 @@ pub trait ChainStoreAccess {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
     /// Returns resulting receipt for given block.
-    fn get_receipts(
+    fn get_outgoing_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error>;
+    fn get_incoming_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
@@ -92,7 +97,8 @@ pub struct ChainStore {
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with receipts.
-    receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
+    outgoing_receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
+    incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, TransactionResult>,
 }
@@ -121,7 +127,8 @@ impl ChainStore {
             chunk_one_parts: HashMap::new(),
             post_state_roots: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
-            receipts: SizedCache::with_size(CACHE_SIZE),
+            outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
+            incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
         }
     }
@@ -172,7 +179,7 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    /// Get full block.
+    /// Get full chunk.
     fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error> {
         let entry = self.chunks.entry(h.clone());
         match entry {
@@ -249,7 +256,7 @@ impl ChainStoreAccess for ChainStore {
             return Err(ErrorKind::ChunksMissing(missing).into());
         }
 
-        // The get all the data from the cache
+        // Then get all the data from the cache
         for (shard_id, chunk_header) in headers.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included != height {
@@ -322,7 +329,7 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
-    fn get_receipts(
+    fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
@@ -330,11 +337,27 @@ impl ChainStoreAccess for ChainStore {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
-                COL_RECEIPTS,
-                &mut self.receipts,
+                COL_OUTGOING_RECEIPTS,
+                &mut self.outgoing_receipts,
                 hash_struct(&(hash, shard_id)).as_ref(),
             ),
-            &format!("RECEIPT: {}", hash),
+            &format!("OUTGOING RECEIPT: {}", hash),
+        )
+    }
+
+    fn get_incoming_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_INCOMING_RECEIPTS,
+                &mut self.incoming_receipts,
+                hash_struct(&(hash, shard_id)).as_ref(),
+            ),
+            &format!("INCOMING RECEIPT: {}", hash),
         )
     }
 
@@ -362,7 +385,8 @@ pub struct ChainStoreUpdate<'a, T> {
     headers: HashMap<CryptoHash, BlockHeader>,
     post_state_roots: HashMap<ChunkHash, MerkleHash>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
-    receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
+    outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
+    incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
     transaction_results: HashMap<CryptoHash, TransactionResult>,
     head: Option<Tip>,
     tail: Option<Tip>,
@@ -381,7 +405,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             headers: HashMap::default(),
             block_index: HashMap::default(),
             post_state_roots: HashMap::default(),
-            receipts: HashMap::default(),
+            outgoing_receipts: HashMap::default(),
+            incoming_receipts: HashMap::default(),
             transaction_results: HashMap::default(),
             head: None,
             tail: None,
@@ -389,6 +414,37 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             sync_head: None,
             trie_changes: None,
         }
+    }
+
+    pub fn get_incoming_receipts_for_shard(
+        &mut self,
+        shard_id: ShardId,
+        mut block_hash: CryptoHash,
+        last_chunk_header: &ShardChunkHeader,
+    ) -> Result<Vec<ReceiptTransaction>, Error> {
+        let mut ret = vec![];
+
+        if last_chunk_header.prev_block_hash == Block::chunk_genesis_hash() {
+            return Ok(ret);
+        }
+
+        loop {
+            let header = self.get_block_header(&block_hash)?;
+
+            if header.height == last_chunk_header.height_included {
+                break;
+            }
+
+            let prev_hash = header.prev_hash;
+
+            if let Ok(receipts) = self.get_incoming_receipts(&block_hash, shard_id) {
+                ret.extend_from_slice(receipts);
+            }
+
+            block_hash = prev_hash;
+        }
+
+        Ok(ret)
     }
 }
 
@@ -480,15 +536,28 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get receipts produced for block with givien hash.
-    fn get_receipts(
+    fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptTransaction>, Error> {
-        if let Some(receipts) = self.receipts.get(&(*hash, shard_id)) {
+        if let Some(receipts) = self.outgoing_receipts.get(&(*hash, shard_id)) {
             Ok(receipts)
         } else {
-            self.chain_store.get_receipts(hash, shard_id)
+            self.chain_store.get_outgoing_receipts(hash, shard_id)
+        }
+    }
+
+    /// Get receipts produced for block with givien hash.
+    fn get_incoming_receipts(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&Vec<ReceiptTransaction>, Error> {
+        if let Some(receipts) = self.incoming_receipts.get(&(*hash, shard_id)) {
+            Ok(receipts)
+        } else {
+            self.chain_store.get_incoming_receipts(hash, shard_id)
         }
     }
 
@@ -587,13 +656,22 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.headers.insert(header.hash(), header);
     }
 
-    pub fn save_receipt(
+    pub fn save_outgoing_receipt(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
         receipt: Vec<ReceiptTransaction>,
     ) {
-        self.receipts.insert((*hash, shard_id), receipt);
+        self.outgoing_receipts.insert((*hash, shard_id), receipt);
+    }
+
+    pub fn save_incoming_receipt(
+        &mut self,
+        hash: &CryptoHash,
+        shard_id: ShardId,
+        receipt: Vec<ReceiptTransaction>,
+    ) {
+        self.incoming_receipts.insert((*hash, shard_id), receipt);
     }
 
     pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionResult) {
@@ -680,8 +758,19 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 store_update.delete(COL_BLOCK_INDEX, &index_to_bytes(height));
             }
         }
-        for (hash_and_shard, receipt) in self.receipts.drain() {
-            store_update.set_ser(COL_RECEIPTS, hash_struct(&hash_and_shard).as_ref(), &receipt)?;
+        for (hash_and_shard, receipt) in self.outgoing_receipts.drain() {
+            store_update.set_ser(
+                COL_OUTGOING_RECEIPTS,
+                hash_struct(&hash_and_shard).as_ref(),
+                &receipt,
+            )?;
+        }
+        for (hash_and_shard, receipt) in self.incoming_receipts.drain() {
+            store_update.set_ser(
+                COL_INCOMING_RECEIPTS,
+                hash_struct(&hash_and_shard).as_ref(),
+                &receipt,
+            )?;
         }
         for (hash, tx_result) in self.transaction_results.drain() {
             store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;

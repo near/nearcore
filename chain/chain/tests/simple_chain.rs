@@ -19,7 +19,9 @@ fn build_chain() {
     for i in 0..4 {
         let prev = chain.head_header().unwrap();
         let block = Block::empty(&prev, signer.clone(), num_shards);
-        let tip = chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}).unwrap();
+        let tip = chain
+            .process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_, _| {})
+            .unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
     assert_eq!(chain.head().unwrap().height, 4);
@@ -37,23 +39,47 @@ fn build_chain_with_orhpans() {
     }
     assert_eq!(
         chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .process_block(
+                &None,
+                blocks.pop().unwrap(),
+                Provenance::PRODUCED,
+                |_, _, _| {},
+                |_, _| {}
+            )
             .unwrap_err()
             .kind(),
         ErrorKind::Orphan
     );
     assert_eq!(
         chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .process_block(
+                &None,
+                blocks.pop().unwrap(),
+                Provenance::PRODUCED,
+                |_, _, _| {},
+                |_, _| {}
+            )
             .unwrap_err()
             .kind(),
         ErrorKind::Orphan
     );
-    let res = chain.process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {});
+    let res = chain.process_block(
+        &None,
+        blocks.pop().unwrap(),
+        Provenance::PRODUCED,
+        |_, _, _| {},
+        |_, _| {},
+    );
     assert_eq!(res.unwrap().unwrap().height, 3);
     assert_eq!(
         chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
+            .process_block(
+                &None,
+                blocks.pop().unwrap(),
+                Provenance::PRODUCED,
+                |_, _, _| {},
+                |_, _| {}
+            )
             .unwrap_err()
             .kind(),
         ErrorKind::Unfit("already known in store".to_string())
@@ -69,7 +95,7 @@ fn build_chain_with_skips_and_forks() {
     let b2 = Block::produce(
         chain.genesis(),
         2,
-        Block::genesis_chunks(vec![Block::genesis_hash()], num_shards),
+        Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
         vec![],
         HashMap::default(),
         vec![],
@@ -79,18 +105,18 @@ fn build_chain_with_skips_and_forks() {
     let b4 = Block::produce(
         &b2.header,
         4,
-        Block::genesis_chunks(vec![Block::genesis_hash()], num_shards),
+        Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
         vec![],
         HashMap::default(),
         vec![],
         signer.clone(),
     );
     let b5 = Block::empty(&b4.header, signer, num_shards);
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}).is_ok());
-    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}).is_ok());
-    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_, _, _| {}).is_ok());
-    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_, _, _| {}).is_ok());
-    assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_, _, _| {}).is_ok());
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_, _| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_, _| {}).is_ok());
+    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_, _, _| {}, |_, _| {}).is_ok());
+    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_, _, _| {}, |_, _| {}).is_ok());
+    assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_, _, _| {}, |_, _| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
     assert_eq!(chain.get_header_by_height(5).unwrap().height, 5);
 }

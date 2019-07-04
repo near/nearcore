@@ -280,7 +280,7 @@ mod tests {
             }
 
             // On X1 it takes ~1m 15s
-            near_network::test_utils::wait_or_panic(15000);
+            near_network::test_utils::wait_or_panic(150000);
         })
         .unwrap();
     }

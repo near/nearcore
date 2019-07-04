@@ -25,14 +25,15 @@ pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
 pub const COL_STATE: Option<u32> = Some(4);
 pub const COL_STATE_REF: Option<u32> = Some(5);
 pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
-pub const COL_RECEIPTS: Option<u32> = Some(7);
-pub const COL_PEERS: Option<u32> = Some(8);
-pub const COL_PROPOSALS: Option<u32> = Some(9);
-pub const COL_VALIDATORS: Option<u32> = Some(10);
-pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(11);
-pub const COL_CHUNKS: Option<u32> = Some(12);
-pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
-const NUM_COLS: u32 = 14;
+pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
+pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
+pub const COL_PEERS: Option<u32> = Some(9);
+pub const COL_PROPOSALS: Option<u32> = Some(10);
+pub const COL_VALIDATORS: Option<u32> = Some(11);
+pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(12);
+pub const COL_CHUNKS: Option<u32> = Some(13);
+pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(14);
+const NUM_COLS: u32 = 15;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
