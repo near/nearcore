@@ -809,7 +809,7 @@ impl Runtime {
         Ok(ApplyResult {
             root: trie_changes.new_root,
             trie_changes,
-            validator_proposals: validator_proposals,
+            validator_proposals,
             shard_id,
             new_receipts,
             tx_result,

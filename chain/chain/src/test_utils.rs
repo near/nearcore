@@ -123,6 +123,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
+        _validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -136,7 +137,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionResult>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+        ),
         Box<dyn std::error::Error>,
     > {
         let mut tx_results = vec![];
@@ -153,7 +160,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             *state_root,
             tx_results,
             HashMap::default(),
-            vec![]
+            vec![],
         ))
     }
 

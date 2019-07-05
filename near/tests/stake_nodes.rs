@@ -17,7 +17,8 @@ fn test_stake_nodes() {
     init_test_logger();
 
     let mut genesis_config = GenesisConfig::testing_spec(2, 1);
-    genesis_config.epoch_length = 10;
+    //    genesis_config.block_producers_per_shard = vec![2];
+    genesis_config.epoch_length = 5;
     let first_node = open_port();
     let near1 = load_test_config("near.0", first_node, &genesis_config);
     let mut near2 = load_test_config("near.1", open_port(), &genesis_config);
@@ -43,7 +44,7 @@ fn test_stake_nodes() {
         Box::new(move |_ctx| {
             actix::spawn(client2.send(Status {}).then(|res| {
                 if res.unwrap().unwrap().validators.len() == 2 {
-                    System::current().stop()
+                    System::current().stop();
                 }
                 futures::future::ok(())
             }));
