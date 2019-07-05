@@ -37,7 +37,7 @@ pub type Nonce = u64;
 
 pub type BlockIndex = u64;
 
-pub type ShardId = u32;
+pub type ShardId = u64;
 
 pub type Balance = u128;
 

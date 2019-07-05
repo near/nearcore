@@ -19,8 +19,8 @@ use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::transaction::{SignedTransaction, ReceiptTransaction};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
@@ -151,6 +151,8 @@ impl From<PeerInfo> for network_proto::PeerInfo {
 /// Peer chain information.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
+    /// Genesis hash.
+    pub genesis: CryptoHash,
     /// Last known chain height of the peer.
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
@@ -161,13 +163,18 @@ impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::PeerChainInfo) -> Result<Self, Self::Error> {
-        Ok(PeerChainInfo { height: proto.height, total_weight: proto.total_weight.into() })
+        Ok(PeerChainInfo {
+            genesis: proto.genesis.try_into()?,
+            height: proto.height,
+            total_weight: proto.total_weight.into(),
+        })
     }
 }
 
 impl From<PeerChainInfo> for network_proto::PeerChainInfo {
     fn from(chain_peer_info: PeerChainInfo) -> network_proto::PeerChainInfo {
         network_proto::PeerChainInfo {
+            genesis: chain_peer_info.genesis.into(),
             height: chain_peer_info.height,
             total_weight: chain_peer_info.total_weight.to_num(),
             ..Default::default()
@@ -273,6 +280,9 @@ pub enum PeerMessage {
     BlockApproval(AccountId, CryptoHash, Signature),
 
     Transaction(SignedTransaction),
+
+    StateRequest(ShardId, CryptoHash),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
 }
 
 impl fmt::Display for PeerMessage {
@@ -288,6 +298,8 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Block(_) => f.write_str("Block"),
             PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
+            PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
+            PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
         }
     }
 }
@@ -348,6 +360,20 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request)) => {
+                Ok(PeerMessage::StateRequest(
+                    state_request.shard_id,
+                    state_request.hash.try_into()?,
+                ))
+            }
+            Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response)) => {
+                Ok(PeerMessage::StateResponse(
+                    state_response.shard_id,
+                    state_response.hash.try_into()?,
+                    state_response.payload,
+                    state_response.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?,
+                ))
+            }
             None => unreachable!(),
         }
     }
@@ -367,7 +393,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     peers: RepeatedField::from_iter(
                         peers_response.into_iter().map(std::convert::Into::into),
                     ),
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::peers_response(peers_response))
             }
@@ -385,7 +412,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     account_id,
                     hash: hash.into(),
                     signature: signature.into(),
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval))
             }
@@ -397,7 +425,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     hashes: RepeatedField::from_iter(
                         hashes.into_iter().map(std::convert::Into::into),
                     ),
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(request))
             }
@@ -406,9 +435,30 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     headers: RepeatedField::from_iter(
                         headers.into_iter().map(std::convert::Into::into),
                     ),
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
+            }
+            PeerMessage::StateRequest(shard_id, hash) => {
+                let state_request = network_proto::StateRequest {
+                    shard_id,
+                    hash: hash.into(),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request))
+            }
+            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
+                let state_response = network_proto::StateResponse {
+                    shard_id,
+                    hash: hash.into(),
+                    payload,
+                    receipts: RepeatedField::from_iter(receipts.into_iter().map(std::convert::Into::into)),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -592,7 +642,8 @@ pub enum NetworkRequests {
     /// Request state for given shard at given state root.
     StateRequest {
         shard_id: ShardId,
-        state_root: MerkleHash,
+        hash: CryptoHash,
+        peer_id: PeerId,
     },
     /// Ban given peer.
     BanPeer {
@@ -602,7 +653,7 @@ pub enum NetworkRequests {
 }
 
 /// Combines peer address info and chain information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
@@ -653,6 +704,10 @@ pub enum NetworkClientMessages {
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
     BlockRequest(CryptoHash),
+    /// State request.
+    StateRequest(ShardId, CryptoHash),
+    /// State response.
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
 }
 
 pub enum NetworkClientResponses {
@@ -665,11 +720,13 @@ pub enum NetworkClientResponses {
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.
-    ChainInfo { height: BlockIndex, total_weight: Weight },
+    ChainInfo { genesis: CryptoHash, height: BlockIndex, total_weight: Weight },
     /// Block response.
     Block(Block),
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
+    /// Response to state request.
+    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<ReceiptTransaction> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

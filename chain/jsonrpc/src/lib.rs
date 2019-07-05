@@ -5,6 +5,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
+use actix_cors::Cors;
 use actix_web::{App, Error as HttpError, HttpResponse, HttpServer, middleware, web};
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
@@ -14,8 +15,11 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use async_utils::{delay, timeout};
+use message::{Request, RpcError};
 use message::Message;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
+pub use near_jsonrpc_client as client;
+use near_jsonrpc_client::message as message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
@@ -23,10 +27,6 @@ use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 use near_protos::signed_transaction as transaction_proto;
 
-use message::{Request, RpcError};
-
-pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::message as message;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
@@ -50,7 +50,7 @@ impl Default for RpcPollingConfig {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RpcConfig {
     pub addr: String,
-    pub cors_allowed_origins: Vec<String>,
+    pub cors_allowed_origin: String,
     pub polling_config: RpcPollingConfig,
 }
 
@@ -58,7 +58,7 @@ impl Default for RpcConfig {
     fn default() -> Self {
         RpcConfig {
             addr: "0.0.0.0:3030".to_owned(),
-            cors_allowed_origins: vec!["*".to_owned()],
+            cors_allowed_origin: "*".to_owned(),
             polling_config: Default::default(),
         }
     }
@@ -249,9 +249,10 @@ pub fn start_http(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) {
-    let RpcConfig { addr, polling_config, .. } = config;
+    let RpcConfig { addr, polling_config, cors_allowed_origin } = config;
     HttpServer::new(move || {
         App::new()
+            .wrap(Cors::new().allowed_origin(&cors_allowed_origin))
             .data(JsonRpcHandler {
                 client_addr: client_addr.clone(),
                 view_client_addr: view_client_addr.clone(),

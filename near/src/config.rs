@@ -27,11 +27,17 @@ pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
 
-/// One NEAR in atto-NEARs.
-pub const NEAR_TOKEN: Balance = 1_000_000_000_000_000_000;
+/// One NEAR, divisible by 10^18.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
+
+/// Millinear, 1/1000 of NEAR.
+pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
+
+/// Attonear, 1/10^18 of NEAR.
+pub const ATTO_NEAR: Balance = 1;
 
 /// Initial token supply.
-pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_TOKEN;
+pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Expected block production time in secs.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
@@ -195,6 +201,9 @@ impl NearConfig {
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
+                // TODO(1047): this should be adjusted depending on the speed of sync of state.
+                block_fetch_horizon: 50,
+                state_fetch_horizon: 5,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -412,7 +421,7 @@ pub fn testnet_genesis() -> GenesisConfig {
             public_key: ReadablePublicKey(
                 "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
             ),
-            amount: 5_000_000 * NEAR_TOKEN,
+            amount: 5_000_000 * NEAR_BASE,
         }],
         accounts: vec![AccountInfo {
             account_id: ".near".to_string(),
@@ -644,7 +653,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     let mut config = Config::default();
     config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
-    config.rpc.addr = format!("0.0.0.0:{}", port + 100);
+    config.rpc.addr = format!("0.0.0.0:{}", open_port());
     config.consensus.min_block_production_delay =
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =

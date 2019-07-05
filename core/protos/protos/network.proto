@@ -12,8 +12,9 @@ message PeerInfo {
 }
 
 message PeerChainInfo {
-    uint64 height = 1;
-    uint64 total_weight = 2;
+    bytes genesis = 1;
+    uint64 height = 2;
+    uint64 total_weight = 3;
 }
 
 message Handshake {
@@ -42,6 +43,18 @@ message BlockHeaders {
     repeated BlockHeader headers = 1;
 }
 
+message StateRequest {
+    uint64 shard_id = 1;
+    bytes hash = 2;
+}
+
+message StateResponse {
+    uint64 shard_id = 1;
+    bytes hash = 2;
+    bytes payload = 3;
+    repeated ReceiptTransaction receipts = 4;
+}
+
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
@@ -54,5 +67,7 @@ message PeerMessage {
         Block block = 8;
         BlockApproval block_approval = 9;
         SignedTransaction transaction = 10;
+        StateRequest state_request = 11;
+        StateResponse state_response = 12;
     }
 }

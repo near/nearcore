@@ -41,6 +41,9 @@ pub enum ErrorKind {
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid state payload on state sync.
+    #[fail(display = "Invalid State Payload")]
+    InvalidStatePayload(String),
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -94,7 +97,8 @@ impl Error {
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
-            | ErrorKind::InvalidStateRoot => true,
+            | ErrorKind::InvalidStateRoot
+            | ErrorKind::InvalidStatePayload(_) => true,
         }
     }
 

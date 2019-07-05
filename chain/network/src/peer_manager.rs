@@ -10,7 +10,8 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     StreamHandler, SystemService, WrapFuture,
 };
-use chrono::Utc;
+use chrono::offset::TimeZone;
+use chrono::{DateTime, Utc};
 use futures::future;
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
@@ -33,6 +34,9 @@ use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 
+/// How often to request peers from active peers.
+const REQUEST_PEERS_SECS: i64 = 60;
+
 macro_rules! unwrap_or_error(($obj: expr, $error: expr) => (match $obj {
     Ok(result) => result,
     Err(err) => {
@@ -49,6 +53,8 @@ struct ActivePeer {
     received_bytes_per_sec: u64,
     /// Number of bytes we've sent to the peer.
     sent_bytes_per_sec: u64,
+    /// Last time requested peers.
+    last_time_peer_requested: DateTime<Utc>,
 }
 
 /// Actor that manages peers connections.
@@ -108,7 +114,13 @@ impl PeerManagerActor {
         }
         self.active_peers.insert(
             full_peer_info.peer_info.id,
-            ActivePeer { addr, full_peer_info, sent_bytes_per_sec: 0, received_bytes_per_sec: 0 },
+            ActivePeer {
+                addr,
+                full_peer_info,
+                sent_bytes_per_sec: 0,
+                received_bytes_per_sec: 0,
+                last_time_peer_requested: Utc.timestamp(0, 0),
+            },
         );
     }
 
@@ -214,6 +226,25 @@ impl PeerManagerActor {
             .next()
     }
 
+    /// Query current peers for more peers.
+    fn query_active_peers_for_more_peers(&mut self, ctx: &mut Context<Self>) {
+        let mut requests = vec![];
+        let msg = SendMessage { message: PeerMessage::PeersRequest };
+        for (_, active_peer) in self.active_peers.iter_mut() {
+            if Utc::now().signed_duration_since(active_peer.last_time_peer_requested).num_seconds()
+                > REQUEST_PEERS_SECS
+            {
+                active_peer.last_time_peer_requested = Utc::now();
+                requests.push(active_peer.addr.send(msg.clone()));
+            }
+        }
+        future::join_all(requests)
+            .into_actor(self)
+            .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+            .and_then(|_, _, _| actix::fut::ok(()))
+            .spawn(ctx);
+    }
+
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
@@ -271,8 +302,7 @@ impl PeerManagerActor {
                 self.outgoing_peers.insert(peer_info.id);
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
-                // Query current peers for more peers.
-                self.broadcast_message(ctx, SendMessage { message: PeerMessage::PeersRequest });
+                self.query_active_peers_for_more_peers(ctx);
             }
         }
 
@@ -406,8 +436,10 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id: _, state_root: _ } => {
-                // TODO: implement state sync.
+            NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage { message: PeerMessage::StateRequest(shard_id, hash) });
+                }
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {

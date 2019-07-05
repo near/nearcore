@@ -181,6 +181,23 @@ impl RuntimeAdapter for KeyValueRuntime {
             code_hash: CryptoHash::default(),
         }))
     }
+
+    fn dump_state(
+        &self,
+        _shard_id: ShardId,
+        _state_root: MerkleHash,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        Ok(vec![])
+    }
+
+    fn set_state(
+        &self,
+        _shard_id: ShardId,
+        _state_root: MerkleHash,
+        _payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {

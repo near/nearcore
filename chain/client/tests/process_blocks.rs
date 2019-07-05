@@ -294,9 +294,9 @@ fn skip_block_production() {
     .unwrap();
 }
 
-/// Runs client that syncs with peers.
+/// Runs client that requests syncing headers from peers.
 #[test]
-fn client_sync() {
+fn client_sync_headers() {
     init_test_logger();
     System::run(|| {
         let peer_info1 = PeerInfo::random();
@@ -310,7 +310,11 @@ fn client_sync() {
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {
                         peer_info: peer_info1.clone(),
-                        chain_info: PeerChainInfo { height: 5, total_weight: 100.into() },
+                        chain_info: PeerChainInfo {
+                            genesis: Default::default(),
+                            height: 5,
+                            total_weight: 100.into(),
+                        },
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
