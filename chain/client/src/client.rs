@@ -6,6 +6,7 @@ use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, OutOfRangeError};
 use std::thread;
+use log::info;
 
 
 use actix::{
@@ -68,28 +69,18 @@ pub struct ClientActor {
     num_blocks_processed: u64,
     /// Total number of transactions processed.
     num_tx_processed: u64,
-
-
 }
 
-fn wait_until_genesis(genesis_time: &DateTime<utc>) Result<(), OutOfRangeError> {
-        let now : DateTime<Utc> = Utc::now();
-        let duration = now.signed_duration_since(*genesis_time);
-        if duration.num_hours > 0 ||  duration.num_minutes > 0 || duration.num_seconds > 0 {
-            //translate to std::duration and 
-            //td::time::{Duration
-            let std_duration =  duration.to_std()?;
-            thread::sleep(std_duration);
-        } 
-        Ok(())
-}
-
-fn wait_until_genesis(genesis_time: &DateTime<utc>) -> Result<(), OutOfRangeError> {
-        let now : DateTime<Utc> = Utc::now();
-        let duration = now.signed_duration_since(*genesis_time);
-        let std_duration = duration.to_std()?;
-        thread::sleep(std_duration);
-        Ok(())
+fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
+    let now : DateTime<Utc> = Utc::now();
+    //get chrono::Duration::num_seconds() by deducting genesis_time from now
+    let chrono_seconds: i64 = now.signed_duration_since(*genesis_time).num_seconds();
+    //check if number of seconds in chrono::Duration larger than zero
+    if chrono_seconds > 0  {
+        info!(target: "chain", "Waiting {} seconds until genesis ", chrono_seconds);
+        let seconds = Duration::from_seconds(chrono_seconds);
+        thread::sleep(seconds);
+    } 
 }
 
 impl ClientActor {
@@ -101,7 +92,7 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-        wait_until_genesis(&genesis_time)?;
+        wait_until_genesis(&genesis_time);
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
