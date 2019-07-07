@@ -77,7 +77,7 @@ fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     let chrono_seconds: i64 = now.signed_duration_since(*genesis_time).num_seconds();
     //check if number of seconds in chrono::Duration larger than zero
     if chrono_seconds > 0  {
-        info!(target: "chain", "Waiting {} seconds until genesis ", &chrono_seconds);
+        info!(target: "chain", "Waiting {} seconds until genesis ", chrono_seconds);
         let seconds = Duration::from_seconds(chrono_seconds);
         thread::sleep(seconds);
     } 
