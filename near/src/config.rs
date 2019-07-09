@@ -183,6 +183,7 @@ impl NearConfig {
         NearConfig {
             config: config.clone(),
             client_config: ClientConfig {
+                version: "".to_string(),
                 chain_id: genesis_config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
                 min_block_production_delay: config.consensus.min_block_production_delay,

@@ -63,6 +63,8 @@ impl From<String> for Error {
 
 #[derive(Clone)]
 pub struct ClientConfig {
+    /// Version of the binary.
+    pub version: String,
     /// Chain id for status.
     pub chain_id: String,
     /// Listening rpc port for status.
@@ -102,6 +104,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
+            version: "".to_string(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
@@ -126,6 +129,7 @@ impl ClientConfig {
 impl ClientConfig {
     pub fn new() -> Self {
         ClientConfig {
+            version: "".to_string(),
             chain_id: "test".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),

@@ -65,6 +65,8 @@ pub struct StatusSyncInfo {
 // TODO: add more information to status.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
+    /// Binary version.
+    pub version: String,
     /// Unique chain id.
     pub chain_id: String,
     /// Address for RPC server.
