@@ -123,6 +123,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
+        _validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }

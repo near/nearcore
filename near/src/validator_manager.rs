@@ -9,8 +9,10 @@ use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake};
-use near_store::{Store, StoreUpdate, COL_PROPOSALS, COL_VALIDATORS};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
+};
+use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
 
 const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 
@@ -97,17 +99,17 @@ fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, Validat
     }
 }
 
-/// Calculates new seat assignments based on current seat assignemnts and proposals.
+/// Calculates new seat assignments based on current seat assignments and proposals.
 fn proposals_to_assignments(
     epoch_config: ValidatorEpochConfig,
     current_assignments: &ValidatorAssignment,
     proposals: Vec<ValidatorStake>,
+    validator_kickout: HashMap<AccountId, bool>,
 ) -> Result<ValidatorAssignment, ValidatorError> {
-    // TODO: kick out previous validators that didn't produce blocks.
-
     // Combine proposals with rollovers.
     let mut ordered_proposals = proposals;
     let mut indices = HashMap::new();
+    ordered_proposals.retain(|p| !*validator_kickout.get(&p.account_id).unwrap_or(&false));
     for (i, p) in ordered_proposals.iter().enumerate() {
         indices.insert(p.account_id.clone(), i);
     }
@@ -118,8 +120,12 @@ fn proposals_to_assignments(
                 ordered_proposals[i].amount += r.amount;
             }
             Entry::Vacant(e) => {
-                e.insert(ordered_proposals.len());
-                ordered_proposals.push(r.clone());
+                // We constructed account_to_kickout from current_assignment.validators,
+                // so it is safe to unwrap here.
+                if !*validator_kickout.get(&r.account_id).unwrap_or(&true) {
+                    e.insert(ordered_proposals.len());
+                    ordered_proposals.push(r.clone());
+                }
             }
         }
     }
@@ -171,13 +177,48 @@ fn proposals_to_assignments(
     }
 
     // TODO(1050): implement fishermen allocation.
+    let expected_epoch_start = if current_assignments.expected_epoch_start == 0
+        && current_assignments.validators.is_empty()
+    {
+        // genesis block
+        0
+    } else {
+        // Since the current assignment is the one stored at epoch X - 2, when
+        // calculating the expected start for this epoch, we need to add twice
+        // the epoch length
+        current_assignments.expected_epoch_start + 2 * epoch_config.epoch_length
+    };
 
     Ok(ValidatorAssignment {
         validators: ordered_proposals,
         block_producers,
         chunk_producers,
         fishermen: vec![],
+        expected_epoch_start,
     })
+}
+
+fn get_epoch_block_proposer_info(
+    validator_assignment: &ValidatorAssignment,
+    epoch_length: BlockIndex,
+    epoch_start_index: BlockIndex,
+) -> (HashMap<BlockIndex, usize>, HashMap<usize, u32>) {
+    let mut block_index_to_validator = HashMap::new();
+    let mut validator_to_num_blocks = HashMap::new();
+    let mut block_index = 0;
+    while block_index < epoch_length {
+        for (i, seats) in validator_assignment.block_producers.iter().enumerate() {
+            for _ in 0..*seats {
+                block_index_to_validator.insert(epoch_start_index + block_index, i);
+                validator_to_num_blocks.entry(i).and_modify(|e| *e += 1).or_insert(1);
+                block_index += 1;
+                if block_index >= epoch_length {
+                    return (block_index_to_validator, validator_to_num_blocks);
+                }
+            }
+        }
+    }
+    unreachable!();
 }
 
 /// Epoch config, determines validator assignment for given epoch.
@@ -196,6 +237,8 @@ pub struct ValidatorEpochConfig {
     pub block_producers_per_shard: Vec<ValidatorId>,
     /// Expected number of fisherman per each shard.
     pub avg_fisherman_per_shard: Vec<ValidatorId>,
+    /// Criterion for kicking out validators
+    pub validator_kickout_threshold: f64,
 }
 
 /// Information about validator seat assignments.
@@ -209,6 +252,8 @@ pub struct ValidatorAssignment {
     pub chunk_producers: Vec<Vec<(ValidatorId, u64)>>,
     /// Weight of given validator used to determine how many shards they will validate.
     pub fishermen: Vec<(ValidatorId, u64)>,
+    /// Expected epoch start index: previous expected epoch start + epoch_length
+    pub expected_epoch_start: BlockIndex,
 }
 
 /// Information per each index about validators.
@@ -218,6 +263,7 @@ pub struct ValidatorIndexInfo {
     pub prev_hash: CryptoHash,
     pub epoch_start_hash: CryptoHash,
     pub proposals: Vec<ValidatorStake>,
+    pub validator_mask: Vec<bool>,
 }
 
 /// Manages current validators and validator proposals in the current epoch across different forks.
@@ -247,6 +293,7 @@ impl ValidatorManager {
                     initial_epoch_config.clone(),
                     &ValidatorAssignment::default(),
                     initial_validators,
+                    HashMap::new(),
                 )?;
 
                 let mut store_update = store.store_update();
@@ -258,6 +305,7 @@ impl ValidatorManager {
                         prev_hash: genesis_hash,
                         epoch_start_hash: genesis_hash,
                         proposals: vec![],
+                        validator_mask: vec![],
                     },
                 )?;
                 store_update.commit()?;
@@ -300,6 +348,12 @@ impl ValidatorManager {
         }
     }
 
+    /// Get previous epoch hash given current epoch hash
+    fn get_prev_epoch_hash(&self, epoch_hash: CryptoHash) -> Result<CryptoHash, ValidatorError> {
+        let parent_hash = self.get_index_info(epoch_hash)?.prev_hash;
+        self.get_index_info(parent_hash).map(|info| info.epoch_start_hash)
+    }
+
     pub fn get_validators(
         &mut self,
         epoch_hash: CryptoHash,
@@ -316,7 +370,7 @@ impl ValidatorManager {
         }
         match self.epoch_validators.get(&epoch_hash) {
             Some(validators) => Ok(validators),
-            None => Err(ValidatorError::Other("Should not happened".to_string())),
+            None => Err(ValidatorError::Other("Should not happen".to_string())),
         }
     }
 
@@ -327,21 +381,75 @@ impl ValidatorManager {
         new_hash: CryptoHash,
     ) -> Result<(), ValidatorError> {
         let mut proposals = vec![];
+        let mut validator_tracker = HashMap::new();
         let mut hash = last_hash;
+        let prev_epoch_hash = self.get_prev_epoch_hash(epoch_hash)?;
+        let epoch_length = self.config.epoch_length;
+        let (block_index_to_validator, validator_to_num_blocks) = {
+            let validator_assignment = self.get_validators(prev_epoch_hash)?;
+            get_epoch_block_proposer_info(
+                validator_assignment,
+                epoch_length,
+                validator_assignment.expected_epoch_start,
+            )
+        };
+
         loop {
             let info = self.get_index_info(hash)?;
             if info.epoch_start_hash != epoch_hash || info.prev_hash == hash {
                 break;
             }
             proposals.extend(info.proposals);
+            // safe to unwrap because block_index_to_validator is computed from indices in this epoch
+            let validator = *block_index_to_validator.get(&info.index).unwrap();
+            validator_tracker.entry(validator).and_modify(|e| *e += 1).or_insert(1);
             hash = info.prev_hash;
         }
         let mut store_update = self.store.store_update();
 
+        let mut last_epoch_proposals = self
+            .store
+            .get_ser(COL_LAST_EPOCH_PROPOSALS, prev_epoch_hash.as_ref())?
+            .unwrap_or_else(|| vec![]);
+        store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, epoch_hash.as_ref(), &proposals)?;
+        proposals.append(&mut last_epoch_proposals);
+
+        let validator_kickout: HashMap<AccountId, bool> = {
+            let validator_kickout_threshold = self.config.validator_kickout_threshold;
+            let validator_assignment = self.get_validators(prev_epoch_hash)?;
+            let mut all_kicked_out = true;
+            let mut maximum_block_prod_ratio: f64 = 0.0;
+            let mut max_account_id = None;
+            let mut res = HashMap::new();
+            for (i, num_blocks) in validator_tracker.into_iter() {
+                let num_blocks_expected = *validator_to_num_blocks.get(&i).unwrap();
+                let cur_ratio = (num_blocks as f64) / num_blocks_expected as f64;
+                let account_id = validator_assignment.validators[i].account_id.clone();
+                if cur_ratio < validator_kickout_threshold {
+                    res.insert(account_id, true);
+                } else {
+                    res.insert(account_id, false);
+                    all_kicked_out = false;
+                }
+                if cur_ratio > maximum_block_prod_ratio {
+                    maximum_block_prod_ratio = cur_ratio;
+                    max_account_id = Some(i);
+                }
+            }
+            if all_kicked_out {
+                if let Some(i) = max_account_id {
+                    let account_id = validator_assignment.validators[i].account_id.clone();
+                    res.insert(account_id, false);
+                }
+            }
+            res
+        };
+
         let assignment = proposals_to_assignments(
             self.config.clone(),
-            self.get_validators(epoch_hash)?,
+            self.get_validators(prev_epoch_hash)?,
             proposals,
+            validator_kickout,
         )?;
 
         self.last_epoch = new_hash;
@@ -358,6 +466,7 @@ impl ValidatorManager {
         current_hash: CryptoHash,
         index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        validator_mask: Vec<bool>,
     ) -> Result<StoreUpdate, ValidatorError> {
         let mut store_update = self.store.store_update();
         if self.store.get(COL_PROPOSALS, current_hash.as_ref())?.is_none() {
@@ -366,8 +475,9 @@ impl ValidatorManager {
             let epoch_start_hash = if prev_hash == CryptoHash::default() {
                 // If this genesis block, we save genesis validators for it.
                 let mut store_update = self.store.store_update();
-                let genesis_validators = self.get_validators(CryptoHash::default())?;
-                store_update.set_ser(COL_VALIDATORS, current_hash.as_ref(), genesis_validators)?;
+                let mut genesis_validators = self.get_validators(CryptoHash::default())?.clone();
+                genesis_validators.expected_epoch_start = self.config.epoch_length;
+                store_update.set_ser(COL_VALIDATORS, current_hash.as_ref(), &genesis_validators)?;
                 store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
 
                 current_hash
@@ -382,7 +492,14 @@ impl ValidatorManager {
                     parent_info.epoch_start_hash
                 }
             };
-            let info = ValidatorIndexInfo { index, epoch_start_hash, prev_hash, proposals };
+
+            let info = ValidatorIndexInfo {
+                index,
+                epoch_start_hash,
+                prev_hash,
+                proposals,
+                validator_mask,
+            };
             store_update.set_ser(COL_PROPOSALS, current_hash.as_ref(), &info)?;
         }
         Ok(store_update)
@@ -407,6 +524,7 @@ mod test {
         block_producers: Vec<u64>,
         chunk_producers: Vec<Vec<(usize, u64)>>,
         fishermen: Vec<(usize, u64)>,
+        expected_epoch_start: BlockIndex,
     ) -> ValidatorAssignment {
         ValidatorAssignment {
             validators: accounts
@@ -420,6 +538,7 @@ mod test {
             block_producers,
             chunk_producers,
             fishermen,
+            expected_epoch_start,
         }
     }
 
@@ -428,6 +547,7 @@ mod test {
         num_shards: ShardId,
         num_block_producers: usize,
         num_fisherman: usize,
+        validator_kickout_threshold: f64,
     ) -> ValidatorEpochConfig {
         ValidatorEpochConfig {
             epoch_length,
@@ -436,6 +556,7 @@ mod test {
             num_block_producers,
             block_producers_per_shard: (0..num_shards).map(|_| num_block_producers).collect(),
             avg_fisherman_per_shard: (0..num_shards).map(|_| num_fisherman).collect(),
+            validator_kickout_threshold,
         }
     }
 
@@ -452,16 +573,18 @@ mod test {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_assignments(
-                config(2, 2, 1, 1),
+                config(2, 2, 1, 1, 0.9),
                 &ValidatorAssignment::default(),
-                vec![stake("test1", 1_000_000)]
+                vec![stake("test1", 1_000_000)],
+                HashMap::new(),
             )
             .unwrap(),
             assignment(
                 vec![("test1", 1_000_000)],
                 vec![1],
                 vec![vec![(0, 1)], vec![(0, 1)]],
-                vec![]
+                vec![],
+                0
             )
         );
         assert_eq!(
@@ -472,14 +595,16 @@ mod test {
                     num_shards: 5,
                     num_block_producers: 6,
                     block_producers_per_shard: vec![6, 2, 2, 2, 2],
-                    avg_fisherman_per_shard: vec![6, 2, 2, 2, 2]
+                    avg_fisherman_per_shard: vec![6, 2, 2, 2, 2],
+                    validator_kickout_threshold: 0.9,
                 },
                 &ValidatorAssignment::default(),
                 vec![
                     stake("test1", 1_000_000),
                     stake("test2", 1_000_000),
                     stake("test3", 1_000_000)
-                ]
+                ],
+                HashMap::new(),
             )
             .unwrap(),
             assignment(
@@ -493,7 +618,8 @@ mod test {
                     vec![(1, 1), (2, 1)],
                     vec![(0, 1), (1, 1)]
                 ],
-                vec![]
+                vec![],
+                0
             )
         );
     }
@@ -501,34 +627,43 @@ mod test {
     #[test]
     fn test_stake_validator() {
         let store = create_test_store();
-        let config = config(1, 1, 2, 2);
+        let config = config(1, 1, 2, 2, 0.9);
         let validators = vec![stake("test1", 1_000_000)];
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
 
         let (h0, h1, h2, h3) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]), hash(&vec![3]));
-        vm.add_proposals(CryptoHash::default(), h0, 0, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
 
-        let expected0 = assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![]);
+        let expected0 =
+            assignment(vec![("test1", 1_000_000)], vec![2], vec![vec![(0, 2)]], vec![], 1);
+        let mut expected1 = expected0.clone();
+        expected1.expected_epoch_start = 2;
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h0, 1).unwrap().0).unwrap(), &expected0);
         assert_eq!(vm.get_validators(h1), Err(ValidatorError::EpochOutOfBounds));
-        vm.add_proposals(h0, h1, 1, vec![stake("test2", 1_000_000)]).unwrap().commit().unwrap();
-        assert_eq!(vm.get_validators(vm.get_epoch_offset(h1, 2).unwrap().0).unwrap(), &expected0);
+        vm.add_proposals(h0, h1, 1, vec![stake("test2", 1_000_000)], vec![])
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert_eq!(vm.get_validators(vm.get_epoch_offset(h1, 2).unwrap().0).unwrap(), &expected1);
         assert_eq!(vm.get_epoch_offset(h2, 3), Err(ValidatorError::EpochOutOfBounds));
-        vm.add_proposals(h1, h2, 2, vec![]).unwrap().commit().unwrap();
-        let expected = assignment(
+        vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
+        let expected2 = assignment(
             vec![("test2", 1_000_000), ("test1", 1_000_000)],
             vec![1, 1],
             vec![vec![(0, 1), (1, 1)]],
             vec![],
+            3,
         );
-        assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected);
-        vm.add_proposals(h2, h3, 3, vec![]).unwrap().commit().unwrap();
-        assert_eq!(vm.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected);
+        assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected2);
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        let mut expected3 = expected2.clone();
+        expected3.expected_epoch_start = 4;
+        assert_eq!(vm.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected3);
 
         // Start another validator manager from the same store to check that it saved the state.
         let mut vm2 = ValidatorManager::new(config, validators, store).unwrap();
-        assert_eq!(vm2.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected);
+        assert_eq!(vm2.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected3);
     }
 
     /// Test handling forks across the epoch finalization.
@@ -537,13 +672,17 @@ mod test {
     ///   x-|-0
     ///     |  \-----2--|-3-----5--|-6-----8
     /// In upper fork, only test1 left + new validator test4.
-    /// In lower fork, test2 and test3 are left.
+    /// In lower fork, test1 and test3 are left.
     #[test]
     fn test_fork_finalization() {
         let store = create_test_store();
-        let config = config(3, 1, 3, 0);
-        let validators =
-            vec![stake("test1", 1_000_000), stake("test2", 1_000_000), stake("test3", 1_000_000)];
+        let config = config(3, 1, 3, 0, 0.9);
+        let amount_staked = 1_000_000;
+        let validators = vec![
+            stake("test1", amount_staked),
+            stake("test2", amount_staked),
+            stake("test3", amount_staked),
+        ];
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (h0, h1, h2, h3, h4, h5, h6, h7, h8) = (
@@ -558,27 +697,30 @@ mod test {
             hash(&vec![8]),
         );
 
-        vm.add_proposals(CryptoHash::default(), h0, 0, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
         // First epoch_length blocks are all epoch 0x0000.
         assert_eq!(vm.get_epoch_offset(h0, 1).unwrap().0, CryptoHash::default());
         assert_eq!(vm.get_epoch_offset(h0, 2).unwrap().0, CryptoHash::default());
 
-        vm.add_proposals(h0, h1, 1, vec![stake("test4", 1_000_000)]).unwrap().commit().unwrap();
-        vm.add_proposals(h0, h2, 2, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h1, 1, vec![stake("test4", amount_staked)], vec![])
+            .unwrap()
+            .commit()
+            .unwrap();
+        vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
 
         // Second epoch_length blocks are all epoch <genesis>.
         assert_eq!(vm.get_epoch_offset(h2, 3).unwrap().0, h0);
         assert_eq!(vm.get_epoch_offset(h1, 4).unwrap().0, h0);
         assert_eq!(vm.get_epoch_offset(h2, 5).unwrap().0, h0);
 
-        vm.add_proposals(h2, h3, 3, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
 
         // Block #5 with the real parent #3.
         assert_eq!(vm.get_epoch_offset(h3, 5).unwrap().0, h0);
 
-        vm.add_proposals(h1, h4, 4, vec![]).unwrap().commit().unwrap();
-        vm.add_proposals(h3, h5, 5, vec![]).unwrap().commit().unwrap();
-        vm.add_proposals(h5, h6, 6, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h1, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h3, h5, 5, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h5, h6, 6, vec![], vec![]).unwrap().commit().unwrap();
 
         // Block #3 has been processed, so ready for next epoch defined by #3.
         assert_eq!(vm.get_epoch_offset(h5, 6).unwrap().0, h3);
@@ -587,48 +729,107 @@ mod test {
         // For block 8, epoch is defined by block 2.
         assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h3, 2));
 
+        // genesis validators
         assert_eq!(
             vm.get_validators(h0).unwrap(),
             &assignment(
-                vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
+                vec![("test1", amount_staked), ("test2", amount_staked), ("test3", amount_staked)],
                 vec![1, 1, 1],
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
-                vec![]
+                vec![],
+                3
             )
         );
+        // Validators for the third epoch in the first fork. Does not have `test3` because it didn't produce
+        // any blocks in the first epoch.
         assert_eq!(
             vm.get_validators(h4).unwrap(),
-            // TODO: kick out 2, 3 from here.
             &assignment(
-                vec![
-                    ("test4", 1_000_000),
-                    ("test1", 1_000_000),
-                    ("test2", 1_000_000),
-                    ("test3", 1_000_000)
-                ],
-                vec![1, 1, 0, 1],
-                vec![vec![(0, 1), (3, 1), (1, 1)]],
-                vec![]
+                vec![("test4", amount_staked), ("test1", amount_staked), ("test2", amount_staked)],
+                vec![1, 1, 1],
+                vec![vec![(2, 1), (1, 1), (0, 1)]],
+                vec![],
+                6
             )
         );
+        // Validators for the fourth epoch in the second fork. Does not have `test2` because it didn't produce
+        // any blocks in the first two epochs in the fork is thus kicked out.
         assert_eq!(
             vm.get_validators(h6).unwrap(),
             &assignment(
-                vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
+                vec![("test4", amount_staked), ("test1", amount_staked), ("test3", amount_staked)],
                 vec![1, 1, 1],
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
-                vec![]
+                vec![],
+                9
             )
         );
 
-        // Finalize another epoch.
-        vm.add_proposals(h4, h7, 7, vec![]).unwrap().commit().unwrap();
-        vm.add_proposals(h6, h8, 8, vec![]).unwrap().commit().unwrap();
+        // Finalize another epoch. `test1`, who produced block 0, is kicked out because it didn't produce
+        // any more blocks in the next two epochs.
+        vm.add_proposals(h4, h7, 7, vec![], vec![]).unwrap().commit().unwrap();
+        assert_eq!(
+            vm.get_validators(h7).unwrap(),
+            &assignment(
+                vec![("test4", amount_staked), ("test2", amount_staked)],
+                vec![2, 1],
+                vec![vec![(0, 2), (1, 1)]],
+                vec![],
+                9
+            )
+        );
+
+        vm.add_proposals(h6, h8, 8, vec![], vec![]).unwrap().commit().unwrap();
 
         assert_eq!(vm.get_epoch_offset(h7, 10).unwrap().0, h7);
         assert_eq!(vm.get_epoch_offset(h8, 11).unwrap().0, h6);
 
         // Add the same slot second time already after epoch is finalized should do nothing.
-        vm.add_proposals(h0, h2, 2, vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
+    }
+
+    /// In the case where there is only one validator and the
+    /// number of blocks produced by the validator is under the
+    /// threshold for some given epoch, the validator should not
+    /// be kicked out
+    #[test]
+    fn test_one_validator_kickout() {
+        let store = create_test_store();
+        let config = config(2, 1, 1, 0, 0.9);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked)];
+        let mut vm =
+            ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
+        let (h0, h2, h4) = (hash(&vec![0]), hash(&vec![2]), hash(&vec![4]));
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h2, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
+        assert_eq!(
+            vm.get_validators(h2).unwrap(),
+            &assignment(vec![("test1", amount_staked)], vec![1], vec![vec![(0, 1)]], vec![], 4)
+        );
+    }
+
+    #[test]
+    fn test_fork_at_genesis() {
+        let store = create_test_store();
+        let config = config(2, 1, 2, 0, 0.9);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut vm =
+            ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
+        let (h0, h1, h2, h3) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]), hash(&vec![3]));
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(CryptoHash::default(), h1, 1, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h1, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        assert_eq!(
+            vm.get_validators(h2).unwrap(),
+            &assignment(vec![("test1", amount_staked)], vec![2], vec![vec![(0, 2)]], vec![], 4)
+        );
+        assert_eq!(
+            vm.get_validators(h3).unwrap(),
+            &assignment(vec![("test2", amount_staked)], vec![2], vec![vec![(0, 2)]], vec![], 4)
+        );
     }
 }

@@ -48,6 +48,9 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
 
+/// Criterion for kicking out validators.
+pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
+
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
@@ -286,6 +289,8 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
+    /// Criterion for kicking out validators
+    pub validator_kickout_threshold: f64,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// List of accounts / balances at genesis.
@@ -325,6 +330,7 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
             accounts,
             contracts,
@@ -363,6 +369,7 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
             accounts,
             contracts: vec![],
@@ -408,6 +415,7 @@ pub fn testnet_genesis() -> GenesisConfig {
         avg_fisherman_per_shard: vec![100],
         dynamic_resharding: true,
         epoch_length: EXPECTED_EPOCH_LENGTH,
+        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         validators: vec![AccountInfo {
             account_id: ".near".to_string(),
             public_key: ReadablePublicKey(
@@ -506,6 +514,7 @@ pub fn init_configs(
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
+                validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
@@ -561,6 +570,7 @@ pub fn create_testnet_configs_from_seeds(
         avg_fisherman_per_shard: vec![0],
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
+        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         validators,
         accounts,
         contracts: vec![],
@@ -671,6 +681,7 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
+            "validator_kickout_threshold": 0.9,
             "accounts": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "0x64"}],
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "32"}],
             "contracts": [],

@@ -103,6 +103,7 @@ pub trait RuntimeAdapter: Send + Sync {
         current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
@@ -116,7 +117,13 @@ pub trait RuntimeAdapter: Send + Sync {
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionResult>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionResult>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+        ),
         Box<dyn std::error::Error>,
     >;
 

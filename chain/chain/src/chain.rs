@@ -146,7 +146,13 @@ impl Chain {
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => {
                     runtime_adapter
-                        .add_validator_proposals(CryptoHash::default(), genesis.hash(), 0, vec![])
+                        .add_validator_proposals(
+                            CryptoHash::default(),
+                            genesis.hash(),
+                            0,
+                            vec![],
+                            vec![],
+                        )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
                         .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
@@ -669,6 +675,7 @@ impl<'a> ChainUpdate<'a> {
                 block.hash(),
                 block.header.height,
                 validator_proposals,
+                vec![],
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
@@ -743,6 +750,7 @@ impl<'a> ChainUpdate<'a> {
                         header.hash(),
                         header.height,
                         header.validator_proposal.clone(),
+                        vec![],
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }

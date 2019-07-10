@@ -43,7 +43,7 @@ fn test_stake_nodes() {
         Box::new(move |_ctx| {
             actix::spawn(client2.send(Status {}).then(|res| {
                 if res.unwrap().unwrap().validators.len() == 2 {
-                    System::current().stop()
+                    System::current().stop();
                 }
                 futures::future::ok(())
             }));

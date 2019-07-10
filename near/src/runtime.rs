@@ -56,6 +56,7 @@ impl NightshadeRuntime {
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
             avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
+            validator_kickout_threshold: genesis_config.validator_kickout_threshold,
         };
         let validator_manager = RwLock::new(
             ValidatorManager::new(
@@ -249,11 +250,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deal with validator proposals and epoch finishing.
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         // TODO: don't commit here, instead contribute to upstream store update.
-        vm.add_proposals(parent_hash, current_hash, block_index, proposals)?
+        vm.add_proposals(parent_hash, current_hash, block_index, proposals, validator_mask)?
             .commit()
             .map_err(|err| err.into())
     }
