@@ -171,10 +171,8 @@ impl Peer {
     }
 
     fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
-        ctx.wait(self.client_addr
-            .send(NetworkClientMessages::GetChainInfo)
-            .into_actor(self)
-            .then(move |res, act, _ctx| match res {
+        ctx.wait(self.client_addr.send(NetworkClientMessages::GetChainInfo).into_actor(self).then(
+            move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
                     act.genesis = genesis;
                     actix::fut::ok(())
@@ -184,7 +182,8 @@ impl Peer {
                     actix::fut::err(())
                 }
                 _ => actix::fut::err(()),
-            }));
+            },
+        ));
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
@@ -195,7 +194,6 @@ impl Peer {
                 Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id,
-                        act.node_info.account_id.clone(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis, height, total_weight },
                     );
@@ -254,7 +252,7 @@ impl Peer {
             }
             PeerMessage::StateRequest(shard_id, hash) => {
                 NetworkClientMessages::StateRequest(shard_id, hash)
-            },
+            }
             PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
@@ -362,7 +360,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     addr: handshake
                         .listen_port
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
-                    account_id: handshake.account_id.clone(),
+                    account_id: None,
                 };
                 self.chain_info = handshake.chain_info;
                 self.peer_manager_addr
