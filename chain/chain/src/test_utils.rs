@@ -87,6 +87,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
     }
 
+    fn get_epoch_offset(
+        &self,
+        _parent_hash: CryptoHash,
+        _index: u64,
+    ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
+        unimplemented!()
+    }
+
     fn get_chunk_proposer(
         &self,
         _shard_id: ShardId,

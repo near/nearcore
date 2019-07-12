@@ -26,9 +26,9 @@ use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::types::{
-    Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus, OutboundTcpConnect, PeerId,
-    PeerList, PeerMessage, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan,
-    SendMessage, Unregister,
+    AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus,
+    OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -57,6 +57,59 @@ struct ActivePeer {
     last_time_peer_requested: DateTime<Utc>,
 }
 
+enum RoutingTableUpdate {
+    NewAccount,
+    UpdatedAccount,
+    Ignore,
+}
+
+impl RoutingTableUpdate {
+    fn is_new(&self) -> bool {
+        match self {
+            RoutingTableUpdate::NewAccount => true,
+            _ => false,
+        }
+    }
+}
+
+// TODO: Clear routing table periodically
+struct RoutingTable {
+    account_peers: HashMap<AccountId, (PeerId, usize)>,
+}
+
+impl RoutingTable {
+    fn new() -> Self {
+        Self { account_peers: HashMap::new() }
+    }
+
+    fn update(&mut self, data: &AnnounceAccount) -> RoutingTableUpdate {
+        match self.account_peers.get(&data.account_id) {
+            // If this account id is already tracked in the routing table ...
+            Some((_, num_hops)) => {
+                // check if this connection is better than the one we keep track
+                // regarding number of intermediate hops.
+                if data.num_hops < *num_hops {
+                    // and add it
+                    self.account_peers
+                        .insert(data.account_id.clone(), (data.peer_id, data.num_hops));
+                    RoutingTableUpdate::UpdatedAccount
+                } else {
+                    RoutingTableUpdate::Ignore
+                }
+            }
+            // If we don't have this account id store it in the routing table.
+            None => {
+                self.account_peers.insert(data.account_id.clone(), (data.peer_id, data.num_hops));
+                RoutingTableUpdate::NewAccount
+            }
+        }
+    }
+
+    fn get_route(&self, account_id: &AccountId) -> Option<&PeerId> {
+        self.account_peers.get(account_id).map(|(peer_id, _)| peer_id)
+    }
+}
+
 /// Actor that manages peers connections.
 pub struct PeerManagerActor {
     /// Networking configuration.
@@ -71,8 +124,11 @@ pub struct PeerManagerActor {
     outgoing_peers: HashSet<PeerId>,
     /// Active peers (inbound and outbound) with their full peer information.
     active_peers: HashMap<PeerId, ActivePeer>,
-    /// Peers with known account ids.
-    account_peers: HashMap<AccountId, PeerId>,
+    // TODO(MarX): Remove `account_peers`
+    // /// Peers with known account ids.
+    // account_peers: HashMap<AccountId, PeerId>,
+    /// Routing table to keep track of account id
+    routing_table: RoutingTable,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
     monitor_peers_attempts: u64,
 }
@@ -92,7 +148,8 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            account_peers: HashMap::default(),
+            // account_peers: HashMap::default(),
+            routing_table: RoutingTable::new(),
             monitor_peers_attempts: 0,
         })
     }
@@ -109,9 +166,7 @@ impl PeerManagerActor {
             self.peer_store.peer_connected(&full_peer_info),
             "Failed to save peer data"
         );
-        if let Some(account_id) = &full_peer_info.peer_info.account_id {
-            self.account_peers.insert(account_id.clone(), full_peer_info.peer_info.id);
-        }
+
         self.active_peers.insert(
             full_peer_info.peer_info.id,
             ActivePeer {
@@ -130,12 +185,7 @@ impl PeerManagerActor {
             self.outgoing_peers.remove(&peer_id);
             return;
         }
-        if let Some(active_peer) = self.active_peers.get(&peer_id) {
-            if let Some(account_id) = &active_peer.full_peer_info.peer_info.account_id {
-                self.account_peers.remove(account_id);
-            }
-            self.active_peers.remove(&peer_id);
-        }
+        self.active_peers.remove(&peer_id);
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
@@ -333,15 +383,32 @@ impl PeerManagerActor {
             .spawn(ctx);
     }
 
+    fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
+        // If this is a new account send an announcement to random set of peers.
+        if self.routing_table.update(&announce_account).is_new() {
+            let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
+
+            // TODO(MarX): Don't send to all peers. Sample a subset of K peers
+            // TODO(MarX): Add k to configuration.
+            let requests: Vec<_> =
+                self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
+
+            future::join_all(requests)
+                .into_actor(self)
+                .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+                .and_then(|_, _, _| actix::fut::ok(()))
+                .spawn(ctx);
+        }
+    }
+
     /// Send message to specific account.
-    /// TODO: currently sends in direct message, need to support indirect routing.
     fn send_message_to_account(
         &self,
         ctx: &mut Context<Self>,
         account_id: AccountId,
         msg: SendMessage,
     ) {
-        if let Some(peer_id) = self.account_peers.get(&account_id) {
+        if let Some(peer_id) = self.routing_table.get_route(&account_id) {
             if let Some(active_peer) = self.active_peers.get(peer_id) {
                 active_peer
                     .addr
@@ -354,7 +421,7 @@ impl PeerManagerActor {
                 error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
             }
         } else {
-            warn!(target: "network", "Unknown account {} in peers, not supported indirect routing", account_id);
+            warn!(target: "network", "Unknown account {} in routing table.", account_id);
         }
     }
 }
@@ -438,7 +505,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage { message: PeerMessage::StateRequest(shard_id, hash) });
+                    active_peer.addr.do_send(SendMessage {
+                        message: PeerMessage::StateRequest(shard_id, hash),
+                    });
                 }
                 NetworkResponses::NoResponse
             }
@@ -447,6 +516,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     // TODO: send stop signal to the addr.
                 }
                 self.ban_peer(&peer_id, ban_reason);
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::AnnounceAccount { account_id, signature } => {
+                self.announce_account(
+                    ctx,
+                    AnnounceAccount { account_id, peer_id: self.peer_id, signature, num_hops: 0 },
+                );
                 NetworkResponses::NoResponse
             }
         }

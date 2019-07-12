@@ -34,6 +34,7 @@ use crate::types::{
     SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use near_network::types::NetworkRequests::AnnounceAccount;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -319,6 +320,18 @@ impl ClientActor {
         // We only want to reconcile the txpool against the new block *if* total weight has increased.
         if status == BlockStatus::Next || status == BlockStatus::Reorg {
             self.tx_pool.reconcile_block(&block);
+        }
+
+        // Announce AccountId if client is becoming a validator soon.
+        // First check that we currently have an AccountId
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            // TODO(MarX): Check if I'm becoming a validator
+            // TODO(MarX): Check if I haven't announced my account for next epoch
+            // self.runtime_adapter.get_epoch_offset(block.hash(), block.header.height + 1)?;
+            let account_id = block_producer.account_id.clone();
+            let signature = block_producer.signer.sign(account_id.as_bytes());
+
+            self.network_actor.send(NetworkRequests::AnnounceAccount { account_id, signature });
         }
     }
 
@@ -637,12 +650,8 @@ impl ClientActor {
                 // TODO: ?? should we add a wait for response here?
                 let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 

@@ -24,7 +24,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
-use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
+use crate::validator_manager::{ValidatorEpochConfig, ValidatorError, ValidatorManager};
 use kvdb::DBValue;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -191,6 +191,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(self.get_block_proposer_info(parent_hash, height)?.account_id)
     }
 
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        index: u64,
+    ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
+        self.validator_manager.read().expect(POISONED_LOCK_ERR).get_epoch_offset(parent_hash, index)
+    }
+
     fn get_chunk_proposer(
         &self,
         shard_id: ShardId,
@@ -328,7 +336,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn set_state(&self, shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_state(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let payload_len = payload.len();

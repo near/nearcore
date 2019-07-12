@@ -55,6 +55,13 @@ message StateResponse {
     repeated ReceiptTransaction receipts = 4;
 }
 
+message AnnounceAccount {
+    string account_id = 1;
+    bytes peer_id = 2;
+    bytes signature = 3;
+    uint32 num_hops = 4;
+}
+
 message PeerMessage {
     oneof message_type {
         Handshake hand_shake = 1;
@@ -69,5 +76,6 @@ message PeerMessage {
         SignedTransaction transaction = 10;
         StateRequest state_request = 11;
         StateResponse state_response = 12;
+        AnnounceAccount announce_account = 13;
     }
 }

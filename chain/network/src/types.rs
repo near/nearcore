@@ -248,6 +248,47 @@ impl From<Handshake> for network_proto::Handshake {
     }
 }
 
+/// Account announcement information
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AnnounceAccount {
+    /// AccountId to be announced
+    pub account_id: AccountId,
+    /// Peer that have connection (potentially through other peers) to `account_id`
+    pub peer_id: PeerId,
+    /// Signature of the original peer as proof of ownership for this account.
+    pub signature: Signature,
+    /// Number of hops from this peer to the owner of the account.
+    /// If `num_hops = 0` then this peer is the owner of the account.
+    pub num_hops: usize,
+}
+
+impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: network_proto::AnnounceAccount) -> Result<Self, Self::Error> {
+        let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
+        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
+        Ok(AnnounceAccount {
+            account_id: proto.account_id,
+            peer_id: peer_id.into(),
+            signature: signature.into(),
+            num_hops: proto.num_hops as usize,
+        })
+    }
+}
+
+impl From<AnnounceAccount> for network_proto::AnnounceAccount {
+    fn from(announce_account: AnnounceAccount) -> network_proto::AnnounceAccount {
+        network_proto::AnnounceAccount {
+            account_id: announce_account.account_id,
+            peer_id: announce_account.peer_id.into(),
+            signature: announce_account.signature.into(),
+            num_hops: announce_account.num_hops as u32,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
@@ -267,6 +308,8 @@ pub enum PeerMessage {
 
     StateRequest(ShardId, CryptoHash),
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+
+    AnnounceAccount(AnnounceAccount),
 }
 
 impl fmt::Display for PeerMessage {
@@ -284,6 +327,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
+            PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
         }
     }
 }
@@ -362,6 +406,9 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            Some(network_proto::PeerMessage_oneof_message_type::announce_account(
+                announce_account,
+            )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
             None => unreachable!(),
         }
     }
@@ -449,6 +496,11 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
+            }
+            PeerMessage::AnnounceAccount(announce_account) => {
+                Some(network_proto::PeerMessage_oneof_message_type::announce_account(
+                    announce_account.into(),
+                ))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -639,6 +691,10 @@ pub enum NetworkRequests {
     BanPeer {
         peer_id: PeerId,
         ban_reason: ReasonForBan,
+    },
+    AnnounceAccount {
+        account_id: AccountId,
+        signature: Signature,
     },
 }
 
