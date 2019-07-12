@@ -105,3 +105,10 @@ impl PartialEq for ValidatorStake {
 }
 
 impl Eq for ValidatorStake {}
+
+/// Data structure for semver version and github tag or commit.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Version {
+    pub version: String,
+    pub build: String,
+}

@@ -7,7 +7,7 @@ use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::serialize::{base_format, u128_hex_format};
-use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce};
+use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, Version};
 use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -66,7 +66,7 @@ pub struct StatusSyncInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
     /// Binary version.
-    pub version: String,
+    pub version: Version,
     /// Unique chain id.
     pub chain_id: String,
     /// Address for RPC server.
