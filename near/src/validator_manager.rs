@@ -128,6 +128,8 @@ fn proposals_to_assignments(
     let num_seats = epoch_config.num_block_producers + num_fisherman_seats;
     let stakes = ordered_proposals.iter().map(|p| p.amount).collect::<Vec<_>>();
     let threshold = find_threshold(&stakes, num_seats as u64)?;
+    // Remove proposals under threshold.
+    ordered_proposals.retain(|p| p.amount >= threshold);
 
     // Duplicate each proposal for number of seats it has.
     let mut dup_proposals = ordered_proposals
@@ -868,13 +870,7 @@ mod test {
         vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
         assert_eq!(
             vm.get_validators(h2).unwrap(),
-            &assignment(
-                vec![("test1", 10), ("test2", amount_staked)],
-                vec![0, 2],
-                vec![vec![(1, 2)]],
-                vec![],
-                4
-            )
+            &assignment(vec![("test2", amount_staked)], vec![2], vec![vec![(0, 2)]], vec![], 4)
         )
     }
 }
