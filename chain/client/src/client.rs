@@ -4,13 +4,15 @@
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration,Instant};
+use std::thread;
+use log::info;
 
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
 };
 use ansi_term::Color::{Cyan, Green, White, Yellow};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Duration};
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -71,6 +73,18 @@ pub struct ClientActor {
     num_tx_processed: u64,
 }
 
+fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
+   let now = Utc::now();
+   //get chrono::Duration::num_seconds() by deducting genesis_time from now
+   let chrono_seconds = now.signed_duration_since(*genesis_time).num_seconds();
+   //check if number of seconds in chrono::Duration larger than zero
+   if chrono_seconds > 0  {
+       info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
+       let seconds = Duration::from_seconds(chrono_seconds);
+       thread::sleep(seconds);
+   }
+}
+
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
@@ -80,7 +94,7 @@ impl ClientActor {
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-        // TODO(991): Wait until genesis.
+        wait_until_genesis(&genesis_time);
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
