@@ -13,11 +13,11 @@ git clone --single-branch --branch nightshade https://github.com/nearprotocol/ne
 cd nearlib
 export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
-yarn
-yarn build
+npm i
+npm run build
 ../scripts/waitonserver.sh
-yarn test
-yarn doc
+npm run test
+npm run doc
 cd ..
 
 # Try creating and building new project using NEAR CLI tools
