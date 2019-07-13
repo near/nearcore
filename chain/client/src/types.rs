@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -63,6 +63,8 @@ impl From<String> for Error {
 
 #[derive(Clone)]
 pub struct ClientConfig {
+    /// Version of the binary.
+    pub version: Version,
     /// Chain id for status.
     pub chain_id: String,
     /// Listening rpc port for status.
@@ -102,6 +104,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool) -> Self {
         ClientConfig {
+            version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
@@ -126,6 +129,7 @@ impl ClientConfig {
 impl ClientConfig {
     pub fn new() -> Self {
         ClientConfig {
+            version: Default::default(),
             chain_id: "test".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),

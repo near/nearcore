@@ -28,6 +28,7 @@ use near_primitives::crypto::signature::Signature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::unwrap_or_return;
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
@@ -36,15 +37,6 @@ use crate::types::{
     SyncStatus,
 };
 use crate::{sync, StatusResponse};
-
-/// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
-        return $ret;
-    }
-}));
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -267,6 +259,7 @@ impl Handler<Status> for ClientActor {
             .map(|(account_id, _)| account_id)
             .collect();
         Ok(StatusResponse {
+            version: self.config.version.clone(),
             chain_id: self.config.chain_id.clone(),
             rpc_addr: self.config.rpc_addr.clone(),
             validators,
