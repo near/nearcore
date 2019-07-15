@@ -9,14 +9,14 @@ use log::{debug, info};
 use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
-use near_primitives::utils::prefix_for_access_key;
-use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
+use near_primitives::utils::{key_for_account, prefix_for_access_key};
+use near_store::{get, set, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -284,7 +284,22 @@ impl RuntimeAdapter for NightshadeRuntime {
             block_index,
             parent_block_hash: *prev_block_hash,
         };
-        let state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
+        let mut state_update = TrieUpdate::new(self.trie.clone(), apply_state.root);
+        {
+            let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+            let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
+            if offset == 0 {
+                for change in vm.get_validators(epoch_hash)?.stake_change.iter() {
+                    let key = key_for_account(&change.account_id);
+                    let account: Option<Account> = get(&state_update, &key);
+                    if let Some(mut account) = account {
+                        account.staked = change.new_stake;
+                        account.amount += change.return_stake;
+                        set(&mut state_update, key, &account);
+                    }
+                }
+            }
+        }
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
 
@@ -328,7 +343,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(result)
     }
 
-    fn set_state(&self, shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    fn set_state(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         info!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let payload_len = payload.len();

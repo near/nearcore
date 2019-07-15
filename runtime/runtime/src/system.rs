@@ -65,19 +65,23 @@ pub fn staking(
     validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
     if sender.amount >= body.amount {
+        if sender.amount == 0 && body.amount == 0 {
+            // if the account hasn't staked, it cannot unstake
+            return Err(format!(
+                "Account {} is not yet staked, but tries to unstake",
+                sender_account_id
+            ));
+        }
         validator_proposals.push(ValidatorStake {
             account_id: sender_account_id.clone(),
             public_key: PublicKey::try_from(body.public_key.as_str())
                 .map_err(|err| err.to_string())?,
             amount: body.amount,
         });
-        if sender.staked >= body.amount {
-            sender.amount += sender.staked - body.amount;
-        } else {
+        if sender.staked < body.amount {
             sender.amount -= body.amount - sender.staked;
+            set(state_update, key_for_account(sender_account_id), &sender);
         }
-        sender.staked = body.amount;
-        set(state_update, key_for_account(sender_account_id), &sender);
         Ok(vec![])
     } else {
         let err_msg = format!(
