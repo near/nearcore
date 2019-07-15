@@ -464,9 +464,7 @@ mod tests {
         let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
         println!("{:?}", outcome);
         match outcome.return_data {
-            Err(Error::Wasmer(msg)) => {
-                assert_eq!(msg, "WebAssembly trap occured during runtime: unknown")
-            }
+            Err(Error::Wasmer(msg)) => assert_eq!(msg, "unknown error"),
             _ => panic!("unexpected outcome"),
         }
     }
