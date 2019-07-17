@@ -372,26 +372,32 @@ impl ClientActor {
                     .iter()
                     .any(|(account_id, _)| (account_id == &block_producer.account_id))
                 {
-                    // Announce Account
-                    let account_id = block_producer.account_id.clone();
-
-                    let msg = [
-                        account_id.as_bytes(),
-                        self.peer_id.as_ref(),
-                        index_to_bytes(epoch_height).as_slice(),
-                    ]
-                    .concat();
-
-                    let signature = block_producer.signer.sign(msg.as_slice());
+                    let signature = self.sign_account_announce(epoch_height).unwrap();
                     self.last_val_announce_epoch = Some(epoch_height);
 
                     self.network_actor.send(NetworkRequests::AnnounceAccount {
-                        account_id,
+                        account_id: block_producer.account_id.clone(),
                         epoch: epoch_height,
                         signature,
                     });
                 }
             }
+        }
+    }
+
+    fn sign_account_announce(&self, epoch: u64) -> Result<Signature, ()> {
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            let account_id = &block_producer.account_id;
+
+            let msg =
+                [account_id.as_bytes(), self.peer_id.as_ref(), index_to_bytes(epoch).as_slice()]
+                    .concat();
+
+            let signature = block_producer.signer.sign(msg.as_slice());
+
+            Ok(signature)
+        } else {
+            Err(())
         }
     }
 
