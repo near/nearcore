@@ -320,7 +320,7 @@ pub struct ValidatorStakeChange {
     /// New stake of this validator
     pub new_stake: Balance,
     /// Unconfirmed stake that needs to be returned (this happens when the staking proposal
-    /// is rejected)
+    /// is rejected or the staking proposal reduces the current stake)
     pub return_stake: Balance,
 }
 
@@ -346,30 +346,36 @@ impl ValidatorManager {
             // TODO: check consistency of the db by querying it here?
             Ok(Some(value)) => value,
             Ok(None) => {
-                let genesis_hash = CryptoHash::default();
-                let initial_assigment = proposals_to_assignments(
+                let pre_gensis_hash = CryptoHash::default();
+                let mut initial_assigment = proposals_to_assignments(
                     initial_epoch_config.clone(),
                     &ValidatorAssignment::default(),
                     initial_validators,
                     HashMap::new(),
                 )?;
+                initial_assigment.stake_change = vec![];
 
                 let mut store_update = store.store_update();
                 store_update.set_ser(
                     COL_PROPOSALS,
-                    genesis_hash.as_ref(),
+                    pre_gensis_hash.as_ref(),
                     &ValidatorIndexInfo {
                         index: 0,
-                        prev_hash: genesis_hash,
-                        epoch_start_hash: genesis_hash,
+                        prev_hash: pre_gensis_hash,
+                        epoch_start_hash: pre_gensis_hash,
                         proposals: vec![],
                         validator_mask: vec![],
                     },
                 )?;
+                store_update.set_ser(
+                    COL_VALIDATORS,
+                    pre_gensis_hash.as_ref(),
+                    &initial_assigment,
+                )?;
                 store_update.commit()?;
 
-                epoch_validators.insert(genesis_hash, initial_assigment);
-                genesis_hash
+                epoch_validators.insert(pre_gensis_hash, initial_assigment);
+                pre_gensis_hash
             }
             Err(err) => return Err(ValidatorError::Other(err.to_string())),
         };
@@ -460,7 +466,6 @@ impl ValidatorManager {
             }
             for proposal in info.proposals {
                 if proposal.amount == 0 {
-                    // TODO: check staking key match?
                     validator_kickout.insert(proposal.account_id, true);
                 } else {
                     proposals.push(proposal);
@@ -726,11 +731,10 @@ mod test {
             vec![vec![(0, 2)]],
             vec![],
             1,
-            vec![change_stake("test1", amount_staked, 0)],
+            vec![],
         );
         let mut expected1 = expected0.clone();
         expected1.expected_epoch_start = 2;
-        expected1.stake_change = vec![];
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h0, 1).unwrap().0).unwrap(), &expected0);
         assert_eq!(vm.get_validators(h1), Err(ValidatorError::EpochOutOfBounds));
         vm.add_proposals(h0, h1, 1, vec![stake("test2", amount_staked)], vec![])
@@ -748,10 +752,12 @@ mod test {
             3,
             vec![change_stake("test2", amount_staked, 0)],
         );
+        // test2 staked in epoch 1 and therefore should be included in epoch 3.
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected2);
         vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
         let mut expected3 = expected2.clone();
         expected3.expected_epoch_start = 4;
+        // no validator change in the last epoch
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected3);
 
         // Start another validator manager from the same store to check that it saved the state.
@@ -831,11 +837,7 @@ mod test {
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 3,
-                vec![
-                    change_stake("test1", amount_staked, 0),
-                    change_stake("test2", amount_staked, 0),
-                    change_stake("test3", amount_staked, 0),
-                ]
+                vec![]
             )
         );
         // Validators for the third epoch in the first fork. Does not have `test3` because it didn't produce
@@ -912,6 +914,8 @@ mod test {
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (h0, h2, h4) = (hash(&vec![0]), hash(&vec![2]), hash(&vec![4]));
+        // this validator only produces one block every epoch whereas they should have produced 2. However, since
+        // this is the only validator left, we still keep them as validator.
         vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h2, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
@@ -975,6 +979,7 @@ mod test {
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (h0, h1, h2) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]));
         vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
         vm.add_proposals(h0, h1, 1, vec![stake("test1", 0)], vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
         assert_eq!(
@@ -1000,6 +1005,7 @@ mod test {
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
         let (h0, h1, h2) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]));
         vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        // test1 changes their stake to 10, thereby dropping below the threshold and will be kicked out in epoch 3.
         vm.add_proposals(h0, h1, 1, vec![stake("test1", 10)], vec![]).unwrap().commit().unwrap();
         vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
         assert_eq!(

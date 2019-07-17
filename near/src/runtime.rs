@@ -539,6 +539,8 @@ mod test {
         let block_producers: Vec<_> =
             validators.iter().map(|id| InMemorySigner::from_seed(id, id).into()).collect();
         let staking_transaction = stake(1, &block_producers[0], TESTING_INIT_STAKE * 2);
+        // test1 stakes twice the current stake, because test1 and test2 have the same amount of stake before, test2 will be
+        // kicked out.
         let (new_root, validator_stakes, _) = nightshade.update(
             &state_root,
             0,
@@ -593,6 +595,7 @@ mod test {
 
         state_root = nightshade.update(&state_root, 2, &h1, &receipts, &vec![]).0;
         nightshade.add_validator_proposals(h1, h2, 2, vec![], vec![]).unwrap();
+        // test3 stakes the same amount as test1 and will be confirmed as a validator in the next epoch
         let (new_root, validator_stakes, _) =
             nightshade.update(&state_root, 3, &h2, &vec![], &vec![staking_transaction]);
         state_root = new_root;
@@ -610,6 +613,7 @@ mod test {
         {
             let mut vm = nightshade.validator_manager.write().expect(POISONED_LOCK_ERR);
             let validators = vm.get_validators(h4).unwrap();
+            // at the beginning of epoch 4, test2 will be kicked out and test3 will join
             assert_eq!(
                 validators,
                 &assignment(
