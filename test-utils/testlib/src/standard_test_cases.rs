@@ -1447,7 +1447,7 @@ pub fn test_increase_stake(node: impl Node) {
     let amount_staked = TESTING_INIT_STAKE + 1;
     let transaction = TransactionBody::Stake(StakeTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         amount: amount_staked,
         public_key: node.signer().public_key().to_base(),
     })
@@ -1474,7 +1474,7 @@ pub fn test_decrease_stake(node: impl Node) {
     let amount_staked = 10;
     let transaction = TransactionBody::Stake(StakeTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
+        originator_id: account_id.clone(),
         amount: amount_staked,
         public_key: node.signer().public_key().to_base(),
     })
@@ -1500,8 +1500,8 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
+        originator_id: account_id.clone(),
+        new_account_id: eve_account_id(),
         public_key: node.signer().public_key().0[..].to_vec(),
         amount: 10,
     })
@@ -1513,7 +1513,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     let amount_staked = 0;
     let transaction = TransactionBody::Stake(StakeTransaction {
         nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: eve_account(),
+        originator_id: eve_account_id(),
         amount: amount_staked,
         public_key: node.signer().public_key().to_base(),
     })

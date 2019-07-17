@@ -461,7 +461,7 @@ mod test {
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         TransactionBody::Stake(StakeTransaction {
             nonce,
-            originator: sender.account_id.clone(),
+            originator_id: sender.account_id.clone(),
             amount,
             public_key: sender.signer.public_key().to_base(),
         })
@@ -580,7 +580,7 @@ mod test {
             InMemorySigner::from_seed(&new_account, &new_account).into();
         let create_account_transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
             nonce: 2,
-            originator: block_producers[0].account_id.clone(),
+            originator_id: block_producers[0].account_id.clone(),
             new_account_id: new_account,
             amount: TESTING_INIT_STAKE * 3,
             public_key: new_validator.signer.public_key().0[..].to_vec(),
