@@ -71,9 +71,9 @@ pub struct ClientActor {
     num_tx_processed: u64,
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
-    peer_id: PeerId,
+    node_id: PeerId,
     /// Last time we announced our accounts as validators.
-    last_val_announce_epoch: Option<BlockIndex>,
+    last_val_announce_height: Option<BlockIndex>,
 }
 
 impl ClientActor {
@@ -119,12 +119,12 @@ impl ClientActor {
             started: Instant::now(),
             num_blocks_processed: 0,
             num_tx_processed: 0,
-            peer_id,
-            last_val_announce_epoch: None,
+            node_id: peer_id,
+            last_val_announce_height: None,
         })
     }
 
-    fn check_signature_acc_announce(&self, announce_account: &AnnounceAccount) -> bool {
+    fn check_signature_account_announce(&self, announce_account: &AnnounceAccount) -> bool {
         let data = announce_account.get_data();
         self.runtime_adapter.check_validator_signature(
             &announce_account.account_id,
@@ -249,7 +249,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::AnnounceAccount(announce_account) => {
-                if self.check_signature_acc_announce(&announce_account) {
+                if self.check_signature_account_announce(&announce_account) {
                     let _ =
                         self.network_actor.send(NetworkRequests::AnnounceAccount(announce_account));
                     NetworkClientResponses::NoResponse
@@ -361,24 +361,23 @@ impl ClientActor {
 
         let block_producer = self.block_producer.as_ref().unwrap();
 
-        // TODO: Review this formula.
-        let (epoch_hash, _offset) = match self.runtime_adapter.get_epoch_offset(
+        let epoch_hash = match self.runtime_adapter.get_epoch_offset(
             block.hash(),
             block.header.height + self.config.announce_account_horizon,
         ) {
-            Ok((epoch_hash, offset)) => (epoch_hash, offset),
+            Ok((epoch_hash, 0)) => epoch_hash,
             // Don't announce if the block is unknown to us
-            Err(_) => return,
+            _ => return,
         };
 
         if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
             let epoch_height = epoch_block.header.height;
 
-            if self.last_val_announce_epoch.is_some()
-                && self.last_val_announce_epoch.unwrap() >= epoch_height
-            {
-                // This announcement was already done!
-                return;
+            if let Some(last_val_announce_height) = self.last_val_announce_height {
+                if last_val_announce_height >= epoch_height {
+                    // This announcement was already done!
+                    return;
+                }
             }
 
             // Check client is part of the futures validators
@@ -390,13 +389,13 @@ impl ClientActor {
                     .any(|(account_id, _)| (account_id == &block_producer.account_id))
                 {
                     let signature = self.sign_account_announce(epoch_height).unwrap();
-                    self.last_val_announce_epoch = Some(epoch_height);
+                    self.last_val_announce_height = Some(epoch_height);
 
                     self.network_actor.send(NetworkRequests::AnnounceAccount(
                         AnnounceAccount::new(
                             block_producer.account_id.clone(),
                             epoch_height,
-                            self.peer_id,
+                            self.node_id,
                             signature,
                         ),
                     ));
@@ -407,7 +406,7 @@ impl ClientActor {
 
     fn sign_account_announce(&self, epoch: u64) -> Result<Signature, ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
-            let msg = AnnounceAccount::build_data(&block_producer.account_id, &self.peer_id, epoch);
+            let msg = AnnounceAccount::build_data(&block_producer.account_id, &self.node_id, epoch);
             let signature = block_producer.signer.sign(msg.as_slice());
             Ok(signature)
         } else {
