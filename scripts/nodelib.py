@@ -22,7 +22,7 @@ def install_cargo():
 
 """Inits the node configuration using docker."""
 def docker_init(image, home_dir, init_flags):
-    subprocess.call(['docker', 'run',
+    subprocess.check_output(['docker', 'run',
         '-v', '%s:/srv/near' % home_dir, '-it',
         image, 'near', '--home=/srv/near', 'init'] + init_flags)
 
@@ -80,10 +80,13 @@ def print_staking_key(home_dir):
 
 """Stops given docker container."""
 def docker_stop_if_exists(name):
-    result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
-    if name in result:
-        subprocess.call(['docker', 'stop', name])
-        subprocess.call(['docker', 'rm', name])
+    try:
+        result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
+        if name in result:
+            subprocess.call(['docker', 'stop', name])
+            subprocess.call(['docker', 'rm', name])
+    except subprocess.CalledProcessError:
+        pass
 
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
@@ -95,15 +98,16 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
     if verbose:
         envs.extend(['-e', 'VERBOSE=1'])
-    subprocess.call(['docker', 'run',
+    subprocess.check_output(['docker', 'run',
                     '-d', '--network=host', '-v', '%s:/srv/near' % home_dir,
                     '--name', 'nearcore', '--restart', 'unless-stopped'] + 
                     envs + [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
-    subprocess.call(['docker', 'run',
+    subprocess.check_output(['docker', 'run',
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
                     '-v', '/var/run/docker.sock:/var/run/docker.sock',
                     'v2tec/watchtower', image])
+    print("To check logs call: docker logs --follow nearcore")
 
 
 """Runs NEAR core locally."""
@@ -123,8 +127,12 @@ def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, ve
     if local:
         install_cargo()
     else:
-        subprocess.call(['docker', 'pull', image])
-        subprocess.call(['docker', 'pull', 'v2tec/watchtower'])
+        try:
+            subprocess.check_output(['docker', 'pull', image])
+            subprocess.check_output(['docker', 'pull', 'v2tec/watchtower'])
+        except subprocess.CalledProcessError as exc:
+            print("Failed to fetch docker containers: %s" % exc)
+            exit(1)
 
     check_and_setup(local, is_release, image, home_dir, init_flags)
 
