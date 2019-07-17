@@ -128,7 +128,7 @@ fn proposals_to_assignments(
                 let new_stake = ordered_proposals[i].amount;
                 if r.amount != new_stake {
                     let return_stake = if r.amount > new_stake { r.amount - new_stake } else { 0 };
-                    stake_change.insert(r.account_id.clone(), (r.amount, return_stake));
+                    stake_change.insert(r.account_id.clone(), (new_stake, return_stake));
                 }
             }
             Entry::Vacant(e) => {
@@ -156,14 +156,13 @@ fn proposals_to_assignments(
             {
                 stake_change.insert(p.account_id.clone(), (p.amount, 0));
             }
-            //stake_change.insert(p.account_id.clone(), (p.amount, 0));
             final_proposals.push(p);
         } else {
             stake_change
                 .entry(p.account_id)
                 .and_modify(|(new_stake, return_stake)| {
                     if *new_stake != 0 {
-                        *return_stake = *new_stake;
+                        *return_stake += *new_stake;
                         *new_stake = 0;
                     }
                 })

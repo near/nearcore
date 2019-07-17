@@ -64,8 +64,9 @@ pub fn staking(
     sender: &mut Account,
     validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if sender.amount >= body.amount {
-        if sender.amount == 0 && body.amount == 0 {
+    let increment = if body.amount > sender.staked { body.amount - sender.staked } else { 0 };
+    if sender.amount >= increment {
+        if sender.staked == 0 && body.amount == 0 {
             // if the account hasn't staked, it cannot unstake
             return Err(format!(
                 "Account {} is not yet staked, but tries to unstake",
@@ -79,7 +80,8 @@ pub fn staking(
             amount: body.amount,
         });
         if sender.staked < body.amount {
-            sender.amount -= body.amount - sender.staked;
+            sender.amount -= increment;
+            sender.staked = body.amount;
             set(state_update, key_for_account(sender_account_id), &sender);
         }
         Ok(vec![])
