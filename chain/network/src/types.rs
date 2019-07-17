@@ -21,7 +21,7 @@ use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
-use near_primitives::utils::{proto_to_type, to_string_value};
+use near_primitives::utils::{index_to_bytes, proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
@@ -264,6 +264,32 @@ pub struct AnnounceAccount {
     /// Number of hops from this peer to the owner of the account.
     /// If `num_hops = 0` then this peer is the owner of the account.
     pub num_hops: usize,
+}
+
+impl AnnounceAccount {
+    pub fn new(
+        account_id: AccountId,
+        epoch: BlockIndex,
+        peer_id: PeerId,
+        signature: Signature,
+    ) -> Self {
+        Self {
+            account_id,
+            epoch,
+            peer_id_sender: peer_id,
+            peer_id_owner: peer_id,
+            signature,
+            num_hops: 0,
+        }
+    }
+
+    pub fn build_data(account_id: &AccountId, peer_id: &PeerId, epoch: BlockIndex) -> Vec<u8> {
+        [account_id.as_bytes(), peer_id.as_ref(), index_to_bytes(epoch).as_slice()].concat()
+    }
+
+    pub fn get_data(&self) -> Vec<u8> {
+        AnnounceAccount::build_data(&self.account_id, &self.peer_id_owner, self.epoch)
+    }
 }
 
 impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
@@ -661,6 +687,7 @@ pub enum ReasonForBan {
     BadHandshake = 4,
     BadBlockApproval = 5,
     Abusive = 6,
+    InvalidSignature = 7,
 }
 
 #[derive(Message)]
@@ -703,11 +730,8 @@ pub enum NetworkRequests {
         peer_id: PeerId,
         ban_reason: ReasonForBan,
     },
-    AnnounceAccount {
-        account_id: AccountId,
-        epoch: u64,
-        signature: Signature,
-    },
+    /// Announce account
+    AnnounceAccount(AnnounceAccount),
 }
 
 /// Combines peer address info and chain information.
@@ -766,6 +790,8 @@ pub enum NetworkClientMessages {
     StateRequest(ShardId, CryptoHash),
     /// State response.
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    /// Account announcement that needs to be validated before being processed
+    AnnounceAccount(AnnounceAccount),
 }
 
 pub enum NetworkClientResponses {

@@ -17,16 +17,15 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
     Tip, ValidTransaction,
 };
-use near_network::types::{PeerId, ReasonForBan};
+use near_network::types::{AnnounceAccount, PeerId, ReasonForBan};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::Signature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
-use near_primitives::utils::index_to_bytes;
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
@@ -123,6 +122,15 @@ impl ClientActor {
             peer_id,
             last_val_announce_epoch: None,
         })
+    }
+
+    fn check_signature_acc_announce(&self, announce_account: &AnnounceAccount) -> bool {
+        let data = announce_account.get_data();
+        self.runtime_adapter.check_validator_signature(
+            &announce_account.account_id,
+            &announce_account.signature,
+            data.as_slice(),
+        )
     }
 }
 
@@ -239,6 +247,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 NetworkClientResponses::NoResponse
+            }
+            NetworkClientMessages::AnnounceAccount(announce_account) => {
+                if self.check_signature_acc_announce(&announce_account) {
+                    let _ =
+                        self.network_actor.send(NetworkRequests::AnnounceAccount(announce_account));
+                    NetworkClientResponses::NoResponse
+                } else {
+                    NetworkClientResponses::Ban { ban_reason: ReasonForBan::InvalidSignature }
+                }
             }
         }
     }
@@ -375,11 +392,14 @@ impl ClientActor {
                     let signature = self.sign_account_announce(epoch_height).unwrap();
                     self.last_val_announce_epoch = Some(epoch_height);
 
-                    self.network_actor.send(NetworkRequests::AnnounceAccount {
-                        account_id: block_producer.account_id.clone(),
-                        epoch: epoch_height,
-                        signature,
-                    });
+                    self.network_actor.send(NetworkRequests::AnnounceAccount(
+                        AnnounceAccount::new(
+                            block_producer.account_id.clone(),
+                            epoch_height,
+                            self.peer_id,
+                            signature,
+                        ),
+                    ));
                 }
             }
         }
@@ -387,14 +407,8 @@ impl ClientActor {
 
     fn sign_account_announce(&self, epoch: u64) -> Result<Signature, ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
-            let account_id = &block_producer.account_id;
-
-            let msg =
-                [account_id.as_bytes(), self.peer_id.as_ref(), index_to_bytes(epoch).as_slice()]
-                    .concat();
-
+            let msg = AnnounceAccount::build_data(&block_producer.account_id, &self.peer_id, epoch);
             let signature = block_producer.signer.sign(msg.as_slice());
-
             Ok(signature)
         } else {
             Err(())
@@ -971,7 +985,7 @@ impl ClientActor {
             return false;
         }
         // Check signature is correct for given validator.
-        if !self.runtime_adapter.check_validator_signature(account_id, signature) {
+        if !self.runtime_adapter.check_validator_signature(account_id, signature, hash.as_ref()) {
             return false;
         }
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);

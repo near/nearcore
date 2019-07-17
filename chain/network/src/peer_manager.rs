@@ -506,18 +506,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::AnnounceAccount { account_id, epoch, signature } => {
-                self.announce_account(
-                    ctx,
-                    AnnounceAccount {
-                        account_id,
-                        epoch,
-                        peer_id_sender: self.peer_id,
-                        peer_id_owner: self.peer_id,
-                        signature,
-                        num_hops: 0,
-                    },
-                );
+            NetworkRequests::AnnounceAccount(announce_account) => {
+                self.announce_account(ctx, announce_account);
                 NetworkResponses::NoResponse
             }
         }

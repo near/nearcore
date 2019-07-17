@@ -86,7 +86,12 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     /// Check validator's signature.
-    fn check_validator_signature(&self, account_id: &AccountId, signature: &Signature) -> bool;
+    fn check_validator_signature(
+        &self,
+        account_id: &AccountId,
+        signature: &Signature,
+        data: &[u8],
+    ) -> bool;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;

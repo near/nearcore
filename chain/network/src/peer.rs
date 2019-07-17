@@ -256,6 +256,9 @@ impl Peer {
             PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
+            PeerMessage::AnnounceAccount(announce_account) => {
+                NetworkClientMessages::AnnounceAccount(announce_account)
+            }
             _ => unreachable!(),
         };
         self.client_addr

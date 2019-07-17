@@ -226,7 +226,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         unreachable!()
     }
 
-    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
+    fn check_validator_signature(
+        &self,
+        _account_id: &AccountId,
+        _signature: &Signature,
+        _data: &[u8],
+    ) -> bool {
+        // TODO(MarX): Check signature
         true
     }
 

@@ -104,7 +104,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
     }
 
-    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
+    fn check_validator_signature(
+        &self,
+        _account_id: &AccountId,
+        _signature: &Signature,
+        _data: &[u8],
+    ) -> bool {
         true
     }
 

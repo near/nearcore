@@ -10,7 +10,6 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_store::test_utils::create_test_store;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
-use near_network::types::PeerId;
 use near_primitives::crypto::signature::PublicKey;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
