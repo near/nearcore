@@ -253,8 +253,12 @@ impl From<Handshake> for network_proto::Handshake {
 pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
+    /// This announcement is only valid for this `epoch`
+    pub epoch: BlockIndex,
     /// Peer that have connection (potentially through other peers) to `account_id`
-    pub peer_id: PeerId,
+    pub peer_id_sender: PeerId,
+    /// Peer id owner of this account id
+    pub peer_id_owner: PeerId,
     /// Signature of the original peer as proof of ownership for this account.
     pub signature: Signature,
     /// Number of hops from this peer to the owner of the account.
@@ -266,11 +270,16 @@ impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::AnnounceAccount) -> Result<Self, Self::Error> {
-        let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
+        let peer_id_sender: PublicKey =
+            proto.peer_id_sender.try_into().map_err(|e| format!("{}", e))?;
+        let peer_id_owner: PublicKey =
+            proto.peer_id_owner.try_into().map_err(|e| format!("{}", e))?;
         let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
         Ok(AnnounceAccount {
             account_id: proto.account_id,
-            peer_id: peer_id.into(),
+            epoch: proto.epoch.into(),
+            peer_id_sender: peer_id_sender.into(),
+            peer_id_owner: peer_id_owner.into(),
             signature: signature.into(),
             num_hops: proto.num_hops as usize,
         })
@@ -281,7 +290,9 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
     fn from(announce_account: AnnounceAccount) -> network_proto::AnnounceAccount {
         network_proto::AnnounceAccount {
             account_id: announce_account.account_id,
-            peer_id: announce_account.peer_id.into(),
+            epoch: announce_account.epoch.into(),
+            peer_id_sender: announce_account.peer_id_sender.into(),
+            peer_id_owner: announce_account.peer_id_owner.into(),
             signature: announce_account.signature.into(),
             num_hops: announce_account.num_hops as u32,
             ..Default::default()
@@ -694,6 +705,7 @@ pub enum NetworkRequests {
     },
     AnnounceAccount {
         account_id: AccountId,
+        epoch: u64,
         signature: Signature,
     },
 }

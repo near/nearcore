@@ -22,10 +22,11 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
-use near_primitives::crypto::signature::Signature;
+use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::utils::index_to_bytes;
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
@@ -34,7 +35,6 @@ use crate::types::{
     SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use near_network::types::NetworkRequests::AnnounceAccount;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -70,6 +70,11 @@ pub struct ClientActor {
     num_blocks_processed: u64,
     /// Total number of transactions processed.
     num_tx_processed: u64,
+    /// Identity that represents this Client at the network level.
+    /// It is used as part of the messages that identify this client.
+    peer_id: PeerId,
+    /// Last time we announced our accounts as validators.
+    last_val_announce_epoch: Option<BlockIndex>,
 }
 
 impl ClientActor {
@@ -80,6 +85,7 @@ impl ClientActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
+        peer_id: PeerId,
     ) -> Result<Self, Error> {
         // TODO(991): Wait until genesis.
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
@@ -114,6 +120,8 @@ impl ClientActor {
             started: Instant::now(),
             num_blocks_processed: 0,
             num_tx_processed: 0,
+            peer_id,
+            last_val_announce_epoch: None,
         })
     }
 }
@@ -322,16 +330,68 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
+        self.check_announce_account(&block);
+    }
+
+    fn check_announce_account(&mut self, block: &Block) {
         // Announce AccountId if client is becoming a validator soon.
         // First check that we currently have an AccountId
-        if let Some(block_producer) = self.block_producer.as_ref() {
-            // TODO(MarX): Check if I'm becoming a validator
-            // TODO(MarX): Check if I haven't announced my account for next epoch
-            // self.runtime_adapter.get_epoch_offset(block.hash(), block.header.height + 1)?;
-            let account_id = block_producer.account_id.clone();
-            let signature = block_producer.signer.sign(account_id.as_bytes());
 
-            self.network_actor.send(NetworkRequests::AnnounceAccount { account_id, signature });
+        if self.block_producer.is_none() {
+            // There is no account id associated with this client
+            return;
+        }
+
+        let block_producer = self.block_producer.as_ref().unwrap();
+
+        // TODO: Review this formula.
+        let (epoch_hash, _offset) = match self.runtime_adapter.get_epoch_offset(
+            block.hash(),
+            block.header.height + self.config.announce_account_horizon,
+        ) {
+            Ok((epoch_hash, offset)) => (epoch_hash, offset),
+            // Don't announce if the block is unknown to us
+            Err(_) => return,
+        };
+
+        if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
+            let epoch_height = epoch_block.header.height;
+
+            if self.last_val_announce_epoch.is_some()
+                && self.last_val_announce_epoch.unwrap() >= epoch_height
+            {
+                // This announcement was already done!
+                return;
+            }
+
+            // Check client is part of the futures validators
+            if let Ok(validators) =
+                self.runtime_adapter.get_epoch_block_proposers(epoch_hash, epoch_height)
+            {
+                if validators
+                    .iter()
+                    .any(|(account_id, _)| (account_id == &block_producer.account_id))
+                {
+                    // Announce Account
+                    let account_id = block_producer.account_id.clone();
+
+                    let msg = [
+                        account_id.as_bytes(),
+                        self.peer_id.as_ref(),
+                        index_to_bytes(epoch_height).as_slice(),
+                    ]
+                    .concat();
+
+                    let signature = block_producer.signer.sign(msg.as_slice());
+                    self.last_val_announce_epoch = Some(epoch_height);
+
+                    self.network_actor.send(NetworkRequests::AnnounceAccount {
+                        account_id,
+                        epoch: epoch_height,
+                        signature,
+                    });
+                }
+            }
         }
     }
 

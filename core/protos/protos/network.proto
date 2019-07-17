@@ -57,9 +57,11 @@ message StateResponse {
 
 message AnnounceAccount {
     string account_id = 1;
-    bytes peer_id = 2;
-    bytes signature = 3;
-    uint32 num_hops = 4;
+    uint64 epoch = 2;
+    bytes peer_id_sender = 3;
+    bytes peer_id_owner = 4;
+    bytes signature = 5;
+    uint32 num_hops = 6;
 }
 
 message PeerMessage {

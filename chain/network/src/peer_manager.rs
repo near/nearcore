@@ -91,7 +91,7 @@ impl RoutingTable {
                 if data.num_hops < *num_hops {
                     // and add it
                     self.account_peers
-                        .insert(data.account_id.clone(), (data.peer_id, data.num_hops));
+                        .insert(data.account_id.clone(), (data.peer_id_sender, data.num_hops));
                     RoutingTableUpdate::UpdatedAccount
                 } else {
                     RoutingTableUpdate::Ignore
@@ -99,7 +99,8 @@ impl RoutingTable {
             }
             // If we don't have this account id store it in the routing table.
             None => {
-                self.account_peers.insert(data.account_id.clone(), (data.peer_id, data.num_hops));
+                self.account_peers
+                    .insert(data.account_id.clone(), (data.peer_id_sender, data.num_hops));
                 RoutingTableUpdate::NewAccount
             }
         }
@@ -124,9 +125,6 @@ pub struct PeerManagerActor {
     outgoing_peers: HashSet<PeerId>,
     /// Active peers (inbound and outbound) with their full peer information.
     active_peers: HashMap<PeerId, ActivePeer>,
-    // TODO(MarX): Remove `account_peers`
-    // /// Peers with known account ids.
-    // account_peers: HashMap<AccountId, PeerId>,
     /// Routing table to keep track of account id
     routing_table: RoutingTable,
     /// Monitor peers attempts, used for fast checking in the beginning with exponential backoff.
@@ -387,17 +385,7 @@ impl PeerManagerActor {
         // If this is a new account send an announcement to random set of peers.
         if self.routing_table.update(&announce_account).is_new() {
             let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-
-            // TODO(MarX): Don't send to all peers. Sample a subset of K peers
-            // TODO(MarX): Add k to configuration.
-            let requests: Vec<_> =
-                self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
-
-            future::join_all(requests)
-                .into_actor(self)
-                .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
-                .and_then(|_, _, _| actix::fut::ok(()))
-                .spawn(ctx);
+            self.broadcast_message(ctx, msg);
         }
     }
 
@@ -518,10 +506,17 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::AnnounceAccount { account_id, signature } => {
+            NetworkRequests::AnnounceAccount { account_id, epoch, signature } => {
                 self.announce_account(
                     ctx,
-                    AnnounceAccount { account_id, peer_id: self.peer_id, signature, num_hops: 0 },
+                    AnnounceAccount {
+                        account_id,
+                        epoch,
+                        peer_id_sender: self.peer_id,
+                        peer_id_owner: self.peer_id,
+                        signature,
+                        num_hops: 0,
+                    },
                 );
                 NetworkResponses::NoResponse
             }

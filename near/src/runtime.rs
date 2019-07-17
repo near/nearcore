@@ -24,7 +24,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
-use crate::validator_manager::{ValidatorEpochConfig, ValidatorError, ValidatorManager};
+use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
 use kvdb::DBValue;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -196,7 +196,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         index: u64,
     ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
-        self.validator_manager.read().expect(POISONED_LOCK_ERR).get_epoch_offset(parent_hash, index)
+        self.validator_manager
+            .read()
+            .expect(POISONED_LOCK_ERR)
+            .get_epoch_offset(parent_hash, index)
+            .map_err(|e| e.into())
     }
 
     fn get_chunk_proposer(

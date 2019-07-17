@@ -10,7 +10,9 @@ use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
 
-pub use crate::config::{init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE};
+pub use crate::config::{
+    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
+};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
@@ -24,9 +26,7 @@ pub fn get_store_path(base_path: &Path) -> String {
     store_path.push(STORE_PATH);
     match fs::canonicalize(store_path.clone()) {
         Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
-        _ => {
-            info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path)
-        }
+        _ => info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path),
     };
     store_path.to_str().unwrap().to_owned()
 }
@@ -61,6 +61,8 @@ pub fn start_with_config(
     .start();
     let view_client1 = view_client.clone();
     let client = ClientActor::create(move |ctx| {
+        let peer_id = config.network_config.public_key.clone().into();
+
         let network_actor =
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
                 .unwrap()
@@ -75,6 +77,7 @@ pub fn start_with_config(
             runtime,
             network_actor.recipient(),
             config.block_producer,
+            peer_id,
         )
         .unwrap()
     });
