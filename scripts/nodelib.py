@@ -83,8 +83,8 @@ def docker_stop_if_exists(name):
     try:
         result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
         if name in result:
-            subprocess.call(['docker', 'stop', name])
-            subprocess.call(['docker', 'rm', name])
+            subprocess.check_output(['docker', 'stop', name])
+            subprocess.check_output(['docker', 'rm', name])
     except subprocess.CalledProcessError:
         pass
 
