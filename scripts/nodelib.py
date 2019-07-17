@@ -78,13 +78,19 @@ def print_staking_key(home_dir):
     print("Stake for user '%s' with '%s'" % (key_file['account_id'], key_file['public_key']))
 
 
+"""Stops given docker container."""
+def docker_stop_if_exists(name):
+    result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
+    if name in result:
+        subprocess.call(['docker', 'stop', name])
+        subprocess.call(['docker', 'rm', name])
+
+
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
 def run_docker(image, home_dir, boot_nodes, verbose):
     print("Starting NEAR client and Watchtower dockers...")
-    subprocess.call(['docker', 'stop', 'watchtower'])
-    subprocess.call(['docker', 'rm', 'watchtower'])
-    subprocess.call(['docker', 'stop', 'nearcore'])
-    subprocess.call(['docker', 'rm', 'nearcore'])
+    docker_stop_if_exists('watchtower')
+    docker_stop_if_exists('nearcore')
     # Start nearcore container, mapping home folder and ports.
     envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
     if verbose:
@@ -128,3 +134,9 @@ def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, ve
         run_docker(image, home_dir, boot_nodes, verbose)
     else:
         run_local(home_dir, is_release, boot_nodes, verbose)
+
+
+"""Stops docker for Nearcore and watchtower if they are running."""
+def stop_docker():
+    docker_stop_if_exists('watchtower')
+    docker_stop_if_exists('nearcore')
