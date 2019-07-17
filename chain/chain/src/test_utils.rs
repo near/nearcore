@@ -92,7 +92,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _parent_hash: CryptoHash,
         _index: u64,
     ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
-        unimplemented!()
+        let error: Error = ErrorKind::Other("unimplemented".to_string()).into();
+        Err(Box::new(error))
     }
 
     fn get_chunk_proposer(
