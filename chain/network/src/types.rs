@@ -287,6 +287,7 @@ pub enum PeerMessage {
     StateRequest(ShardId, CryptoHash),
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
     ChunkPartRequest(ChunkPartRequestMsg),
+    ChunkOnePartRequest(ChunkPartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
 }
@@ -307,6 +308,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
             PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
+            PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
             PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
         }
@@ -390,6 +392,14 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
                 chunk_part_request,
             )) => Ok(PeerMessage::ChunkPartRequest(ChunkPartRequestMsg {
+                shard_id: chunk_part_request.shard_id,
+                chunk_hash: ChunkHash(chunk_part_request.chunk_hash.try_into()?),
+                height: chunk_part_request.height,
+                part_id: chunk_part_request.part_id,
+            })),
+            Some(network_proto::PeerMessage_oneof_message_type::chunk_one_part_request(
+                chunk_part_request,
+            )) => Ok(PeerMessage::ChunkOnePartRequest(ChunkPartRequestMsg {
                 shard_id: chunk_part_request.shard_id,
                 chunk_hash: ChunkHash(chunk_part_request.chunk_hash.try_into()?),
                 height: chunk_part_request.height,
@@ -516,6 +526,18 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
+                    chunk_part_request,
+                ))
+            }
+            PeerMessage::ChunkOnePartRequest(chunk_part_request) => {
+                let chunk_part_request = network_proto::ChunkPartRequest {
+                    shard_id: chunk_part_request.shard_id,
+                    chunk_hash: chunk_part_request.chunk_hash.0.into(),
+                    height: chunk_part_request.height,
+                    part_id: chunk_part_request.part_id,
+                    ..Default::default()
+                };
+                Some(network_proto::PeerMessage_oneof_message_type::chunk_one_part_request(
                     chunk_part_request,
                 ))
             }
@@ -740,6 +762,11 @@ pub enum NetworkRequests {
         account_id: AccountId,
         part_request: ChunkPartRequestMsg,
     },
+    /// Request chunk part and receipts
+    ChunkOnePartRequest {
+        account_id: AccountId,
+        part_request: ChunkPartRequestMsg,
+    },
     /// A chunk part
     ChunkPart {
         peer_id: PeerId,
@@ -811,6 +838,8 @@ pub enum NetworkClientMessages {
 
     /// Request chunk part
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    /// Request chunk part
+    ChunkOnePartRequest(ChunkPartRequestMsg, AccountId),
     /// A chunk part
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part

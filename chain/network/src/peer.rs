@@ -213,8 +213,8 @@ impl Peer {
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
-        let peer_id = match self.peer_info.as_ref() {
-            Some(peer_info) => peer_info.id.clone(),
+        let (peer_id, account_id) = match self.peer_info.as_ref() {
+            Some(peer_info) => (peer_info.id.clone(), peer_info.account_id.clone()),
             None => {
                 return;
             }
@@ -259,6 +259,14 @@ impl Peer {
             }
             PeerMessage::ChunkPartRequest(request) => {
                 NetworkClientMessages::ChunkPartRequest(request, peer_id)
+            }
+            PeerMessage::ChunkOnePartRequest(request) => {
+                if let Some(account_id) = account_id {
+                    NetworkClientMessages::ChunkOnePartRequest(request, account_id)
+                } else {
+                    assert!(false); // TODO MOO XXX remove
+                    return;
+                }
             }
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),

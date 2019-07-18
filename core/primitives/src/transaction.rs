@@ -479,12 +479,17 @@ impl SignedTransaction {
 
     // The following functions are for tests
     pub fn empty() -> SignedTransaction {
-        Self::create_payment_tx(AccountId::default(), AccountId::default(), 0)
+        Self::create_payment_tx(AccountId::default(), AccountId::default(), 0, 0)
     }
 
-    pub fn create_payment_tx(from: AccountId, to: AccountId, amount: u128) -> SignedTransaction {
+    pub fn create_payment_tx(
+        from: AccountId,
+        to: AccountId,
+        amount: u128,
+        nonce: u64,
+    ) -> SignedTransaction {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 0,
+            nonce: nonce,
             originator: from,
             receiver: to,
             amount,

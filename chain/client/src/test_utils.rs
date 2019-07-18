@@ -19,7 +19,7 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
-    validators: Vec<&str>,
+    validators: Vec<Vec<&str>>,
     validators_per_shard: u64,
     account_id: &str,
     skip_sync_wait: bool,
@@ -30,7 +30,7 @@ pub fn setup(
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
-        validators.into_iter().map(Into::into).collect(),
+        validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validators_per_shard,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
@@ -72,7 +72,7 @@ pub fn setup_mock(
         }))
         .start();
         let (client, view_client) =
-            setup(validators, 1, account_id, skip_sync_wait, 100, pm.recipient(), Utc::now());
+            setup(vec![validators], 1, account_id, skip_sync_wait, 100, pm.recipient(), Utc::now());
         *view_client_addr1.write().unwrap() = Some(view_client.start());
         client
     });
@@ -81,7 +81,7 @@ pub fn setup_mock(
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock_all_validators(
-    validators: Vec<&'static str>,
+    validators: Vec<Vec<&'static str>>,
     key_pairs: Vec<PeerInfo>,
     validators_per_shard: u64,
     skip_sync_wait: bool,
@@ -100,7 +100,7 @@ pub fn setup_mock_all_validators(
     //    them at the end of this function
     let mut locked_connectors = connectors.write().unwrap();
 
-    for account_id in validators {
+    for account_id in validators.iter().flatten().cloned() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
@@ -117,7 +117,7 @@ pub fn setup_mock_all_validators(
 
                 if perform_default {
                     let mut my_key_pair = None;
-                    for (i, name) in validators_clone2.iter().enumerate() {
+                    for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if *name == account_id {
                             my_key_pair = Some(key_pairs[i].clone());
                         }
@@ -135,7 +135,7 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::ChunkOnePart { account_id, header_and_part } => {
-                            for (i, name) in validators_clone2.iter().enumerate() {
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkOnePart(
@@ -146,12 +146,27 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::ChunkPartRequest { account_id, part_request } => {
-                            for (i, name) in validators_clone2.iter().enumerate() {
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkPartRequest(
                                             part_request.clone(),
                                             my_key_pair.id,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::ChunkOnePartRequest {
+                            account_id: their_account_id,
+                            part_request,
+                        } => {
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                if name == their_account_id {
+                                    connectors1.write().unwrap()[i].0.do_send(
+                                        NetworkClientMessages::ChunkOnePartRequest(
+                                            part_request.clone(),
+                                            account_id.to_string(),
                                         ),
                                     );
                                 }

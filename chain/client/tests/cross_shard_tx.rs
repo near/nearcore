@@ -19,7 +19,7 @@ fn test_keyvalue_runtime_balances() {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
 
-        let validators = vec!["test1", "test2", "test3", "test4"];
+        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
@@ -35,6 +35,7 @@ fn test_keyvalue_runtime_balances() {
         );
 
         let connectors_ = connectors.write().unwrap();
+        let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
         for i in 0..4 {
             let expected = (1000 + i * 100) as u128;
 
@@ -42,7 +43,7 @@ fn test_keyvalue_runtime_balances() {
             actix::spawn(
                 connectors_[i]
                     .1
-                    .send(Query { path: "account/".to_owned() + validators[i], data: vec![] })
+                    .send(Query { path: "account/".to_owned() + flat_validators[i], data: vec![] })
                     .then(move |res| {
                         let query_responce = res.unwrap().unwrap();
                         if let ViewAccount(view_account_result) = query_responce {
@@ -83,6 +84,7 @@ mod tests {
         res: Result<Result<QueryResponse, String>, MailboxError>,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
+        nonce: Arc<AtomicUsize>,
         validators: Vec<&'static str>,
         successful_queries: Arc<AtomicUsize>,
         unsuccessful_queries: Arc<AtomicUsize>,
@@ -117,6 +119,7 @@ mod tests {
                     let from = iteration_local % 8;
                     let to = (iteration_local / 8) % 8;
                     let amount = (5 + iteration_local) as u128;
+                    let next_nonce = nonce.fetch_add(1, Ordering::Relaxed);
                     connectors_[account_id_to_shard_id(&validators[from].to_string(), 8) as usize]
                         .0
                         .do_send(NetworkClientMessages::Transaction(
@@ -124,6 +127,7 @@ mod tests {
                                 validators[from].to_string(),
                                 validators[to].to_string(),
                                 amount,
+                                next_nonce as u64,
                             ),
                         ));
                     let mut balances_local = balances.write().unwrap();
@@ -137,6 +141,7 @@ mod tests {
                     for i in 0..8 {
                         let connectors1 = connectors.clone();
                         let iteration1 = iteration.clone();
+                        let nonce1 = nonce.clone();
                         let validators1 = validators.clone();
                         let successful_queries1 = successful_queries.clone();
                         let unsuccessful_queries1 = unsuccessful_queries.clone();
@@ -155,6 +160,7 @@ mod tests {
                                         x,
                                         connectors1,
                                         iteration1,
+                                        nonce1,
                                         validators1,
                                         successful_queries1,
                                         unsuccessful_queries1,
@@ -195,6 +201,7 @@ mod tests {
                                 x,
                                 connectors1,
                                 iteration,
+                                nonce,
                                 validators,
                                 successful_queries,
                                 unsuccessful_queries,
@@ -218,9 +225,23 @@ mod tests {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
-            let validators =
-                vec!["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
-            let key_pairs = (0..8).map(|_| PeerInfo::random()).collect::<Vec<_>>();
+            let validators = vec![
+                vec![
+                    "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
+                    "test1.8",
+                ],
+                /*vec![
+                    "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6", "test2.7",
+                    "test2.8",
+                ],
+                vec![
+                    // Test different number of validators
+                    "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
+                    "test3.8", "test3.9", "test3.10", "test3.11", "test3.12", "test3.13",
+                    "test3.14", "test3.15", "test3.16",
+                ],*/
+            ];
+            let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
             let balances = Arc::new(RwLock::new(vec![]));
             let observed_balances = Arc::new(RwLock::new(vec![]));
 
@@ -236,7 +257,7 @@ mod tests {
                 key_pairs.clone(),
                 validators_per_shard,
                 true,
-                20,
+                30,
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -244,13 +265,16 @@ mod tests {
 
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));
+            let nonce = Arc::new(AtomicUsize::new(1));
             let successful_queries = Arc::new(AtomicUsize::new(0));
             let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
+            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
 
             for i in 0..8 {
                 let connectors1 = connectors.clone();
                 let iteration1 = iteration.clone();
-                let validators1 = validators.clone();
+                let nonce1 = nonce.clone();
+                let flat_validators1 = flat_validators.clone();
                 let successful_queries1 = successful_queries.clone();
                 let unsuccessful_queries1 = unsuccessful_queries.clone();
                 let balances1 = balances.clone();
@@ -259,7 +283,7 @@ mod tests {
                     connectors_[i]
                         .1
                         .send(Query {
-                            path: "account/".to_owned() + validators[i].clone(),
+                            path: "account/".to_owned() + flat_validators[i].clone(),
                             data: vec![],
                         })
                         .then(move |x| {
@@ -267,7 +291,8 @@ mod tests {
                                 x,
                                 connectors1,
                                 iteration1,
-                                validators1,
+                                nonce1,
+                                flat_validators1,
                                 successful_queries1,
                                 unsuccessful_queries1,
                                 balances1,

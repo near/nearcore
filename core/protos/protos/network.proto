@@ -94,7 +94,8 @@ message PeerMessage {
         StateResponse state_response = 12;
 
         ChunkPartRequest chunk_part_request = 13;
-        ChunkPart chunk_part = 14;
-        ChunkOnePart chunk_header_and_part = 15;
+        ChunkPartRequest chunk_one_part_request = 14;
+        ChunkPart chunk_part = 15;
+        ChunkOnePart chunk_header_and_part = 16;
     }
 }

@@ -45,7 +45,7 @@ fn chunks_produced_and_distributed_common(validators_per_shard: u64) {
                 }
             };
 
-        let validators = vec!["test1", "test2", "test3", "test4"];
+        let validators = vec![vec!["test1", "test2", "test3", "test4"]];
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 

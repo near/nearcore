@@ -97,15 +97,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
-    fn num_total_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize;
-    fn num_data_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize;
+    fn num_total_parts(&self, parent_hash: CryptoHash) -> usize;
+    fn num_data_parts(&self, parent_hash: CryptoHash) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
     fn get_part_owner(
         &self,
         parent_hash: CryptoHash,
-        height: BlockIndex,
         part_id: u64,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -113,7 +112,6 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         account_id: &AccountId,
         parent_hash: CryptoHash,
-        height: BlockIndex,
         shard_id: ShardId,
     ) -> bool;
 

@@ -57,20 +57,27 @@ fn produce_blocks_with_tx() {
                 if let NetworkRequests::ChunkOnePart { account_id: _, header_and_part } = msg {
                     let height = header_and_part.header.height_created as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
+
+                    // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
+                    let data_parts = 12 + 2 * ((height as usize) % 4);
+                    let total_parts = 1 + data_parts * (1 + (height as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
                         encoded_chunks.push(EncodedShardChunk::from_header(
                             header_and_part.header.clone(),
-                            48, // must match total_parts in KeyValueRuntimeAdapter
+                            total_parts,
                         ));
                     }
                     encoded_chunks[height - 2].content.parts[header_and_part.part_id as usize] =
                         Some(header_and_part.part.clone());
 
-                    if let ChunkStatus::Complete(_) =
-                        ShardsManager::check_chunk_complete(16, 48, &mut encoded_chunks[height - 2])
-                    {
+                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
+                        data_parts,
+                        total_parts,
+                        &mut encoded_chunks[height - 2],
+                    ) {
                         let chunk =
-                            ShardsManager::decode_chunk(16, &encoded_chunks[height - 2]).unwrap();
+                            ShardsManager::decode_chunk(data_parts, &encoded_chunks[height - 2])
+                                .unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
                         }

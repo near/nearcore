@@ -3,8 +3,7 @@ use std::io;
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
-use near_primitives::sharding::ChunkHash;
-use near_primitives::types::ShardId;
+use near_primitives::sharding::ShardChunkHeader;
 
 #[derive(Debug)]
 pub struct Error {
@@ -21,7 +20,7 @@ pub enum ErrorKind {
     Orphan,
     /// Chunks missing.
     #[fail(display = "Chunks Missing: {:?}", _0)]
-    ChunksMissing(Vec<(ShardId, ChunkHash)>),
+    ChunksMissing(Vec<(ShardChunkHeader)>),
     /// Peer abusively sending us an old block we already have
     #[fail(display = "Old Block")]
     OldBlock,

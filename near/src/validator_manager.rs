@@ -8,11 +8,14 @@ use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
 };
-use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
+use near_store::{
+    Store, StoreUpdate, COL_BLOCK_HEADER, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS,
+};
 
 const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 
@@ -327,6 +330,18 @@ impl ValidatorManager {
         parent_hash: CryptoHash,
         index: BlockIndex,
     ) -> Result<(CryptoHash, BlockIndex), ValidatorError> {
+        if parent_hash == CryptoHash::default() {
+            return Ok((parent_hash, 0));
+        }
+
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())
+            .map_err(|err| ValidatorError::Other(err.to_string()))?
+            .ok_or(ValidatorError::MissingBlock(parent_hash))?;
+
+        let prev_height = prev_block_header.height;
+
         // TODO(1049): handle that config epoch length can change over time from runtime.
         let parent_info =
             self.get_index_info(parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
@@ -338,7 +353,10 @@ impl ValidatorManager {
                 (epoch_start_info.index, epoch_start_info.prev_hash)
             };
 
-        if epoch_start_index + self.config.epoch_length <= index {
+        // We compare to the height of the previous block and not to index so that the epoch is fully
+        //    determined by the previous block. This allows chunk producers to know the epoch of the
+        //    *next* block, and know whom to distribute chunk parts to
+        if epoch_start_index + self.config.epoch_length <= prev_height {
             // If this is next epoch index, return parent's epoch hash and 0 as offset.
             Ok((parent_info.epoch_start_hash, 0))
         } else {

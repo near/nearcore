@@ -12,11 +12,11 @@ use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ChunksStoreUpdate};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
 };
-use near_primitives::sharding::{ChunkHash, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -234,7 +234,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
-        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
+        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let height = block.header.height;
         let res =
@@ -250,14 +250,64 @@ impl Chain {
     }
 
     /// Processes headers and adds them to store for syncing.
-    pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
+    pub fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<(), Error> {
+        // Sort headers by heights if they are out of order.
+        headers.sort_by(|left, right| left.height.cmp(&right.height));
+
+        let _first_header = if let Some(header) = headers.first() {
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
+            header
+        } else {
+            return Ok(());
+        };
+
+        let all_known = if let Some(last_header) = headers.last() {
+            self.store.get_block_header(&last_header.hash()).is_ok()
+        } else {
+            false
+        };
+
+        if !all_known {
+            // Validate header and then add to the chain.
+            for header in headers.iter() {
+                let mut chain_update = ChainUpdate::new(
+                    &mut self.store,
+                    self.runtime_adapter.clone(),
+                    &self.orphans,
+                    &self.blocks_with_missing_chunks,
+                );
+
+                chain_update.validate_header(header, &Provenance::SYNC)?;
+                chain_update.chain_store_update.save_block_header(header.clone());
+                chain_update.commit()?;
+
+                // Add validator proposals for given header.
+                self.runtime_adapter
+                    .add_validator_proposals(
+                        header.prev_hash,
+                        header.hash(),
+                        header.height,
+                        header.validator_proposal.clone(),
+                        vec![],
+                    )
+                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            }
+        }
+
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
         );
-        chain_update.sync_block_headers(headers)?;
+
+        if let Some(header) = headers.last() {
+            // Update sync_head regardless of the total weight.
+            chain_update.update_sync_head(header)?;
+            // Update header_head if total weight changed.
+            chain_update.update_header_head(header)?;
+        }
+
         chain_update.commit()
     }
 
@@ -352,7 +402,7 @@ impl Chain {
     ) -> Result<Option<Tip>, Error>
     where
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
-        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
+        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         if block.chunks.len() != self.runtime_adapter.num_shards() as usize {
             return Err(ErrorKind::IncorrectNumberOfChunkHeaders.into());
@@ -402,7 +452,7 @@ impl Chain {
                 }
                 ErrorKind::ChunksMissing(missing_chunks) => {
                     let block_hash = block.hash();
-                    block_misses_chunks(&block, missing_chunks.clone());
+                    block_misses_chunks(missing_chunks.clone());
                     let orphan = Orphan { block, provenance, added: Instant::now() };
 
                     self.blocks_with_missing_chunks.add(orphan);
@@ -438,7 +488,7 @@ impl Chain {
         block_misses_chunks: F2,
     ) where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
-        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
+        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let mut new_blocks_accepted = false;
         if let Some(orphans) = self.blocks_with_missing_chunks.remove_by_height(height) {
@@ -477,7 +527,7 @@ impl Chain {
     ) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
-        F2: Copy + FnMut(&Block, Vec<(ShardId, ChunkHash)>) -> (),
+        F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let initial_height = height;
 
@@ -591,8 +641,8 @@ impl Chain {
 
     /// Gets a chunk by hash.
     #[inline]
-    pub fn get_chunk(&mut self, hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        self.store.get_chunk(hash)
+    pub fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
+        self.store.get_chunk(header)
     }
 
     /// Gets a block from the current chain by height.
@@ -696,7 +746,6 @@ impl Chain {
 struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
-    chunks_store_update: ChunksStoreUpdate,
     orphans: &'a OrphanBlockPool,
     blocks_with_missing_chunks: &'a OrphanBlockPool,
 }
@@ -708,20 +757,12 @@ impl<'a> ChainUpdate<'a> {
         orphans: &'a OrphanBlockPool,
         blocks_with_missing_chunks: &'a OrphanBlockPool,
     ) -> Self {
-        let chunks_store_update = store.chunks_store_update();
         let chain_store_update = store.store_update();
-        ChainUpdate {
-            runtime_adapter,
-            chain_store_update,
-            chunks_store_update,
-            orphans,
-            blocks_with_missing_chunks,
-        }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans, blocks_with_missing_chunks }
     }
 
     /// Commit changes to the chain into the database.
     pub fn commit(self) -> Result<(), Error> {
-        self.chunks_store_update.merge()?;
         self.chain_store_update.commit()
     }
 
@@ -841,12 +882,7 @@ impl<'a> ChainUpdate<'a> {
                 if me.as_ref().map_or_else(
                     || false,
                     |me| {
-                        self.runtime_adapter.cares_about_shard(
-                            me,
-                            block.header.prev_hash,
-                            chunk_header.height_included,
-                            shard_id,
-                        )
+                        self.runtime_adapter.cares_about_shard(me, block.header.prev_hash, shard_id)
                     },
                 ) {
                     let receipts = self.chain_store_update.get_incoming_receipts_for_shard(
@@ -854,7 +890,7 @@ impl<'a> ChainUpdate<'a> {
                         block.hash(),
                         prev_chunk_header,
                     )?;
-                    let chunk = self.chain_store_update.get_chunk(&chunk_hash)?;
+                    let chunk = self.chain_store_update.get_chunk(&chunk_header)?;
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
                         chunk.transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
@@ -918,6 +954,13 @@ impl<'a> ChainUpdate<'a> {
                 }
             } else {
                 if prev_chunk_header != chunk_header {
+                    info!(
+                        "MOO {:?} != {:?}, DEF: {}, GEN: {}",
+                        prev_chunk_header,
+                        chunk_header,
+                        CryptoHash::default(),
+                        Block::chunk_genesis_hash()
+                    );
                     return Err(ErrorKind::InvalidChunk.into());
                 }
             }
@@ -939,53 +982,6 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block_header(header.clone());
         self.update_header_head(header)?;
         Ok(())
-    }
-
-    /// Process incoming block headers for syncing.
-    fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
-        // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.height.cmp(&right.height));
-
-        let _first_header = if let Some(header) = headers.first() {
-            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
-            header
-        } else {
-            return Ok(None);
-        };
-
-        let all_known = if let Some(last_header) = headers.last() {
-            self.chain_store_update.get_block_header(&last_header.hash()).is_ok()
-        } else {
-            false
-        };
-
-        if !all_known {
-            // Validate header and then add to the chain. If validation of subsequent fails, headers won't be committed to the database.
-            for header in headers.iter() {
-                self.validate_header(header, &Provenance::SYNC)?;
-                self.chain_store_update.save_block_header(header.clone());
-
-                // Add validator proposals for given header.
-                self.runtime_adapter
-                    .add_validator_proposals(
-                        header.prev_hash,
-                        header.hash(),
-                        header.height,
-                        header.validator_proposal.clone(),
-                        vec![],
-                    )
-                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
-            }
-        }
-
-        if let Some(header) = headers.last() {
-            // Update sync_head regardless of the total weight.
-            self.update_sync_head(header)?;
-            // Update header_head if total weight changed.
-            self.update_header_head(header)
-        } else {
-            Ok(None)
-        }
     }
 
     fn validate_header(

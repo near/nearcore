@@ -37,7 +37,7 @@ fn runtime_hanldle_fork() {
         vec![],
         signer.clone(),
     );
-    chain.process_block(&None, b1.clone(), Provenance::NONE, |_, _, _| {}).unwrap();
+    chain.process_block(&None, b1.clone(), Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
     let b2 = Block::produce(
         chain.genesis(),
         2,
@@ -47,7 +47,7 @@ fn runtime_hanldle_fork() {
         vec![],
         signer.clone(),
     );
-    chain.process_block(&None, b2, Provenance::NONE, |_, _, _| {}).unwrap();
+    chain.process_block(&None, b2, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
     let b3 = Block::produce(
         &b1.header,
         3,
@@ -57,5 +57,5 @@ fn runtime_hanldle_fork() {
         vec![],
         signer.clone(),
     );
-    chain.process_block(&None, b3, Provenance::NONE, |_, _, _| {}).unwrap();
+    chain.process_block(&None, b3, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
 }

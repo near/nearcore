@@ -2016,6 +2016,7 @@ name = "near-chunks"
 version = "0.1.0"
 dependencies = [
  "actix 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cached 0.8.0 (git+https://github.com/nearprotocol/cached?rev=7e472eddef68607e344d5a106a0e6705d92e55be)",
  "chrono 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "elapsed 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",

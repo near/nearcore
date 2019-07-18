@@ -46,7 +46,7 @@ pub trait ChainStoreAccess {
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
-    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error>;
+    fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error>;
     /// Get a collection of chunks and chunk_one_parts for a given height
     fn get_chunks_or_one_parts(
         &mut self,
@@ -103,12 +103,6 @@ pub struct ChainStore {
     transaction_results: SizedCache<Vec<u8>, TransactionResult>,
 }
 
-pub struct ChunksStoreUpdate {
-    store: Arc<Store>,
-    new_chunks: Vec<ShardChunk>,
-    new_chunk_one_parts: Vec<ChunkOnePart>,
-}
-
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
     match res {
         Ok(Some(o)) => Ok(o),
@@ -135,10 +129,6 @@ impl ChainStore {
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<Self> {
         ChainStoreUpdate::new(self)
-    }
-
-    pub fn chunks_store_update(&self) -> ChunksStoreUpdate {
-        ChunksStoreUpdate::new(self.store.clone())
     }
 }
 
@@ -180,15 +170,16 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get full chunk.
-    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error> {
-        let entry = self.chunks.entry(h.clone());
+    fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
+        let chunk_hash = header.chunk_hash();
+        let entry = self.chunks.entry(chunk_hash.clone());
         match entry {
             Entry::Occupied(s) => Ok(s.into_mut()),
             Entry::Vacant(s) => {
-                if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, h.as_ref()) {
+                if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, chunk_hash.as_ref()) {
                     Ok(s.insert(chunk))
                 } else {
-                    Err(ErrorKind::ChunksMissing(vec![]).into())
+                    Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
                 }
             }
         }
@@ -212,14 +203,7 @@ impl ChainStoreAccess for ChainStore {
                 let chunk_hash = chunk_header.chunk_hash();
                 if me.as_ref().map_or_else(
                     || false,
-                    |me| {
-                        runtime_adapter.cares_about_shard(
-                            me,
-                            parent_hash,
-                            chunk_header.height_included,
-                            shard_id,
-                        )
-                    },
+                    |me| runtime_adapter.cares_about_shard(me, parent_hash, shard_id),
                 ) {
                     let entry = self.chunks.entry(chunk_hash.clone());
                     match entry {
@@ -230,7 +214,7 @@ impl ChainStoreAccess for ChainStore {
                             {
                                 Some(s.insert(chunk));
                             } else {
-                                missing.push((shard_id, chunk_hash.clone()));
+                                missing.push(chunk_header.clone());
                             }
                         }
                     };
@@ -244,7 +228,7 @@ impl ChainStoreAccess for ChainStore {
                             {
                                 Some(s.insert(chunk_one_part));
                             } else {
-                                missing.push((shard_id, chunk_hash.clone()));
+                                missing.push(chunk_header.clone());
                             }
                         }
                     };
@@ -263,14 +247,7 @@ impl ChainStoreAccess for ChainStore {
                 ret.push(ShardFullChunkOrOnePart::NoChunk);
             } else if me.as_ref().map_or_else(
                 || false,
-                |me| {
-                    runtime_adapter.cares_about_shard(
-                        &me,
-                        parent_hash,
-                        chunk_header.height_included,
-                        shard_id,
-                    )
-                },
+                |me| runtime_adapter.cares_about_shard(&me, parent_hash, shard_id),
             ) {
                 ret.push(ShardFullChunkOrOnePart::FullChunk(
                     self.chunks.get(&chunk_header.chunk_hash()).unwrap(),
@@ -576,8 +553,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.chain_store.get_chunks_or_one_parts(me, parent_hash, height, runtime_adapter, headers)
     }
 
-    fn get_chunk(&mut self, h: &ChunkHash) -> Result<&ShardChunk, Error> {
-        self.chain_store.get_chunk(h)
+    fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
+        self.chain_store.get_chunk(header)
     }
 }
 
@@ -790,27 +767,5 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn commit(self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit().map_err(|e| e.into())
-    }
-}
-
-impl ChunksStoreUpdate {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store, new_chunks: Vec::new(), new_chunk_one_parts: Vec::new() }
-    }
-    pub fn merge(&self) -> Result<(), io::Error> {
-        let mut store_update = self.store.store_update();
-        for chunk in self.new_chunks.iter() {
-            store_update.set_ser(COL_CHUNKS, chunk.chunk_hash.as_ref(), &chunk)?;
-        }
-
-        for chunk_one_part in self.new_chunk_one_parts.iter() {
-            store_update.set_ser(
-                COL_CHUNK_ONE_PARTS,
-                chunk_one_part.chunk_hash.as_ref(),
-                &chunk_one_part,
-            )?;
-        }
-
-        Ok(())
     }
 }

@@ -244,9 +244,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.genesis_config.block_producers_per_shard.len() as ShardId
     }
 
-    fn num_total_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize {
+    fn num_total_parts(&self, parent_hash: CryptoHash) -> usize {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, height).unwrap();
+        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, 0).unwrap();
         if let Ok(validator_assignment) = vm.get_validators(epoch_hash) {
             let ret = validator_assignment.validators.len();
             if ret > 1 {
@@ -259,8 +259,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_data_parts(&self, parent_hash: CryptoHash, height: BlockIndex) -> usize {
-        let total_parts = self.num_total_parts(parent_hash, height);
+    fn num_data_parts(&self, parent_hash: CryptoHash) -> usize {
+        let total_parts = self.num_total_parts(parent_hash);
         if total_parts <= 3 {
             1
         } else {
@@ -276,11 +276,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_part_owner(
         &self,
         parent_hash: CryptoHash,
-        height: BlockIndex,
         part_id: u64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, 0)?;
         let validator_assignment = vm.get_validators(epoch_hash)?;
 
         return Ok(validator_assignment.validators
@@ -293,11 +292,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         account_id: &AccountId,
         parent_hash: CryptoHash,
-        height: BlockIndex,
         shard_id: ShardId,
     ) -> bool {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, _idx) = match vm.get_epoch_offset(parent_hash, height) {
+        let (epoch_hash, _idx) = match vm.get_epoch_offset(parent_hash, 0) {
             Ok(tuple) => tuple,
             Err(_) => return false,
         };

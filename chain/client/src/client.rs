@@ -264,6 +264,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 let _ = self.shards_mgr.process_chunk_part_request(part_request_msg, peer_id);
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::ChunkOnePartRequest(part_request_msg, peer_id) => {
+                let _ = self.shards_mgr.process_chunk_one_part_request(part_request_msg, peer_id);
+                NetworkClientResponses::NoResponse
+            }
             NetworkClientMessages::ChunkPart(part_msg) => {
                 if let Ok(Some(height)) = self.shards_mgr.process_chunk_part(part_msg) {
                     self.process_blocks_with_missing_chunks(ctx, height);
@@ -285,7 +289,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 self.runtime_adapter.cares_about_shard(
                                     &bp.account_id,
                                     prev_block_hash,
-                                    height,
                                     one_part_msg.shard_id,
                                 )
                             },
@@ -295,11 +298,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             .map(|head| head.last_block_hash == one_part_msg.header.prev_block_hash)
                             .unwrap_or(false)
                         {
-                            self.shards_mgr.request_chunks(
-                                prev_block_hash,
-                                height,
-                                vec![(one_part_msg.shard_id, one_part_msg.header.chunk_hash())],
-                            );
+                            self.shards_mgr.request_chunks(vec![one_part_msg.header]);
                         } else {
                             // We are getting here either because we don't care about the shard, or
                             //    because we see the one part before we see the block.
@@ -369,6 +368,17 @@ impl ClientActor {
         self.num_blocks_processed += 1;
         self.num_tx_processed += block.transactions.len() as u64;
 
+        // Process orphaned chunk_one_parts
+        if self.shards_mgr.process_orphaned_one_parts(block_hash) {
+            // process_orphaned_one_parts returns true if some of the one parts were not known before
+            //    generally in this case we would check blocks with missing chunks, but since the
+            //    block that unbloked the one parts was just processed, any block that would actually
+            //    depend on those one parts would have been an orphan, not a block with missing chunks,
+            //    so no need to process anything here
+            error!("MOO unlocked some orphaned one parts");
+            self.process_blocks_with_missing_chunks(ctx, block.header.height + 1);
+        }
+
         if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
@@ -407,7 +417,6 @@ impl ClientActor {
                             if self.runtime_adapter.cares_about_shard(
                                 &bp.account_id,
                                 block.header.prev_hash,
-                                chunk_header.height_included,
                                 shard_id,
                             ) {
                                 self.shards_mgr.set_state_root(
@@ -474,7 +483,6 @@ impl ClientActor {
                         if self.runtime_adapter.cares_about_shard(
                             &bp.account_id,
                             block.header.prev_hash,
-                            chunk_header.height_included,
                             shard_id,
                         ) {
                             self.shards_mgr.set_state_root(
@@ -520,16 +528,11 @@ impl ClientActor {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.height == chunk_header.height_included {
-                if self.runtime_adapter.cares_about_shard(
-                    &me,
-                    block.header.prev_hash,
-                    chunk_header.height_included,
-                    shard_id,
-                ) {
+                if self.runtime_adapter.cares_about_shard(&me, block.header.prev_hash, shard_id) {
                     self.shards_mgr.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
                     );
                 }
             }
@@ -540,16 +543,11 @@ impl ClientActor {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.height == chunk_header.height_included {
-                if self.runtime_adapter.cares_about_shard(
-                    &me,
-                    block.header.prev_hash,
-                    chunk_header.height_included,
-                    shard_id,
-                ) {
+                if self.runtime_adapter.cares_about_shard(&me, block.header.prev_hash, shard_id) {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
                     );
                 }
             }
@@ -752,7 +750,7 @@ impl ClientActor {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(shard_id, encoded_chunk, receipts);
+        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts);
 
         Ok(())
     }
@@ -795,16 +793,14 @@ impl ClientActor {
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
             total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+        let elapsed = self.last_block_processed.elapsed();
         if self.approvals.len() < total_approvals
-            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
+            && elapsed < self.config.max_block_production_delay
         {
             // Schedule itself for (max BP delay - how much time passed).
-            ctx.run_later(
-                self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
-                move |act, ctx| {
-                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
-                },
-            );
+            ctx.run_later(self.config.max_block_production_delay.sub(elapsed), move |act, ctx| {
+                act.produce_block(ctx, head.last_block_hash, last_height, next_height);
+            });
             return Ok(());
         }
 
@@ -867,18 +863,12 @@ impl ClientActor {
                 self.chain.check_blocks_with_missing_chunks(&me, height, |block, status, provenance| {
                     debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
                     accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
-                }, |block, missing_chunks| blocks_missing_chunks.write().unwrap().push((block.header.clone(), missing_chunks)));
+                }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
                 for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
                     self.on_block_accepted(ctx, hash, status, provenance);
                 }
-                for (block_header, missing_chunks) in
-                    blocks_missing_chunks.write().unwrap().drain(..)
-                {
-                    self.shards_mgr.request_chunks(
-                        block_header.prev_hash,
-                        block_header.height,
-                        missing_chunks,
-                    );
+                for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+                    self.shards_mgr.request_chunks(missing_chunks);
                 }
             }
         }
@@ -907,24 +897,15 @@ impl ClientActor {
                 |block, status, provenance| {
                     accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
                 },
-                |block, missing_chunks| {
-                    blocks_missing_chunks
-                        .write()
-                        .unwrap()
-                        .push((block.header.clone(), missing_chunks))
-                },
+                |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
             )
         };
         // Process all blocks that were accepted.
         for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
-        for (block_header, missing_chunks) in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(
-                block_header.prev_hash,
-                block_header.height,
-                missing_chunks,
-            );
+        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+            self.shards_mgr.request_chunks(missing_chunks);
         }
         result
     }
@@ -938,7 +919,6 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        let height = block.header.height;
         debug!(target: "client", "Received block {} <- {} at {} from {}", hash, block.header.prev_hash, block.header.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =
@@ -967,12 +947,13 @@ impl ClientActor {
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
-                        "Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}",
+                        "Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
                         self.block_producer.as_ref().unwrap().account_id.clone(),
-                        missing_chunks.clone()
+                        missing_chunks.clone(),
+                        missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.shards_mgr.request_chunks(prev_hash, height, missing_chunks);
+                    self.shards_mgr.request_chunks(missing_chunks);
                     NetworkClientResponses::NoResponse
                 }
                 _ => {

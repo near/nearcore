@@ -16,17 +16,18 @@ use near_primitives::types::ShardId;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
-fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
+fn genesis_block(genesis_config: GenesisConfig) -> Block {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let chain = Chain::new(store, runtime, genesis_time).unwrap();
-    chain.genesis().clone()
+    let mut chain = Chain::new(store, runtime, genesis_time).unwrap();
+    chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
 fn add_blocks(
     start: &BlockHeader,
+    genesis_block: &Block,
     client: Addr<ClientActor>,
     num: usize,
     signer: Arc<InMemorySigner>,
@@ -35,7 +36,9 @@ fn add_blocks(
     let mut blocks = vec![];
     let mut prev = start;
     for _ in 0..num {
-        let block = Block::empty(prev, signer.clone(), num_shards);
+        let mut block = Block::empty(prev, signer.clone(), num_shards);
+        block.chunks = genesis_block.chunks.clone();
+        block.header.prev_state_root = Block::compute_state_root(&block.chunks);
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
@@ -54,7 +57,7 @@ fn sync_nodes() {
 
     let mut genesis_config = GenesisConfig::test(vec!["other"]);
     genesis_config.epoch_length = 5;
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis_block = genesis_block(genesis_config.clone());
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -69,7 +72,8 @@ fn sync_nodes() {
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
     let _ = add_blocks(
-        &genesis_header,
+        &genesis_block.header,
+        &genesis_block,
         client1,
         11,
         signer,
@@ -84,6 +88,7 @@ fn sync_nodes() {
             actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                 match &res {
                     Ok(Ok(b)) if b.header.height == 11 => System::current().stop(),
+                    Ok(Ok(b)) if b.header.height < 11 => println!("DAMN {}", b.header.height),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };
@@ -105,7 +110,7 @@ fn sync_after_sync_nodes() {
 
     let mut genesis_config = GenesisConfig::test(vec!["other"]);
     genesis_config.epoch_length = 5;
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis_block = genesis_block(genesis_config.clone());
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -123,7 +128,8 @@ fn sync_after_sync_nodes() {
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
     let last_block = add_blocks(
-        &genesis_header,
+        &genesis_block.header,
+        &genesis_block,
         client1.clone(),
         11,
         signer.clone(),
@@ -138,11 +144,19 @@ fn sync_after_sync_nodes() {
             let client11 = client1.clone();
             let signer1 = signer.clone();
             let next_step1 = next_step.clone();
+            let genesis_block1 = genesis_block.clone();
             actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                 match &res {
                     Ok(Ok(b)) if b.header.height == 11 => {
                         if !next_step1.load(Ordering::Relaxed) {
-                            let _ = add_blocks(&last_block1, client11, 11, signer1, num_shards);
+                            let _ = add_blocks(
+                                &last_block1,
+                                &genesis_block1,
+                                client11,
+                                11,
+                                signer1,
+                                num_shards,
+                            );
                             next_step1.store(true, Ordering::Relaxed);
                         }
                     }

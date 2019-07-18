@@ -312,7 +312,7 @@ impl Block {
         Block::produce(
             prev,
             prev.height + 1,
-            Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
+            Block::genesis_chunks(vec![CryptoHash::default()], num_shards),
             vec![],
             HashMap::default(),
             vec![],

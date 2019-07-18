@@ -1,20 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 
-use log::info;
 use near_primitives::crypto::signature::{PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     AsyncCall, ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash, Nonce, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
+use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
@@ -29,11 +28,13 @@ pub struct KeyValueRuntime {
     store: Arc<Store>,
     trie: Arc<Trie>,
     root: MerkleHash,
-    validators: Vec<ValidatorStake>,
+    validators: Vec<Vec<ValidatorStake>>,
     validators_per_shard: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     amounts: RwLock<HashMap<MerkleHash, HashMap<AccountId, u128>>>,
+    receipt_nonces: RwLock<HashMap<MerkleHash, HashSet<CryptoHash>>>,
+    tx_nonces: RwLock<HashMap<MerkleHash, HashSet<(AccountId, Nonce)>>>,
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
@@ -42,17 +43,17 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec!["test".to_string()], 1)
+        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1)
     }
 
     pub fn new_with_validators(
         store: Arc<Store>,
-        validators: Vec<AccountId>,
+        validators: Vec<Vec<AccountId>>,
         validators_per_shard: u64,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut initial_amounts = HashMap::new();
-        for (i, validator) in validators.iter().enumerate() {
+        for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
 
@@ -64,19 +65,45 @@ impl KeyValueRuntime {
             root: MerkleHash::default(),
             validators: validators
                 .iter()
-                .map(|account_id| ValidatorStake {
-                    account_id: account_id.clone(),
-                    public_key: get_public_key_from_seed(account_id),
-                    amount: 1_000_000,
+                .map(|inner| {
+                    inner
+                        .iter()
+                        .map(|account_id| ValidatorStake {
+                            account_id: account_id.clone(),
+                            public_key: get_public_key_from_seed(account_id),
+                            amount: 1_000_000,
+                        })
+                        .collect()
                 })
                 .collect(),
             validators_per_shard,
             amounts: RwLock::new(amounts),
+            receipt_nonces: RwLock::new(HashMap::new()),
+            tx_nonces: RwLock::new(HashMap::new()),
         }
     }
 
     pub fn get_root(&self) -> MerkleHash {
         self.root
+    }
+
+    fn get_prev_height(
+        &self,
+        prev_hash: CryptoHash,
+    ) -> Result<BlockIndex, Box<dyn std::error::Error>> {
+        if prev_hash == CryptoHash::default() {
+            return Ok(0);
+        }
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
+            .ok_or("Missing block when computing the epoch")?;
+        Ok(prev_block_header.height)
+    }
+
+    fn get_epoch(&self, prev_hash: CryptoHash) -> Result<usize, Box<dyn std::error::Error>> {
+        // switch epoch every five heights
+        Ok(((self.get_prev_height(prev_hash)? / 5) as usize) % self.validators.len())
     }
 }
 
@@ -93,7 +120,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = &self.validators[(header.height as usize) % self.validators.len()];
+        let validators =
+            &self.validators[self.get_epoch(header.prev_hash).map_err(|err| err.to_string())?];
+        let validator = &validators[(header.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -106,33 +135,36 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        _parent_hash: CryptoHash,
+        parent_hash: CryptoHash,
         _height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
+        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        Ok(validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
     }
 
     fn get_block_proposer(
         &self,
-        _parent_hash: CryptoHash,
+        parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
+        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
     fn get_chunk_proposer(
         &self,
-        _parent_hash: CryptoHash,
+        parent_hash: CryptoHash,
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        assert_eq!((self.validators.len() as u64) % self.num_shards(), 0);
+        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         let validators_per_shard = self.validators_per_shard;
         let offset = (shard_id / validators_per_shard * validators_per_shard) as usize;
         // The +1 is so that if all validators validate all shards in a test, the chunk producer
         //     doesn't match the block producer
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
-        Ok(self.validators[offset + delta].account_id.clone())
+        Ok(validators[offset + delta].account_id.clone())
     }
 
     fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
@@ -140,19 +172,23 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn num_shards(&self) -> ShardId {
-        if self.validators.len() < 64 || self.validators.len() % 4 != 0 {
-            self.validators.len() as ShardId
+        let validators = &self.validators[0];
+        if validators.len() < 64 || validators.len() % 4 != 0 {
+            validators.len() as ShardId
         } else {
-            (self.validators.len() / 4) as ShardId
+            (validators.len() / 4) as ShardId
         }
     }
 
-    fn num_total_parts(&self, _parent_hash: CryptoHash, _height: BlockIndex) -> usize {
-        48
+    fn num_total_parts(&self, parent_hash: CryptoHash) -> usize {
+        let height = self.get_prev_height(parent_hash).unwrap();
+        1 + self.num_data_parts(parent_hash) * (1 + (height as usize) % 3)
     }
 
-    fn num_data_parts(&self, _parent_hash: CryptoHash, _height: BlockIndex) -> usize {
-        16
+    fn num_data_parts(&self, parent_hash: CryptoHash) -> usize {
+        let height = self.get_prev_height(parent_hash).unwrap();
+        // Test changing number of data parts
+        12 + 2 * ((height as usize) % 4)
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
@@ -161,24 +197,28 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_part_owner(
         &self,
-        _parent_hash: CryptoHash,
-        _height: BlockIndex,
+        parent_hash: CryptoHash,
         part_id: u64,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        Ok(self.validators[part_id as usize % self.validators.len()].account_id.clone())
+        let validators = &self.validators[self.get_epoch(parent_hash)?];
+        // if we don't use data_parts and total_parts as part of the formula here, the part owner
+        //     would not depend on height, and tests wouldn't catch passing wrong height here
+        let idx =
+            part_id as usize + self.num_data_parts(parent_hash) + self.num_total_parts(parent_hash);
+        Ok(validators[idx as usize % validators.len()].account_id.clone())
     }
 
     fn cares_about_shard(
         &self,
         account_id: &AccountId,
-        _parent_hash: CryptoHash,
-        _height: BlockIndex,
+        parent_hash: CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        assert_eq!((self.validators.len() as u64) % self.num_shards(), 0);
+        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         let validators_per_shard = self.validators_per_shard;
         let offset = (shard_id / validators_per_shard * validators_per_shard) as usize;
-        for validator in self.validators[offset..offset + (validators_per_shard as usize)].iter() {
+        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
             if validator.account_id == *account_id {
                 return true;
             }
@@ -228,21 +268,42 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         let mut accounts_mapping =
             self.amounts.read().unwrap().get(state_root).cloned().unwrap_or_else(|| HashMap::new());
+        let mut receipt_nonces = self
+            .receipt_nonces
+            .read()
+            .unwrap()
+            .get(state_root)
+            .cloned()
+            .unwrap_or_else(|| HashSet::new());
+        let mut tx_nonces = self
+            .tx_nonces
+            .read()
+            .unwrap()
+            .get(state_root)
+            .cloned()
+            .unwrap_or_else(|| HashSet::new());
 
         let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
             if let NewCall(call) = &receipt.body {
-                info!(
-                    "MOO applying receipt in shard {} from {} to {} amt {}",
-                    shard_id, receipt.originator, receipt.receiver, call.amount
-                );
                 assert_eq!(self.account_id_to_shard_id(&receipt.receiver), shard_id);
-                balance_transfers.push((
-                    receipt.originator.clone(),
-                    receipt.receiver.clone(),
-                    call.amount,
-                ));
+                if !receipt_nonces.contains(&receipt.nonce) {
+                    receipt_nonces.insert(receipt.nonce);
+                    balance_transfers.push((
+                        receipt.originator.clone(),
+                        receipt.receiver.clone(),
+                        call.amount,
+                        0,
+                    ));
+                } else {
+                    balance_transfers.push((
+                        receipt.originator.clone(),
+                        receipt.receiver.clone(),
+                        0,
+                        0,
+                    ));
+                }
             } else {
                 unreachable!();
             }
@@ -250,16 +311,23 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             if let SendMoney(send_money_tx) = &transaction.body {
-                info!(
-                    "MOO applying transaction from {} to {} amt {}",
-                    send_money_tx.originator, send_money_tx.receiver, send_money_tx.amount
-                );
                 assert_eq!(self.account_id_to_shard_id(&send_money_tx.originator), shard_id);
-                balance_transfers.push((
-                    send_money_tx.originator.clone(),
-                    send_money_tx.receiver.clone(),
-                    send_money_tx.amount,
-                ));
+                if !tx_nonces.contains(&(send_money_tx.receiver.clone(), send_money_tx.nonce)) {
+                    tx_nonces.insert((send_money_tx.receiver.clone(), send_money_tx.nonce));
+                    balance_transfers.push((
+                        send_money_tx.originator.clone(),
+                        send_money_tx.receiver.clone(),
+                        send_money_tx.amount,
+                        send_money_tx.nonce,
+                    ));
+                } else {
+                    balance_transfers.push((
+                        send_money_tx.originator.clone(),
+                        send_money_tx.receiver.clone(),
+                        0,
+                        send_money_tx.nonce,
+                    ));
+                }
             } else {
                 unreachable!();
             }
@@ -267,7 +335,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         let mut new_receipts = HashMap::new();
 
-        for (from, to, amount) in balance_transfers {
+        for (from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
             if self.account_id_to_shard_id(&from) != shard_id {
@@ -287,14 +355,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                         .insert(to.clone(), accounts_mapping.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
-                    info!(
-                        "MOO creating receipt from shard {} from {} to {} amt {}",
-                        shard_id, from, to, amount
-                    );
+                    assert_ne!(amount, 0);
+                    assert_ne!(nonce, 0);
                     let receipt = ReceiptTransaction::new(
                         from.clone(),
-                        to,
-                        CryptoHash::default(),
+                        to.clone(),
+                        hash_struct(&(from.clone(), to.clone(), amount, nonce)),
                         NewCall(AsyncCall::new(
                             vec![],
                             vec![],
@@ -319,7 +385,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
 
         let mut new_balances = vec![];
-        for validator in self.validators.iter() {
+        for validator in self.validators.iter().flatten() {
             let mut seen = false;
             for (key, value) in accounts_mapping.iter() {
                 if key == &validator.account_id {
@@ -334,11 +400,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let (new_state_root, _) = merklize(&new_balances);
         self.amounts.write().unwrap().insert(new_state_root, accounts_mapping);
-
-        info!(
-            "MOO Applied transactions in shard {}, new state root {}, balances {:?}",
-            shard_id, new_state_root, new_balances
-        );
+        self.receipt_nonces.write().unwrap().insert(new_state_root, receipt_nonces);
+        self.tx_nonces.write().unwrap().insert(new_state_root, tx_nonces);
 
         Ok((
             WrappedTrieChanges::new(self.trie.clone(), TrieChanges::empty(state_root.clone())),
