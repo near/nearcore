@@ -108,6 +108,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn check_validator_signature(
         &self,
         _account_id: &AccountId,
+        _epoch: &CryptoHash,
         _signature: &Signature,
         _data: &[u8],
     ) -> bool {

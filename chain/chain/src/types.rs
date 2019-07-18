@@ -89,6 +89,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn check_validator_signature(
         &self,
         account_id: &AccountId,
+        epoch: &CryptoHash,
         signature: &Signature,
         data: &[u8],
     ) -> bool;

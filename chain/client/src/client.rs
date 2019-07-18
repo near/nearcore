@@ -128,6 +128,7 @@ impl ClientActor {
         let data = announce_account.get_data();
         self.runtime_adapter.check_validator_signature(
             &announce_account.account_id,
+            &announce_account.epoch,
             &announce_account.signature,
             data.as_slice(),
         )
@@ -347,13 +348,15 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
-        self.check_announce_account(&block);
+        self.check_send_announce_account(&block);
     }
 
-    fn check_announce_account(&mut self, block: &Block) {
+    /// Check if client Account Id should be sent and send it.
+    /// Account Id is sent when is not current a validator but are becoming a validator soon.
+    fn check_send_announce_account(&mut self, block: &Block) {
         // Announce AccountId if client is becoming a validator soon.
-        // First check that we currently have an AccountId
 
+        // First check that we currently have an AccountId
         if self.block_producer.is_none() {
             // There is no account id associated with this client
             return;
@@ -384,6 +387,7 @@ impl ClientActor {
             if let Ok(validators) =
                 self.runtime_adapter.get_epoch_block_proposers(epoch_hash, epoch_height)
             {
+                // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators
                     .iter()
                     .any(|(account_id, _)| (account_id == &block_producer.account_id))
@@ -972,6 +976,8 @@ impl ClientActor {
         // TODO: This header is missing, should collect for later? should have better way to verify then.
         let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
 
+        // TODO: Access runtime adapter only once to find the position and public key.
+
         // If given account is not current block proposer.
         let position = match self.get_epoch_block_proposers(header.prev_hash, header.height) {
             Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
@@ -983,10 +989,25 @@ impl ClientActor {
         if position.is_none() {
             return false;
         }
-        // Check signature is correct for given validator.
-        if !self.runtime_adapter.check_validator_signature(account_id, signature, hash.as_ref()) {
-            return false;
+
+        //  Check signature is correct for given validator.
+        match self.runtime_adapter.get_epoch_offset(header.prev_hash, header.height) {
+            Ok((epoch_hash, _)) => {
+                if !self.runtime_adapter.check_validator_signature(
+                    account_id,
+                    &epoch_hash,
+                    signature,
+                    hash.as_ref(),
+                ) {
+                    return false;
+                }
+            }
+            Err(err) => {
+                error!(target: "client", "Error: {}", err);
+                return false;
+            }
         }
+
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position.unwrap(), signature.clone());
         true

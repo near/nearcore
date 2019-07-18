@@ -10,7 +10,7 @@ use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
@@ -228,12 +228,23 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn check_validator_signature(
         &self,
-        _account_id: &AccountId,
-        _signature: &Signature,
-        _data: &[u8],
+        account_id: &AccountId,
+        epoch: &CryptoHash,
+        signature: &Signature,
+        data: &[u8],
     ) -> bool {
-        // TODO(MarX): Check signature
-        true
+        let mut validator_manager = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validators = validator_manager.get_validators(*epoch);
+
+        if let Ok(validators) = validators {
+            let validator = validators.find_by_account(account_id);
+
+            if let Some(validator) = validator {
+                return verify(data, signature, &validator.public_key);
+            }
+        }
+
+        false
     }
 
     fn num_shards(&self) -> ShardId {

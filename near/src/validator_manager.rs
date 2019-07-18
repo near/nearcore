@@ -256,6 +256,12 @@ pub struct ValidatorAssignment {
     pub expected_epoch_start: BlockIndex,
 }
 
+impl ValidatorAssignment {
+    pub fn find_by_account(&self, account_id: &AccountId) -> Option<&ValidatorStake> {
+        self.validators.iter().find(|&validator_stake| &validator_stake.account_id == account_id)
+    }
+}
+
 /// Information per each index about validators.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct ValidatorIndexInfo {
