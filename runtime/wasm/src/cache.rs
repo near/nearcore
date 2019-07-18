@@ -5,9 +5,10 @@ use wasmer_runtime;
 
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::Encode;
+use near_primitives::contract::ContractCode;
 
 use crate::prepare;
-use crate::types::{Config, ContractCode, Error};
+use crate::types::{Config, Error};
 
 /// Cache size in number of cached modules to hold.
 const CACHE_SIZE: usize = 1024;

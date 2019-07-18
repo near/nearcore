@@ -11,19 +11,19 @@ use near_protos::account as account_proto;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::serialize::{base_format, u128_hex_format, vec_base_format};
+use crate::serialize::{base_format, u128_dec_format, vec_base_format};
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    #[serde(with = "vec_base_format")]
+     #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     pub nonce: Nonce,
     // amount + staked is the total value of the account
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub staked: Balance,
     #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
@@ -105,7 +105,7 @@ impl From<Account> for account_proto::Account {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     /// Owner of the balance of this Access Key. None means the account owner.
     pub balance_owner: Option<AccountId>,

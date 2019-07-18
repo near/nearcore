@@ -105,11 +105,12 @@ pub mod vec_base_format {
 
     use serde::de;
     use serde::de::{SeqAccess, Visitor};
+    use serde::export::PhantomData;
     use serde::{Deserializer, Serializer};
+
     use crate::serde::ser::SerializeSeq;
 
     use super::{BaseDecode, BaseEncode};
-    use serde::export::PhantomData;
 
     pub fn serialize<T, S>(data: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -178,7 +179,7 @@ pub mod base_bytes_format {
     }
 }
 
-pub mod u128_hex_format {
+pub mod u128_dec_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -186,7 +187,7 @@ pub mod u128_hex_format {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&format!("{:X}", num))
+        serializer.serialize_str(&format!("{}", num))
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
@@ -194,6 +195,6 @@ pub mod u128_hex_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        u128::from_str_radix(s.trim_start_matches("0x"), 16).map_err(de::Error::custom)
+        u128::from_str_radix(&s, 16).map_err(de::Error::custom)
     }
 }

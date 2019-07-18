@@ -16,8 +16,11 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
-use near_primitives::utils::{key_for_account, prefix_for_access_key};
-use near_store::{get, set, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
+use near_primitives::utils::prefix_for_access_key;
+use near_store::{
+    get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
+    WrappedTrieChanges,
+};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -270,12 +273,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
             if offset == 0 {
                 for change in vm.get_validators(epoch_hash)?.stake_change.iter() {
-                    let key = key_for_account(&change.account_id);
-                    let account: Option<Account> = get(&state_update, &key);
+                    let account: Option<Account> = get_account(&state_update, &change.account_id);
                     if let Some(mut account) = account {
                         account.staked = change.new_stake;
                         account.amount += change.return_stake;
-                        set(&mut state_update, key, &account);
+                        set_account(&mut state_update, &change.account_id, &account);
                     }
                 }
             }
@@ -351,7 +353,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 }
 
-impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
+impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
         state_root: MerkleHash,
@@ -395,8 +397,8 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    let access_key =
-                        get::<AccessKey>(&state_update, &key).ok_or("Missing key from iterator")?;
+                    let access_key = get_access_key_raw(&state_update, &key)
+                        .ok_or("Missing key from iterator")?;
                     PublicKey::try_from(public_key)
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
@@ -433,7 +435,7 @@ mod test {
     };
     use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
     use near_store::create_store;
-    use node_runtime::adapter::RuntimeAdapter as ViewRuntimeAdapter;
+    use node_runtime::adapter::ViewRuntimeAdapter;
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
@@ -505,6 +507,12 @@ mod test {
         }
     }
 
+    /// Start with 2 validators with default stake X.
+    /// 1. Validator 0 stakes 2 * X
+    /// 2. Validator 0 creates new account Validator 2 with 3 * X in balance
+    /// 3. Validator 2 stakes 2 * X
+    /// 4. Validator 1 doesn't produce blocks and gets kicked out
+    /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1 has stake returned to balance.
     #[test]
     fn test_validator_rotation() {
         let dir = TempDir::new("validator_rotation").unwrap();
@@ -545,7 +553,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 1,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2,
                 stake: TESTING_INIT_STAKE * 2,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -620,7 +628,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 2,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 4,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5,
                 stake: TESTING_INIT_STAKE * 2,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -637,7 +645,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[1].account_id.clone(),
                 nonce: 0,
-                amount: TESTING_INIT_BALANCE + TESTING_INIT_STAKE,
+                amount: TESTING_INIT_BALANCE,
                 stake: 0,
                 public_keys: vec![block_producers[1].signer.public_key()],
                 code_hash: account.code_hash

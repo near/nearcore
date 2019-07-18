@@ -2199,6 +2199,8 @@ dependencies = [
  "kvdb-rocksdb 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-primitives 0.1.0",
+ "near-protos 0.1.0",
+ "protobuf 2.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2209,6 +2211,7 @@ name = "near-verifier"
 version = "0.1.0"
 dependencies = [
  "near-primitives 0.1.0",
+ "near-protos 0.1.0",
  "near-store 0.1.0",
 ]
 
@@ -2284,8 +2287,10 @@ dependencies = [
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-primitives 0.1.0",
+ "near-protos 0.1.0",
  "near-store 0.1.0",
  "near-verifier 0.1.0",
+ "protobuf 2.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3310,8 +3315,10 @@ dependencies = [
  "near-chain 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
+ "near-protos 0.1.0",
  "near-store 0.1.0",
  "node-runtime 0.0.1",
+ "protobuf 2.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

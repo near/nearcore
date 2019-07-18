@@ -3,13 +3,13 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::types::AccountId;
-use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
-use near_store::{get, TrieUpdate};
+use near_primitives::utils::{is_valid_account_id, key_for_account};
+use near_store::{get_access_key, get_account, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
@@ -37,7 +37,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        match get::<Account>(state_update, &key_for_account(account_id)) {
+        match get_account(state_update, &account_id) {
             Some(account) => Ok(AccountViewCallResult {
                 account_id: account_id.clone(),
                 nonce: account.nonce,
@@ -60,7 +60,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        Ok(get(state_update, &key_for_access_key(account_id, public_key)))
+        Ok(get_access_key(state_update, account_id, public_key))
     }
 
     pub fn get_public_keys_for_account(
@@ -108,7 +108,7 @@ impl TrieViewer {
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty();
-        let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
+        let wasm_res = match get_account(&state_update, &contract_id) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(

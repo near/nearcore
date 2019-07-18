@@ -2,11 +2,12 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::str;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use log::info;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -21,7 +22,7 @@ use near_network::NetworkConfig;
 use near_primitives::account::Account;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
-use near_primitives::serialize::{to_base, u128_hex_format};
+use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use node_runtime::StateRecord;
 
@@ -272,7 +273,7 @@ impl NearConfig {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: ReadablePublicKey,
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
@@ -310,7 +311,7 @@ impl GenesisConfig {
         let mut records = vec![vec![]];
         let default_test_contract =
             include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
-        let encoded_test_contract = to_base(default_test_contract);
+        let encoded_test_contract = to_base64(default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
@@ -325,7 +326,8 @@ impl GenesisConfig {
                 account_id: account.to_string(),
                 account: Account {
                     nonce: 0,
-                    amount: TESTING_INIT_BALANCE,
+                    amount: TESTING_INIT_BALANCE
+                        - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     public_keys: vec![signer.public_key],
                     code_hash,
                     staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
@@ -414,7 +416,15 @@ impl GenesisConfig {
 
 impl From<&str> for GenesisConfig {
     fn from(config: &str) -> Self {
-        serde_json::from_str(config).expect("Failed to deserialize the genesis config.")
+        let config: GenesisConfig =
+            serde_json::from_str(config).expect("Failed to deserialize the genesis config.");
+        if config.protocol_version != PROTOCOL_VERSION {
+            panic!(format!(
+                "Incorrect version of genesis config {} expected {}",
+                config.protocol_version, PROTOCOL_VERSION
+            ));
+        }
+        config
     }
 }
 
@@ -424,30 +434,8 @@ fn random_chain_id() -> String {
 
 /// Official TestNet configuration.
 pub fn testnet_genesis() -> GenesisConfig {
-    GenesisConfig {
-        protocol_version: PROTOCOL_VERSION,
-        genesis_time: DateTime::from_utc(NaiveDateTime::from_timestamp(1559628805, 0), Utc),
-        chain_id: "testnet".to_string(),
-        num_block_producers: 4,
-        block_producers_per_shard: vec![4],
-        avg_fisherman_per_shard: vec![100],
-        dynamic_resharding: true,
-        epoch_length: EXPECTED_EPOCH_LENGTH,
-        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
-        validators: vec![AccountInfo {
-            account_id: ".near".to_string(),
-            public_key: ReadablePublicKey(
-                "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
-            ),
-            amount: 5_000_000 * NEAR_BASE,
-        }],
-        records: vec![vec![StateRecord::account(
-            ".near",
-            "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua",
-            INITIAL_TOKEN_SUPPLY,
-            5_000_000 * NEAR_BASE,
-        )]],
-    }
+    let genesis_config_bytes = include_bytes!("../res/testnet.json");
+    GenesisConfig::from(str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"))
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -700,7 +688,7 @@ mod tests {
             "dynamic_resharding": false,
             "epoch_length": 100,
             "validator_kickout_threshold": 0.9,
-            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "32"}],
+            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
