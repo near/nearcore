@@ -50,7 +50,9 @@ pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },
-    /// Contract code, keyed by hash of the code.
+    /// Data records inside the contract, encoded ini base64.
+    Data { key: String, value: String },
+    /// Contract code encoded in base64.
     Contract { account_id: AccountId, code: String },
     /// Access key associated with some account.
     AccessKey { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
@@ -857,7 +859,14 @@ impl Runtime {
         for record in records {
             match record {
                 StateRecord::Account { account_id, account } => {
-                    set(&mut state_update, key_for_account(&account_id), account)
+                    set(&mut state_update, key_for_account(&account_id), account);
+                }
+                StateRecord::Data { key, value } => {
+                    set(
+                        &mut state_update,
+                        from_base64(key).expect("Failed to decode key"),
+                        &from_base64(value).expect("Failed to decode value"),
+                    );
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = ContractCode::new(
@@ -873,28 +882,6 @@ impl Runtime {
                 }
             }
         }
-        //        for (account_id, wasm) in contracts {
-        //            let code =
-        //                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
-        //            code_hash.insert(account_id.clone(), code.get_hash());
-        //            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
-        //            set(&mut state_update, key_for_code(&account_id), &code);
-        //        }
-        //        for (account_id, public_key, balance) in balances {
-        //            set(
-        //                &mut state_update,
-        //                key_for_account(&account_id),
-        //                &Account {
-        //                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
-        //                    amount: *balance,
-        //                    nonce: 0,
-        //                    staked: 0,
-        //                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
-        //                    storage_usage: 0,
-        //                    storage_paid_at: 0,
-        //                },
-        //            );
-        //        }
         for (account_id, _, amount) in validators {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =

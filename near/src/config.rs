@@ -402,7 +402,7 @@ impl GenesisConfig {
     }
 
     /// Writes GenesisConfig to the file.
-    pub fn write_to_file(&self, path: &PathBuf) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a genesis config file.");
         let str =
             serde_json::to_string_pretty(self).expect("Error serializing the genesis config.");

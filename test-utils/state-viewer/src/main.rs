@@ -9,14 +9,15 @@ use near_chain::{ChainStore, ChainStoreAccess};
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::Decode;
+use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::serialize::{Decode, to_base64};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::Callback;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::col;
 use near_store::{create_store, DBValue, Store, TrieIterator};
 use node_runtime::ext::ACCOUNT_DATA_SEPARATOR;
+use node_runtime::StateRecord;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -30,6 +31,36 @@ fn to_printable(blob: &[u8]) -> String {
             Ok(v) => format!(" {}", v),
             Err(_e) => format!("0x{}", hex::encode(blob)),
         }
+    }
+}
+
+fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
+    let column = &key[0..1];
+    match column {
+        col::ACCOUNT => {
+            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
+            if let Some(_separator) = separator {
+                StateRecord::Data { key: to_base64(&key), value: to_base64(&value) }
+            } else {
+                let account: Account = Decode::decode(&value).unwrap();
+                StateRecord::Account { account_id: to_printable(&key[1..]), account }
+            }
+        }
+        col::CALLBACK => {
+            let callback: Callback = Decode::decode(&value).unwrap();
+            StateRecord::Callback { id: key[1..].to_vec(), callback }
+        }
+        col::CODE => {
+            StateRecord::Contract { account_id: to_printable(&key[1..]), code: to_base64(&value) }
+        }
+        col::ACCESS_KEY => {
+            let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
+            let access_key: AccessKey = Decode::decode(&value).unwrap();
+            let account_id = to_printable(&key[1..separator]);
+            let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
+            StateRecord::AccessKey { account_id, public_key, access_key }
+        }
+        _ => unimplemented!(),
     }
 }
 
@@ -144,13 +175,13 @@ fn main() {
             let (runtime, state_root, height) = load_trie(store, home_dir, &near_config);
             let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
             println!("Saving state at {} @ {} into {}", state_root, height, output_path.display());
-            let mut state = vec![];
-            near_config.genesis_config.records = vec![];
+            near_config.genesis_config.records = vec![vec![]];
             let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
             for item in trie {
                 let (key, value) = item.unwrap();
-                state.push((key, value.into_vec()));
+                near_config.genesis_config.records[0].push(kv_to_state_record(key, value));
             }
+            near_config.genesis_config.write_to_file(&output_path);
         }
         (_, _) => unreachable!(),
     }
