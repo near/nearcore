@@ -195,6 +195,6 @@ pub mod u128_dec_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        u128::from_str_radix(&s, 16).map_err(de::Error::custom)
+        u128::from_str_radix(&s, 10).map_err(de::Error::custom)
     }
 }
