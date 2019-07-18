@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use kvdb::DBValue;
 use log::{debug, info};
 
 use near_chain::{
@@ -25,7 +26,6 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
-use kvdb::DBValue;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -103,22 +103,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
         for shard_id in 0..self.genesis_config.block_producers_per_shard.len() as ShardId {
-            let accounts = self
-                .genesis_config
-                .accounts
-                .iter()
-                .filter_map(|account_info| {
-                    if self.account_id_to_shard_id(&account_info.account_id) == shard_id {
-                        Some((
-                            account_info.account_id.clone(),
-                            account_info.public_key.clone(),
-                            account_info.amount,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
             let validators = self
                 .genesis_config
                 .validators
@@ -135,16 +119,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let contracts = self
-                .genesis_config
-                .contracts
-                .iter()
-                .filter(|(account_id, _)| self.account_id_to_shard_id(account_id) == shard_id)
-                .cloned()
-                .collect::<Vec<_>>();
             let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
-            let (shard_store_update, state_root) =
-                self.runtime.apply_genesis_state(state_update, &accounts, &validators, &contracts);
+            let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
+                state_update,
+                &validators,
+                &self.genesis_config.records[shard_id as usize],
+            );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
         }
@@ -438,10 +418,8 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::runtime::POISONED_LOCK_ERR;
-    use crate::validator_manager::{ValidatorAssignment, ValidatorStakeChange};
-    use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use tempdir::TempDir;
+
     use near_chain::RuntimeAdapter;
     use near_client::BlockProducer;
     use near_primitives::crypto::signer::InMemorySigner;
@@ -456,7 +434,11 @@ mod test {
     use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
     use near_store::create_store;
     use node_runtime::adapter::RuntimeAdapter as ViewRuntimeAdapter;
-    use tempdir::TempDir;
+
+    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::runtime::POISONED_LOCK_ERR;
+    use crate::validator_manager::{ValidatorAssignment, ValidatorStakeChange};
+    use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         TransactionBody::Stake(StakeTransaction {

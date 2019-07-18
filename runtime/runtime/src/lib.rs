@@ -7,10 +7,10 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, Encode};
+use near_primitives::serialize::{from_base64, Encode};
 use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
@@ -22,8 +22,8 @@ use near_primitives::types::{
     ValidatorStake,
 };
 use near_primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
-    system_account,
+    account_to_shard_id, create_nonce_with_nonce, key_for_access_key, key_for_account,
+    key_for_callback, key_for_code, system_account,
 };
 use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
 use near_verifier::{TransactionVerifier, VerificationData};
@@ -44,6 +44,36 @@ mod system;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+/// Record in the state storage.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum StateRecord {
+    /// Account information.
+    Account { account_id: AccountId, account: Account },
+    /// Contract code, keyed by hash of the code.
+    Contract { account_id: AccountId, code: String },
+    /// Access key associated with some account.
+    AccessKey { account_id: AccountId, public_key: PublicKey, access_key: AccessKey },
+    /// Callback.
+    Callback { id: Vec<u8>, callback: Callback },
+}
+
+impl StateRecord {
+    pub fn account(account_id: &str, public_key: &str, amount: u128, staked: u128) -> Self {
+        StateRecord::Account {
+            account_id: account_id.to_string(),
+            account: Account {
+                public_keys: vec![PublicKey::try_from(public_key).unwrap()],
+                nonce: 0,
+                amount,
+                staked,
+                code_hash: Default::default(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            },
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -821,33 +851,50 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         mut state_update: TrieUpdate,
-        balances: &[(AccountId, ReadablePublicKey, Balance)],
         validators: &[(AccountId, ReadablePublicKey, Balance)],
-        contracts: &[(AccountId, String)],
+        records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
-        let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
-        for (account_id, wasm) in contracts {
-            let code =
-                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
-            code_hash.insert(account_id.clone(), code.get_hash());
-            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
-            set(&mut state_update, key_for_code(&account_id), &code);
+        for record in records {
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    set(&mut state_update, key_for_account(&account_id), account)
+                }
+                StateRecord::Contract { account_id, code } => {
+                    let code = ContractCode::new(
+                        from_base64(code).expect("Failed to decode wasm from base64"),
+                    );
+                    set(&mut state_update, key_for_code(account_id), &code);
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    set(&mut state_update, key_for_access_key(account_id, public_key), access_key);
+                }
+                StateRecord::Callback { id, callback } => {
+                    set(&mut state_update, key_for_callback(id), callback);
+                }
+            }
         }
-        for (account_id, public_key, balance) in balances {
-            set(
-                &mut state_update,
-                key_for_account(&account_id),
-                &Account {
-                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
-                    amount: *balance,
-                    nonce: 0,
-                    staked: 0,
-                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            );
-        }
+        //        for (account_id, wasm) in contracts {
+        //            let code =
+        //                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
+        //            code_hash.insert(account_id.clone(), code.get_hash());
+        //            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
+        //            set(&mut state_update, key_for_code(&account_id), &code);
+        //        }
+        //        for (account_id, public_key, balance) in balances {
+        //            set(
+        //                &mut state_update,
+        //                key_for_account(&account_id),
+        //                &Account {
+        //                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
+        //                    amount: *balance,
+        //                    nonce: 0,
+        //                    staked: 0,
+        //                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
+        //                    storage_usage: 0,
+        //                    storage_paid_at: 0,
+        //                },
+        //            );
+        //        }
         for (account_id, _, amount) in validators {
             let account_id_bytes = key_for_account(account_id);
             let mut account: Account =

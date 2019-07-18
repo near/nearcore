@@ -4,12 +4,12 @@ use byteorder::{ByteOrder, LittleEndian};
 use tempdir::TempDir;
 
 use near::GenesisConfig;
-use near_primitives::hash::{CryptoHash, hash};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, MerkleHash};
-use near_store::{Trie, TrieUpdate};
 use near_store::test_utils::create_trie;
-use node_runtime::{Runtime, state_viewer::TrieViewer};
+use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
+use node_runtime::{state_viewer::TrieViewer, Runtime};
 
 pub fn alice_account() -> AccountId {
     "alice.near".to_string()
@@ -36,9 +36,18 @@ pub fn get_runtime_and_trie_from_genesis(
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         trie_update,
-        &genesis_config.accounts.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
-        &genesis_config.validators.iter().map(|account_info| (account_info.account_id.clone(), account_info.public_key.clone(), account_info.amount)).collect::<Vec<_>>(),
-        &genesis_config.contracts,
+        &genesis_config
+            .validators
+            .iter()
+            .map(|account_info| {
+                (
+                    account_info.account_id.clone(),
+                    account_info.public_key.clone(),
+                    account_info.amount,
+                )
+            })
+            .collect::<Vec<_>>(),
+        &genesis_config.records[0].clone(),
     );
     store_update.commit().unwrap();
     (runtime, trie, genesis_root)
