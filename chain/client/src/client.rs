@@ -366,7 +366,7 @@ impl ClientActor {
             block.header.height + self.config.announce_account_horizon,
         ) {
             Ok((epoch_hash, 0)) => epoch_hash,
-            // Don't announce if the block is unknown to us
+            // Don't announce if the block is unknown to us or the offset is greater than 0
             _ => return,
         };
 
@@ -388,13 +388,13 @@ impl ClientActor {
                     .iter()
                     .any(|(account_id, _)| (account_id == &block_producer.account_id))
                 {
-                    let signature = self.sign_account_announce(epoch_height).unwrap();
+                    let signature = self.sign_account_announce(epoch_hash).unwrap();
                     self.last_val_announce_height = Some(epoch_height);
 
                     self.network_actor.send(NetworkRequests::AnnounceAccount(
                         AnnounceAccount::new(
                             block_producer.account_id.clone(),
-                            epoch_height,
+                            epoch_hash,
                             self.node_id,
                             signature,
                         ),
@@ -404,7 +404,7 @@ impl ClientActor {
         }
     }
 
-    fn sign_account_announce(&self, epoch: u64) -> Result<Signature, ()> {
+    fn sign_account_announce(&self, epoch: CryptoHash) -> Result<Signature, ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
             let msg = AnnounceAccount::build_data(&block_producer.account_id, &self.node_id, epoch);
             let signature = block_producer.signer.sign(msg.as_slice());

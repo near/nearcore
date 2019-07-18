@@ -57,7 +57,7 @@ message StateResponse {
 
 message AnnounceAccount {
     string account_id = 1;
-    uint64 epoch = 2;
+    bytes epoch = 2;
     bytes peer_id_sender = 3;
     bytes peer_id_owner = 4;
     bytes signature = 5;

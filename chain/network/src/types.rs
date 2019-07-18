@@ -21,7 +21,7 @@ use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
-use near_primitives::utils::{index_to_bytes, proto_to_type, to_string_value};
+use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
@@ -254,7 +254,7 @@ pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
     /// This announcement is only valid for this `epoch`
-    pub epoch: BlockIndex,
+    pub epoch: CryptoHash,
     /// Peer that have connection (potentially through other peers) to `account_id`
     pub peer_id_sender: PeerId,
     /// Peer id owner of this account id
@@ -269,13 +269,13 @@ pub struct AnnounceAccount {
 impl AnnounceAccount {
     pub fn new(
         account_id: AccountId,
-        epoch: BlockIndex,
+        epoch_hash: CryptoHash,
         peer_id: PeerId,
         signature: Signature,
     ) -> Self {
         Self {
             account_id,
-            epoch,
+            epoch: epoch_hash,
             peer_id_sender: peer_id,
             peer_id_owner: peer_id,
             signature,
@@ -283,8 +283,8 @@ impl AnnounceAccount {
         }
     }
 
-    pub fn build_data(account_id: &AccountId, peer_id: &PeerId, epoch: BlockIndex) -> Vec<u8> {
-        [account_id.as_bytes(), peer_id.as_ref(), index_to_bytes(epoch).as_slice()].concat()
+    pub fn build_data(account_id: &AccountId, peer_id: &PeerId, epoch: CryptoHash) -> Vec<u8> {
+        [account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat()
     }
 
     pub fn get_data(&self) -> Vec<u8> {
@@ -301,12 +301,13 @@ impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
         let peer_id_owner: PublicKey =
             proto.peer_id_owner.try_into().map_err(|e| format!("{}", e))?;
         let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
+        let epoch: CryptoHash = proto.epoch.try_into().map_err(|e| format!("{}", e))?;
         Ok(AnnounceAccount {
             account_id: proto.account_id,
-            epoch: proto.epoch.into(),
+            epoch,
             peer_id_sender: peer_id_sender.into(),
             peer_id_owner: peer_id_owner.into(),
-            signature: signature.into(),
+            signature,
             num_hops: proto.num_hops as usize,
         })
     }
