@@ -43,7 +43,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
     match column {
         col::ACCOUNT => {
             let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
-            if let Some(_separator) = separator {
+            if separator.is_some() {
                 StateRecord::Data { key: to_base64(&key), value: to_base64(&value) }
             } else {
                 let proto: account_proto::Account = parse_from_bytes(&value).unwrap();
@@ -66,7 +66,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
             let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
             StateRecord::AccessKey { account_id, public_key: public_key.to_readable(), access_key }
         }
-        _ => unimplemented!(),
+        _ => unreachable!(),
     }
 }
 

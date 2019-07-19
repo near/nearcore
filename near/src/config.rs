@@ -435,7 +435,9 @@ fn random_chain_id() -> String {
 /// Official TestNet configuration.
 pub fn testnet_genesis() -> GenesisConfig {
     let genesis_config_bytes = include_bytes!("../res/testnet.json");
-    GenesisConfig::from(str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"))
+    GenesisConfig::from(
+        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
+    )
 }
 
 /// Initializes genesis and client configs and stores in the given folder

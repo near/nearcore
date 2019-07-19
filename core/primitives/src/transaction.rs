@@ -755,13 +755,9 @@ impl From<Callback> for receipt_proto::Callback {
         receipt_proto::Callback {
             method_name: callback.method_name,
             args: callback.args,
-            results: RepeatedField::from_iter(callback.results.iter().map(|value| {
-                if let Some(bytes) = value {
-                    bytes.clone()
-                } else {
-                    vec![]
-                }
-            })),
+            results: RepeatedField::from_iter(
+                callback.results.iter().map(|value| value.clone().unwrap_or(vec![])),
+            ),
             amount: SingularPtrField::some(callback.amount.into()),
             callback: SingularPtrField::from_option(callback.callback.map(|value| value.into())),
             result_counter: callback.result_counter as u32,
