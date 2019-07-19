@@ -20,7 +20,7 @@ use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    SendMessage, Unregister,
+    ReasonForBan, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -257,7 +257,13 @@ impl Peer {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
             PeerMessage::AnnounceAccount(announce_account) => {
-                NetworkClientMessages::AnnounceAccount(announce_account)
+                if announce_account.peer_id_sender() != peer_id {
+                    // Ban peer if tries to impersonate another peer.
+                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidPeerId);
+                    return;
+                } else {
+                    NetworkClientMessages::AnnounceAccount(announce_account)
+                }
             }
             _ => unreachable!(),
         };

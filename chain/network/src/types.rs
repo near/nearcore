@@ -15,8 +15,8 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
-use near_primitives::hash::CryptoHash;
+use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
@@ -32,6 +32,12 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Peer id is the public key.
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
+
+impl PeerId {
+    pub fn public_key(&self) -> PublicKey {
+        self.0
+    }
+}
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
@@ -248,6 +254,36 @@ impl From<Handshake> for network_proto::Handshake {
     }
 }
 
+/// Account route description
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AnnounceAccountRoute {
+    pub peer_id: PeerId,
+    pub hash: CryptoHash,
+    pub signature: Signature,
+}
+
+impl TryFrom<network_proto::AnnounceAccountRoute> for AnnounceAccountRoute {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: network_proto::AnnounceAccountRoute) -> Result<Self, Self::Error> {
+        let peer_id: PeerId = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
+        let hash: CryptoHash = proto.hash.try_into().map_err(|e| format!("{}", e))?;
+        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
+        Ok(AnnounceAccountRoute { peer_id, hash, signature })
+    }
+}
+
+impl From<AnnounceAccountRoute> for network_proto::AnnounceAccountRoute {
+    fn from(announce_account_route: AnnounceAccountRoute) -> network_proto::AnnounceAccountRoute {
+        network_proto::AnnounceAccountRoute {
+            peer_id: announce_account_route.peer_id.into(),
+            hash: announce_account_route.hash.into(),
+            signature: announce_account_route.signature.into(),
+            ..Default::default()
+        }
+    }
+}
+
 /// Account announcement information
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
@@ -255,15 +291,16 @@ pub struct AnnounceAccount {
     pub account_id: AccountId,
     /// This announcement is only valid for this `epoch`
     pub epoch: CryptoHash,
-    /// Peer that have connection (potentially through other peers) to `account_id`
-    pub peer_id_sender: PeerId,
-    /// Peer id owner of this account id
-    pub peer_id_owner: PeerId,
-    /// Signature of the original peer as proof of ownership for this account.
-    pub signature: Signature,
-    /// Number of hops from this peer to the owner of the account.
-    /// If `num_hops = 0` then this peer is the owner of the account.
-    pub num_hops: usize,
+    /// Complete route description to account id
+    /// First element of the route (header) contains:
+    ///     peer_id owner of the account_id
+    ///     hash of the announcement
+    ///     signature with account id secret key
+    /// Subsequent elements of the route contain:
+    ///     peer_id of intermediates hop in the route
+    ///     hash built using previous hash and peer_id
+    ///     signature with peer id secret key
+    pub route: Vec<AnnounceAccountRoute>,
 }
 
 impl AnnounceAccount {
@@ -271,24 +308,46 @@ impl AnnounceAccount {
         account_id: AccountId,
         epoch_hash: CryptoHash,
         peer_id: PeerId,
+        hash: CryptoHash,
         signature: Signature,
     ) -> Self {
-        Self {
-            account_id,
-            epoch: epoch_hash,
-            peer_id_sender: peer_id,
-            peer_id_owner: peer_id,
-            signature,
-            num_hops: 0,
-        }
+        let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
+        Self { account_id, epoch: epoch_hash, route }
     }
 
-    pub fn build_data(account_id: &AccountId, peer_id: &PeerId, epoch: CryptoHash) -> Vec<u8> {
-        [account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat()
+    pub fn build_header_hash(
+        account_id: &AccountId,
+        peer_id: &PeerId,
+        epoch: CryptoHash,
+    ) -> CryptoHash {
+        hash([account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat().as_slice())
     }
 
-    pub fn get_data(&self) -> Vec<u8> {
-        AnnounceAccount::build_data(&self.account_id, &self.peer_id_owner, self.epoch)
+    pub fn header_hash(&self) -> CryptoHash {
+        AnnounceAccount::build_header_hash(
+            &self.account_id,
+            &self.route.first().unwrap().peer_id,
+            self.epoch,
+        )
+    }
+
+    pub fn header(&self) -> &AnnounceAccountRoute {
+        self.route.first().unwrap()
+    }
+
+    pub fn peer_id_sender(&self) -> PeerId {
+        self.route.last().unwrap().peer_id
+    }
+
+    pub fn num_hops(&self) -> usize {
+        self.route.len() - 1
+    }
+
+    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
+        let last_hash = self.route.last().unwrap().hash;
+        let new_hash = hash([last_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+        let signature = sign(new_hash.as_ref(), secret_key);
+        self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
     }
 }
 
@@ -296,19 +355,18 @@ impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::AnnounceAccount) -> Result<Self, Self::Error> {
-        let peer_id_sender: PublicKey =
-            proto.peer_id_sender.try_into().map_err(|e| format!("{}", e))?;
-        let peer_id_owner: PublicKey =
-            proto.peer_id_owner.try_into().map_err(|e| format!("{}", e))?;
-        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
         let epoch: CryptoHash = proto.epoch.try_into().map_err(|e| format!("{}", e))?;
         Ok(AnnounceAccount {
             account_id: proto.account_id,
             epoch,
-            peer_id_sender: peer_id_sender.into(),
-            peer_id_owner: peer_id_owner.into(),
-            signature,
-            num_hops: proto.num_hops as usize,
+            route: proto
+                .route
+                .into_iter()
+                .filter_map(|hop| match hop.try_into() {
+                    Ok(hop) => Some(hop),
+                    Err(_) => None,
+                })
+                .collect(),
         })
     }
 }
@@ -318,10 +376,9 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
         network_proto::AnnounceAccount {
             account_id: announce_account.account_id,
             epoch: announce_account.epoch.into(),
-            peer_id_sender: announce_account.peer_id_sender.into(),
-            peer_id_owner: announce_account.peer_id_owner.into(),
-            signature: announce_account.signature.into(),
-            num_hops: announce_account.num_hops as u32,
+            route: RepeatedField::from_iter(
+                announce_account.route.into_iter().map(|hop| hop.into()),
+            ),
             ..Default::default()
         }
     }
@@ -689,6 +746,7 @@ pub enum ReasonForBan {
     BadBlockApproval = 5,
     Abusive = 6,
     InvalidSignature = 7,
+    InvalidPeerId = 8,
 }
 
 #[derive(Message)]

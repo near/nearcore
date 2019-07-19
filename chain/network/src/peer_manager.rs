@@ -88,10 +88,10 @@ impl RoutingTable {
             Some((_, num_hops)) => {
                 // check if this connection is better than the one we keep track
                 // regarding number of intermediate hops.
-                if data.num_hops < *num_hops {
+                if data.num_hops() < *num_hops {
                     // and add it
                     self.account_peers
-                        .insert(data.account_id.clone(), (data.peer_id_sender, data.num_hops));
+                        .insert(data.account_id.clone(), (data.peer_id_sender(), data.num_hops()));
                     RoutingTableUpdate::UpdatedAccount
                 } else {
                     RoutingTableUpdate::Ignore
@@ -100,7 +100,7 @@ impl RoutingTable {
             // If we don't have this account id store it in the routing table.
             None => {
                 self.account_peers
-                    .insert(data.account_id.clone(), (data.peer_id_sender, data.num_hops));
+                    .insert(data.account_id.clone(), (data.peer_id_sender(), data.num_hops()));
                 RoutingTableUpdate::NewAccount
             }
         }
@@ -381,9 +381,10 @@ impl PeerManagerActor {
             .spawn(ctx);
     }
 
-    fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
+    fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // If this is a new account send an announcement to random set of peers.
         if self.routing_table.update(&announce_account).is_new() {
+            announce_account.extend(self.peer_id, &self.config.secret_key);
             let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
             self.broadcast_message(ctx, msg);
         }

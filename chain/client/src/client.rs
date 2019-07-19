@@ -17,13 +17,13 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
     Tip, ValidTransaction,
 };
-use near_network::types::{AnnounceAccount, PeerId, ReasonForBan};
+use near_network::types::{AnnounceAccount, AnnounceAccountRoute, PeerId, ReasonForBan};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
-use near_primitives::crypto::signature::Signature;
-use near_primitives::hash::CryptoHash;
+use near_primitives::crypto::signature::{verify, Signature};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::Store;
@@ -125,13 +125,56 @@ impl ClientActor {
     }
 
     fn check_signature_account_announce(&self, announce_account: &AnnounceAccount) -> bool {
-        let data = announce_account.get_data();
-        self.runtime_adapter.check_validator_signature(
+        // Check header is correct.
+        let header_hash = announce_account.header_hash();
+        let header = announce_account.header();
+
+        // hash must match announcement hash ...
+        if header_hash != header.hash {
+            return false;
+        }
+
+        // ... and signature should be valid.
+        if !self.runtime_adapter.check_validator_signature(
             &announce_account.account_id,
             &announce_account.epoch,
-            &announce_account.signature,
-            data.as_slice(),
-        )
+            &header.signature,
+            header_hash.as_ref(),
+        ) {
+            return false;
+        }
+
+        // Check intermediates hops are correct.
+        // Skip first element (header)
+        let last_hash =
+            announce_account.route.iter().skip(1).fold(Some(header_hash), |previous_hash, hop| {
+                // Folding function will return None if at least one hop checking fail,
+                // otherwise it will return hash from last hop.
+                if let Some(previous_hash) = previous_hash {
+                    let AnnounceAccountRoute {
+                        peer_id: peer_id,
+                        hash: current_hash,
+                        signature: signature,
+                    } = hop;
+
+                    let real_current_hash =
+                        &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+
+                    if real_current_hash != current_hash {
+                        return None;
+                    }
+
+                    if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
+                        Some(previous_hash)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+
+        last_hash.is_some()
     }
 }
 
@@ -392,14 +435,15 @@ impl ClientActor {
                     .iter()
                     .any(|(account_id, _)| (account_id == &block_producer.account_id))
                 {
-                    let signature = self.sign_account_announce(epoch_hash).unwrap();
                     self.last_val_announce_height = Some(epoch_height);
+                    let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
                     self.network_actor.send(NetworkRequests::AnnounceAccount(
                         AnnounceAccount::new(
                             block_producer.account_id.clone(),
                             epoch_hash,
                             self.node_id,
+                            hash,
                             signature,
                         ),
                     ));
@@ -408,11 +452,15 @@ impl ClientActor {
         }
     }
 
-    fn sign_account_announce(&self, epoch: CryptoHash) -> Result<Signature, ()> {
+    fn sign_announce_account(&self, epoch: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
-            let msg = AnnounceAccount::build_data(&block_producer.account_id, &self.node_id, epoch);
-            let signature = block_producer.signer.sign(msg.as_slice());
-            Ok(signature)
+            let hash = AnnounceAccount::build_header_hash(
+                &block_producer.account_id,
+                &self.node_id,
+                epoch,
+            );
+            let signature = block_producer.signer.sign(hash.as_ref());
+            Ok((hash, signature))
         } else {
             Err(())
         }
