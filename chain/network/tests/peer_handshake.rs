@@ -7,7 +7,7 @@ use actix::System;
 use futures::future;
 use futures::future::Future;
 
-use near_client::ClientActor;
+use near_client::{ClientActor, NetworkInfo};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
@@ -50,7 +50,9 @@ fn peer_handshake() {
         WaitOrTimeout::new(
             Box::new(move |_| {
                 actix::spawn(pm1.send(NetworkRequests::FetchInfo).then(move |res| {
-                    if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
+                    if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
+                        res.unwrap()
+                    {
                         if num_active_peers == 1 {
                             System::current().stop();
                         }
@@ -85,7 +87,9 @@ fn peers_connect_all() {
                 for i in 0..5 {
                     let flags1 = flags.clone();
                     actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
-                        if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
+                        if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
+                            res.unwrap()
+                        {
                             if num_active_peers > 4
                                 && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                             {

@@ -6,7 +6,6 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 
 use near_chain::Block;
-use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
@@ -215,14 +214,6 @@ impl SyncStatus {
     pub fn is_syncing(&self) -> bool {
         self != &SyncStatus::NoSync
     }
-}
-
-pub struct NetworkInfo {
-    pub num_active_peers: usize,
-    pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
-    pub sent_bytes_per_sec: u64,
-    pub received_bytes_per_sec: u64,
 }
 
 /// Actor message requesting block by id or hash.

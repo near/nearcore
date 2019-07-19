@@ -10,6 +10,7 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_store::test_utils::create_test_store;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
+use near_network::types::NetworkInfo;
 use near_primitives::crypto::signature::PublicKey;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
@@ -84,13 +85,14 @@ pub fn setup_no_network(
         account_id,
         skip_sync_wait,
         Box::new(|req, _, _| match req {
-            NetworkRequests::FetchInfo => NetworkResponses::Info {
+            NetworkRequests::FetchInfo { .. } => NetworkResponses::Info(NetworkInfo {
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
-            },
+                routes: None,
+            }),
             _ => NetworkResponses::NoResponse,
         }),
     )

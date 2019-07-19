@@ -27,8 +27,8 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::types::{
     AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus,
-    OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, SendMessage, Unregister,
+    NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, ReasonForBan, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -440,15 +440,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkRequests::FetchInfo => {
+            NetworkRequests::FetchInfo { level } => {
                 let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
-                NetworkResponses::Info {
+
+                let routes =
+                    if level > 0 { Some(self.routing_table.account_peers.clone()) } else { None };
+
+                NetworkResponses::Info(NetworkInfo {
                     num_active_peers: self.num_active_peers(),
                     peer_max_count: self.config.peer_max_count,
                     most_weight_peers: self.most_weight_peers(),
                     sent_bytes_per_sec,
                     received_bytes_per_sec,
-                }
+                    routes,
+                })
             }
             NetworkRequests::Block { block } => {
                 self.broadcast_message(ctx, SendMessage { message: PeerMessage::Block(block) });

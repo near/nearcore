@@ -18,7 +18,9 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
     Tip, ValidTransaction,
 };
-use near_network::types::{AnnounceAccount, AnnounceAccountRoute, PeerId, ReasonForBan};
+use near_network::types::{
+    AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
+};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
@@ -32,8 +34,7 @@ use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, NetworkInfo, ShardSyncStatus, Status, StatusSyncInfo,
-    SyncStatus,
+    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -115,6 +116,7 @@ impl ClientActor {
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
+                routes: None,
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
@@ -956,21 +958,11 @@ impl ClientActor {
     fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
         // TODO: replace with push from network?
         self.network_actor
-            .send(NetworkRequests::FetchInfo)
+            .send(NetworkRequests::FetchInfo { level: 0 })
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkResponses::Info {
-                    num_active_peers,
-                    peer_max_count,
-                    most_weight_peers,
-                    sent_bytes_per_sec,
-                    received_bytes_per_sec,
-                }) => {
-                    act.network_info.num_active_peers = num_active_peers;
-                    act.network_info.peer_max_count = peer_max_count;
-                    act.network_info.most_weight_peers = most_weight_peers;
-                    act.network_info.sent_bytes_per_sec = sent_bytes_per_sec;
-                    act.network_info.received_bytes_per_sec = received_bytes_per_sec;
+                Ok(NetworkResponses::Info(network_info)) => {
+                    act.network_info = network_info;
                     actix::fut::ok(())
                 }
                 _ => {

@@ -25,6 +25,7 @@ use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
+use std::collections::HashMap;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -757,38 +758,23 @@ pub struct Ban {
 
 #[derive(Debug)]
 pub enum NetworkRequests {
-    FetchInfo,
+    /// Fetch information from the network.
+    /// Level denote how much information is going to be delivered.
+    /// Higher level implies more information. (This is useful for testing)
+    FetchInfo { level: usize },
     /// Sends block, either when block was just produced or when requested.
-    Block {
-        block: Block,
-    },
+    Block { block: Block },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval: Option<BlockApproval>,
-    },
+    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
     /// Request block with given hash from given peer.
-    BlockRequest {
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
-    BlockHeadersRequest {
-        hashes: Vec<CryptoHash>,
-        peer_id: PeerId,
-    },
+    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
-    StateRequest {
-        shard_id: ShardId,
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    StateRequest { shard_id: ShardId, hash: CryptoHash, peer_id: PeerId },
     /// Ban given peer.
-    BanPeer {
-        peer_id: PeerId,
-        ban_reason: ReasonForBan,
-    },
+    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
 }
@@ -800,15 +786,19 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
+pub struct NetworkInfo {
+    pub num_active_peers: usize,
+    pub peer_max_count: u32,
+    pub most_weight_peers: Vec<FullPeerInfo>,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    // Only send full routes to accounts on demand
+    pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
+}
+
 pub enum NetworkResponses {
     NoResponse,
-    Info {
-        num_active_peers: usize,
-        peer_max_count: u32,
-        most_weight_peers: Vec<FullPeerInfo>,
-        sent_bytes_per_sec: u64,
-        received_bytes_per_sec: u64,
-    },
+    Info(NetworkInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
