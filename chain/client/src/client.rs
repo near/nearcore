@@ -151,11 +151,7 @@ impl ClientActor {
                 // Folding function will return None if at least one hop checking fail,
                 // otherwise it will return hash from last hop.
                 if let Some(previous_hash) = previous_hash {
-                    let AnnounceAccountRoute {
-                        peer_id: peer_id,
-                        hash: current_hash,
-                        signature: signature,
-                    } = hop;
+                    let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
 
                     let real_current_hash =
                         &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
@@ -438,7 +434,7 @@ impl ClientActor {
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
-                    self.network_actor.send(NetworkRequests::AnnounceAccount(
+                    let _ = self.network_actor.send(NetworkRequests::AnnounceAccount(
                         AnnounceAccount::new(
                             block_producer.account_id.clone(),
                             epoch_hash,
