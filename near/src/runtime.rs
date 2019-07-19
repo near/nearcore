@@ -10,7 +10,7 @@ use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
