@@ -1,6 +1,6 @@
 [package]
 name = "near"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -12,6 +12,7 @@ kvdb-memorydb = "0.1"
 log = "0.4"
 env_logger = "0.6.0"
 chrono = { version = "0.4.4", features = ["serde"] }
+git-version = "0.3.1"
 futures = "0.1"
 clap = "2.32"
 rand = "0.6.5"

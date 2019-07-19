@@ -2,9 +2,10 @@ use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use lazy_static::lazy_static;
 use protobuf::{well_known_types::StringValue, SingularPtrField};
 use regex::Regex;
+
+use lazy_static::lazy_static;
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
@@ -131,3 +132,13 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
         DisplayOption(o)
     }
 }
+
+/// Macro to either return value if the result is Ok, or exit function logging error.
+#[macro_export]
+macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
+    Ok(value) => value,
+    Err(err) => {
+        error!(target: "client", "Error: {:?}", err);
+        return $ret;
+    }
+}));

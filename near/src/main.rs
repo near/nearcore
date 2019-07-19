@@ -3,11 +3,13 @@ use std::fs;
 use std::path::Path;
 
 use actix::System;
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, crate_version, SubCommand};
 use log::{info, LevelFilter};
 
-use near::config::init_testnet_configs;
+use git_version::git_version;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use near::config::init_testnet_configs;
+use near_primitives::types::Version;
 
 fn init_logging(verbose: bool) {
     if verbose {
@@ -29,7 +31,8 @@ fn init_logging(verbose: bool) {
 
 fn main() {
     let default_home = get_default_home();
-    let matches = App::new("NEAR Protocol Node v0.1")
+    let version = Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let matches = App::new("NEAR Protocol Node").version(format!("{} (build {})", version.version, version.build).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(false))
         .arg(
             Arg::with_name("home")
@@ -88,6 +91,8 @@ fn main() {
         ("run", Some(args)) => {
             // Load configs from home.
             let mut near_config = load_config(home_dir);
+            // Set current version in client config.
+            near_config.client_config.version = version;
             // Override some parameters from command line.
             if let Some(produce_empty_blocks) = args
                 .value_of("produce-empty-blocks")

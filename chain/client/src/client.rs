@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use actix::{
     Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
@@ -26,6 +27,7 @@ use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::unwrap_or_return;
 use near_store::Store;
 
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
@@ -34,15 +36,6 @@ use crate::types::{
     SyncStatus,
 };
 use crate::{sync, StatusResponse};
-
-/// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
-        return $ret;
-    }
-}));
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -76,6 +69,18 @@ pub struct ClientActor {
     last_val_announce_height: Option<BlockIndex>,
 }
 
+fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
+    let now = Utc::now();
+    //get chrono::Duration::num_seconds() by deducting genesis_time from now
+    let chrono_seconds = now.signed_duration_since(*genesis_time).num_seconds();
+    //check if number of seconds in chrono::Duration larger than zero
+    if chrono_seconds > 0 {
+        info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
+        let seconds = Duration::from_secs(chrono_seconds as u64);
+        thread::sleep(seconds);
+    }
+}
+
 impl ClientActor {
     pub fn new(
         config: ClientConfig,
@@ -86,7 +91,7 @@ impl ClientActor {
         block_producer: Option<BlockProducer>,
         peer_id: PeerId,
     ) -> Result<Self, Error> {
-        // TODO(991): Wait until genesis.
+        wait_until_genesis(&genesis_time);
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
@@ -319,6 +324,7 @@ impl Handler<Status> for ClientActor {
             .map(|(account_id, _)| account_id)
             .collect();
         Ok(StatusResponse {
+            version: self.config.version.clone(),
             chain_id: self.config.chain_id.clone(),
             rpc_addr: self.config.rpc_addr.clone(),
             validators,
