@@ -469,6 +469,17 @@ impl ValidatorManager {
             .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
     }
 
+    fn set_validators(
+        &mut self,
+        epoch_hash: CryptoHash,
+        assignment: ValidatorAssignment,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), ValidatorError> {
+        store_update.set_ser(COL_VALIDATORS, epoch_hash.as_ref(), &assignment)?;
+        self.epoch_validators.insert(epoch_hash, assignment);
+        Ok(())
+    }
+
     fn get_return_stake_validators(
         &mut self,
         epoch_hash: CryptoHash,
@@ -488,6 +499,21 @@ impl ValidatorManager {
         self.epoch_return_stake_validators
             .get(&epoch_hash)
             .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
+    }
+
+    fn set_return_stake_validators(
+        &mut self,
+        epoch_hash: CryptoHash,
+        return_stake_validators: HashSet<AccountId>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), ValidatorError> {
+        store_update.set_ser(
+            COL_RETURN_STAKE_VALIDATORS,
+            epoch_hash.as_ref(),
+            &return_stake_validators,
+        )?;
+        self.epoch_return_stake_validators.insert(epoch_hash, return_stake_validators);
+        Ok(())
     }
 
     fn finalize_epoch(
@@ -590,18 +616,10 @@ impl ValidatorManager {
             .collect();
 
         self.last_epoch = new_hash;
-        info!(
-            "validator assignment: {:?} epoch hash: {} new hash {}",
-            assignment, epoch_hash, new_hash
-        );
-        store_update.set_ser(COL_VALIDATORS, new_hash.as_ref(), &assignment)?;
+        self.set_validators(new_hash, assignment, &mut store_update)?;
+        self.set_return_stake_validators(new_hash, return_stake_validators, &mut store_update)?;
         store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, &epoch_hash)?;
         store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, epoch_hash.as_ref(), &cur_proposals)?;
-        store_update.set_ser(
-            COL_RETURN_STAKE_VALIDATORS,
-            new_hash.as_ref(),
-            &return_stake_validators,
-        )?;
         store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
         Ok(())
     }
