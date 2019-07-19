@@ -67,7 +67,7 @@ pub struct ClientActor {
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     let now = Utc::now();
     //get chrono::Duration::num_seconds() by deducting genesis_time from now
-    let chrono_seconds = now.signed_duration_since(*genesis_time).num_seconds();
+    let chrono_seconds = genesis_time.signed_duration_since(now).num_seconds();
     //check if number of seconds in chrono::Duration larger than zero
     if chrono_seconds > 0 {
         info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
@@ -894,7 +894,7 @@ impl ClientActor {
         let position = match self.get_epoch_block_proposers(header.prev_hash, header.height) {
             Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
             Err(err) => {
-                error!(target: "client", "Error: {}", err);
+                error!(target: "client", "Block approval error: {}", err);
                 return false;
             }
         };

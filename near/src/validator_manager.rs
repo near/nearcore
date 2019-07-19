@@ -8,11 +8,15 @@ use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
+use log::info;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
 };
-use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
+use near_store::{
+    Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_RETURN_STAKE_VALIDATORS,
+    COL_VALIDATORS,
+};
 
 const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 
@@ -105,7 +109,8 @@ fn proposals_to_assignments(
     current_assignments: &ValidatorAssignment,
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashMap<AccountId, bool>,
-) -> Result<ValidatorAssignment, ValidatorError> {
+    return_stake_validators: &HashSet<AccountId>,
+) -> Result<(ValidatorAssignment, HashSet<AccountId>), ValidatorError> {
     // Combine proposals with rollovers.
     let mut ordered_proposals = vec![];
     let mut indices = HashMap::new();
@@ -223,21 +228,32 @@ fn proposals_to_assignments(
         current_assignments.expected_epoch_start + 2 * epoch_config.epoch_length
     };
 
-    Ok(ValidatorAssignment {
-        validators: final_proposals,
-        block_producers,
-        chunk_producers,
-        fishermen: vec![],
-        expected_epoch_start,
-        stake_change: stake_change
-            .into_iter()
-            .map(|(account_id, (new_stake, return_stake))| ValidatorStakeChange {
-                account_id,
+    let mut final_stake_change = vec![];
+    let mut new_return_stake_accounts = HashSet::new();
+    for (account_id, (new_stake, return_stake)) in stake_change.into_iter() {
+        if !return_stake_validators.contains(&account_id) {
+            final_stake_change.push(ValidatorStakeChange {
+                account_id: account_id.clone(),
                 new_stake,
                 return_stake,
-            })
-            .collect(),
-    })
+            });
+            if new_stake == 0 {
+                new_return_stake_accounts.insert(account_id);
+            }
+        }
+    }
+
+    Ok((
+        ValidatorAssignment {
+            validators: final_proposals,
+            block_producers,
+            chunk_producers,
+            fishermen: vec![],
+            expected_epoch_start,
+            stake_change: final_stake_change,
+        },
+        new_return_stake_accounts,
+    ))
 }
 
 fn get_epoch_block_proposer_info(
@@ -333,6 +349,7 @@ pub struct ValidatorManager {
 
     last_epoch: CryptoHash,
     epoch_validators: HashMap<CryptoHash, ValidatorAssignment>,
+    epoch_return_stake_validators: HashMap<CryptoHash, HashSet<AccountId>>,
 }
 
 impl ValidatorManager {
@@ -342,6 +359,7 @@ impl ValidatorManager {
         store: Arc<Store>,
     ) -> Result<Self, ValidatorError> {
         let mut epoch_validators = HashMap::default();
+        let mut epoch_return_stake_validators = HashMap::default();
         let last_epoch = match store.get_ser(COL_PROPOSALS, LAST_EPOCH_KEY) {
             // TODO: check consistency of the db by querying it here?
             Ok(Some(value)) => value,
@@ -352,7 +370,9 @@ impl ValidatorManager {
                     &ValidatorAssignment::default(),
                     initial_validators,
                     HashMap::new(),
-                )?;
+                    &HashSet::new(),
+                )?
+                .0;
                 initial_assigment.stake_change = vec![];
 
                 let mut store_update = store.store_update();
@@ -372,14 +392,26 @@ impl ValidatorManager {
                     pre_gensis_hash.as_ref(),
                     &initial_assigment,
                 )?;
+                store_update.set_ser::<HashSet<AccountId>>(
+                    COL_RETURN_STAKE_VALIDATORS,
+                    pre_gensis_hash.as_ref(),
+                    &HashSet::new(),
+                )?;
                 store_update.commit()?;
 
                 epoch_validators.insert(pre_gensis_hash, initial_assigment);
+                epoch_return_stake_validators.insert(pre_gensis_hash, HashSet::new());
                 pre_gensis_hash
             }
             Err(err) => return Err(ValidatorError::Other(err.to_string())),
         };
-        Ok(ValidatorManager { store, config: initial_epoch_config, last_epoch, epoch_validators })
+        Ok(ValidatorManager {
+            store,
+            config: initial_epoch_config,
+            last_epoch,
+            epoch_validators,
+            epoch_return_stake_validators,
+        })
     }
 
     fn get_index_info(&self, hash: CryptoHash) -> Result<ValidatorIndexInfo, ValidatorError> {
@@ -432,10 +464,30 @@ impl ValidatorManager {
                 None => return Err(ValidatorError::EpochOutOfBounds),
             };
         }
-        match self.epoch_validators.get(&epoch_hash) {
-            Some(validators) => Ok(validators),
-            None => Err(ValidatorError::Other("Should not happen".to_string())),
+        self.epoch_validators
+            .get(&epoch_hash)
+            .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
+    }
+
+    fn get_return_stake_validators(
+        &mut self,
+        epoch_hash: CryptoHash,
+    ) -> Result<&HashSet<AccountId>, ValidatorError> {
+        if !self.epoch_return_stake_validators.contains_key(&epoch_hash) {
+            match self
+                .store
+                .get_ser(COL_RETURN_STAKE_VALIDATORS, epoch_hash.as_ref())
+                .map_err(|err| ValidatorError::Other(err.to_string()))?
+            {
+                Some(validators) => {
+                    self.epoch_return_stake_validators.insert(epoch_hash, validators)
+                }
+                None => return Err(ValidatorError::EpochOutOfBounds),
+            };
         }
+        self.epoch_return_stake_validators
+            .get(&epoch_hash)
+            .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
     }
 
     fn finalize_epoch(
@@ -482,7 +534,7 @@ impl ValidatorManager {
             .store
             .get_ser(COL_LAST_EPOCH_PROPOSALS, prev_epoch_hash.as_ref())?
             .unwrap_or_else(|| vec![]);
-        store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, epoch_hash.as_ref(), &proposals)?;
+        let mut cur_proposals = proposals.clone();
         proposals.append(&mut last_epoch_proposals);
 
         {
@@ -518,16 +570,38 @@ impl ValidatorManager {
             }
         }
 
-        let assignment = proposals_to_assignments(
-            self.config.clone(),
-            self.get_validators(prev_epoch_hash)?,
-            proposals,
-            validator_kickout,
-        )?;
+        let (assignment, return_stake_validators) = {
+            let config = self.config.clone();
+            // TODO: resolve this inefficiency
+            let return_stake_validators = self.get_return_stake_validators(epoch_hash)?.clone();
+            let validators = self.get_validators(prev_epoch_hash)?;
+            proposals_to_assignments(
+                config,
+                validators,
+                proposals,
+                validator_kickout,
+                &return_stake_validators,
+            )?
+        };
+
+        cur_proposals = cur_proposals
+            .into_iter()
+            .filter(|p| !return_stake_validators.contains(&p.account_id))
+            .collect();
 
         self.last_epoch = new_hash;
+        info!(
+            "validator assignment: {:?} epoch hash: {} new hash {}",
+            assignment, epoch_hash, new_hash
+        );
         store_update.set_ser(COL_VALIDATORS, new_hash.as_ref(), &assignment)?;
         store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, &epoch_hash)?;
+        store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, epoch_hash.as_ref(), &cur_proposals)?;
+        store_update.set_ser(
+            COL_RETURN_STAKE_VALIDATORS,
+            new_hash.as_ref(),
+            &return_stake_validators,
+        )?;
         store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
         Ok(())
     }
@@ -551,6 +625,11 @@ impl ValidatorManager {
                 let mut genesis_validators = self.get_validators(CryptoHash::default())?.clone();
                 genesis_validators.expected_epoch_start = self.config.epoch_length;
                 store_update.set_ser(COL_VALIDATORS, current_hash.as_ref(), &genesis_validators)?;
+                store_update.set_ser::<HashSet<AccountId>>(
+                    COL_RETURN_STAKE_VALIDATORS,
+                    current_hash.as_ref(),
+                    &HashSet::new(),
+                )?;
                 store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
 
                 current_hash
@@ -660,8 +739,10 @@ mod test {
                 &ValidatorAssignment::default(),
                 vec![stake("test1", 1_000_000)],
                 HashMap::new(),
+                &HashSet::new(),
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             assignment(
                 vec![("test1", 1_000_000)],
                 vec![1],
@@ -689,8 +770,10 @@ mod test {
                     stake("test3", 1_000_000)
                 ],
                 HashMap::new(),
+                &HashSet::new(),
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             assignment(
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
                 vec![3, 2, 1],
@@ -866,10 +949,7 @@ mod test {
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 9,
-                vec![
-                    change_stake("test2", 0, amount_staked),
-                    change_stake("test4", amount_staked, 0)
-                ],
+                vec![change_stake("test4", amount_staked, 0)],
             )
         );
 
@@ -886,7 +966,6 @@ mod test {
                 9,
                 vec![
                     change_stake("test1", 0, amount_staked),
-                    change_stake("test3", 0, amount_staked),
                     change_stake("test4", amount_staked, 0)
                 ]
             )

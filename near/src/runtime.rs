@@ -288,6 +288,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         {
             let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
             let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
+
             if offset == 0 {
                 for change in vm.get_validators(epoch_hash)?.stake_change.iter() {
                     let key = key_for_account(&change.account_id);
@@ -569,8 +570,17 @@ mod test {
                 code_hash: account.code_hash
             }
         );
-        let (h0, h1, h2, h3, h4, h5, h6) =
-            (hash(&[0]), hash(&[1]), hash(&[2]), hash(&[3]), hash(&[4]), hash(&[5]), hash(&[6]));
+        let (h0, h1, h2, h3, h4, h5, h6, h7, h8) = (
+            hash(&[0]),
+            hash(&[1]),
+            hash(&[2]),
+            hash(&[3]),
+            hash(&[4]),
+            hash(&[5]),
+            hash(&[6]),
+            hash(&[7]),
+            hash(&[8]),
+        );
         nightshade
             .add_validator_proposals(CryptoHash::default(), h0, 0, validator_stakes, vec![])
             .unwrap();
@@ -671,6 +681,25 @@ mod test {
                 amount: TESTING_INIT_STAKE,
                 stake: TESTING_INIT_STAKE * 2,
                 public_keys: vec![new_validator.signer.public_key()],
+                code_hash: account.code_hash
+            }
+        );
+
+        state_root = nightshade.update(&state_root, 7, &h6, &vec![], &vec![]).0;
+        nightshade.add_validator_proposals(h6, h7, 7, vec![], vec![]).unwrap();
+        state_root = nightshade.update(&state_root, 8, &h7, &vec![], &vec![]).0;
+        nightshade.add_validator_proposals(h7, h8, 8, vec![], vec![]).unwrap();
+
+        // make sure we don't return stake twice
+        let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
+        assert_eq!(
+            account,
+            AccountViewCallResult {
+                account_id: block_producers[1].account_id.clone(),
+                nonce: 0,
+                amount: TESTING_INIT_BALANCE + TESTING_INIT_STAKE,
+                stake: 0,
+                public_keys: vec![block_producers[1].signer.public_key()],
                 code_hash: account.code_hash
             }
         );
