@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::Signature;
+use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
@@ -89,11 +89,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_offset(
         &self,
-        _parent_hash: CryptoHash,
+        parent_hash: CryptoHash,
         _index: u64,
     ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
-        let error: Error = ErrorKind::Other("unimplemented".to_string()).into();
-        Err(Box::new(error))
+        Ok((parent_hash, 0))
     }
 
     fn get_chunk_proposer(
@@ -107,12 +106,20 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn check_validator_signature(
         &self,
-        _account_id: &AccountId,
+        account_id: &AccountId,
         _epoch: &CryptoHash,
-        _signature: &Signature,
-        _data: &[u8],
+        signature: &Signature,
+        data: &[u8],
     ) -> bool {
-        true
+        if let Some(validator) = self
+            .validators
+            .iter()
+            .find(|&validator_stake| &validator_stake.account_id == account_id)
+        {
+            verify(data, signature, &validator.public_key)
+        } else {
+            false
+        }
     }
 
     fn num_shards(&self) -> ShardId {

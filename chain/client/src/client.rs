@@ -1043,6 +1043,7 @@ impl ClientActor {
                     signature,
                     hash.as_ref(),
                 ) {
+                    error!(target: "client", "Invalid Signature. Account id: {:?} Block: {:?}", account_id, hash);
                     return false;
                 }
             }
