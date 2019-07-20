@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
-use actix::{Actor, Addr, AsyncContext, Context, System};
+use actix::{Actor, AsyncContext, Context, System};
 use futures::future::Future;
 use tokio::timer::Delay;
 
@@ -9,12 +9,7 @@ use near_primitives::crypto::signature::get_key_pair;
 use near_primitives::test_utils::get_key_pair_from_seed;
 
 use crate::types::{NetworkConfig, PeerInfo};
-use crate::PeerManagerActor;
-use chrono::Utc;
 use futures::future;
-use near_chain::test_utils::KeyValueRuntime;
-use near_store::test_utils::create_test_store;
-use std::sync::Arc;
 
 /// Returns available port.
 pub fn open_port() -> u16 {

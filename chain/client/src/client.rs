@@ -37,6 +37,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use futures::Future;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -297,8 +298,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::AnnounceAccount(announce_account) => {
                 if self.check_signature_account_announce(&announce_account) {
-                    let _ =
-                        self.network_actor.send(NetworkRequests::AnnounceAccount(announce_account));
+                    actix::spawn(
+                        self.network_actor
+                            .send(NetworkRequests::AnnounceAccount(announce_account))
+                            .map_err(|e| error!(target: "client","{}", e))
+                            .map(|_| ()),
+                    );
                     NetworkClientResponses::NoResponse
                 } else {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::InvalidSignature }
@@ -442,15 +447,18 @@ impl ClientActor {
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
-                    let _ = self.network_actor.send(NetworkRequests::AnnounceAccount(
-                        AnnounceAccount::new(
-                            block_producer.account_id.clone(),
-                            epoch_hash,
-                            self.node_id,
-                            hash,
-                            signature,
-                        ),
-                    ));
+                    actix::spawn(
+                        self.network_actor
+                            .send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
+                                block_producer.account_id.clone(),
+                                epoch_hash,
+                                self.node_id,
+                                hash,
+                                signature,
+                            )))
+                            .map_err(|e| error!(target: "client", "{:?}", e))
+                            .map(|_| ()),
+                    );
                 }
             }
         }

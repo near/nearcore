@@ -384,7 +384,11 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // If this is a new account send an announcement to random set of peers.
         if self.routing_table.update(&announce_account).is_new() {
-            announce_account.extend(self.peer_id, &self.config.secret_key);
+            if announce_account.header().peer_id != self.peer_id {
+                // If this announcement was not sent by this peer, add peer information
+                announce_account.extend(self.peer_id, &self.config.secret_key);
+            }
+
             let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
             self.broadcast_message(ctx, msg);
         }
