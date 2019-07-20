@@ -13,11 +13,11 @@ git clone --single-branch --branch master https://github.com/nearprotocol/nearli
 cd nearlib
 export NEAR_PROTOS_DIR="../core/protos/protos"
 export HELLO_WASM_PATH="../tests/hello.wasm"
-npm i
-npm run build
+yarn
+yarn build
 ../scripts/waitonserver.sh
-npm run test
-npm run doc
+yarn test
+yarn doc
 cd ..
 
 # Try creating and building new project using NEAR CLI tools
