@@ -50,50 +50,65 @@ pub fn setup_network_node(
     peer_manager
 }
 
-#[test]
-fn two_nodes() {
+/// Check that Accounts Id are propagated properly through the network, even when all peers are not
+/// connected to each other. Though it is necessary that the network is connected.
+fn check_account_id_propagation(
+    accounts_id: Vec<&'static str>,
+    adjacency_list: Vec<Vec<usize>>,
+    max_wait_ms: u64,
+) {
     init_test_logger();
 
-    System::run(|| {
-        let test1 = "test1";
-        let test2 = "test2";
-        let validators = vec![test1, test2];
-        let (port1, port2) = (open_port(), open_port());
+    System::run(move || {
+        let total_nodes = accounts_id.len();
+
+        let ports: Vec<_> = (0..total_nodes).map(|_| open_port()).collect();
         let genesis_time = Utc::now();
 
-        let pm1 = setup_network_node(
-            test1,
-            port1,
-            vec![(test2, port2)],
-            validators.clone(),
-            genesis_time,
-        );
-        let pm2 = setup_network_node(
-            test2,
-            port2,
-            vec![(test1, port1)],
-            validators.clone(),
-            genesis_time,
-        );
+        let boot_nodes = adjacency_list
+            .into_iter()
+            .map(|adj| adj.into_iter().map(|u| (accounts_id[u].clone(), ports[u])).collect());
 
-        let count1 = Arc::new(AtomicUsize::new(0));
-        let count2 = Arc::new(AtomicUsize::new(0));
+        // Peer managers with its counters
+        let peer_managers: Vec<_> = accounts_id
+            .iter()
+            .zip(boot_nodes)
+            .enumerate()
+            .map(|(ix, (account_id, boot_nodes))| {
+                (
+                    setup_network_node(
+                        account_id,
+                        ports[ix],
+                        boot_nodes,
+                        accounts_id.clone(),
+                        genesis_time,
+                    ),
+                    Arc::new(AtomicUsize::new(0)),
+                )
+            })
+            .collect();
 
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for (pm, count) in vec![(&pm1, count1.clone()), (&pm2, count2.clone())].into_iter()
-                {
-                    let count1_c = count1.clone();
-                    let count2_c = count2.clone();
+                let peer_managers_1 = peer_managers.clone();
+
+                for (pm, count) in peer_managers_1.iter() {
+                    let pm = pm.clone();
+                    let count = count.clone();
+
+                    let counters: Vec<_> =
+                        peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
+
                     actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(
                         move |res| {
                             if let NetworkResponses::Info(NetworkInfo { routes, .. }) = res.unwrap()
                             {
-                                if routes.unwrap().len() == 2 {
+                                if routes.unwrap().len() == total_nodes {
                                     count.fetch_add(1, Ordering::Relaxed);
 
-                                    if count1_c.load(Ordering::Relaxed) >= 1
-                                        && count2_c.load(Ordering::Relaxed) >= 1
+                                    if counters
+                                        .iter()
+                                        .all(|counter| counter.load(Ordering::Relaxed) >= 1)
                                     {
                                         System::current().stop();
                                     }
@@ -105,9 +120,69 @@ fn two_nodes() {
                 }
             }),
             100,
-            2000,
+            max_wait_ms,
         )
         .start();
     })
     .unwrap();
+}
+
+#[test]
+fn two_nodes() {
+    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 2000);
+}
+
+#[test]
+fn three_nodes_clique() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3"],
+        vec![vec![1, 2], vec![0, 2], vec![0, 1]],
+        2000,
+    );
+}
+
+#[test]
+fn three_nodes_path() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3"],
+        vec![vec![1], vec![0, 2], vec![1]],
+        2000,
+    );
+}
+
+#[test]
+fn four_nodes_star() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3", "test4"],
+        vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
+        2000,
+    );
+}
+
+#[test]
+fn four_nodes_path() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3", "test4"],
+        vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+        2000,
+    );
+}
+
+#[test]
+#[should_panic]
+fn four_nodes_disconnected() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3", "test4"],
+        vec![vec![1], vec![0], vec![3], vec![2]],
+        2000,
+    );
+}
+
+#[test]
+fn four_nodes_directed() {
+    check_account_id_propagation(
+        vec!["test1", "test2", "test3", "test4"],
+        vec![vec![1], vec![], vec![1], vec![2]],
+        2000,
+    );
 }
