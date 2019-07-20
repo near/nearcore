@@ -99,7 +99,7 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     if verbose:
         envs.extend(['-e', 'VERBOSE=1'])
     subprocess.check_output(['docker', 'run',
-                    '-d', '--network=host', '-v', '%s:/srv/near' % home_dir,
+                    '-d', '-p', '3030:3030', '-v', '%s:/srv/near' % home_dir,
                     '--name', 'nearcore', '--restart', 'unless-stopped'] + 
                     envs + [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
