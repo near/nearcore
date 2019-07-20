@@ -132,14 +132,17 @@ impl ClientActor {
         })
     }
 
-    fn check_signature_account_announce(&self, announce_account: &AnnounceAccount) -> bool {
+    fn check_signature_account_announce(
+        &self,
+        announce_account: &AnnounceAccount,
+    ) -> Result<(), ReasonForBan> {
         // Check header is correct.
         let header_hash = announce_account.header_hash();
         let header = announce_account.header();
 
         // hash must match announcement hash ...
         if header_hash != header.hash {
-            return false;
+            return Err(ReasonForBan::InvalidHash);
         }
 
         // ... and signature should be valid.
@@ -149,36 +152,38 @@ impl ClientActor {
             &header.signature,
             header_hash.as_ref(),
         ) {
-            return false;
+            return Err(ReasonForBan::InvalidSignature);
         }
 
         // Check intermediates hops are correct.
         // Skip first element (header)
-        let last_hash =
-            announce_account.route.iter().skip(1).fold(Some(header_hash), |previous_hash, hop| {
+        announce_account
+            .route
+            .iter()
+            .skip(1)
+            .fold(Ok(header_hash), |previous_hash, hop| {
                 // Folding function will return None if at least one hop checking fail,
                 // otherwise it will return hash from last hop.
-                if let Some(previous_hash) = previous_hash {
+                if let Ok(previous_hash) = previous_hash {
                     let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
 
                     let real_current_hash =
                         &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
 
                     if real_current_hash != current_hash {
-                        return None;
+                        return Err(ReasonForBan::InvalidHash);
                     }
 
                     if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
-                        Some(previous_hash)
+                        Ok(previous_hash)
                     } else {
-                        None
+                        Err(ReasonForBan::InvalidSignature)
                     }
                 } else {
-                    None
+                    previous_hash
                 }
-            });
-
-        last_hash.is_some()
+            })
+            .map(|_hash| ())
     }
 }
 
@@ -297,16 +302,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::AnnounceAccount(announce_account) => {
-                if self.check_signature_account_announce(&announce_account) {
-                    actix::spawn(
-                        self.network_actor
-                            .send(NetworkRequests::AnnounceAccount(announce_account))
-                            .map_err(|e| error!(target: "client","{}", e))
-                            .map(|_| ()),
-                    );
-                    NetworkClientResponses::NoResponse
-                } else {
-                    NetworkClientResponses::Ban { ban_reason: ReasonForBan::InvalidSignature }
+                match self.check_signature_account_announce(&announce_account) {
+                    Ok(_) => {
+                        actix::spawn(
+                            self.network_actor
+                                .send(NetworkRequests::AnnounceAccount(announce_account))
+                                .map_err(|e| error!(target: "client", "{}", e))
+                                .map(|_| ()),
+                        );
+                        NetworkClientResponses::NoResponse
+                    }
+                    Err(ban_reason) => NetworkClientResponses::Ban { ban_reason },
                 }
             }
         }

@@ -748,6 +748,7 @@ pub enum ReasonForBan {
     Abusive = 6,
     InvalidSignature = 7,
     InvalidPeerId = 8,
+    InvalidHash = 9,
 }
 
 #[derive(Message)]
