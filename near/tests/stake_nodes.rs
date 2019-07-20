@@ -30,7 +30,7 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
     genesis_config.validator_kickout_threshold = 0.5;
     let first_node = open_port();
 
-    let configs = (0..num_nodes).map(|i| {
+    let configs = (0..num_accounts).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
@@ -138,7 +138,6 @@ fn test_kickout() {
             let test_nodes = test_nodes.clone();
             let test_node1 = test_nodes[0].clone();
             actix::spawn(test_node1.client.send(Status {}).then(move |res| {
-                //                info!("status result: {:?}", res);
                 let expected: Vec<_> =
                     (num_nodes / 2..num_nodes).map(|i| format!("near.{}", i)).collect();
                 if res.unwrap().unwrap().validators == expected {
@@ -181,6 +180,111 @@ fn test_kickout() {
                                 }),
                         );
                     }
+                    System::current().stop();
+                }
+                futures::future::ok(())
+            }));
+        }),
+        1000,
+        5000,
+    )
+    .start();
+
+    system.run().unwrap();
+}
+
+#[test]
+fn test_validator_join() {
+    let system = System::new("NEAR");
+    let test_nodes = init_test_staking(4, 2, 16);
+    let unstake_transaction = TransactionBody::Stake(StakeTransaction {
+        nonce: 1,
+        originator: test_nodes[1].account_id.clone(),
+        amount: 0,
+        public_key: test_nodes[1]
+            .config
+            .block_producer
+            .as_ref()
+            .unwrap()
+            .signer
+            .public_key()
+            .to_base(),
+    })
+    .sign(&*test_nodes[1].config.block_producer.as_ref().unwrap().signer);
+    let stake_transaction = TransactionBody::Stake(StakeTransaction {
+        nonce: 1,
+        originator: test_nodes[2].account_id.clone(),
+        amount: TESTING_INIT_STAKE,
+        public_key: test_nodes[2]
+            .config
+            .block_producer
+            .as_ref()
+            .unwrap()
+            .signer
+            .public_key()
+            .to_base(),
+    })
+    .sign(&*test_nodes[2].config.block_producer.as_ref().unwrap().signer);
+    actix::spawn(
+        test_nodes[1]
+            .client
+            .send(NetworkClientMessages::Transaction(unstake_transaction))
+            .map(|_| ())
+            .map_err(|_| ()),
+    );
+    actix::spawn(
+        test_nodes[0]
+            .client
+            .send(NetworkClientMessages::Transaction(stake_transaction))
+            .map(|_| ())
+            .map_err(|_| ()),
+    );
+
+    WaitOrTimeout::new(
+        Box::new(move |_ctx| {
+            let test_nodes = test_nodes.clone();
+            let test_node1 = test_nodes[0].clone();
+            actix::spawn(test_node1.client.send(Status {}).then(move |res| {
+                let expected = vec!["near.0".to_string(), "near.2".to_string()];
+                if res.unwrap().unwrap().validators == expected {
+                    actix::spawn(
+                        test_node1
+                            .view_client
+                            .send(Query {
+                                path: format!("account/{}", test_nodes[1].account_id.clone()),
+                                data: vec![],
+                            })
+                            .then(|res| match res.unwrap().unwrap() {
+                                QueryResponse::ViewAccount(result) => {
+                                    assert_eq!(result.stake, 0);
+                                    assert_eq!(
+                                        result.amount,
+                                        TESTING_INIT_BALANCE + TESTING_INIT_STAKE
+                                    );
+                                    futures::future::ok(())
+                                }
+                                _ => panic!("wrong return result"),
+                            }),
+                    );
+                    actix::spawn(
+                        test_node1
+                            .view_client
+                            .send(Query {
+                                path: format!("account/{}", test_nodes[2].account_id.clone()),
+                                data: vec![],
+                            })
+                            .then(|res| match res.unwrap().unwrap() {
+                                QueryResponse::ViewAccount(result) => {
+                                    assert_eq!(result.stake, TESTING_INIT_STAKE);
+                                    assert_eq!(
+                                        result.amount,
+                                        TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                    );
+                                    futures::future::ok(())
+                                }
+                                _ => panic!("wrong return result"),
+                            }),
+                    );
                     System::current().stop();
                 }
                 futures::future::ok(())

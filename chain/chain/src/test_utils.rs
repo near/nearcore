@@ -134,6 +134,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
