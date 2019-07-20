@@ -90,33 +90,34 @@ fn check_account_id_propagation(
 
         WaitOrTimeout::new(
             Box::new(move |_| {
-                let peer_managers_1 = peer_managers.clone();
-
-                for (pm, count) in peer_managers_1.iter() {
+                for (pm, count) in peer_managers.iter() {
                     let pm = pm.clone();
                     let count = count.clone();
 
                     let counters: Vec<_> =
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
 
-                    actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(
-                        move |res| {
-                            if let NetworkResponses::Info(NetworkInfo { routes, .. }) = res.unwrap()
-                            {
-                                if routes.unwrap().len() == total_nodes {
-                                    count.fetch_add(1, Ordering::Relaxed);
+                    if count.load(Ordering::Relaxed) == 0 {
+                        actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(
+                            move |res| {
+                                if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
+                                    res.unwrap()
+                                {
+                                    if routes.unwrap().len() == total_nodes {
+                                        count.fetch_add(1, Ordering::Relaxed);
 
-                                    if counters
-                                        .iter()
-                                        .all(|counter| counter.load(Ordering::Relaxed) >= 1)
-                                    {
-                                        System::current().stop();
+                                        if counters
+                                            .iter()
+                                            .all(|counter| counter.load(Ordering::Relaxed) == 1)
+                                        {
+                                            System::current().stop();
+                                        }
                                     }
                                 }
-                            }
-                            future::result(Ok(()))
-                        },
-                    ));
+                                future::result(Ok(()))
+                            },
+                        ));
+                    }
                 }
             }),
             100,
