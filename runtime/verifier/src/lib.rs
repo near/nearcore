@@ -3,8 +3,8 @@ use near_primitives::crypto::signature::{verify, PublicKey};
 use near_primitives::logging;
 use near_primitives::transaction::{SignedTransaction, TransactionBody};
 use near_primitives::types::AccountId;
-use near_primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account};
-use near_store::{get, TrieUpdate};
+use near_primitives::utils::is_valid_account_id;
+use near_store::{get_access_key, get_account, TrieUpdate};
 
 pub struct VerificationData {
     pub originator_id: AccountId,
@@ -27,7 +27,7 @@ impl<'a> TransactionVerifier<'a> {
         transaction: &SignedTransaction,
     ) -> Result<VerificationData, String> {
         let originator_id = transaction.body.get_originator();
-        let originator: Option<Account> = get(self.state_update, &key_for_account(&originator_id));
+        let originator = get_account(self.state_update, &originator_id);
         match originator {
             Some(originator) => {
                 if transaction.body.get_nonce() <= originator.nonce {
@@ -68,10 +68,8 @@ impl<'a> TransactionVerifier<'a> {
                     Ok(VerificationData { originator_id, originator, public_key, access_key: None })
                 } else {
                     if let Some(ref public_key) = transaction.public_key {
-                        let access_key: Option<AccessKey> = get(
-                            self.state_update,
-                            &key_for_access_key(&originator_id, &public_key),
-                        );
+                        let access_key =
+                            get_access_key(self.state_update, &originator_id, &public_key);
                         if let Some(access_key) = access_key {
                             if let TransactionBody::FunctionCall(ref function_call) =
                                 transaction.body

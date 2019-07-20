@@ -7,10 +7,11 @@ use near::config::{
 };
 use near::NearConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_primitives::rpc::AccountViewCallResult;
 use near_primitives::serialize::to_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::rpc::AccountViewCallResult;
+use node_runtime::StateRecord;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
@@ -139,10 +140,12 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let code =
         to_base(include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
-    let contracts = seeds.iter().map(|seed| (seed.clone(), code.clone())).collect::<Vec<_>>();
     let (configs, signers, network_signers, mut genesis_config) =
-        create_testnet_configs_from_seeds(seeds, 0, true);
-    genesis_config.contracts = contracts;
+        create_testnet_configs_from_seeds(seeds.clone(), 0, true);
+    for seed in seeds {
+        genesis_config.records[0]
+            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+    }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 

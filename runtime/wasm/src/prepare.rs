@@ -1,10 +1,13 @@
 //! Module that takes care of loading, checking and preprocessing of a
 //! wasm module before execution.
 
-use crate::types::{Config, ContractCode, PrepareError as Error};
 use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, MemoryType, Type};
 use pwasm_utils::{self, rules};
+
+use near_primitives::contract::ContractCode;
+
+use crate::types::{Config, PrepareError as Error};
 
 struct ContractModule<'a> {
     // An `Option` is used here for loaning (`take()`-ing) the module.
@@ -178,8 +181,9 @@ pub fn prepare_contract(original_code: &ContractCode, config: &Config) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wabt;
+
+    use super::*;
 
     fn parse_and_prepare_wat(wat: &str) -> Result<Vec<u8>, Error> {
         let wasm = wabt::Wat2Wasm::new().validate(false).convert(wat).unwrap();

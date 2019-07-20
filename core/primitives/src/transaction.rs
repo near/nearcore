@@ -2,9 +2,10 @@ use std::borrow::Borrow;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::iter::FromIterator;
 
 use protobuf::well_known_types::BytesValue;
-use protobuf::SingularPtrField;
+use protobuf::{RepeatedField, SingularPtrField};
 
 use near_protos::receipt as receipt_proto;
 use near_protos::signed_transaction as transaction_proto;
@@ -723,6 +724,48 @@ impl Callback {
             refund_account,
             originator_id,
             public_key,
+        }
+    }
+}
+
+impl TryFrom<receipt_proto::Callback> for Callback {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: receipt_proto::Callback) -> Result<Self, Self::Error> {
+        Ok(Callback {
+            method_name: proto.method_name,
+            args: proto.args,
+            results: proto
+                .results
+                .into_iter()
+                .map(|value| if value.len() > 0 { Some(value) } else { None })
+                .collect::<Vec<_>>(),
+            amount: proto.amount.unwrap_or_default().try_into()?,
+            callback: proto.callback.into_option().map(|value| value.into()),
+            result_counter: proto.result_counter as usize,
+            refund_account: proto.refund_account,
+            originator_id: proto.originator_id,
+            public_key: PublicKey::try_from(&proto.public_key as &[u8])?,
+        })
+    }
+}
+
+impl From<Callback> for receipt_proto::Callback {
+    fn from(callback: Callback) -> Self {
+        receipt_proto::Callback {
+            method_name: callback.method_name,
+            args: callback.args,
+            results: RepeatedField::from_iter(
+                callback.results.iter().map(|value| value.clone().unwrap_or(vec![])),
+            ),
+            amount: SingularPtrField::some(callback.amount.into()),
+            callback: SingularPtrField::from_option(callback.callback.map(|value| value.into())),
+            result_counter: callback.result_counter as u32,
+            refund_account: callback.refund_account,
+            originator_id: callback.originator_id,
+            public_key: callback.public_key.as_ref().to_vec(),
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

@@ -7,10 +7,13 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
+use kvdb::DBValue;
+
 use near_primitives::account::Account;
+use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{from_base, Encode};
+use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, CallbackResult, FunctionCallTransaction, LogEntry,
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
@@ -22,17 +25,20 @@ use near_primitives::types::{
     ValidatorStake,
 };
 use near_primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, key_for_code,
-    system_account,
+    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, system_account,
 };
-use near_store::{get, set, StoreUpdate, TrieChanges, TrieUpdate};
+use near_store::{
+    account_storage_size, get_access_key, get_account, get_callback, get_code, set_access_key,
+    set_account, set_callback, set_code, StoreUpdate, TrieChanges, TrieUpdate,
+};
 use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
-use wasm::types::{ContractCode, ReturnData, RuntimeContext};
+use wasm::types::{ReturnData, RuntimeContext};
 
 use crate::economics_config::EconomicsConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
+pub use crate::store::StateRecord;
 use crate::system::{system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
 
 pub mod adapter;
@@ -40,6 +46,7 @@ pub mod economics_config;
 pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
+mod store;
 mod system;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
@@ -98,7 +105,7 @@ impl Runtime {
         };
         if sender.amount >= transaction.amount {
             sender.amount -= transaction.amount;
-            set(state_update, key_for_account(&transaction.originator), sender);
+            set_account(state_update, &transaction.originator, sender);
             let receipt = ReceiptTransaction::new(
                 transaction.originator.clone(),
                 transaction.contract_id.clone(),
@@ -156,7 +163,7 @@ impl Runtime {
         };
         if account.amount >= transaction.amount {
             account.amount -= transaction.amount;
-            set(state_update, key_for_account(&transaction.originator), account);
+            set_account(state_update, &transaction.originator, account);
         } else {
             return Err(
                 format!(
@@ -192,7 +199,7 @@ impl Runtime {
 
         if leftover_balance > 0 {
             account.amount += leftover_balance;
-            set(state_update, key_for_account(&transaction.originator), account);
+            set_account(state_update, &transaction.originator, account);
         }
         res
     }
@@ -200,8 +207,8 @@ impl Runtime {
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
         // The number of bytes the account occupies in the Trie.
-        let meta_storage = key_for_account(account_id).len() as StorageUsage
-            + account.encode().unwrap().len() as StorageUsage;
+        let meta_storage =
+            key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
         let total_storage = (account.storage_usage + meta_storage) as u128;
         let charge = ((block_index - account.storage_paid_at) as u128)
             * total_storage
@@ -228,7 +235,7 @@ impl Runtime {
         let transaction_cost = self.economics_config.transactions_costs.cost(&transaction.body);
         originator.checked_sub(transaction_cost)?;
         self.apply_rent(&originator_id, &mut originator, block_index);
-        set(state_update, key_for_account(&originator_id), &originator);
+        set_account(state_update, &originator_id, &originator);
         state_update.commit();
 
         let refund_account_id = &originator_id;
@@ -360,11 +367,11 @@ impl Runtime {
         receiver_id: &AccountId,
     ) -> Result<Arc<ContractCode>, String> {
         debug!(target:"runtime", "Calling the contract at account {}", receiver_id);
-        let account = get::<Account>(state_update, &key_for_account(receiver_id))
+        let account = get_account(state_update, &receiver_id)
             .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
         let code_hash = account.code_hash;
         let code = || {
-            get::<ContractCode>(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
+            get_code(state_update, receiver_id).ok_or_else(|| {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })
         };
@@ -436,7 +443,7 @@ impl Runtime {
                 Ok(receipts)
             })
         };
-        set(state_update, key_for_account(&receiver_id), receiver);
+        set_account(state_update, &receiver_id, receiver);
         result
     }
 
@@ -454,8 +461,7 @@ impl Runtime {
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
         let mut needs_removal = false;
-        let mut callback: Option<Callback> =
-            get(state_update, &key_for_callback(&callback_res.info.id));
+        let mut callback: Option<Callback> = get_callback(state_update, &callback_res.info.id);
         let code = Self::get_code(state_update, receiver_id)?;
         let receipts = match callback {
             Some(ref mut callback) => {
@@ -538,13 +544,13 @@ impl Runtime {
                 state_update.commit();
             } else {
                 state_update.remove(&key_for_callback(&callback_res.info.id));
-                set(state_update, key_for_account(&receiver_id), receiver);
+                set_account(state_update, &receiver_id, receiver);
             }
         } else {
             // if we don't need to remove callback, since it is updated, we need
             // to update the storage.
             let callback = callback.expect("Cannot be none");
-            set(state_update, key_for_callback(&callback_res.info.id), &callback);
+            set_callback(state_update, &callback_res.info.id, &callback);
         }
         receipts
     }
@@ -557,7 +563,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
-        let receiver: Option<Account> = get(state_update, &key_for_account(&receipt.receiver));
+        let receiver: Option<Account> = get_account(state_update, &receipt.receiver);
         let receiver_exists = receiver.is_some();
         let mut amount = 0;
         let mut callback_info = None;
@@ -610,7 +616,7 @@ impl Runtime {
                 ),
                 ReceiptBody::Refund(amount) => {
                     receiver.amount += amount;
-                    set(state_update, key_for_account(&receipt.receiver), &receiver);
+                    set_account(state_update, &receipt.receiver, &receiver);
                     Ok(vec![])
                 }
             },
@@ -821,39 +827,44 @@ impl Runtime {
     pub fn apply_genesis_state(
         &self,
         mut state_update: TrieUpdate,
-        balances: &[(AccountId, ReadablePublicKey, Balance)],
         validators: &[(AccountId, ReadablePublicKey, Balance)],
-        contracts: &[(AccountId, String)],
+        records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
-        let mut code_hash: HashMap<String, CryptoHash> = HashMap::default();
-        for (account_id, wasm) in contracts {
-            let code =
-                ContractCode::new(from_base(wasm).expect("Failed to decode wasm from base58"));
-            code_hash.insert(account_id.clone(), code.get_hash());
-            // TODO: why do we need code hash if we store code per account? should bee 1:n mapping.
-            set(&mut state_update, key_for_code(&account_id), &code);
-        }
-        for (account_id, public_key, balance) in balances {
-            set(
-                &mut state_update,
-                key_for_account(&account_id),
-                &Account {
-                    public_keys: vec![PublicKey::try_from(public_key.0.as_str()).unwrap()],
-                    amount: *balance,
-                    nonce: 0,
-                    staked: 0,
-                    code_hash: code_hash.remove(account_id).unwrap_or(CryptoHash::default()),
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            );
+        for record in records {
+            match record {
+                StateRecord::Account { account_id, account } => {
+                    set_account(&mut state_update, &account_id, account);
+                }
+                StateRecord::Data { key, value } => {
+                    state_update.set(
+                        from_base64(key).expect("Failed to decode key"),
+                        DBValue::from_vec(from_base64(value).expect("Failed to decode value")),
+                    );
+                }
+                StateRecord::Contract { account_id, code } => {
+                    let code = ContractCode::new(
+                        from_base64(code).expect("Failed to decode wasm from base64"),
+                    );
+                    set_code(&mut state_update, account_id, &code);
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    set_access_key(
+                        &mut state_update,
+                        account_id,
+                        &PublicKey::try_from(public_key.0.as_str()).expect("Failed to decode public key"),
+                        access_key,
+                    );
+                }
+                StateRecord::Callback { id, callback } => {
+                    set_callback(&mut state_update, id, callback);
+                }
+            }
         }
         for (account_id, _, amount) in validators {
-            let account_id_bytes = key_for_account(account_id);
             let mut account: Account =
-                get(&state_update, &account_id_bytes).expect("account must exist");
+                get_account(&state_update, account_id).expect("account must exist");
             account.staked = *amount;
-            set(&mut state_update, account_id_bytes, &account);
+            set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();
         state_update
@@ -873,16 +884,14 @@ mod tests {
 
     use super::*;
 
-    // TODO(#348): Add tests for TX staking, mana charging and regeneration
-
     #[test]
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, key_for_account(&account_id), &test_account);
-        let get_res = get(&state_update, &key_for_account(&account_id)).unwrap();
+        set_account(&mut state_update, &account_id, &test_account);
+        let get_res = get_account(&state_update, &account_id).unwrap();
         assert_eq!(test_account, get_res);
     }
 
@@ -893,11 +902,11 @@ mod tests {
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(vec![], 10, hash(&[]));
         let account_id = bob_account();
-        set(&mut state_update, key_for_account(&account_id), &test_account);
+        set_account(&mut state_update, &account_id, &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
-        let get_res = get(&new_state_update, &key_for_account(&account_id)).unwrap();
+        let get_res = get_account(&new_state_update, &account_id).unwrap();
         assert_eq!(test_account, get_res);
     }
 }

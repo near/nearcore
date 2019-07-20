@@ -9,7 +9,7 @@ bytes = "0.4"
 actix = "0.8.1"
 log = "0.4"
 tokio = "0.1"
-protobuf = "2.4"
+protobuf = { version = "2.7", features = ["with-bytes"] }
 futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 serde = "1.0"

@@ -2,11 +2,12 @@ use std::convert::TryInto;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::str;
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use log::info;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -16,10 +17,14 @@ use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
+use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
+use near_primitives::account::Account;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
-use near_primitives::serialize::{to_base, u128_hex_format};
+use near_primitives::hash::hash;
+use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -268,13 +273,15 @@ impl NearConfig {
 pub struct AccountInfo {
     pub account_id: AccountId,
     pub public_key: ReadablePublicKey,
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
 /// Runtime configuration, defining genesis block.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct GenesisConfig {
+    /// Protocol version that this genesis works with.
+    pub protocol_version: u32,
     /// Official time of blockchain start.
     pub genesis_time: DateTime<Utc>,
     /// ID of the blockchain. This must be unique for every blockchain.
@@ -294,19 +301,18 @@ pub struct GenesisConfig {
     pub validator_kickout_threshold: f64,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
-    /// List of accounts / balances at genesis.
-    pub accounts: Vec<AccountInfo>,
-    /// List of contract code per accounts. Contract code encoded in base64.
-    pub contracts: Vec<(AccountId, String)>,
+    /// Records in storage per each shard at genesis.
+    pub records: Vec<Vec<StateRecord>>,
 }
 
 impl GenesisConfig {
     pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
         let mut validators = vec![];
-        let mut accounts = vec![];
-        let mut contracts = vec![];
+        let mut records = vec![vec![]];
         let default_test_contract =
-            to_base(include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
+            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
+        let encoded_test_contract = to_base64(default_test_contract);
+        let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);
             if i < num_validators {
@@ -316,14 +322,26 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            accounts.push(AccountInfo {
+            records[0].push(StateRecord::Account {
                 account_id: account.to_string(),
-                public_key: signer.public_key.to_readable(),
-                amount: TESTING_INIT_BALANCE,
+                account: Account {
+                    nonce: 0,
+                    amount: TESTING_INIT_BALANCE
+                        - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    public_keys: vec![signer.public_key],
+                    code_hash,
+                    staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    storage_usage: 0,
+                    storage_paid_at: 0,
+                },
             });
-            contracts.push((account.to_string(), default_test_contract.clone()))
+            records[0].push(StateRecord::Contract {
+                account_id: account.to_string(),
+                code: encoded_test_contract.clone(),
+            });
         }
         GenesisConfig {
+            protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producers: num_validators,
@@ -333,8 +351,7 @@ impl GenesisConfig {
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
-            accounts,
-            contracts,
+            records,
         }
     }
 
@@ -344,7 +361,7 @@ impl GenesisConfig {
     }
 
     pub fn testing_spec(num_accounts: usize, num_validators: usize) -> Self {
-        let mut accounts = vec![];
+        let mut records = vec![];
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
@@ -356,13 +373,15 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            accounts.push(AccountInfo {
-                account_id,
-                public_key: signer.public_key.to_readable(),
-                amount: TESTING_INIT_BALANCE,
-            });
+            records.push(StateRecord::account(
+                &account_id,
+                &signer.public_key.to_readable().0,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+            ));
         }
         GenesisConfig {
+            protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
             chain_id: random_chain_id(),
             num_block_producers: num_validators,
@@ -372,8 +391,7 @@ impl GenesisConfig {
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
-            accounts,
-            contracts: vec![],
+            records: vec![records],
         }
     }
 
@@ -386,7 +404,7 @@ impl GenesisConfig {
     }
 
     /// Writes GenesisConfig to the file.
-    pub fn write_to_file(&self, path: &PathBuf) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a genesis config file.");
         let str =
             serde_json::to_string_pretty(self).expect("Error serializing the genesis config.");
@@ -398,7 +416,15 @@ impl GenesisConfig {
 
 impl From<&str> for GenesisConfig {
     fn from(config: &str) -> Self {
-        serde_json::from_str(config).expect("Failed to deserialize the genesis config.")
+        let config: GenesisConfig =
+            serde_json::from_str(config).expect("Failed to deserialize the genesis config.");
+        if config.protocol_version != PROTOCOL_VERSION {
+            panic!(format!(
+                "Incorrect version of genesis config {} expected {}",
+                config.protocol_version, PROTOCOL_VERSION
+            ));
+        }
+        config
     }
 }
 
@@ -408,31 +434,10 @@ fn random_chain_id() -> String {
 
 /// Official TestNet configuration.
 pub fn testnet_genesis() -> GenesisConfig {
-    GenesisConfig {
-        genesis_time: DateTime::from_utc(NaiveDateTime::from_timestamp(1559628805, 0), Utc),
-        chain_id: "testnet".to_string(),
-        num_block_producers: 4,
-        block_producers_per_shard: vec![4],
-        avg_fisherman_per_shard: vec![100],
-        dynamic_resharding: true,
-        epoch_length: EXPECTED_EPOCH_LENGTH,
-        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
-        validators: vec![AccountInfo {
-            account_id: ".near".to_string(),
-            public_key: ReadablePublicKey(
-                "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
-            ),
-            amount: 5_000_000 * NEAR_BASE,
-        }],
-        accounts: vec![AccountInfo {
-            account_id: ".near".to_string(),
-            public_key: ReadablePublicKey(
-                "DuZSg3DRUQDiR5Wvq5Viifaw2FXPimer2omyNBqUytua".to_string(),
-            ),
-            amount: INITIAL_TOKEN_SUPPLY,
-        }],
-        contracts: vec![],
-    }
+    let genesis_config_bytes = include_bytes!("../res/testnet.json");
+    GenesisConfig::from(
+        str::from_utf8(genesis_config_bytes).expect("Failed to read testnet configuration"),
+    )
 }
 
 /// Initializes genesis and client configs and stores in the given folder
@@ -508,6 +513,7 @@ pub fn init_configs(
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             let genesis_config = GenesisConfig {
+                protocol_version: PROTOCOL_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
                 num_block_producers: 1,
@@ -521,12 +527,12 @@ pub fn init_configs(
                     public_key: signer.public_key.to_readable(),
                     amount: TESTING_INIT_STAKE,
                 }],
-                accounts: vec![AccountInfo {
-                    account_id,
-                    public_key: signer.public_key.to_readable(),
-                    amount: TESTING_INIT_BALANCE,
-                }],
-                contracts: vec![],
+                records: vec![vec![StateRecord::account(
+                    &account_id,
+                    &signer.public_key.to_readable().0,
+                    TESTING_INIT_BALANCE,
+                    TESTING_INIT_STAKE,
+                )]],
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -544,15 +550,15 @@ pub fn create_testnet_configs_from_seeds(
         seeds.iter().map(|seed| InMemorySigner::new(seed.to_string())).collect::<Vec<_>>();
     let network_signers =
         (0..seeds.len()).map(|_| InMemorySigner::from_random()).collect::<Vec<_>>();
-    let accounts = seeds
-        .iter()
-        .enumerate()
-        .map(|(i, seed)| AccountInfo {
-            account_id: seed.to_string(),
-            public_key: signers[i].public_key.to_readable(),
-            amount: TESTING_INIT_BALANCE,
-        })
-        .collect::<Vec<_>>();
+    let mut records = vec![vec![]];
+    for (i, seed) in seeds.iter().enumerate() {
+        records[0].push(StateRecord::account(
+            seed,
+            &signers[i].public_key.to_readable().0,
+            TESTING_INIT_BALANCE,
+            TESTING_INIT_STAKE,
+        ));
+    }
     let validators = seeds
         .iter()
         .enumerate()
@@ -564,6 +570,7 @@ pub fn create_testnet_configs_from_seeds(
         })
         .collect::<Vec<_>>();
     let genesis_config = GenesisConfig {
+        protocol_version: PROTOCOL_VERSION,
         genesis_time: Utc::now(),
         chain_id: random_chain_id(),
         num_block_producers: num_validators,
@@ -573,8 +580,7 @@ pub fn create_testnet_configs_from_seeds(
         epoch_length: FAST_EPOCH_LENGTH,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         validators,
-        accounts,
-        contracts: vec![],
+        records,
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -675,6 +681,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
+            "protocol_version": 1,
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
             "num_block_producers": 1,
@@ -683,9 +690,8 @@ mod tests {
             "dynamic_resharding": false,
             "epoch_length": 100,
             "validator_kickout_threshold": 0.9,
-            "accounts": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "0x64"}],
-            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "32"}],
-            "contracts": [],
+            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
+            "records": [[]],
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(
