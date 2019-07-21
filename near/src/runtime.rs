@@ -451,6 +451,7 @@ impl node_runtime::adapter::RuntimeAdapter for NightshadeRuntime {
 mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
+    use crate::test_utils::*;
     use crate::validator_manager::ValidatorAssignment;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
     use near_chain::RuntimeAdapter;
@@ -469,50 +470,6 @@ mod test {
     use node_runtime::adapter::RuntimeAdapter as ViewRuntimeAdapter;
     use std::collections::BTreeMap;
     use tempdir::TempDir;
-
-    fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
-        TransactionBody::Stake(StakeTransaction {
-            nonce,
-            originator: sender.account_id.clone(),
-            amount,
-            public_key: sender.signer.public_key().to_base(),
-        })
-        .sign(&*sender.signer.clone())
-    }
-
-    fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, Balance> {
-        stake_changes.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
-    }
-
-    fn assignment(
-        mut accounts: Vec<(&str, Balance)>,
-        block_producers: Vec<u64>,
-        chunk_producers: Vec<Vec<(usize, u64)>>,
-        fishermen: Vec<(usize, u64)>,
-        expected_epoch_start: BlockIndex,
-        stake_change: BTreeMap<AccountId, Balance>,
-    ) -> ValidatorAssignment {
-        ValidatorAssignment {
-            validators: accounts
-                .drain(..)
-                .map(|(account_id, amount)| {
-                    (
-                        account_id.to_string(),
-                        ValidatorStake {
-                            account_id: account_id.to_string(),
-                            public_key: get_key_pair_from_seed(account_id).0,
-                            amount,
-                        },
-                    )
-                })
-                .collect(),
-            block_producers,
-            chunk_producers,
-            fishermen,
-            expected_epoch_start,
-            stake_change,
-        }
-    }
 
     impl NightshadeRuntime {
         fn update(
