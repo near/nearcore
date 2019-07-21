@@ -17,6 +17,7 @@ pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
 mod runtime;
+#[cfg(test)]
 mod test_utils;
 mod validator_manager;
 

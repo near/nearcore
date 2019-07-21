@@ -601,6 +601,11 @@ mod test {
 
     use super::*;
 
+    fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
+        let (public_key, _) = get_key_pair_from_seed(account_id);
+        ValidatorStake::new(account_id.to_string(), public_key, amount)
+    }
+
     fn config(
         epoch_length: BlockIndex,
         num_shards: ShardId,

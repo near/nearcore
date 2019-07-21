@@ -152,10 +152,7 @@ fn test_kickout() {
                                 .then(|res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
                                         assert_eq!(result.stake, 0);
-                                        assert_eq!(
-                                            result.amount,
-                                            TESTING_INIT_BALANCE + TESTING_INIT_STAKE
-                                        );
+                                        assert_eq!(result.amount, TESTING_INIT_BALANCE);
                                         futures::future::ok(())
                                     }
                                     _ => panic!("wrong return result"),
@@ -173,7 +170,10 @@ fn test_kickout() {
                                 .then(|res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
                                         assert_eq!(result.stake, TESTING_INIT_STAKE);
-                                        assert_eq!(result.amount, TESTING_INIT_BALANCE);
+                                        assert_eq!(
+                                            result.amount,
+                                            TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                        );
                                         futures::future::ok(())
                                     }
                                     _ => panic!("wrong return result"),
@@ -257,10 +257,7 @@ fn test_validator_join() {
                             .then(|res| match res.unwrap().unwrap() {
                                 QueryResponse::ViewAccount(result) => {
                                     assert_eq!(result.stake, 0);
-                                    assert_eq!(
-                                        result.amount,
-                                        TESTING_INIT_BALANCE + TESTING_INIT_STAKE
-                                    );
+                                    assert_eq!(result.amount, TESTING_INIT_BALANCE);
                                     futures::future::ok(())
                                 }
                                 _ => panic!("wrong return result"),

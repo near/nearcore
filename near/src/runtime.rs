@@ -272,8 +272,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 vm.finalize_epoch(&epoch_hash, prev_block_hash, block_hash)?;
                 let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
                 for (account_id, new_stake) in vm.get_validators(*block_hash)?.stake_change.iter() {
-                    let key = key_for_account(&account_id);
-                    let account: Option<Account> = get(&state_update, &key);
+                    let account: Option<Account> = get_account(&state_update, account_id);
                     if let Some(mut account) = account {
                         let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
                         if account.staked < max(prev_stake, *new_stake) {
@@ -282,7 +281,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         let return_stake = account.staked - max(prev_stake, *new_stake);
                         account.staked -= return_stake;
                         account.amount += return_stake;
-                        set(&mut state_update, key, &account);
+                        set_account(&mut state_update, account_id, &account);
                     }
                 }
             }
@@ -435,7 +434,6 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::test_utils::*;
-    use crate::validator_manager::ValidatorAssignment;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
     use near_chain::RuntimeAdapter;
     use near_client::BlockProducer;
@@ -443,16 +441,24 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::rpc::AccountViewCallResult;
     use near_primitives::serialize::BaseEncode;
-    use near_primitives::test_utils::get_key_pair_from_seed;
     use near_primitives::transaction::{
         CreateAccountTransaction, ReceiptTransaction, SignedTransaction, StakeTransaction,
         TransactionBody,
     };
-    use near_primitives::types::{AccountId, Balance, BlockIndex, Nonce, ValidatorStake};
+    use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
     use near_store::create_store;
-    use node_runtime::adapter::RuntimeAdapter as ViewRuntimeAdapter;
-    use std::collections::BTreeMap;
+    use node_runtime::adapter::ViewRuntimeAdapter;
     use tempdir::TempDir;
+
+    fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
+        TransactionBody::Stake(StakeTransaction {
+            nonce,
+            originator: sender.account_id.clone(),
+            amount,
+            public_key: sender.signer.public_key().to_base(),
+        })
+        .sign(&*sender.signer.clone())
+    }
 
     impl NightshadeRuntime {
         fn update(
@@ -667,7 +673,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[1].account_id.clone(),
                 nonce: 0,
-                amount: TESTING_INIT_BALANCE + TESTING_INIT_STAKE,
+                amount: TESTING_INIT_BALANCE,
                 stake: 0,
                 public_keys: vec![block_producers[1].signer.public_key()],
                 code_hash: account.code_hash
@@ -716,7 +722,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 1,
-                amount: TESTING_INIT_BALANCE,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 stake: TESTING_INIT_STAKE,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -745,7 +751,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 1,
-                amount: TESTING_INIT_BALANCE + 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1,
                 stake: TESTING_INIT_STAKE - 1,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -764,7 +770,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 1,
-                amount: TESTING_INIT_BALANCE + 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1,
                 stake: TESTING_INIT_STAKE - 1,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -807,7 +813,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 2,
-                amount: TESTING_INIT_BALANCE,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 stake: TESTING_INIT_STAKE,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -848,7 +854,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 3,
-                amount: TESTING_INIT_BALANCE - 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
                 stake: TESTING_INIT_STAKE + 1,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -861,7 +867,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[1].account_id.clone(),
                 nonce: 3,
-                amount: TESTING_INIT_BALANCE - 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
                 stake: TESTING_INIT_STAKE + 1,
                 public_keys: vec![block_producers[1].signer.public_key()],
                 code_hash: account.code_hash
@@ -880,7 +886,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[0].account_id.clone(),
                 nonce: 3,
-                amount: TESTING_INIT_BALANCE - 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
                 stake: TESTING_INIT_STAKE + 1,
                 public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash
@@ -893,7 +899,7 @@ mod test {
             AccountViewCallResult {
                 account_id: block_producers[1].account_id.clone(),
                 nonce: 3,
-                amount: TESTING_INIT_BALANCE + 1,
+                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1,
                 stake: TESTING_INIT_STAKE - 1,
                 public_keys: vec![block_producers[1].signer.public_key()],
                 code_hash: account.code_hash
