@@ -18,6 +18,7 @@ pub struct AccountViewCallResult {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
+    #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
