@@ -52,6 +52,7 @@ pub const DEFAULT_SIGNATURE: Signature =
 
 impl BaseDecode for PublicKey {}
 impl BaseDecode for SecretKey {}
+impl BaseDecode for Signature {}
 
 impl PublicKey {
     pub fn to_readable(&self) -> ReadablePublicKey {

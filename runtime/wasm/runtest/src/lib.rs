@@ -118,14 +118,15 @@ mod tests {
 
     use byteorder::{ByteOrder, LittleEndian};
 
+    use near_primitives::contract::ContractCode;
+    use near_primitives::crypto::signature::PublicKey;
     use near_primitives::hash::hash;
     use near_primitives::types::StorageUsage;
     use testlib::runtime_utils::{alice_account, bob_account};
     use wasm::executor::{self, ExecutionOutcome};
-    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
+    use wasm::types::{Config, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
-    use near_primitives::crypto::signature::PublicKey;
 
     fn infinite_initializer_contract() -> Vec<u8> {
         wabt::wat2wasm(

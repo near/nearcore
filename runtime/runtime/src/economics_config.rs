@@ -35,11 +35,11 @@ impl TransactionsCosts {
             CreateAccount(_) => self.create_account.clone(),
             DeployContract(_) => self.deploy_contract.clone(),
             FunctionCall(_)
-            if Some(transaction_body.get_originator())
-                == transaction_body.get_contract_id() =>
-                {
-                    self.self_function_call.clone()
-                }
+                if Some(transaction_body.get_originator())
+                    == transaction_body.get_contract_id() =>
+            {
+                self.self_function_call.clone()
+            }
             FunctionCall(_) => self.function_call.clone(),
             SendMoney(_) => self.send_money.clone(),
             Stake(_) => self.stake.clone(),

@@ -53,6 +53,6 @@ fn test_deliver_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap();
     assert_eq!(
         tx_result.logs[0].lines[0],
-        "Runtime error: Account alice.near tries to create new account with 1000000000000001, but only has 1000000000000000"
+        "Runtime error: Account alice.near tries to create new account with 1000000000000001, but only has 999999950000000"
     );
 }
