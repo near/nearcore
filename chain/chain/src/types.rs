@@ -62,7 +62,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: CryptoHash,
         height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(

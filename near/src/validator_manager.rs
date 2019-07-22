@@ -119,19 +119,19 @@ fn proposals_to_assignments(
             ordered_proposals.insert(p.account_id.clone(), p);
         }
     }
-    for (account_id, r) in current_assignments.validators.iter() {
-        match ordered_proposals.entry(account_id.clone()) {
+    for r in current_assignments.validators.iter() {
+        match ordered_proposals.entry(r.account_id.clone()) {
             Entry::Occupied(e) => {
                 let p = &*e.get();
                 let return_stake = if r.amount > p.amount { r.amount - p.amount } else { 0 };
-                stake_change.insert(account_id.clone(), (p.amount, return_stake));
+                stake_change.insert(r.account_id.clone(), (p.amount, return_stake));
             }
             Entry::Vacant(e) => {
-                if !*validator_kickout.get(account_id).unwrap_or(&true) {
+                if !*validator_kickout.get(&r.account_id).unwrap_or(&true) {
                     e.insert(r.clone());
-                    no_stake_change.insert(account_id.clone());
+                    no_stake_change.insert(r.account_id.clone());
                 } else {
-                    stake_change.insert(account_id.clone(), (0, r.amount));
+                    stake_change.insert(r.account_id.clone(), (0, r.amount));
                 }
             }
         }
@@ -141,7 +141,6 @@ fn proposals_to_assignments(
     let num_fisherman_seats: usize = epoch_config.avg_fisherman_per_shard.iter().sum();
     let num_seats = epoch_config.num_block_producers + num_fisherman_seats;
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
-    //    println!("proposal: {:?}", ordered_proposals);
     let threshold = find_threshold(&stakes, num_seats as u64)?;
     // Remove proposals under threshold.
     let mut final_proposals = BTreeMap::new();
@@ -165,11 +164,20 @@ fn proposals_to_assignments(
         }
     }
 
+    let (final_proposals, validator_to_index) = final_proposals.into_iter().enumerate().fold(
+        (vec![], HashMap::new()),
+        |(mut proposals, mut validator_to_index), (i, (account_id, p))| {
+            validator_to_index.insert(account_id, i);
+            proposals.push(p);
+            (proposals, validator_to_index)
+        },
+    );
+
     // Duplicate each proposal for number of seats it has.
     let mut dup_proposals = final_proposals
         .iter()
         .enumerate()
-        .flat_map(|(i, (_, p))| iter::repeat(i).take((p.amount / threshold) as usize))
+        .flat_map(|(i, p)| iter::repeat(i).take((p.amount / threshold) as usize))
         .collect::<Vec<_>>();
     if dup_proposals.len() < num_seats as usize {
         return Err(ValidatorError::SelectedSeatsMismatch(dup_proposals.len() as u64, num_seats));
@@ -180,13 +188,7 @@ fn proposals_to_assignments(
     dup_proposals.shuffle(&mut rng);
 
     // Block producers are first `num_block_producers` proposals.
-    // TODO: fix this nonsense
-    let mut block_producers = vec![];
-    //    let mut block_producers = dup_proposals[..epoch_config.num_block_producers];
-    block_producers.resize(final_proposals.len(), 0);
-    for i in 0..epoch_config.num_block_producers {
-        block_producers[dup_proposals[i]] += 1;
-    }
+    let block_producers = dup_proposals[..epoch_config.num_block_producers].to_vec();
 
     // Collect proposals into block producer assignments.
     let mut chunk_producers: Vec<Vec<(ValidatorId, u64)>> = vec![];
@@ -224,6 +226,7 @@ fn proposals_to_assignments(
 
     Ok(ValidatorAssignment {
         validators: final_proposals,
+        validator_to_index,
         block_producers,
         chunk_producers,
         fishermen: vec![],
@@ -239,20 +242,14 @@ fn get_epoch_block_proposer_info(
 ) -> (HashMap<BlockIndex, usize>, HashMap<usize, u32>) {
     let mut block_index_to_validator = HashMap::new();
     let mut validator_to_num_blocks = HashMap::new();
-    let mut block_index = 0;
-    while block_index < epoch_length {
-        for (i, seats) in validator_assignment.block_producers.iter().enumerate() {
-            for _ in 0..*seats {
-                block_index_to_validator.insert(epoch_start_index + block_index, i);
-                validator_to_num_blocks.entry(i).and_modify(|e| *e += 1).or_insert(1);
-                block_index += 1;
-                if block_index >= epoch_length {
-                    return (block_index_to_validator, validator_to_num_blocks);
-                }
-            }
-        }
+    let num_seats = validator_assignment.block_producers.len() as u64;
+    for block_index in 0..epoch_length {
+        let validator_idx =
+            validator_assignment.block_producers[(block_index % num_seats) as usize];
+        validator_to_num_blocks.entry(validator_idx).and_modify(|e| *e += 1).or_insert(1);
+        block_index_to_validator.insert(block_index + epoch_start_index, validator_idx);
     }
-    unreachable!();
+    (block_index_to_validator, validator_to_num_blocks)
 }
 
 /// Epoch config, determines validator assignment for given epoch.
@@ -276,12 +273,14 @@ pub struct ValidatorEpochConfig {
 }
 
 /// Information about validator seat assignments.
-#[derive(Default, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct ValidatorAssignment {
     /// List of current validators.
-    pub validators: BTreeMap<AccountId, ValidatorStake>,
+    pub validators: Vec<ValidatorStake>,
+    /// Validator account id to index in proposals.
+    pub validator_to_index: HashMap<AccountId, ValidatorId>,
     /// Weights for each of the validators responsible for block production.
-    pub block_producers: Vec<u64>,
+    pub block_producers: Vec<ValidatorId>,
     /// Per each shard, ids and seats of validators that are responsible.
     pub chunk_producers: Vec<Vec<(ValidatorId, u64)>>,
     /// Weight of given validator used to determine how many shards they will validate.
@@ -291,6 +290,40 @@ pub struct ValidatorAssignment {
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
 }
+
+impl PartialEq for ValidatorAssignment {
+    fn eq(&self, other: &ValidatorAssignment) -> bool {
+        let normal_eq = self.validators == other.validators
+            && self.block_producers == other.block_producers
+            && self.chunk_producers == other.chunk_producers
+            && self.expected_epoch_start == other.expected_epoch_start
+            && self.stake_change == other.stake_change;
+        if !normal_eq {
+            return false;
+        }
+        for (k, v) in self.validator_to_index.iter() {
+            if let Some(v1) = other.validator_to_index.get(k) {
+                if *v1 != *v {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        for (k, v) in other.validator_to_index.iter() {
+            if let Some(v1) = self.validator_to_index.get(k) {
+                if *v1 != *v {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Eq for ValidatorAssignment {}
 
 /// Information per each index about validators.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
@@ -485,11 +518,10 @@ impl ValidatorManager {
             let mut all_kicked_out = true;
             let mut maximum_block_prod_ratio: f64 = 0.0;
             let mut max_account_id = None;
-            let validators: Vec<_> = validator_assignment.validators.values().collect();
             for (i, num_blocks) in validator_tracker.into_iter() {
                 let num_blocks_expected = *validator_to_num_blocks.get(&i).unwrap();
                 let mut cur_ratio = (num_blocks as f64) / num_blocks_expected as f64;
-                let account_id = validators[i].account_id.clone();
+                let account_id = validator_assignment.validators[i].account_id.clone();
                 if cur_ratio < validator_kickout_threshold {
                     validator_kickout.insert(account_id, true);
                 } else {
@@ -507,7 +539,7 @@ impl ValidatorManager {
             }
             if all_kicked_out {
                 if let Some(i) = max_account_id {
-                    let account_id = validators[i].account_id.clone();
+                    let account_id = validator_assignment.validators[i].account_id.clone();
                     validator_kickout.insert(account_id, false);
                 }
             }
@@ -590,6 +622,19 @@ impl ValidatorManager {
         }
         Ok(store_update)
     }
+
+    pub fn get_block_proposer_info(
+        &mut self,
+        parent_hash: CryptoHash,
+        height: BlockIndex,
+    ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
+        let (epoch_hash, idx) = self.get_epoch_offset(parent_hash, height)?;
+        let validator_assignment = self.get_validators(epoch_hash)?;
+        let total_seats = validator_assignment.block_producers.len() as u64;
+        let block_producer_idx = idx % total_seats;
+        let validator_idx = validator_assignment.block_producers[block_producer_idx as usize];
+        Ok(validator_assignment.validators[validator_idx].clone())
+    }
 }
 
 #[cfg(test)]
@@ -645,7 +690,7 @@ mod test {
             .unwrap(),
             assignment(
                 vec![("test1", 1_000_000)],
-                vec![1],
+                vec![0],
                 vec![vec![(0, 1)], vec![(0, 1)]],
                 vec![],
                 0,
@@ -674,7 +719,7 @@ mod test {
             .unwrap(),
             assignment(
                 vec![("test1", 1_000_000), ("test2", 1_000_000), ("test3", 1_000_000)],
-                vec![3, 2, 1],
+                vec![0, 1, 0, 0, 1, 2],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
                     vec![(0, 3), (1, 2), (2, 1)],
@@ -708,7 +753,7 @@ mod test {
 
         let expected0 = assignment(
             vec![("test1", amount_staked)],
-            vec![2],
+            vec![0, 0],
             vec![vec![(0, 2)]],
             vec![],
             1,
@@ -728,8 +773,8 @@ mod test {
         vm.finalize_epoch(&h1, &h1, &h2).unwrap();
         vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
         let expected2 = assignment(
-            vec![("test2", amount_staked), ("test1", amount_staked)],
-            vec![1, 1],
+            vec![("test1", amount_staked), ("test2", amount_staked)],
+            vec![0, 1],
             vec![vec![(0, 1), (1, 1)]],
             vec![],
             3,
@@ -819,24 +864,24 @@ mod test {
             vm.get_validators(h0).unwrap(),
             &assignment(
                 vec![("test1", amount_staked), ("test2", amount_staked), ("test3", amount_staked)],
-                vec![1, 1, 1],
+                vec![2, 1, 0],
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 3,
                 change_stake(vec![])
             )
         );
-        // Validators for the third epoch in the first fork. Does not have `test3` because it didn't produce
+        // Validators for the third epoch in the first fork. Does not have `test1` because it didn't produce
         // any blocks in the first epoch.
         assert_eq!(
             vm.get_validators(h4).unwrap(),
             &assignment(
-                vec![("test4", amount_staked), ("test1", amount_staked), ("test2", amount_staked)],
-                vec![1, 1, 1],
+                vec![("test4", amount_staked), ("test3", amount_staked), ("test2", amount_staked)],
+                vec![2, 1, 0],
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 6,
-                change_stake(vec![("test3", 0), ("test4", amount_staked)])
+                change_stake(vec![("test1", 0), ("test4", amount_staked)])
             )
         );
         // Validators for the fourth epoch in the second fork. Does not have `test2` because it didn't produce
@@ -845,7 +890,7 @@ mod test {
             vm.get_validators(h6).unwrap(),
             &assignment(
                 vec![("test1", amount_staked), ("test3", amount_staked)],
-                vec![2, 1],
+                vec![0, 1, 0],
                 vec![vec![(0, 2), (1, 1)]],
                 vec![],
                 9,
@@ -861,7 +906,7 @@ mod test {
             vm.get_validators(h7).unwrap(),
             &assignment(
                 vec![("test4", amount_staked), ("test2", amount_staked)],
-                vec![2, 1],
+                vec![0, 1, 0],
                 vec![vec![(0, 2), (1, 1)]],
                 vec![],
                 9,
@@ -902,7 +947,7 @@ mod test {
             vm.get_validators(h2).unwrap(),
             &assignment(
                 vec![("test1", amount_staked)],
-                vec![1],
+                vec![0],
                 vec![vec![(0, 1)]],
                 vec![],
                 4,
@@ -929,23 +974,23 @@ mod test {
         assert_eq!(
             vm.get_validators(h2).unwrap(),
             &assignment(
-                vec![("test1", amount_staked)],
-                vec![2],
+                vec![("test2", amount_staked)],
+                vec![0, 0],
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test2", 0)])
+                change_stake(vec![("test1", 0)])
             )
         );
         assert_eq!(
             vm.get_validators(h3).unwrap(),
             &assignment(
-                vec![("test2", amount_staked)],
-                vec![2],
+                vec![("test1", amount_staked)],
+                vec![0, 0],
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test1", 0)])
+                change_stake(vec![("test2", 0)])
             )
         );
     }
@@ -968,7 +1013,7 @@ mod test {
             vm.get_validators(h2).unwrap(),
             &assignment(
                 vec![("test2", amount_staked)],
-                vec![2],
+                vec![0, 0],
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
@@ -995,7 +1040,7 @@ mod test {
             vm.get_validators(h2).unwrap(),
             &assignment(
                 vec![("test2", amount_staked)],
-                vec![2],
+                vec![0, 0],
                 vec![vec![(0, 2)]],
                 vec![],
                 4,

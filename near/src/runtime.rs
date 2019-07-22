@@ -81,26 +81,6 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime { genesis_config, store, trie, runtime, trie_viewer, validator_manager }
     }
-
-    fn get_block_proposer_info(
-        &self,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
-    ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
-        let validator_assignemnt = vm.get_validators(epoch_hash)?;
-        let total_seats: u64 = validator_assignemnt.block_producers.iter().sum();
-        let mut cur_seats = 0;
-        let validators: Vec<_> = validator_assignemnt.validators.values().collect();
-        for (i, seats) in validator_assignemnt.block_producers.iter().enumerate() {
-            if cur_seats + *seats > idx % total_seats {
-                return Ok(validators[i].clone());
-            }
-            cur_seats += *seats;
-        }
-        unreachable!()
-    }
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -141,7 +121,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = self
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let validator = vm
             .get_block_proposer_info(header.prev_hash, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
@@ -154,16 +135,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         parent_hash: CryptoHash,
         height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let (epoch_hash, _) = vm.get_epoch_offset(parent_hash, height)?;
-        let validator_assignemnt = vm.get_validators(epoch_hash)?;
-        let validators: Vec<_> = validator_assignemnt.validators.values().collect();
-        Ok(validator_assignemnt
+        let validator_assignment = vm.get_validators(epoch_hash)?;
+        Ok(validator_assignment
             .block_producers
             .iter()
-            .enumerate()
-            .map(|(index, seats)| (validators[index].account_id.clone(), *seats))
+            .map(|index| validator_assignment.validators[*index].account_id.clone())
             .collect())
     }
 
@@ -172,7 +151,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        Ok(self.get_block_proposer_info(parent_hash, height)?.account_id)
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(vm.get_block_proposer_info(parent_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
@@ -189,10 +169,9 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map(|(_, seats)| seats)
             .sum();
         let mut cur_seats = 0;
-        let validators: Vec<_> = validator_assignemnt.validators.values().collect();
         for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
             if cur_seats + *seats > idx % total_seats {
-                return Ok(validators[*index].account_id.clone());
+                return Ok(validator_assignemnt.validators[*index].account_id.clone());
             }
             cur_seats += *seats;
         }
@@ -604,7 +583,7 @@ mod test {
                 validators,
                 &assignment(
                     vec![("test3", TESTING_INIT_STAKE * 2), ("test1", TESTING_INIT_STAKE * 2)],
-                    vec![1, 1],
+                    vec![1, 0],
                     vec![vec![(1, 1), (0, 1)]],
                     vec![],
                     6,
