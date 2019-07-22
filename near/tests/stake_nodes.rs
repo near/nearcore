@@ -27,6 +27,7 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
 
     let mut genesis_config = GenesisConfig::testing_spec(num_accounts, num_nodes);
     genesis_config.epoch_length = epoch_length;
+    genesis_config.num_block_producers = num_accounts;
     genesis_config.validator_kickout_threshold = 0.5;
     let first_node = open_port();
 
@@ -59,6 +60,7 @@ fn test_stake_nodes() {
 
     let mut genesis_config = GenesisConfig::testing_spec(2, 1);
     genesis_config.epoch_length = 10;
+    genesis_config.num_block_producers = 2;
     let first_node = open_port();
     let near1 = load_test_config("near.0", first_node, &genesis_config);
     let mut near2 = load_test_config("near.1", open_port(), &genesis_config);
@@ -138,8 +140,11 @@ fn test_kickout() {
             let test_nodes = test_nodes.clone();
             let test_node1 = test_nodes[0].clone();
             actix::spawn(test_node1.client.send(Status {}).then(move |res| {
-                let expected: Vec<_> =
-                    (num_nodes / 2..num_nodes).map(|i| format!("near.{}", i)).collect();
+                let expected: Vec<_> = (num_nodes / 2..num_nodes)
+                    .cycle()
+                    .take(num_nodes)
+                    .map(|i| format!("near.{}", i))
+                    .collect();
                 if res.unwrap().unwrap().validators == expected {
                     for i in 0..num_nodes / 2 {
                         actix::spawn(
@@ -186,7 +191,7 @@ fn test_kickout() {
             }));
         }),
         1000,
-        5000,
+        10000,
     )
     .start();
 
@@ -245,7 +250,12 @@ fn test_validator_join() {
             let test_nodes = test_nodes.clone();
             let test_node1 = test_nodes[0].clone();
             actix::spawn(test_node1.client.send(Status {}).then(move |res| {
-                let expected = vec!["near.0".to_string(), "near.2".to_string()];
+                let expected = vec![
+                    "near.0".to_string(),
+                    "near.2".to_string(),
+                    "near.0".to_string(),
+                    "near.2".to_string(),
+                ];
                 if res.unwrap().unwrap().validators == expected {
                     actix::spawn(
                         test_node1
