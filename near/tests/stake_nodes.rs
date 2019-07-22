@@ -42,7 +42,7 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
     let mut genesis_config = GenesisConfig::testing_spec(num_accounts, num_nodes);
     genesis_config.epoch_length = epoch_length;
     genesis_config.num_block_producers = num_accounts;
-    genesis_config.validator_kickout_threshold = 0.5;
+    genesis_config.validator_kickout_threshold = 0.2;
     let first_node = open_port();
 
     let configs = (0..num_accounts).map(|i| {
@@ -118,7 +118,7 @@ fn test_stake_nodes() {
 fn test_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 4, 16);
+        let test_nodes = init_test_staking(4, 4, 24);
         let num_nodes = test_nodes.len();
         let mut rng = rand::thread_rng();
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
