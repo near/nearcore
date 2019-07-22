@@ -62,7 +62,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         parent_hash: CryptoHash,
         height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
@@ -114,6 +114,7 @@ pub trait RuntimeAdapter: Send + Sync {
         merkle_hash: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
         receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
@@ -137,11 +138,20 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
     /// Read state as byte array from given state root.
-    fn dump_state(&self, shard_id: ShardId, state_root: MerkleHash) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+    fn dump_state(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     /// Set state that expected to be given state root with provided payload.
     /// Returns error if failed to parse or if the resulting tree doesn't match the expected root.
-    fn set_state(&self, _shard_id: ShardId, state_root: MerkleHash, payload: Vec<u8>) -> Result<(), Box<dyn std::error::Error>>;
+    fn set_state(
+        &self,
+        _shard_id: ShardId,
+        state_root: MerkleHash,
+        payload: Vec<u8>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

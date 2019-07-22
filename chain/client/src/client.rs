@@ -253,10 +253,7 @@ impl Handler<Status> for ClientActor {
         let validators = self
             .runtime_adapter
             .get_epoch_block_proposers(head.last_block_hash, head.height)
-            .map_err(|err| err.to_string())?
-            .drain(..)
-            .map(|(account_id, _)| account_id)
-            .collect();
+            .map_err(|err| err.to_string())?;
         Ok(StatusResponse {
             version: self.config.version.clone(),
             chain_id: self.config.chain_id.clone(),
@@ -342,7 +339,7 @@ impl ClientActor {
         &self,
         parent_hash: CryptoHash,
         height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Error> {
+    ) -> Result<Vec<AccountId>, Error> {
         self.runtime_adapter
             .get_epoch_block_proposers(parent_hash, height)
             .map_err(|err| Error::Other(err.to_string()))
@@ -359,7 +356,6 @@ impl ClientActor {
                 if let Ok(validators) = self
                     .runtime_adapter
                     .get_epoch_block_proposers(block.header.prev_hash, block.header.height)
-                    .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
                 {
                     if validators.contains(&block_producer.account_id) {
                         return Some(BlockApproval::new(
@@ -854,7 +850,7 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head(), ());
-            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ());
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
@@ -892,9 +888,9 @@ impl ClientActor {
 
         // If given account is not current block proposer.
         let position = match self.get_epoch_block_proposers(header.prev_hash, header.height) {
-            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+            Ok(validators) => validators.iter().position(|x| x == account_id),
             Err(err) => {
-                error!(target: "client", "Error: {}", err);
+                error!(target: "client", "Block approval error: {}", err);
                 return false;
             }
         };

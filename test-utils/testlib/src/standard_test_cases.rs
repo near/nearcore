@@ -1520,11 +1520,9 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     .sign(&*node.signer());
 
     let hash = transaction.get_hash();
-    let _root = node_user.get_state_root();
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     assert_eq!(transaction_result.receipts.len(), 0);
-    let _new_root = node_user.get_state_root();
 }

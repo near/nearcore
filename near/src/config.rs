@@ -376,8 +376,8 @@ impl GenesisConfig {
             records.push(StateRecord::account(
                 &account_id,
                 &signer.public_key.to_readable().0,
-                TESTING_INIT_BALANCE,
-                TESTING_INIT_STAKE,
+                TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                if i < num_validators { TESTING_INIT_STAKE } else { 0 },
             ));
         }
         GenesisConfig {
