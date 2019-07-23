@@ -138,7 +138,7 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
     Ok(value) => value,
     Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
+        error!(target: "client", "Unwrap error: {}", err);
         return $ret;
     }
 }));

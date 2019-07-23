@@ -663,6 +663,7 @@ impl<'a> ChainUpdate<'a> {
                 &block.header.prev_state_root,
                 block.header.height,
                 &block.header.prev_hash,
+                &block.header.hash(),
                 &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
             )

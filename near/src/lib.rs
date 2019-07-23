@@ -10,11 +10,15 @@ use near_jsonrpc::start_http;
 use near_network::PeerManagerActor;
 use near_store::create_store;
 
-pub use crate::config::{init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE};
+pub use crate::config::{
+    init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
+};
 pub use crate::runtime::NightshadeRuntime;
 
 pub mod config;
 mod runtime;
+#[cfg(test)]
+mod test_utils;
 mod validator_manager;
 
 const STORE_PATH: &str = "data";

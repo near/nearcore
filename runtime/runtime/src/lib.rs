@@ -851,7 +851,8 @@ impl Runtime {
                     set_access_key(
                         &mut state_update,
                         account_id,
-                        &PublicKey::try_from(public_key.0.as_str()).expect("Failed to decode public key"),
+                        &PublicKey::try_from(public_key.0.as_str())
+                            .expect("Failed to decode public key"),
                         access_key,
                     );
                 }
