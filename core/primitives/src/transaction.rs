@@ -15,7 +15,7 @@ use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::serialize::{base_bytes_format, base_format, u128_dec_format};
+use crate::serialize::{base_bytes_format, base_format, option_base_format, u128_dec_format};
 use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
@@ -470,6 +470,7 @@ pub struct SignedTransaction {
     #[serde(with = "base_format")]
     pub signature: StructSignature,
     // In case this TX uses AccessKey, it needs to provide the public_key
+    #[serde(with = "option_base_format")]
     pub public_key: Option<PublicKey>,
     #[serde(with = "base_format")]
     hash: CryptoHash,

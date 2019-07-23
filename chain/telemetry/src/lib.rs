@@ -60,5 +60,5 @@ impl Handler<TelemetryEvent> for TelemetryActor {
 
 /// Send telemetry event to all the endpoints.
 pub fn telemetry(telemetry: &Addr<TelemetryActor>, content: serde_json::Value) {
-    let _ = telemetry.do_send(TelemetryEvent { content });
+    telemetry.do_send(TelemetryEvent { content });
 }

@@ -30,7 +30,7 @@ near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-verifier = { path = "../runtime/verifier" }
-    near-telemetry = { path = "../chain/telemetry" }
+near-telemetry = { path = "../chain/telemetry" }
 
 [dev-dependencies]
 tempdir = "0.3"
