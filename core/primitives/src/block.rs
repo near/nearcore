@@ -47,9 +47,11 @@ pub struct BlockHeader {
     pub validator_proposal: Vec<ValidatorStake>,
 
     /// Signature of the block producer.
+    #[serde(with = "base_format")]
     pub signature: Signature,
 
     /// Cached value of hash for this block.
+    #[serde(with = "base_format")]
     hash: CryptoHash,
 }
 

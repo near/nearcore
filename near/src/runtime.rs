@@ -556,7 +556,7 @@ mod test {
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2,
                 stake: TESTING_INIT_STAKE * 2,
                 public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash
+                code_hash: account.code_hash,
             }
         );
         let (h0, h1, h2, h3, h4, h5, h6) =

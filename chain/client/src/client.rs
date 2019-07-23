@@ -8,15 +8,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{
-    Actor, ActorFuture, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient, WrapFuture,
+    Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
+    WrapFuture,
 };
-use ansi_term::Color::{Cyan, Green, White, Yellow};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
 use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
-    Tip, ValidTransaction,
+    ValidTransaction,
 };
 use near_network::types::{PeerId, ReasonForBan};
 use near_network::{
@@ -29,7 +29,9 @@ use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 use near_store::Store;
+use near_telemetry::TelemetryActor;
 
+use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
 use crate::types::{
     BlockProducer, ClientConfig, Error, NetworkInfo, ShardSyncStatus, Status, StatusSyncInfo,
@@ -56,12 +58,8 @@ pub struct ClientActor {
     block_sync: BlockSync,
     /// Keeps track of syncing state.
     state_sync: StateSync,
-    /// Timestamp when client was started.
-    started: Instant,
-    /// Total number of blocks processed.
-    num_blocks_processed: u64,
-    /// Total number of transactions processed.
-    num_tx_processed: u64,
+    /// Info helper.
+    info_helper: InfoHelper,
 }
 
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
@@ -84,6 +82,7 @@ impl ClientActor {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
+        telemtetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&genesis_time);
         let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
@@ -95,6 +94,7 @@ impl ClientActor {
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
+        let info_helper = InfoHelper::new(telemtetry_actor);
         Ok(ClientActor {
             config,
             sync_status,
@@ -115,9 +115,7 @@ impl ClientActor {
             header_sync,
             block_sync,
             state_sync,
-            started: Instant::now(),
-            num_blocks_processed: 0,
-            num_tx_processed: 0,
+            info_helper,
         })
     }
 }
@@ -295,8 +293,7 @@ impl ClientActor {
         self.last_block_processed = Instant::now();
 
         // Count blocks and transactions processed both in SYNC and regular modes.
-        self.num_blocks_processed += 1;
-        self.num_tx_processed += block.transactions.len() as u64;
+        self.info_helper.block_processed(block.transactions.len() as u64);
 
         if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
@@ -762,7 +759,6 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
-                self.started = Instant::now();
                 self.last_block_processed = Instant::now();
                 self.sync_status = SyncStatus::NoSync;
 
@@ -854,26 +850,27 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head(), ());
-            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let validators = unwrap_or_return!(
+                act.get_epoch_block_proposers(head.prev_block_hash, head.height),
+                ()
+            )
+            .drain(..)
+            .map(|(account_id, _)| account_id)
+            .collect::<Vec<_>>();
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
             } else {
                 false
             };
-            // Block#, Block Hash, is validator/# validators, active/max peers.
-            let avg_bls = (act.num_blocks_processed as f64) / (act.started.elapsed().as_millis() as f64) * 1000.0;
-            let avg_tps = (act.num_tx_processed as f64) / (act.started.elapsed().as_millis() as f64) * 1000.0;
-            info!(target: "info", "{} {} {} {} {}",
-                  Yellow.bold().paint(display_sync_status(&act.sync_status, &head)),
-                  White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
-                  Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", act.network_info.num_active_peers, act.network_info.most_weight_peers.len(), act.network_info.peer_max_count)),
-                  Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(act.network_info.received_bytes_per_sec), pretty_bytes_per_sec(act.network_info.sent_bytes_per_sec))),
-                  Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps))
+
+            act.info_helper.info(
+                &head,
+                &act.sync_status,
+                &act.network_info,
+                is_validator,
+                num_validators,
             );
-            act.started = Instant::now();
-            act.num_blocks_processed = 0;
-            act.num_tx_processed = 0;
 
             act.log_summary(ctx);
         });
@@ -923,60 +920,5 @@ impl ClientActor {
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         let receipts = self.chain.get_receipts(&prev_hash)?.clone();
         Ok((payload, receipts))
-    }
-}
-
-fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
-    match sync_status {
-        SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
-        SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
-        SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent =
-                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
-            format!("#{:>8} Downloading headers {}%", head.height, percent)
-        }
-        SyncStatus::BodySync { current_height, highest_height } => {
-            let percent =
-                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
-            format!("#{:>8} Downloading blocks {}%", head.height, percent)
-        }
-        SyncStatus::StateSync(_sync_hash, shard_statuses) => {
-            let mut res = String::from("State ");
-            for (shard_id, shard_status) in shard_statuses {
-                res = res
-                    + format!(
-                        "{}: {}",
-                        shard_id,
-                        match shard_status {
-                            ShardSyncStatus::StateDownload {
-                                start_time: _,
-                                prev_update_time: _,
-                                prev_downloaded_size: _,
-                                downloaded_size: _,
-                                total_size: _,
-                            } => format!("download"),
-                            ShardSyncStatus::StateValidation => format!("validation"),
-                            ShardSyncStatus::StateDone => format!("done"),
-                            ShardSyncStatus::Error(error) => format!("error {}", error),
-                        }
-                    )
-                    .as_str();
-            }
-            res
-        }
-        SyncStatus::StateSyncDone => format!("State sync donee"),
-    }
-}
-
-/// Format bytes per second in a nice way.
-fn pretty_bytes_per_sec(num: u64) -> String {
-    if num < 100 {
-        // Under 0.1 kiB, display in bytes.
-        format!("{} B/s", num)
-    } else if num < 1024 * 1024 {
-        // Under 1.0 MiB/sec display in kiB/sec.
-        format!("{:.1}kiB/s", num as f64 / 1024.0)
-    } else {
-        format!("{:.1}MiB/s", num as f64 / (1024.0 * 1024.0))
     }
 }

@@ -24,6 +24,7 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use near_telemetry::TelemetryConfig;
 use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
@@ -126,11 +127,13 @@ impl Default for Consensus {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct Config {
     pub genesis_file: String,
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
+    pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
 }
@@ -142,6 +145,7 @@ impl Default for Config {
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
+            telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
         }
@@ -177,6 +181,7 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
+    pub telemetry_config: TelemetryConfig,
     pub block_producer: Option<BlockProducer>,
     pub genesis_config: GenesisConfig,
 }
@@ -239,6 +244,7 @@ impl NearConfig {
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
             },
+            telemetry_config: config.telemetry,
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),
             block_producer,
