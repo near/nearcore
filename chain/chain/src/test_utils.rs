@@ -75,8 +75,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _parent_hash: CryptoHash,
         _height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
+    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
+        Ok(self.validators.iter().map(|x| x.account_id.clone()).collect())
     }
 
     fn get_block_proposer(
@@ -134,6 +134,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
