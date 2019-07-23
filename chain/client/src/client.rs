@@ -94,7 +94,7 @@ impl ClientActor {
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
-        let info_helper = InfoHelper::new(telemtetry_actor);
+        let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
         Ok(ClientActor {
             config,
             sync_status,

@@ -67,6 +67,8 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
+const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes/";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
     /// Address to listen for incoming connections.
@@ -473,7 +475,8 @@ pub fn init_configs(
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
-            let config = Config::default();
+            let mut config = Config::default();
+            config.telemetry.endpoints.push(DEFAULT_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
