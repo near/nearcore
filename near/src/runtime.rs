@@ -224,6 +224,15 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map_err(|err| err.into())
     }
 
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        Ok(vm.get_epoch_offset(parent_hash, block_index)?)
+    }
+
     fn apply_transactions(
         &self,
         shard_id: ShardId,

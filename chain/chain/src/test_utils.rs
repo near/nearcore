@@ -128,6 +128,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
+    fn get_epoch_offset(
+        &self,
+        _parent_hash: CryptoHash,
+        _block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
+        Ok((CryptoHash::default(), 0))
+    }
+
     fn apply_transactions(
         &self,
         _shard_id: ShardId,

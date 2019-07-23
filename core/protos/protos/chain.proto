@@ -19,6 +19,7 @@ message BlockHeaderBody {
 message BlockHeader {
     BlockHeaderBody body = 1;
     bytes signature = 2;
+    bytes epoch_hash = 3;
 }
 
 message Block {

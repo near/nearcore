@@ -509,7 +509,7 @@ impl ClientActor {
 
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
-        let block = Block::produce(
+        let mut block = Block::produce(
             &prev_header,
             next_height,
             state_root,
@@ -518,6 +518,13 @@ impl ClientActor {
             vec![],
             block_producer.signer.clone(),
         );
+        let (_, offset) = self
+            .runtime_adapter
+            .get_epoch_offset(prev_header.hash(), next_height)
+            .map_err(|e| Error::Other(e.to_string()))?;
+        if offset == 0 {
+            block.header.epoch_hash = block.hash();
+        }
 
         self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
     }

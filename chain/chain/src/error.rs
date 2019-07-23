@@ -44,6 +44,9 @@ pub enum ErrorKind {
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload(String),
+    /// Invalid epoch hash
+    #[fail(display = "Invalid Epoch Hash")]
+    InvalidEpochHash,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -98,7 +101,8 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidStateRoot
-            | ErrorKind::InvalidStatePayload(_) => true,
+            | ErrorKind::InvalidStatePayload(_)
+            | ErrorKind::InvalidEpochHash => true,
         }
     }
 

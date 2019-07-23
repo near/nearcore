@@ -106,6 +106,13 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
+    /// Get epoch offset for given block index
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>>;
+
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(

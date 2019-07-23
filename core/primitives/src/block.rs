@@ -45,6 +45,8 @@ pub struct BlockHeader {
     pub total_weight: Weight,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
+    /// Epoch start hash
+    pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
     pub signature: Signature,
@@ -93,6 +95,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
+        epoch_hash: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -111,25 +114,30 @@ impl BlockHeader {
         let h = chain_proto::BlockHeader {
             body: SingularPtrField::some(hb),
             signature: signer.sign(hash.as_ref()).into(),
+            epoch_hash: epoch_hash.into(),
             ..Default::default()
         };
         h.try_into().expect("Failed to parse just created header")
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+        let header_body = Self::header_body(
+            0,
+            CryptoHash::default(),
+            state_root,
+            MerkleHash::default(),
+            timestamp,
+            vec![],
+            vec![],
+            0.into(),
+            vec![],
+        );
+        let bytes = header_body.write_to_bytes().expect("Failed to serialize");
+        let hash = hash(&bytes);
         chain_proto::BlockHeader {
-            body: SingularPtrField::some(Self::header_body(
-                0,
-                CryptoHash::default(),
-                state_root,
-                MerkleHash::default(),
-                timestamp,
-                vec![],
-                vec![],
-                0.into(),
-                vec![],
-            )),
+            body: SingularPtrField::some(header_body),
             signature: DEFAULT_SIGNATURE.into(),
+            epoch_hash: hash.into(),
             ..Default::default()
         }
         .try_into()
@@ -174,6 +182,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
+        let epoch_hash = proto.epoch_hash.try_into()?;
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -183,6 +192,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_mask,
             approval_sigs,
             total_weight,
+            epoch_hash,
             validator_proposal,
             signature,
             hash,
@@ -210,6 +220,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 ..Default::default()
             }),
             signature: header.signature.into(),
+            epoch_hash: header.epoch_hash.into(),
             ..Default::default()
         }
     }
@@ -262,6 +273,7 @@ impl Block {
                 approval_sigs,
                 total_weight,
                 validator_proposal,
+                prev.epoch_hash,
                 signer,
             ),
             transactions,

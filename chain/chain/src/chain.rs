@@ -777,7 +777,8 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
         }
 
-        // First I/O cost, delayed as late as possible.
+        // First I/O cost, delay as much as possible.
+        let runtime_adapter = self.runtime_adapter.clone();
         let prev_header = self.get_previous_header(header)?;
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
@@ -786,6 +787,16 @@ impl<'a> ChainUpdate<'a> {
             return Err(
                 ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into()
             );
+        }
+
+        // Check that epoch hash is correct
+        let (_, offset) = runtime_adapter
+            .get_epoch_offset(prev_header.hash(), header.height)
+            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
+        if (offset == 0 && header.hash() != header.epoch_hash)
+            || (offset != 0 && header.epoch_hash != prev_header.epoch_hash)
+        {
+            return Err(ErrorKind::InvalidEpochHash.into());
         }
 
         // If this is not the block we produced (hence trust in it) - validates block

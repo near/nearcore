@@ -1,17 +1,18 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{GenesisConfig, load_test_config, NightshadeRuntime, start_with_config};
+use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::{ClientActor, GetBlock};
-use near_network::{NetworkClientMessages, PeerInfo};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::types::BlockIndex;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
@@ -24,16 +25,21 @@ fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
     chain.genesis().clone()
 }
 
+// This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     start: &BlockHeader,
     client: Addr<ClientActor>,
     num: usize,
     signer: Arc<InMemorySigner>,
+    epoch_length: BlockIndex,
 ) -> BlockHeader {
     let mut blocks = vec![];
     let mut prev = start;
     for _ in 0..num {
-        let block = Block::empty(prev, signer.clone());
+        let mut block = Block::empty(prev, signer.clone());
+        if block.header.height % epoch_length == 0 {
+            block.header.epoch_hash = block.header.hash();
+        }
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),
             PeerInfo::random().id,
@@ -66,7 +72,7 @@ fn sync_nodes() {
     let (client1, _) = start_with_config(dir1.path(), near1);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let _ = add_blocks(&genesis_header, client1, 11, signer);
+    let _ = add_blocks(&genesis_header, client1, 11, signer, genesis_config.epoch_length);
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
     let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -97,6 +103,7 @@ fn sync_after_sync_nodes() {
 
     let mut genesis_config = GenesisConfig::test(vec!["other"]);
     genesis_config.epoch_length = 5;
+    let epoch_length = genesis_config.epoch_length;
     let genesis_header = genesis_header(genesis_config.clone());
 
     let (port1, port2) = (open_port(), open_port());
@@ -114,7 +121,7 @@ fn sync_after_sync_nodes() {
     let (_, view_client2) = start_with_config(dir2.path(), near2);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let last_block = add_blocks(&genesis_header, client1.clone(), 11, signer.clone());
+    let last_block = add_blocks(&genesis_header, client1.clone(), 11, signer.clone(), epoch_length);
 
     let next_step = Arc::new(AtomicBool::new(false));
     WaitOrTimeout::new(
@@ -127,7 +134,7 @@ fn sync_after_sync_nodes() {
                 match &res {
                     Ok(Ok(b)) if b.header.height == 11 => {
                         if !next_step1.load(Ordering::Relaxed) {
-                            let _ = add_blocks(&last_block1, client11, 11, signer1);
+                            let _ = add_blocks(&last_block1, client11, 11, signer1, epoch_length);
                             next_step1.store(true, Ordering::Relaxed);
                         }
                     }
