@@ -1051,4 +1051,40 @@ mod test {
             )
         )
     }
+
+    #[test]
+    fn test_get_block_proposer_info() {
+        let store = create_test_store();
+        let config = config(2, 1, 2, 0, 0.9);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut vm =
+            ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
+        let (h0, h1, h3, h4) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![3]), hash(&vec![4]));
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h1, 1, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h0, &h1, &h3).unwrap();
+        vm.add_proposals(h1, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h3, &h3, &h4).unwrap();
+        vm.add_proposals(h3, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
+        let validator_assignment = vm.get_validators(h0).unwrap().clone();
+        let block_proposer_info = vm.get_block_proposer_info(h0, 3).unwrap();
+        assert_eq!(
+            block_proposer_info,
+            stake(
+                &validator_assignment.validators[validator_assignment.block_producers[1]]
+                    .account_id,
+                amount_staked
+            )
+        );
+        let block_proposer_info = vm.get_block_proposer_info(h3, 4).unwrap();
+        assert_eq!(
+            block_proposer_info,
+            stake(
+                &validator_assignment.validators[validator_assignment.block_producers[0]]
+                    .account_id,
+                amount_staked
+            )
+        );
+    }
 }

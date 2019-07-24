@@ -384,7 +384,6 @@ impl ClientActor {
         last_height: BlockIndex,
         check_height: BlockIndex,
     ) {
-        // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
         let (epoch_hash, _) = unwrap_or_return!(
             self.runtime_adapter.get_epoch_offset(block_hash, check_height + 1),
             ()
@@ -519,10 +518,11 @@ impl ClientActor {
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
 
+        // At this point, the previous epoch hash must be available
         let (epoch_hash, _) = self
             .runtime_adapter
             .get_epoch_offset(head.last_block_hash, next_height)
-            .map_err(|e| Error::Other(e.to_string()))?;
+            .expect("Epoch hash should exist at this point");
 
         let block = Block::produce(
             &prev_header,
