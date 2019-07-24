@@ -123,7 +123,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Weight, Error> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator = vm
-            .get_block_proposer_info(header.prev_hash, header.height)
+            .get_block_proposer_info(header.epoch_hash, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -133,11 +133,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
+        epoch_hash: CryptoHash,
     ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, _) = vm.get_epoch_offset(parent_hash, height)?;
         let validator_assignment = vm.get_validators(epoch_hash)?;
         Ok(validator_assignment
             .block_producers
@@ -148,11 +146,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_block_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(vm.get_block_proposer_info(parent_hash, height)?.account_id)
+        Ok(vm.get_block_proposer_info(epoch_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
@@ -222,6 +220,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         vm.add_proposals(parent_hash, current_hash, block_index, proposals, validator_mask)?
             .commit()
             .map_err(|err| err.into())
+    }
+
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        Ok(vm.get_epoch_offset(parent_hash, block_index)?)
     }
 
     fn apply_transactions(

@@ -56,18 +56,17 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Epoch block proposers with number of seats they have for given shard.
+    /// Epoch block proposers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
+        epoch_hash: CryptoHash,
     ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -105,6 +104,13 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Get epoch offset for given block index
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -167,6 +173,8 @@ pub struct Tip {
     pub prev_block_hash: CryptoHash,
     /// Total weight on that fork
     pub total_weight: Weight,
+    /// Previous epoch hash. Used for getting validator info.
+    pub epoch_hash: CryptoHash,
 }
 
 impl Tip {
@@ -177,6 +185,7 @@ impl Tip {
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
             total_weight: header.total_weight,
+            epoch_hash: header.epoch_hash,
         }
     }
 }
@@ -214,6 +223,7 @@ mod tests {
             &genesis.header,
             1,
             MerkleHash::default(),
+            CryptoHash::default(),
             vec![],
             HashMap::default(),
             vec![],
@@ -228,6 +238,7 @@ mod tests {
             &b1.header,
             2,
             MerkleHash::default(),
+            CryptoHash::default(),
             vec![],
             approvals,
             vec![],

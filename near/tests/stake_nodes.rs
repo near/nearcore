@@ -115,7 +115,7 @@ fn test_stake_nodes() {
 }
 
 #[test]
-fn test_kickout() {
+fn test_validator_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
         let test_nodes = init_test_staking(4, 4, 24);

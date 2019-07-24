@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::MerkleHash;
 
@@ -68,6 +69,7 @@ fn build_chain_with_skips_and_forks() {
         chain.genesis(),
         2,
         MerkleHash::default(),
+        CryptoHash::default(),
         vec![],
         HashMap::default(),
         vec![],
@@ -78,6 +80,7 @@ fn build_chain_with_skips_and_forks() {
         &b2.header,
         4,
         MerkleHash::default(),
+        CryptoHash::default(),
         vec![],
         HashMap::default(),
         vec![],
