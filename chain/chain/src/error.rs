@@ -47,6 +47,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid Signature
+    #[fail(display = "Invalid Signature")]
+    InvalidSignature,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -102,7 +105,8 @@ impl Error {
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidStatePayload(_)
-            | ErrorKind::InvalidEpochHash => true,
+            | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidSignature => true,
         }
     }
 

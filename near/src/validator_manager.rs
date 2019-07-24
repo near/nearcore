@@ -419,7 +419,7 @@ impl ValidatorManager {
             // If this is next epoch index, return parent's epoch hash and 0 as offset.
             Ok((parent_info.epoch_start_hash, 0))
         } else {
-            // If index is within the same epoch as it's parent, return it's epoch parent and current offset from this epoch start.
+            // If index is within the same epoch as its parent, return its epoch parent and current offset from this epoch start.
             let prev_epoch_info = self.get_index_info(&epoch_start_parent_hash)?;
             Ok((prev_epoch_info.epoch_start_hash, index - epoch_start_index))
         }
@@ -625,11 +625,14 @@ impl ValidatorManager {
 
     pub fn get_block_proposer_info(
         &mut self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<ValidatorStake, Box<dyn std::error::Error>> {
-        let (epoch_hash, idx) = self.get_epoch_offset(parent_hash, height)?;
         let validator_assignment = self.get_validators(epoch_hash)?;
+        if height < validator_assignment.expected_epoch_start {
+            return Err(Box::new(ValidatorError::EpochOutOfBounds));
+        }
+        let idx = height - validator_assignment.expected_epoch_start;
         let total_seats = validator_assignment.block_producers.len() as u64;
         let block_producer_idx = idx % total_seats;
         let validator_idx = validator_assignment.block_producers[block_producer_idx as usize];

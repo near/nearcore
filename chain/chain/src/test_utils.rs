@@ -73,8 +73,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        _parent_hash: CryptoHash,
-        _height: BlockIndex,
+        _epoch_hash: CryptoHash,
     ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
         Ok(self.validators.iter().map(|x| x.account_id.clone()).collect())
     }
