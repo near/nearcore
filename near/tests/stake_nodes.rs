@@ -114,7 +114,9 @@ fn test_stake_nodes() {
     });
 }
 
+/// TODO(1094): Enable kickout test after figuring
 #[test]
+#[ignore]
 fn test_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
