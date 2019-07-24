@@ -3,6 +3,7 @@
 FROM phusion/baseimage:0.11
 
 RUN apt-get update -qq && apt-get install -y \
+    git \
     cmake \
     g++ \
     protobuf-compiler \
@@ -24,7 +25,10 @@ WORKDIR /near
 COPY . .
 
 ENV CARGO_TARGET_DIR=/tmp/target
-RUN cargo build -p near --release && \
+RUN --mount=type=cache,target=/tmp/target \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build -p near --release && \
     cp /tmp/target/release/near /usr/local/bin/
 
 EXPOSE 3030 24567
