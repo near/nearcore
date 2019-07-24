@@ -98,8 +98,10 @@ fn test_stake_nodes() {
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                actix::spawn(test_nodes[0].client.send(Status {}).then(|res| {
-                    if res.unwrap().unwrap().validators.len() == 2 {
+                let account_id_1 = test_nodes[1].account_id.clone();
+
+                actix::spawn(test_nodes[0].client.send(Status {}).then(move |res| {
+                    if res.unwrap().unwrap().validators.contains(&account_id_1) {
                         System::current().stop();
                     }
                     futures::future::ok(())
