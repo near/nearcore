@@ -79,8 +79,8 @@ pub fn staking(
                 .map_err(|err| err.to_string())?,
             amount: body.amount,
         });
-        if sender.staked < body.amount {
-            sender.amount -= increment;
+        if sender.staked != body.amount {
+            sender.amount = sender.amount + sender.staked - body.amount;
             sender.staked = body.amount;
             set_account(state_update, sender_account_id, &sender);
         }
