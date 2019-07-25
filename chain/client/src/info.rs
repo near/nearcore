@@ -7,6 +7,7 @@ use serde_json::json;
 use sysinfo::{get_current_pid, Pid, ProcessExt, System, SystemExt};
 
 use near_chain::Tip;
+use near_network::types::PeerId;
 use near_primitives::serialize::to_base;
 use near_telemetry::{telemetry, TelemetryActor};
 
@@ -55,6 +56,7 @@ impl InfoHelper {
         &mut self,
         head: &Tip,
         sync_status: &SyncStatus,
+        node_id: &PeerId,
         network_info: &NetworkInfo,
         is_validator: bool,
         num_validators: usize,
@@ -96,6 +98,7 @@ impl InfoHelper {
             try_sign_json(
                 json!({
                     "account_id": self.block_producer.clone().map(|bp| bp.account_id).unwrap_or("".to_string()),
+                    "node_id": node_id,
                     "status": display_sync_status(&sync_status, &head),
                     "latest_block_hash": to_base(&head.last_block_hash),
                     "latest_block_height": head.height,

@@ -67,6 +67,7 @@ pub fn start_with_config(
     .unwrap()
     .start();
     let view_client1 = view_client.clone();
+    let node_id = config.network_config.public_key.clone().into();
     let client = ClientActor::create(move |ctx| {
         let network_actor =
             PeerManagerActor::new(store.clone(), config.network_config, ctx.address().recipient())
@@ -80,6 +81,7 @@ pub fn start_with_config(
             store.clone(),
             config.genesis_config.genesis_time,
             runtime,
+            node_id,
             network_actor.recipient(),
             config.block_producer,
             telemetry,

@@ -44,10 +44,13 @@ pub struct ClientActor {
     sync_status: SyncStatus,
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
+    block_producer: Option<BlockProducer>,
     tx_pool: TransactionPool,
     network_actor: Recipient<NetworkRequests>,
-    block_producer: Option<BlockProducer>,
     network_info: NetworkInfo,
+    /// Identity that represents this Client at the network level.
+    /// It is used as part of the messages that identify this client.
+    node_id: PeerId,
     /// Set of approvals for the next block.
     approvals: HashMap<usize, Signature>,
     /// Timestamp when last block was received / processed. Used to timeout block production.
@@ -80,6 +83,7 @@ impl ClientActor {
         store: Arc<Store>,
         genesis_time: DateTime<Utc>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
+        node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
         telemtetry_actor: Addr<TelemetryActor>,
@@ -102,6 +106,7 @@ impl ClientActor {
             runtime_adapter,
             tx_pool,
             network_actor,
+            node_id,
             block_producer,
             network_info: NetworkInfo {
                 num_active_peers: 0,
@@ -859,6 +864,7 @@ impl ClientActor {
             act.info_helper.info(
                 &head,
                 &act.sync_status,
+                &act.node_id,
                 &act.network_info,
                 is_validator,
                 num_validators,
