@@ -552,7 +552,7 @@ mod test {
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2,
                 stake: TESTING_INIT_STAKE * 2,
                 public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash
+                code_hash: account.code_hash,
             }
         );
 

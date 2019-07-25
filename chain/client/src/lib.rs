@@ -1,11 +1,12 @@
 pub use crate::client::ClientActor;
 pub use crate::types::{
     BlockProducer, ClientConfig, Error, GetBlock, NetworkInfo, Query, Status, StatusResponse,
-    SyncStatus, TxStatus, TxDetails
+    SyncStatus, TxDetails, TxStatus,
 };
 pub use crate::view_client::ViewClientActor;
 
 mod client;
+mod info;
 mod sync;
 pub mod test_utils;
 mod types;
