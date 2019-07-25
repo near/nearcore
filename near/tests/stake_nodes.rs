@@ -115,6 +115,7 @@ fn test_stake_nodes() {
 }
 
 #[test]
+#[ignore]
 fn test_validator_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
