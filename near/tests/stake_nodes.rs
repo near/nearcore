@@ -98,12 +98,8 @@ fn test_stake_nodes() {
 
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
-                let expected_validators: Vec<_> =
-                    test_nodes.iter().map(|node| node.account_id.clone()).collect();
-
                 actix::spawn(test_nodes[0].client.send(Status {}).then(move |res| {
-                    let current_validators = res.unwrap().unwrap().validators;
-                    if expected_validators.iter().all(|x| current_validators.contains(x)) {
+                    if res.unwrap().unwrap().validators == vec!["near.1", "near.0"] {
                         System::current().stop();
                     }
                     futures::future::ok(())
