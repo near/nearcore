@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
 fn test_keyvalue_runtime_balances() {
-    let validators_per_shard = 2;
+    let validator_groups = 2;
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_test_logger();
     System::run(move || {
@@ -26,7 +26,7 @@ fn test_keyvalue_runtime_balances() {
         *connectors.write().unwrap() = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
-            validators_per_shard,
+            validator_groups,
             true,
             100,
             Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
@@ -216,31 +216,37 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_cross_shard_tx() {
-        let validators_per_shard = 2;
+    fn test_cross_shard_tx_common(rotate_validators: bool) {
+        let validator_groups = 2;
         let num_iters = 64;
         init_test_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
 
-            let validators = vec![
+            let validators = if rotate_validators {
                 vec![
+                    vec![
+                        "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6",
+                        "test1.7", "test1.8",
+                    ],
+                    vec![
+                        "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6",
+                        "test2.7", "test2.8",
+                    ],
+                    vec![
+                        // Test different number of validators
+                        "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
+                        "test3.8", "test3.9", "test3.10", "test3.11", "test3.12", "test3.13",
+                        "test3.14", "test3.15", "test3.16",
+                    ],
+                ]
+            } else {
+                vec![vec![
                     "test1.1", "test1.2", "test1.3", "test1.4", "test1.5", "test1.6", "test1.7",
                     "test1.8",
-                ],
-                /*vec![
-                    "test2.1", "test2.2", "test2.3", "test2.4", "test2.5", "test2.6", "test2.7",
-                    "test2.8",
-                ],
-                vec![
-                    // Test different number of validators
-                    "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
-                    "test3.8", "test3.9", "test3.10", "test3.11", "test3.12", "test3.13",
-                    "test3.14", "test3.15", "test3.16",
-                ],*/
-            ];
+                ]]
+            };
             let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
             let balances = Arc::new(RwLock::new(vec![]));
             let observed_balances = Arc::new(RwLock::new(vec![]));
@@ -255,9 +261,9 @@ mod tests {
             *connectors.write().unwrap() = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
-                validators_per_shard,
+                validator_groups,
                 true,
-                30,
+                if rotate_validators { 150 } else { 50 },
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -305,8 +311,18 @@ mod tests {
             }
 
             // On X1 it takes ~1m 15s
-            near_network::test_utils::wait_or_panic(150000);
+            near_network::test_utils::wait_or_panic(600000);
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_cross_shard_tx() {
+        test_cross_shard_tx_common(false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_with_validator_rotation() {
+        test_cross_shard_tx_common(true);
     }
 }

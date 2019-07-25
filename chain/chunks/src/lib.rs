@@ -18,6 +18,7 @@ use near_primitives::sharding::{
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, ShardId};
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
+use rand::Rng;
 use reed_solomon_erasure::option_shards_into_shards;
 use std::collections::hash_map::Entry;
 use std::collections::vec_deque::VecDeque;
@@ -93,6 +94,15 @@ impl ShardsManager {
             Ok(vec![])
         }
     }
+    pub fn cares_about_shard_this_or_next_epoch(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        return self.runtime_adapter.cares_about_shard(account_id, parent_hash, shard_id)
+            || self.runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id);
+    }
     pub fn request_chunks(&mut self, chunks_to_request: Vec<ShardChunkHeader>) {
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
@@ -109,11 +119,13 @@ impl ShardsManager {
                 }
                 self.requested_one_parts.insert(chunk_hash.clone());
 
+                let mut requested_one_part = false;
                 for part_id in 0..self.runtime_adapter.num_total_parts(parent_hash) {
                     let part_id = part_id as u64;
                     if self.runtime_adapter.get_part_owner(parent_hash, part_id).unwrap()
                         == self.me.clone().unwrap()
                     {
+                        requested_one_part = true;
                         error!(
                             "MOO requesting single part for chunk {:?}: {} from {}, I'm {:?}",
                             chunk_hash.clone(),
@@ -136,6 +148,41 @@ impl ShardsManager {
                             },
                         });
                     }
+                }
+
+                if match self.me.clone() {
+                    None => false,
+                    Some(me) => self.runtime_adapter.cares_about_shard(&me, parent_hash, shard_id),
+                } {
+                    assert!(requested_one_part)
+                };
+
+                if !requested_one_part {
+                    let mut rng = rand::thread_rng();
+
+                    let part_id = rng.gen::<u64>()
+                        % (self.runtime_adapter.num_total_parts(parent_hash) as u64);
+                    error!(
+                        "MOO requesting RANDOM single part for chunk {:?}: {} from {}, I'm {:?}",
+                        chunk_hash.clone(),
+                        part_id,
+                        self.runtime_adapter
+                            .get_chunk_proposer(parent_hash, height, shard_id)
+                            .unwrap(),
+                        self.me.clone().unwrap()
+                    );
+                    let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
+                        account_id: self
+                            .runtime_adapter
+                            .get_chunk_proposer(parent_hash, height, shard_id)
+                            .unwrap(),
+                        part_request: ChunkPartRequestMsg {
+                            shard_id,
+                            chunk_hash: chunk_hash.clone(),
+                            height,
+                            part_id,
+                        },
+                    });
                 }
             } else {
                 if self.requested_chunks.contains(&chunk_hash) {
@@ -299,7 +346,7 @@ impl ShardsManager {
                             .receipts
                             .iter()
                             .filter(|&receipt| {
-                                self.runtime_adapter.cares_about_shard(
+                                self.cares_about_shard_this_or_next_epoch(
                                     &account_id,
                                     chunk.header.prev_block_hash,
                                     self.runtime_adapter.account_id_to_shard_id(&receipt.receiver),
@@ -349,7 +396,7 @@ impl ShardsManager {
             let shard_id = part.shard_id;
             self.me.clone().map_or_else(
                 || false,
-                |me| self.runtime_adapter.cares_about_shard(&me, prev_block_hash, shard_id),
+                |me| self.cares_about_shard_this_or_next_epoch(&me, prev_block_hash, shard_id),
             )
         } else {
             false
@@ -453,10 +500,27 @@ impl ShardsManager {
 
         match self.runtime_adapter.get_part_owner(prev_block_hash, one_part.part_id) {
             Ok(owner) => {
-                if self.me != Some(owner) {
-                    // ChunkOnePartMsg should only be sent to the authority that corresponds to the part_id
-                    assert!(false); // TODO XXX MOO remove
-                    return Ok(false);
+                match self.me.clone() {
+                    None => {
+                        // ChunkOnePartMsg should never be sent to nodes that are not block producers
+                        assert!(false); // TODO XXX MOO remove
+                        return Ok(false);
+                    }
+                    Some(me) => {
+                        if self.runtime_adapter.cares_about_shard(
+                            &me,
+                            prev_block_hash,
+                            one_part.shard_id,
+                        ) {
+                            if me != owner {
+                                // ChunkOnePartMsg should only be sent to the authority that corresponds to the part_id
+                                // unless the authority doesn't validate the shard presently, in which case it requests
+                                // random onepart in `request_chunks`, so should also accept any onepart
+                                assert!(false); // TODO XXX MOO remove
+                                return Ok(false);
+                            }
+                        }
+                    }
                 }
                 // Fall through, normal case
             }
@@ -528,7 +592,7 @@ impl ShardsManager {
         // If we do not follow this shard, having the one part is sufficient to include the chunk in the block
         if self.me.as_ref().map_or_else(
             || false,
-            |me| !self.runtime_adapter.cares_about_shard(me, prev_block_hash, one_part.shard_id),
+            |me| !self.cares_about_shard_this_or_next_epoch(me, prev_block_hash, one_part.shard_id),
         ) {
             self.block_hash_to_chunk_headers
                 .entry(one_part.header.prev_block_hash)
@@ -565,7 +629,7 @@ impl ShardsManager {
                             ret |= cur;
 
                             if self.me.is_some()
-                                && self.runtime_adapter.cares_about_shard(
+                                && self.cares_about_shard_this_or_next_epoch(
                                     self.me.as_ref().unwrap(),
                                     block_hash,
                                     shard_id,
@@ -702,7 +766,7 @@ impl ShardsManager {
                 receipts
                     .iter()
                     .filter(|&receipt| {
-                        self.runtime_adapter.cares_about_shard(
+                        self.cares_about_shard_this_or_next_epoch(
                             &to_whom,
                             prev_block_hash,
                             self.runtime_adapter.account_id_to_shard_id(&receipt.receiver),

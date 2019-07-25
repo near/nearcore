@@ -23,6 +23,16 @@ pub enum BlockStatus {
     Reorg(CryptoHash),
 }
 
+impl BlockStatus {
+    pub fn is_new_head(&self) -> bool {
+        match self {
+            BlockStatus::Next => true,
+            BlockStatus::Fork => false,
+            BlockStatus::Reorg(_) => true,
+        }
+    }
+}
+
 /// Options for block origin.
 #[derive(Eq, PartialEq)]
 pub enum Provenance {
@@ -115,6 +125,13 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> bool;
 
+    fn will_care_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> bool;
+
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(
         &self,
@@ -178,6 +195,23 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: MerkleHash,
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    fn is_epoch_second_block(
+        &self,
+        parent_hash: CryptoHash,
+        index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>>;
+
+    fn is_epoch_start(
+        &self,
+        parent_hash: CryptoHash,
+        index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>>;
+
+    fn get_epoch_hash(
+        &self,
+        parent_hash: CryptoHash,
+    ) -> Result<CryptoHash, Box<dyn std::error::Error>>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

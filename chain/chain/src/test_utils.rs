@@ -29,12 +29,16 @@ pub struct KeyValueRuntime {
     trie: Arc<Trie>,
     root: MerkleHash,
     validators: Vec<Vec<ValidatorStake>>,
-    validators_per_shard: u64,
+    validator_groups: u64,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     amounts: RwLock<HashMap<MerkleHash, HashMap<AccountId, u128>>>,
     receipt_nonces: RwLock<HashMap<MerkleHash, HashSet<CryptoHash>>>,
     tx_nonces: RwLock<HashMap<MerkleHash, HashSet<(AccountId, Nonce)>>>,
+
+    hash_to_epoch: RwLock<HashMap<CryptoHash, CryptoHash>>,
+    hash_to_valset: RwLock<HashMap<CryptoHash, u64>>,
+    epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
@@ -49,13 +53,18 @@ impl KeyValueRuntime {
     pub fn new_with_validators(
         store: Arc<Store>,
         validators: Vec<Vec<AccountId>>,
-        validators_per_shard: u64,
+        validator_groups: u64,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut initial_amounts = HashMap::new();
         for (i, validator) in validators.iter().flatten().enumerate() {
             initial_amounts.insert(validator.clone(), (1000 + 100 * i) as u128);
         }
+
+        let mut map_with_default_hash1 = HashMap::new();
+        map_with_default_hash1.insert(CryptoHash::default(), CryptoHash::default());
+        let mut map_with_default_hash2 = HashMap::new();
+        map_with_default_hash2.insert(CryptoHash::default(), 0);
 
         let mut amounts = HashMap::new();
         amounts.insert(MerkleHash::default(), initial_amounts);
@@ -76,10 +85,13 @@ impl KeyValueRuntime {
                         .collect()
                 })
                 .collect(),
-            validators_per_shard,
+            validator_groups,
             amounts: RwLock::new(amounts),
             receipt_nonces: RwLock::new(HashMap::new()),
             tx_nonces: RwLock::new(HashMap::new()),
+            hash_to_epoch: RwLock::new(map_with_default_hash1.clone()),
+            hash_to_valset: RwLock::new(map_with_default_hash2.clone()),
+            epoch_start: RwLock::new(map_with_default_hash2.clone()),
         }
     }
 
@@ -101,9 +113,59 @@ impl KeyValueRuntime {
         Ok(prev_block_header.height)
     }
 
-    fn get_epoch(&self, prev_hash: CryptoHash) -> Result<usize, Box<dyn std::error::Error>> {
-        // switch epoch every five heights
-        Ok(((self.get_prev_height(prev_hash)? / 5) as usize) % self.validators.len())
+    fn get_epoch_and_valset(
+        &self,
+        prev_hash: CryptoHash,
+    ) -> Result<(CryptoHash, usize), Box<dyn std::error::Error>> {
+        if prev_hash == CryptoHash::default() {
+            return Ok((prev_hash, 0));
+        }
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
+            .ok_or("Missing block when computing the epoch")?;
+
+        let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
+        let mut hash_to_valset = self.hash_to_valset.write().unwrap();
+        let mut epoch_start_map = self.epoch_start.write().unwrap();
+
+        let prev_prev_hash = prev_block_header.prev_hash;
+        let prev_epoch = hash_to_epoch.get(&prev_prev_hash).unwrap();
+        let prev_valset = *hash_to_valset.get(&prev_prev_hash).unwrap();
+
+        let (has_two_blocks, prev_epoch_start) =
+            if prev_block_header.prev_hash == CryptoHash::default() {
+                (false, 0)
+            } else {
+                let prev_prev_block_header = self
+                    .store
+                    .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_prev_hash.as_ref())
+                    .unwrap()
+                    .unwrap();
+
+                let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
+
+                (
+                    prev_epoch.clone()
+                        == hash_to_epoch.get(&prev_prev_block_header.prev_hash).unwrap().clone(),
+                    prev_epoch_start,
+                )
+            };
+
+        // We need to have at least two blocks in each epoch, otherwise switch epoch ~every 5 heights
+        let increment_epoch = has_two_blocks && prev_block_header.height - prev_epoch_start >= 5;
+
+        let (epoch, valset, epoch_start) = if increment_epoch {
+            (prev_hash, prev_valset + 1, prev_block_header.height)
+        } else {
+            (prev_epoch.clone(), prev_valset, prev_epoch_start)
+        };
+
+        hash_to_epoch.insert(prev_hash, epoch);
+        hash_to_valset.insert(prev_hash, valset);
+        epoch_start_map.insert(prev_hash, epoch_start);
+
+        Ok((epoch, valset as usize % self.validators.len()))
     }
 }
 
@@ -120,8 +182,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validators =
-            &self.validators[self.get_epoch(header.prev_hash).map_err(|err| err.to_string())?];
+        let validators = &self.validators
+            [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
         let validator = &validators[(header.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -138,7 +200,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: CryptoHash,
         _height: BlockIndex,
     ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
         Ok(validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
     }
 
@@ -147,7 +209,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
@@ -157,10 +219,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
-        let validators_per_shard = self.validators_per_shard;
-        let offset = (shard_id / validators_per_shard * validators_per_shard) as usize;
+        assert_eq!(0, validators.len() as u64 % self.validator_groups);
+        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
+        let coef = validators.len() as ShardId / self.num_shards();
+        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         // The +1 is so that if all validators validate all shards in a test, the chunk producer
         //     doesn't match the block producer
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
@@ -172,11 +236,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn num_shards(&self) -> ShardId {
-        let validators = &self.validators[0];
-        if validators.len() < 64 || validators.len() % 4 != 0 {
-            validators.len() as ShardId
+        let ret = self.validators.iter().map(|x| x.len()).min().unwrap();
+        if ret < 64 || ret % 4 != 0 {
+            ret as ShardId
         } else {
-            (validators.len() / 4) as ShardId
+            (ret / 4) as ShardId
         }
     }
 
@@ -200,7 +264,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: CryptoHash,
         part_id: u64,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch(parent_hash)?];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
         let idx =
@@ -214,10 +278,43 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        let validators = &self.validators[self.get_epoch(parent_hash).unwrap()];
+        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
-        let validators_per_shard = self.validators_per_shard;
-        let offset = (shard_id / validators_per_shard * validators_per_shard) as usize;
+        assert_eq!(0, validators.len() as u64 % self.validator_groups);
+        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
+        let coef = validators.len() as ShardId / self.num_shards();
+        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
+        assert!(offset + validators_per_shard as usize <= validators.len());
+        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+            if validator.account_id == *account_id {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn will_care_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        // figure out if this block is the first block of an epoch
+        let first_block_of_the_epoch = self.is_epoch_start(parent_hash, 0).unwrap();
+
+        // If it is the first block of the epoch, Nightshade runtime can't infer the next validator set
+        //    emulate that behavior
+        if first_block_of_the_epoch {
+            return false;
+        }
+
+        let validators = &self.validators
+            [(self.get_epoch_and_valset(parent_hash).unwrap().1 + 1) % self.validators.len()];
+        assert_eq!((validators.len() as u64) % self.num_shards(), 0);
+        assert_eq!(0, validators.len() as u64 % self.validator_groups);
+        let validators_per_shard = validators.len() as ShardId / self.validator_groups;
+        let coef = validators.len() as ShardId / self.num_shards();
+        let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
             if validator.account_id == *account_id {
                 return true;
@@ -451,6 +548,59 @@ impl RuntimeAdapter for KeyValueRuntime {
         _payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
+    }
+
+    fn is_epoch_second_block(
+        &self,
+        parent_hash: CryptoHash,
+        _index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
+            .ok_or("Missing block when computing the epoch")?;
+        let prev_prev_hash = prev_block_header.prev_hash;
+
+        // So this is a bit ugly, but `is_epoch_second_block` is the only method that is guaranteed
+        //    to be called from `process_block`, so call `get_epoch` here to get all the epoch
+        //    stuff computed and persisted
+        let _ = self.get_epoch_and_valset(parent_hash);
+
+        if prev_prev_hash == CryptoHash::default() {
+            Ok(true)
+        } else {
+            let prev_prev_block_header = self
+                .store
+                .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_prev_hash.as_ref())?
+                .ok_or("Missing block when computing the epoch")?;
+            let prev_prev_prev_hash = prev_prev_block_header.prev_hash;
+            Ok(self.get_epoch_and_valset(prev_prev_prev_hash)?.0
+                != self.get_epoch_and_valset(prev_prev_hash)?.0)
+        }
+    }
+
+    fn is_epoch_start(
+        &self,
+        parent_hash: CryptoHash,
+        _index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        if parent_hash == CryptoHash::default() {
+            return Ok(true);
+        }
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
+            .ok_or("Missing block when computing the epoch")?;
+        let prev_prev_hash = prev_block_header.prev_hash;
+        Ok(self.get_epoch_and_valset(parent_hash)?.0
+            != self.get_epoch_and_valset(prev_prev_hash)?.0)
+    }
+
+    fn get_epoch_hash(
+        &self,
+        parent_hash: CryptoHash,
+    ) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+        Ok(self.get_epoch_and_valset(parent_hash)?.0)
     }
 }
 

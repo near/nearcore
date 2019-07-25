@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock};
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
-    chunks_produced_and_distributed_common(4);
+    chunks_produced_and_distributed_common(1);
 }
 
 #[test]
@@ -21,13 +21,14 @@ fn chunks_produced_and_distributed_2_vals_per_shard() {
 
 #[test]
 fn chunks_produced_and_distributed_one_val_per_shard() {
-    chunks_produced_and_distributed_common(1);
+    chunks_produced_and_distributed_common(4);
 }
 
 /// Runs block producing client and stops after network mock received seven blocks
 /// Confirms that the blocks form a chain (which implies the chunks are distributed).
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
-fn chunks_produced_and_distributed_common(validators_per_shard: u64) {
+fn chunks_produced_and_distributed_common(validator_groups: u64) {
+    let validators_per_shard = 4 / validator_groups;
     init_test_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
@@ -56,7 +57,7 @@ fn chunks_produced_and_distributed_common(validators_per_shard: u64) {
         *connectors.write().unwrap() = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
-            validators_per_shard,
+            validator_groups,
             true,
             100,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {

@@ -48,11 +48,16 @@ message StateRequest {
     bytes hash = 2;
 }
 
+message StateResponseReceipts {
+    bytes hash = 1;
+    repeated ReceiptTransaction receipts = 2;
+}
+
 message StateResponse {
     uint64 shard_id = 1;
     bytes hash = 2;
     bytes payload = 3;
-    repeated ReceiptTransaction receipts = 4;
+    repeated StateResponseReceipts receipts = 4;
 }
 
 message ChunkPartRequest{

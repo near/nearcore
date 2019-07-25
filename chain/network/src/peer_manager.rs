@@ -186,6 +186,7 @@ impl PeerManagerActor {
 
     /// Returns single random peer with the most weight.
     fn most_weight_peers(&self) -> Vec<FullPeerInfo> {
+        assert!(self.active_peers.len() > 0); // TODO MOO XXX remove
         let max_weight = match self
             .active_peers
             .values()
@@ -193,7 +194,10 @@ impl PeerManagerActor {
             .max()
         {
             Some(w) => w,
-            None => return vec![],
+            None => {
+                assert!(false); // TODO MOO XXX remove
+                return vec![];
+            }
         };
         self.active_peers
             .values()

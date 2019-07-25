@@ -27,7 +27,7 @@ use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::Store;
 
-use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
+use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{
     BlockProducer, ClientConfig, Error, NetworkInfo, ShardSyncStatus, Status, StatusSyncInfo,
     SyncStatus,
@@ -51,6 +51,9 @@ pub struct ClientActor {
     chain: Chain,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     shards_mgr: ShardsManager,
+    /// A mapping from a block for which a state sync is underway for the next epoch, and the object
+    /// storing the current status of the state sync
+    catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncStatus>)>,
     network_actor: Recipient<NetworkRequests>,
     block_producer: Option<BlockProducer>,
     network_info: NetworkInfo,
@@ -92,7 +95,7 @@ impl ClientActor {
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
         let block_sync = BlockSync::new(network_actor.clone(), config.block_fetch_horizon);
-        let state_sync = StateSync::new(network_actor.clone(), config.state_fetch_horizon);
+        let state_sync = StateSync::new(network_actor.clone());
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
@@ -117,6 +120,7 @@ impl ClientActor {
             chain,
             runtime_adapter,
             shards_mgr,
+            catchup_state_syncs: HashMap::new(),
             network_actor,
             block_producer,
             network_info: NetworkInfo {
@@ -221,6 +225,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
+                debug!(
+                    "MOO received state request for hash {:?}, I'm {:?}",
+                    hash,
+                    self.block_producer.clone().map(|x| x.account_id)
+                );
                 if let Ok((payload, receipts)) = self.state_request(shard_id, hash) {
                     return NetworkClientResponses::StateResponse {
                         shard_id,
@@ -232,22 +241,47 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts) => {
-                if let SyncStatus::StateSync(sync_hash, sharded_statuses) = &mut self.sync_status {
-                    if hash != *sync_hash {
-                        sharded_statuses.insert(
-                            shard_id,
-                            ShardSyncStatus::Error(format!(
-                                "Incorrect hash of the state response, expected: {}, got: {}",
-                                sync_hash, hash
-                            )),
-                        );
-                    } else {
-                        match self.chain.set_shard_state(shard_id, hash, payload, receipts) {
-                            Ok(()) => {
-                                sharded_statuses.insert(shard_id, ShardSyncStatus::StateDone);
+                debug!(
+                    "MOO received state response for hash {:?}, I'm {:?}",
+                    hash,
+                    self.block_producer.clone().map(|x| x.account_id)
+                );
+                // Populate the hashmaps with shard statuses that might be interested in this state
+                //     (naturally, the plural of statuses is statuseses)
+                let mut shard_statuseses = vec![];
+
+                // ... It could be that the state was requested by the state sync
+                if let SyncStatus::StateSync(sync_hash, shard_statuses) = &mut self.sync_status {
+                    if hash == *sync_hash {
+                        shard_statuseses.push(shard_statuses);
+                    }
+                }
+
+                // ... Or one of the catchups
+                for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+                    if hash == sync_hash {
+                        assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+                        if let Some((_, shard_statuses)) =
+                            self.catchup_state_syncs.get_mut(&sync_hash)
+                        {
+                            debug!("MOO there's a status to update for {:?}", hash);
+                            shard_statuseses.push(shard_statuses);
+                        }
+                        // We should not be requesting the same state twice.
+                        break;
+                    }
+                }
+
+                if !shard_statuseses.is_empty() {
+                    match self.chain.set_shard_state(shard_id, hash, payload, receipts) {
+                        Ok(()) => {
+                            for shard_statuses in shard_statuseses {
+                                shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
                             }
-                            Err(err) => {
-                                sharded_statuses.insert(
+                        }
+                        Err(err) => {
+                            for shard_statuses in shard_statuseses {
+                                shard_statuses.insert(
                                     shard_id,
                                     ShardSyncStatus::Error(format!(
                                         "Failed to set state for {} @ {}: {}",
@@ -258,6 +292,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                     }
                 }
+
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPartRequest(part_request_msg, peer_id) => {
@@ -286,7 +321,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         if self.block_producer.as_ref().map_or_else(
                             || false,
                             |bp| {
-                                self.runtime_adapter.cares_about_shard(
+                                self.shards_mgr.cares_about_shard_this_or_next_epoch(
                                     &bp.account_id,
                                     prev_block_hash,
                                     one_part_msg.shard_id,
@@ -528,7 +563,11 @@ impl ClientActor {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.height == chunk_header.height_included {
-                if self.runtime_adapter.cares_about_shard(&me, block.header.prev_hash, shard_id) {
+                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+                    &me,
+                    block.header.prev_hash,
+                    shard_id,
+                ) {
                     self.shards_mgr.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
@@ -543,7 +582,11 @@ impl ClientActor {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.height == chunk_header.height_included {
-                if self.runtime_adapter.cares_about_shard(&me, block.header.prev_hash, shard_id) {
+                if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+                    &me,
+                    block.header.prev_hash,
+                    shard_id,
+                ) {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
@@ -771,6 +814,7 @@ impl ClientActor {
         if head.height != last_height {
             return Ok(());
         }
+
         // Check that we are were called at the block that we are producer for.
         let next_block_proposer = self.get_block_proposer(head.last_block_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
@@ -778,6 +822,21 @@ impl ClientActor {
             return Ok(());
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
+        let prev_hash = prev.hash();
+        let prev_prev_hash = prev.prev_hash;
+
+        if self
+            .runtime_adapter
+            .is_epoch_start(head.last_block_hash, next_height)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?
+        {
+            if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // The previous block is not caught up for the next epoch relative to the previous
+                // block, which is the current epoch for this block, so this block cannot be applied
+                // at all yet, needs to be orphaned
+                return Err(ErrorKind::Orphan.into());
+            }
+        }
 
         // Wait until we have all approvals or timeouts per max block production delay.
         let validators = self
@@ -806,7 +865,7 @@ impl ClientActor {
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         // Also produce at least one block per epoch (produce a block even if empty if the last height was more than an epoch ago).
-        let new_chunks = self.shards_mgr.prepare_chunks(prev.hash());
+        let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
 
         if !self.config.produce_empty_blocks
             && new_chunks.is_empty()
@@ -843,7 +902,9 @@ impl ClientActor {
             block_producer.signer.clone(),
         );
 
-        self.process_block(ctx, block, Provenance::PRODUCED).map(|_| ()).map_err(|err| err.into())
+        let ret = self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into());
+        assert!(ret.is_ok());
+        ret
     }
 
     /// Check if any block with missing chunks is ready to be processed
@@ -880,7 +941,7 @@ impl ClientActor {
         ctx: &mut Context<ClientActor>,
         block: Block,
         provenance: Provenance,
-    ) -> Result<Option<near_chain::Tip>, near_chain::Error> {
+    ) -> Result<(), near_chain::Error> {
         // XXX: this is bad, there is no multithreading here, what is the better way to handle this callback?
         // TODO: replace to channels or cross beams here?
         let accepted_blocks = Arc::new(RwLock::new(vec![]));
@@ -907,7 +968,7 @@ impl ClientActor {
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks);
         }
-        result
+        result.map(|_| ())
     }
 
     /// Processes received block, returns boolean if block was reasonable or malicious.
@@ -1103,6 +1164,73 @@ impl ClientActor {
         self.sync(ctx);
     }
 
+    fn find_sync_hash(&mut self) -> Result<CryptoHash, near_chain::Error> {
+        let header_head = self.chain.header_head()?;
+        let mut sync_hash = header_head.prev_block_hash;
+        for _ in 0..self.config.state_fetch_horizon {
+            sync_hash = self.chain.get_block_header(&sync_hash)?.prev_hash;
+        }
+        Ok(sync_hash)
+    }
+
+    /// Walks through all the ongoing state syncs for future epochs and processes them
+    fn catchup(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
+        let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
+        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+            let network_actor1 = self.network_actor.clone();
+
+            let (state_sync, new_shard_sync) = self
+                .catchup_state_syncs
+                .entry(sync_hash)
+                .or_insert_with(|| (StateSync::new(network_actor1), HashMap::new()));
+
+            debug!(
+                target: "client",
+                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
+            );
+
+            match state_sync.run(
+                sync_hash,
+                new_shard_sync,
+                &mut self.chain,
+                &self.network_info.most_weight_peers,
+                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
+            )? {
+                StateSyncResult::Unchanged => {}
+                StateSyncResult::Changed => {}
+                StateSyncResult::Completed => {
+                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+
+                    self.chain.catchup_blocks(
+                        me,
+                        sync_hash,
+                        |block, status, provenance| {
+                            accepted_blocks.write().unwrap().push((
+                                block.hash(),
+                                status,
+                                provenance,
+                            ));
+                        },
+                        |missing_chunks| {
+                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                        },
+                    )?;
+
+                    for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
+                        self.on_block_accepted(ctx, hash, status, provenance);
+                    }
+                    for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+                        self.shards_mgr.request_chunks(missing_chunks);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Macro to schedule to call this function later if error occurred.
@@ -1116,6 +1244,11 @@ impl ClientActor {
                 return;
             }
         }));
+
+        match self.catchup(ctx) {
+            Ok(_) => {}
+            Err(err) => error!("Error occurred during state sync for some future epoch: {:?}", err),
+        }
 
         let mut wait_period = self.config.sync_step_period;
 
@@ -1161,15 +1294,60 @@ impl ClientActor {
                     )),
                 };
                 if sync_state {
-                    unwrap_or_run_later!(self.state_sync.run(
-                        &self.block_producer.as_ref().map(|x| x.account_id.clone()),
-                        &mut self.sync_status,
+                    let (sync_hash, mut new_shard_sync) = match &self.sync_status {
+                        SyncStatus::StateSync(sync_hash, shard_sync) => {
+                            (sync_hash.clone(), shard_sync.clone())
+                        }
+                        _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
+                    };
+
+                    let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
+                    match unwrap_or_run_later!(self.state_sync.run(
+                        sync_hash,
+                        &mut new_shard_sync,
                         &mut self.chain,
-                        highest_height,
                         &self.network_info.most_weight_peers,
                         // TODO: add tracking shards here.
                         vec![0],
-                    ));
+                    )) {
+                        StateSyncResult::Unchanged => (),
+                        StateSyncResult::Changed => {
+                            self.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync)
+                        }
+                        StateSyncResult::Completed => {
+                            info!(target: "sync", "State sync: all shards are done");
+
+                            let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                            let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+
+                            unwrap_or_run_later!(self.chain.reset_heads_post_state_sync(
+                                me,
+                                sync_hash,
+                                |block, status, provenance| {
+                                    accepted_blocks.write().unwrap().push((
+                                        block.hash(),
+                                        status,
+                                        provenance,
+                                    ));
+                                },
+                                |missing_chunks| {
+                                    blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                                },
+                            ));
+
+                            for (hash, status, provenance) in
+                                accepted_blocks.write().unwrap().drain(..)
+                            {
+                                self.on_block_accepted(ctx, hash, status, provenance);
+                            }
+                            for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+                                self.shards_mgr.request_chunks(missing_chunks);
+                            }
+
+                            self.sync_status =
+                                SyncStatus::BodySync { current_height: 0, highest_height: 0 };
+                        }
+                    }
                 }
             }
         }
@@ -1182,6 +1360,7 @@ impl ClientActor {
     /// Periodically fetch network info.
     fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
         // TODO: replace with push from network?
+        let me = self.block_producer.clone().map(|x| x.account_id).clone();
         self.network_actor
             .send(NetworkRequests::FetchInfo)
             .into_actor(self)
@@ -1200,8 +1379,14 @@ impl ClientActor {
                     act.network_info.received_bytes_per_sec = received_bytes_per_sec;
                     actix::fut::ok(())
                 }
-                _ => {
-                    error!(target: "client", "Sync: recieved error or incorrect result.");
+                Ok(NetworkResponses::NoResponse) => {
+                    info!(target: "client", "Sync: no response");
+                    debug!(target: "client", "Sync: MOO I'm {:?}", me);
+                    actix::fut::ok(())
+                }
+                Err(err) => {
+                    error!(target: "client", "Sync: recieved error or incorrect result. Error: {}", err);
+                    debug!(target: "client", "Sync: MOO I'm {:?}", me);
                     actix::fut::err(())
                 }
             })
@@ -1278,7 +1463,7 @@ impl ClientActor {
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
-    ) -> Result<(Vec<u8>, Vec<ReceiptTransaction>), near_chain::Error> {
+    ) -> Result<(Vec<u8>, Vec<(CryptoHash, Vec<ReceiptTransaction>)>), near_chain::Error> {
         let header = self.chain.get_block_header(&hash)?;
         let payload = self
             .runtime_adapter

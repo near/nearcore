@@ -16,7 +16,7 @@ use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
-use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges};
+use near_store::{get, Store, StoreUpdate, Trie, TrieUpdate, WrappedTrieChanges, COL_BLOCK_HEADER};
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
 use node_runtime::ethereum::EthashProvider;
@@ -309,6 +309,27 @@ impl RuntimeAdapter for NightshadeRuntime {
         false
     }
 
+    fn will_care_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: CryptoHash,
+        shard_id: ShardId,
+    ) -> bool {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        let epoch_hash = match vm.get_next_epoch_hash(parent_hash) {
+            Ok(tuple) => tuple,
+            Err(_) => return false,
+        };
+        if let Ok(validator_assignment) = vm.get_validators(epoch_hash) {
+            for (index, _seats) in validator_assignment.chunk_producers[shard_id as usize].iter() {
+                if validator_assignment.validators[*index].account_id == *account_id {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn validate_tx(
         &self,
         _shard_id: ShardId,
@@ -433,6 +454,36 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         store_update.commit()?;
         Ok(())
+    }
+
+    fn is_epoch_second_block(
+        &self,
+        parent_hash: CryptoHash,
+        index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let prev_block_header =
+            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.unwrap();
+        let (_epoch_hash, offset) = vm.get_epoch_offset(prev_block_header.prev_hash, index)?;
+        Ok(offset == 0)
+    }
+
+    fn is_epoch_start(
+        &self,
+        parent_hash: CryptoHash,
+        index: BlockIndex,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let (_epoch_hash, offset) = vm.get_epoch_offset(parent_hash, index)?;
+        Ok(offset == 0)
+    }
+
+    fn get_epoch_hash(
+        &self,
+        parent_hash: CryptoHash,
+    ) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        Ok(vm.get_epoch_offset(parent_hash, 0)?.0)
     }
 }
 

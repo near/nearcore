@@ -285,7 +285,7 @@ pub enum PeerMessage {
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<(CryptoHash, Vec<ReceiptTransaction>)>),
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkPartRequestMsg),
     ChunkPart(ChunkPartMsg),
@@ -385,8 +385,18 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     state_response
                         .receipts
                         .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?,
+                        .map(|receipt| {
+                            Ok((
+                                receipt.hash.try_into()?,
+                                receipt
+                                    .receipts
+                                    .into_iter()
+                                    .map(TryInto::try_into)
+                                    .collect::<Result<Vec<_>, _>>()?,
+                            ))
+                        })
+                        .collect::<Result<Vec<(CryptoHash, Vec<ReceiptTransaction>)>, Self::Error>>(
+                        )?,
                 ))
             }
             Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
@@ -509,9 +519,18 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     shard_id,
                     hash: hash.into(),
                     payload,
-                    receipts: RepeatedField::from_iter(
-                        receipts.into_iter().map(std::convert::Into::into),
-                    ),
+                    receipts: RepeatedField::from_iter(receipts.into_iter().map(
+                        |(hash, receipts)| {
+                            (network_proto::StateResponseReceipts {
+                                hash: hash.into(),
+                                receipts: RepeatedField::from_iter(
+                                    receipts.into_iter().map(std::convert::Into::into),
+                                ),
+                                cached_size: Default::default(),
+                                unknown_fields: Default::default(),
+                            })
+                        },
+                    )),
                     cached_size: Default::default(),
                     unknown_fields: Default::default(),
                 };
@@ -834,7 +853,7 @@ pub enum NetworkClientMessages {
     /// State request.
     StateRequest(ShardId, CryptoHash),
     /// State response.
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<(CryptoHash, Vec<ReceiptTransaction>)>),
 
     /// Request chunk part
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
@@ -866,7 +885,7 @@ pub enum NetworkClientResponses {
         shard_id: ShardId,
         hash: CryptoHash,
         payload: Vec<u8>,
-        receipts: Vec<ReceiptTransaction>,
+        receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
     },
 }
 

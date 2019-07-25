@@ -362,7 +362,53 @@ impl ValidatorManager {
         } else {
             // If index is within the same epoch as it's parent, return it's epoch parent and current offset from this epoch start.
             let prev_epoch_info = self.get_index_info(epoch_start_parent_hash)?;
-            Ok((prev_epoch_info.epoch_start_hash, index - epoch_start_index))
+            Ok((
+                prev_epoch_info.epoch_start_hash,
+                if index == 0 { 0 } else { index - epoch_start_index },
+            ))
+        }
+    }
+
+    // TODO XXX MOO: the common logic needs to be refactored out into a single function after merge
+    // The caller must expect an error if the block is the first block of its epoch
+    pub fn get_next_epoch_hash(
+        &self,
+        parent_hash: CryptoHash,
+    ) -> Result<CryptoHash, ValidatorError> {
+        if parent_hash == CryptoHash::default() {
+            assert!(false);
+        }
+
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())
+            .map_err(|err| ValidatorError::Other(err.to_string()))?
+            .ok_or(ValidatorError::MissingBlock(parent_hash))?;
+
+        let prev_height = prev_block_header.height;
+
+        // TODO(1049): handle that config epoch length can change over time from runtime.
+        let parent_info =
+            self.get_index_info(parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
+        let epoch_start_index = if parent_hash == parent_info.epoch_start_hash {
+            parent_info.index
+        } else {
+            let epoch_start_info = self.get_index_info(parent_info.epoch_start_hash)?;
+            epoch_start_info.index
+        };
+
+        // We compare to the height of the previous block and not to index so that the epoch is fully
+        //    determined by the previous block. This allows chunk producers to know the epoch of the
+        //    *next* block, and know whom to distribute chunk parts to
+        if epoch_start_index + self.config.epoch_length <= prev_height {
+            // The caller expects it to return error in this case.
+            Err(ValidatorError::Other(
+                "Requesting the validators for the next epoch on the first block of an epoch"
+                    .to_string(),
+            ))
+        } else {
+            // If index is within the same epoch as it's parent, return it's epoch parent and current offset from this epoch start.
+            Ok(parent_info.epoch_start_hash)
         }
     }
 
