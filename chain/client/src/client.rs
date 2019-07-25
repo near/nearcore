@@ -74,7 +74,7 @@ pub struct ClientActor {
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
     let now = Utc::now();
     //get chrono::Duration::num_seconds() by deducting genesis_time from now
-    let chrono_seconds = now.signed_duration_since(*genesis_time).num_seconds();
+    let chrono_seconds = genesis_time.signed_duration_since(now).num_seconds();
     //check if number of seconds in chrono::Duration larger than zero
     if chrono_seconds > 0 {
         info!(target: "chain", "Waiting until genesis: {}", chrono_seconds);
@@ -147,10 +147,10 @@ impl ClientActor {
 
         // ... and signature should be valid.
         if !self.runtime_adapter.check_validator_signature(
-            &announce_account.account_id,
             &announce_account.epoch,
-            &header.signature,
+            &announce_account.account_id,
             header_hash.as_ref(),
+            &header.signature,
         ) {
             return Err(ReasonForBan::InvalidSignature);
         }
@@ -331,11 +331,8 @@ impl Handler<Status> for ClientActor {
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(head.last_block_hash, head.height)
-            .map_err(|err| err.to_string())?
-            .drain(..)
-            .map(|(account_id, _)| account_id)
-            .collect();
+            .get_epoch_block_proposers(head.epoch_hash)
+            .map_err(|err| err.to_string())?;
         Ok(StatusResponse {
             version: self.config.version.clone(),
             chain_id: self.config.chain_id.clone(),
@@ -442,14 +439,9 @@ impl ClientActor {
             }
 
             // Check client is part of the futures validators
-            if let Ok(validators) =
-                self.runtime_adapter.get_epoch_block_proposers(epoch_hash, epoch_height)
-            {
+            if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
-                if validators
-                    .iter()
-                    .any(|(account_id, _)| (account_id == &block_producer.account_id))
-                {
+                if validators.iter().any(|account_id| (account_id == &block_producer.account_id)) {
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
@@ -486,37 +478,41 @@ impl ClientActor {
 
     fn get_block_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
         self.runtime_adapter
-            .get_block_proposer(parent_hash, height)
+            .get_block_proposer(epoch_hash, height)
             .map_err(|err| Error::Other(err.to_string()))
     }
 
-    fn get_epoch_block_proposers(
-        &self,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Error> {
+    fn get_epoch_block_proposers(&self, epoch_hash: CryptoHash) -> Result<Vec<AccountId>, Error> {
         self.runtime_adapter
-            .get_epoch_block_proposers(parent_hash, height)
+            .get_epoch_block_proposers(epoch_hash)
             .map_err(|err| Error::Other(err.to_string()))
     }
 
     /// Create approval for given block or return none if not a block producer.
     fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
+        let (mut epoch_hash, offset) = self
+            .runtime_adapter
+            .get_epoch_offset(block.header.epoch_hash, block.header.height + 1)
+            .ok()?;
         let next_block_producer_account =
-            self.get_block_proposer(block.header.hash(), block.header.height + 1);
+            self.get_block_proposer(epoch_hash, block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                if let Ok(validators) = self
-                    .runtime_adapter
-                    .get_epoch_block_proposers(block.header.prev_hash, block.header.height)
-                    .map(|mut x| x.drain(..).map(|v| v.0).collect::<Vec<_>>())
-                {
+                // TODO: fix this suboptimal code
+                if offset == 0 {
+                    epoch_hash = self
+                        .runtime_adapter
+                        .get_epoch_offset(block.header.prev_hash, block.header.height)
+                        .ok()?
+                        .0;
+                }
+                if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
                     if validators.contains(&block_producer.account_id) {
                         return Some(BlockApproval::new(
                             block.hash(),
@@ -539,9 +535,12 @@ impl ClientActor {
         last_height: BlockIndex,
         check_height: BlockIndex,
     ) {
-        // TODO: check this block producer is at all involved in this epoch. If not, check back after some time.
+        let (epoch_hash, _) = unwrap_or_return!(
+            self.runtime_adapter.get_epoch_offset(block_hash, check_height + 1),
+            ()
+        );
         let next_block_producer_account =
-            unwrap_or_return!(self.get_block_proposer(block_hash, check_height + 1), ());
+            unwrap_or_return!(self.get_block_proposer(epoch_hash, check_height + 1), ());
         if let Some(block_producer) = &self.block_producer {
             if block_producer.account_id.clone() == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
@@ -613,7 +612,7 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.get_block_proposer(head.last_block_hash, next_height)?;
+        let next_block_proposer = self.get_block_proposer(head.epoch_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -625,12 +624,12 @@ impl ClientActor {
         // Wait until we have all approvals or timeouts per max block production delay.
         let validators = self
             .runtime_adapter
-            .get_epoch_block_proposers(head.last_block_hash, next_height)
+            .get_epoch_block_proposers(head.epoch_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
         let total_validators = validators.len();
         let prev_same_bp = self
             .runtime_adapter
-            .get_block_proposer(head.prev_block_hash, last_height)
+            .get_block_proposer(head.epoch_hash, last_height)
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
@@ -669,10 +668,18 @@ impl ClientActor {
 
         // Take transactions from the pool.
         let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
+
+        // At this point, the previous epoch hash must be available
+        let (epoch_hash, _) = self
+            .runtime_adapter
+            .get_epoch_offset(head.last_block_hash, next_height)
+            .expect("Epoch hash should exist at this point");
+
         let block = Block::produce(
             &prev_header,
             next_height,
             state_root,
+            epoch_hash,
             transactions,
             self.approvals.drain().collect(),
             vec![],
@@ -979,8 +986,9 @@ impl ClientActor {
                     act.network_info = network_info;
                     actix::fut::ok(())
                 }
-                _ => {
-                    error!(target: "client", "Sync: recieved error or incorrect result.");
+                Ok(NetworkResponses::NoResponse) => actix::fut::ok(()),
+                Err(e) => {
+                    error!(target: "client", "Sync: recieved error or incorrect result: {}", e);
                     actix::fut::err(())
                 }
             })
@@ -996,7 +1004,7 @@ impl ClientActor {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
             // TODO: collect traffic, tx, blocks.
             let head = unwrap_or_return!(act.chain.head(), ());
-            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.prev_block_hash, head.height), ()).drain(..).map(|(account_id, _)| account_id).collect::<Vec<_>>();
+            let validators = unwrap_or_return!(act.get_epoch_block_proposers(head.epoch_hash), ());
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
                 validators.contains(&block_producer.account_id)
@@ -1035,10 +1043,10 @@ impl ClientActor {
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(header.prev_hash, header.height) {
-            Ok(validators) => validators.iter().position(|x| &(x.0) == account_id),
+        let position = match self.get_epoch_block_proposers(header.epoch_hash) {
+            Ok(validators) => validators.iter().position(|x| x == account_id),
             Err(err) => {
-                error!(target: "client", "Error: {}", err);
+                error!(target: "client", "Block approval error: {}", err);
                 return false;
             }
         };
@@ -1046,23 +1054,14 @@ impl ClientActor {
             return false;
         }
 
-        //  Check signature is correct for given validator.
-        match self.runtime_adapter.get_epoch_offset(header.prev_hash, header.height) {
-            Ok((epoch_hash, _)) => {
-                if !self.runtime_adapter.check_validator_signature(
-                    account_id,
-                    &epoch_hash,
-                    signature,
-                    hash.as_ref(),
-                ) {
-                    error!(target: "client", "Invalid Signature. Account id: {:?} Block: {:?}", account_id, hash);
-                    return false;
-                }
-            }
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
+        // Check signature is correct for given validator.
+        if !self.runtime_adapter.check_validator_signature(
+            &header.epoch_hash,
+            account_id,
+            hash.as_ref(),
+            signature,
+        ) {
+            return false;
         }
 
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);

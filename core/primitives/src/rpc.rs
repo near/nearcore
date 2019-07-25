@@ -1,23 +1,24 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
-use crate::serialize::{base_format, u128_hex_format};
+use crate::serialize::{base_format, u128_dec_format, vec_base_format};
 use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, Version};
-use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
     pub account_id: AccountId,
     pub nonce: Nonce,
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
-    #[serde(with = "u128_hex_format")]
+    #[serde(with = "u128_dec_format")]
     pub stake: Balance,
+    #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     #[serde(with = "base_format")]
     pub code_hash: CryptoHash,

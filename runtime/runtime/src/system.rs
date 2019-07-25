@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::{
@@ -9,11 +10,10 @@ use near_primitives::transaction::{
     SwapKeyTransaction,
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
-use near_primitives::utils::{
-    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, key_for_account, key_for_code,
-};
-use near_store::{get, set, TrieUpdate};
-use wasm::types::ContractCode;
+use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
+use near_store::TrieUpdate;
+
+use crate::{get_access_key, set_access_key, set_account, set_code};
 
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
 
@@ -33,7 +33,7 @@ pub fn send_money(
     }
     if sender.amount >= transaction.amount {
         sender.amount -= transaction.amount;
-        set(state_update, key_for_account(&transaction.originator), sender);
+        set_account(state_update, &transaction.originator, sender);
         let receipt = ReceiptTransaction::new(
             transaction.originator.clone(),
             transaction.receiver.clone(),
@@ -82,7 +82,7 @@ pub fn staking(
         if sender.staked < body.amount {
             sender.amount -= increment;
             sender.staked = body.amount;
-            set(state_update, key_for_account(sender_account_id), &sender);
+            set_account(state_update, sender_account_id, &sender);
         }
         Ok(vec![])
     } else {
@@ -116,7 +116,7 @@ pub fn deposit(
 
     if amount > 0 {
         receiver.amount += amount;
-        set(state_update, key_for_account(&receiver_id), receiver);
+        set_account(state_update, &receiver_id, receiver);
     }
     Ok(receipts)
 }
@@ -134,7 +134,7 @@ pub fn create_account(
     }
     if sender.amount >= body.amount {
         sender.amount -= body.amount;
-        set(state_update, key_for_account(&body.originator), &sender);
+        set_account(state_update, &body.originator, &sender);
         let new_nonce = create_nonce_with_nonce(&hash, 0);
         let receipt = ReceiptTransaction::new(
             body.originator.clone(),
@@ -167,8 +167,8 @@ pub fn deploy(
     let code = ContractCode::new(code.to_vec());
     // Signature should be already checked at this point
     sender.code_hash = code.get_hash();
-    set(state_update, key_for_code(&sender_id), &code);
-    set(state_update, key_for_account(&sender_id), &sender);
+    set_code(state_update, &sender_id, &code);
+    set_account(state_update, &sender_id, &sender);
     Ok(vec![])
 }
 
@@ -185,7 +185,7 @@ pub fn swap_key(
         return Err(format!("Account {} does not have public key {}", body.originator, cur_key));
     }
     account.public_keys.push(new_key);
-    set(state_update, key_for_account(&body.originator), &account);
+    set_account(state_update, &body.originator, &account);
     Ok(vec![])
 }
 
@@ -200,14 +200,14 @@ pub fn add_key(
     if account.public_keys.len() < num_keys {
         return Err("Cannot add a public key that already exists on the account".to_string());
     }
-    if get::<AccessKey>(&state_update, &key_for_access_key(&body.originator, &new_key)).is_some() {
+    if get_access_key(state_update, &body.originator, &new_key).is_some() {
         return Err("Cannot add a public key that already used for an access key".to_string());
     }
     if let Some(access_key) = &body.access_key {
         if account.amount >= access_key.amount {
             if access_key.amount > 0 {
                 account.amount -= access_key.amount;
-                set(state_update, key_for_account(&body.originator), &account);
+                set_account(state_update, &body.originator, &account);
             }
         } else {
             return Err(format!(
@@ -225,10 +225,10 @@ pub fn add_key(
                 return Err("Invalid account ID for contract ID in the access key".to_string());
             }
         }
-        set(state_update, key_for_access_key(&body.originator, &new_key), access_key);
+        set_access_key(state_update, &body.originator, &new_key, access_key);
     } else {
         account.public_keys.push(new_key);
-        set(state_update, key_for_account(&body.originator), &account);
+        set_account(state_update, &body.originator, &account);
     }
     Ok(vec![])
 }
@@ -244,13 +244,13 @@ pub fn delete_key(
     let mut new_receipts = vec![];
     account.public_keys.retain(|&x| x != cur_key);
     if account.public_keys.len() == num_keys {
-        let access_key: AccessKey = get(
-            &state_update,
-            &key_for_access_key(&body.originator, &cur_key),
-        )
-        .ok_or_else(|| {
-            format!("Account {} tries to remove a public key that it does not own", body.originator)
-        })?;
+        let access_key: AccessKey = get_access_key(state_update, &body.originator, &cur_key)
+            .ok_or_else(|| {
+                format!(
+                    "Account {} tries to remove a public key that it does not own",
+                    body.originator
+                )
+            })?;
         if access_key.amount > 0 {
             let balance_owner_id: &AccountId =
                 access_key.balance_owner.as_ref().unwrap_or(&body.originator);
@@ -264,13 +264,13 @@ pub fn delete_key(
                 new_receipts.push(new_receipt);
             } else {
                 account.amount += access_key.amount;
-                set(state_update, key_for_account(&body.originator), &account);
+                set_account(state_update, &body.originator, &account);
             }
         }
         // Remove access key
         state_update.remove(&key_for_access_key(&body.originator, &cur_key));
     } else {
-        set(state_update, key_for_account(&body.originator), &account);
+        set_account(state_update, &body.originator, &account);
     }
     Ok(new_receipts)
 }
@@ -283,10 +283,8 @@ pub fn system_create_account(
     if !is_valid_account_id(account_id) {
         return Err(format!("Account name {} {}", account_id, INVALID_ACCOUNT_ID));
     }
-    let account_id_bytes = key_for_account(&account_id);
-
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
-    set(state_update, account_id_bytes, &new_account);
+    set_account(state_update, &account_id, &new_account);
     Ok(vec![])
 }

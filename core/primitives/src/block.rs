@@ -12,6 +12,7 @@ use near_protos::chain as chain_proto;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
+use crate::serialize::{base_format, vec_base_format};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
 use crate::utils::proto_to_type;
@@ -24,10 +25,13 @@ pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
     /// Hash of the block previous to this in the chain.
+    #[serde(with = "base_format")]
     pub prev_hash: CryptoHash,
     /// Root hash of the state at the previous block.
+    #[serde(with = "base_format")]
     pub prev_state_root: MerkleHash,
     /// Root hash of the transactions in the given block.
+    #[serde(with = "base_format")]
     pub tx_root: MerkleHash,
     /// Timestamp at which the block was built.
     #[serde(with = "ts_nanoseconds")]
@@ -35,11 +39,15 @@ pub struct BlockHeader {
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures.
+    #[serde(with = "vec_base_format")]
     pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
+    /// Epoch start hash of the previous epoch.
+    /// Used for retrieving validator information
+    pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
     pub signature: Signature,
@@ -59,6 +67,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
+        epoch_hash: CryptoHash,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -74,6 +83,7 @@ impl BlockHeader {
             validator_proposal: RepeatedField::from_iter(
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
+            epoch_hash: epoch_hash.into(),
             ..Default::default()
         }
     }
@@ -88,6 +98,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
+        epoch_hash: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -100,6 +111,7 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            epoch_hash,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -112,18 +124,20 @@ impl BlockHeader {
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+        let header_body = Self::header_body(
+            0,
+            CryptoHash::default(),
+            state_root,
+            MerkleHash::default(),
+            timestamp,
+            vec![],
+            vec![],
+            0.into(),
+            vec![],
+            CryptoHash::default(),
+        );
         chain_proto::BlockHeader {
-            body: SingularPtrField::some(Self::header_body(
-                0,
-                CryptoHash::default(),
-                state_root,
-                MerkleHash::default(),
-                timestamp,
-                vec![],
-                vec![],
-                0.into(),
-                vec![],
-            )),
+            body: SingularPtrField::some(header_body),
             signature: DEFAULT_SIGNATURE.into(),
             ..Default::default()
         }
@@ -169,6 +183,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
+        let epoch_hash = body.epoch_hash.try_into()?;
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -179,6 +194,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            epoch_hash,
             signature,
             hash,
         })
@@ -202,6 +218,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 validator_proposal: RepeatedField::from_iter(
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
+                epoch_hash: header.epoch_hash.into(),
                 ..Default::default()
             }),
             signature: header.signature.into(),
@@ -230,6 +247,7 @@ impl Block {
         prev: &BlockHeader,
         height: BlockIndex,
         state_root: MerkleHash,
+        epoch_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
@@ -257,6 +275,7 @@ impl Block {
                 approval_sigs,
                 total_weight,
                 validator_proposal,
+                epoch_hash,
                 signer,
             ),
             transactions,
@@ -273,6 +292,7 @@ impl Block {
             prev,
             prev.height + 1,
             prev.prev_state_root,
+            prev.epoch_hash,
             vec![],
             HashMap::default(),
             vec![],

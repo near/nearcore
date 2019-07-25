@@ -73,10 +73,9 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        _parent_hash: CryptoHash,
-        _height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        Ok(self.validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
+        _epoch_hash: CryptoHash,
+    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
+        Ok(self.validators.iter().map(|x| x.account_id.clone()).collect())
     }
 
     fn get_block_proposer(
@@ -85,14 +84,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
-    }
-
-    fn get_epoch_offset(
-        &self,
-        parent_hash: CryptoHash,
-        _index: u64,
-    ) -> Result<(CryptoHash, u64), Box<dyn std::error::Error>> {
-        Ok((parent_hash, 0))
     }
 
     fn get_chunk_proposer(
@@ -106,10 +97,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn check_validator_signature(
         &self,
+        _epoch_hash: &CryptoHash,
         account_id: &AccountId,
-        _epoch: &CryptoHash,
-        signature: &Signature,
         data: &[u8],
+        signature: &Signature,
     ) -> bool {
         if let Some(validator) = self
             .validators
@@ -150,12 +141,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        _block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
+        Ok((parent_hash, 0))
+    }
+
     fn apply_transactions(
         &self,
         _shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         _receipts: &Vec<Vec<ReceiptTransaction>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<

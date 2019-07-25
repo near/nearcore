@@ -7,7 +7,7 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 
 /// Adapter for querying runtime.
-pub trait RuntimeAdapter {
+pub trait ViewRuntimeAdapter {
     fn view_account(
         &self,
         state_root: MerkleHash,
@@ -47,7 +47,7 @@ pub trait RuntimeAdapter {
 /// Facade to query given client with <path> + <data> at <block height> with optional merkle prove request.
 /// Given implementation only supports latest height, thus ignoring it.
 pub fn query_client(
-    adapter: &dyn RuntimeAdapter,
+    adapter: &dyn ViewRuntimeAdapter,
     state_root: MerkleHash,
     height: BlockIndex,
     path: &str,

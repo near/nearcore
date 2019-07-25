@@ -787,6 +787,7 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
+#[derive(Debug)]
 pub struct NetworkInfo {
     pub num_active_peers: usize,
     pub peer_max_count: u32,
@@ -797,6 +798,7 @@ pub struct NetworkInfo {
     pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
 }
 
+#[derive(Debug)]
 pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),

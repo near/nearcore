@@ -10,7 +10,7 @@ log = "0.4"
 failure = "0.1"
 failure_derive = "0.1"
 kvdb = "0.1"
-protobuf = "2.4"
+protobuf = { version = "2.7", features = ["with-bytes"] }
 serde = "1.0"
 serde_derive = "1.0"
 cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
