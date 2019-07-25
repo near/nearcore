@@ -498,12 +498,7 @@ impl ClientActor {
         }
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
-        // Also produce at least one block per epoch (produce a block even if empty if the last height was more than an epoch ago).
-        if !self.config.produce_empty_blocks
-            && self.tx_pool.len() == 0
-            && !has_receipts
-            && next_height - last_height < self.config.epoch_length
-        {
+        if !self.config.produce_empty_blocks && self.tx_pool.len() == 0 && !has_receipts {
             self.handle_scheduling_block_production(
                 ctx,
                 head.last_block_hash,
