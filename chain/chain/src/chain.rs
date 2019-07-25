@@ -773,7 +773,12 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .get_block_proposer(header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
-        if self.runtime_adapter.check_validator_signature(&validator, &header.signature) {
+        if self.runtime_adapter.check_validator_signature(
+            &header.epoch_hash,
+            &validator,
+            header.hash().as_ref(),
+            &header.signature,
+        ) {
             Ok(())
         } else {
             Err(ErrorKind::InvalidSignature.into())

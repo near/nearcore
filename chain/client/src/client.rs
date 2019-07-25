@@ -915,7 +915,12 @@ impl ClientActor {
             return false;
         }
         // Check signature is correct for given validator.
-        if !self.runtime_adapter.check_validator_signature(account_id, signature) {
+        if !self.runtime_adapter.check_validator_signature(
+            &header.epoch_hash,
+            account_id,
+            hash.as_ref(),
+            signature,
+        ) {
             return false;
         }
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
