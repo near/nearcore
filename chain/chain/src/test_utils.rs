@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
@@ -18,6 +17,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Chain, ValidTransaction};
+use near_primitives::crypto::signature::Signature;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -95,7 +95,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
     }
 
-    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
+    fn check_validator_signature(
+        &self,
+        _epoch_hash: &CryptoHash,
+        _account_id: &AccountId,
+        _data: &[u8],
+        _signature: &Signature,
+    ) -> bool {
         true
     }
 
