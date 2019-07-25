@@ -10,7 +10,7 @@ use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
@@ -123,7 +123,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Weight, Error> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator = vm
-            .get_block_proposer_info(header.prev_hash, header.height)
+            .get_block_proposer_info(header.epoch_hash, header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -133,11 +133,9 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
+        epoch_hash: CryptoHash,
     ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, _) = vm.get_epoch_offset(parent_hash, height)?;
         let validator_assignment = vm.get_validators(epoch_hash)?;
         Ok(validator_assignment
             .block_producers
@@ -148,11 +146,11 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_block_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(vm.get_block_proposer_info(parent_hash, height)?.account_id)
+        Ok(vm.get_block_proposer_info(epoch_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
@@ -178,8 +176,21 @@ impl RuntimeAdapter for NightshadeRuntime {
         unreachable!()
     }
 
-    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
-        true
+    fn check_validator_signature(
+        &self,
+        epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        if let Ok(validators) = vm.get_validators(*epoch_hash) {
+            if let Some(idx) = validators.validator_to_index.get(account_id) {
+                let staking_key = &validators.validators[*idx].public_key;
+                return verify(data, signature, staking_key);
+            }
+        }
+        false
     }
 
     fn num_shards(&self) -> ShardId {
@@ -222,6 +233,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         vm.add_proposals(parent_hash, current_hash, block_index, proposals, validator_mask)?
             .commit()
             .map_err(|err| err.into())
+    }
+
+    fn get_epoch_offset(
+        &self,
+        parent_hash: CryptoHash,
+        block_index: BlockIndex,
+    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
+        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        Ok(vm.get_epoch_offset(parent_hash, block_index)?)
     }
 
     fn apply_transactions(
@@ -416,7 +436,7 @@ mod test {
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
     use near_chain::RuntimeAdapter;
     use near_client::BlockProducer;
-    use near_primitives::crypto::signer::InMemorySigner;
+    use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::rpc::AccountViewCallResult;
     use near_primitives::serialize::BaseEncode;
@@ -662,7 +682,7 @@ mod test {
 
     #[test]
     fn test_validator_stake_change() {
-        let dir = TempDir::new("validator_rotation").unwrap();
+        let dir = TempDir::new("validator_stake_change").unwrap();
         let store = create_store(&get_store_path(dir.path()));
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
@@ -759,7 +779,7 @@ mod test {
 
     #[test]
     fn test_validator_stake_change_multiple_times() {
-        let dir = TempDir::new("validator_rotation").unwrap();
+        let dir = TempDir::new("validator_stake_change_multiple_times").unwrap();
         let store = create_store(&get_store_path(dir.path()));
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
@@ -884,5 +904,51 @@ mod test {
                 code_hash: account.code_hash
             }
         );
+    }
+
+    #[test]
+    fn test_check_validator_signature() {
+        let dir = TempDir::new("check_validator_signature").unwrap();
+        let store = create_store(&get_store_path(dir.path()));
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut genesis_config =
+            GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
+        genesis_config.epoch_length = 2;
+        let nightshade = NightshadeRuntime::new(dir.path(), store, genesis_config);
+        let (store_update, _) = nightshade.genesis_state();
+        store_update.commit().unwrap();
+        let data = [0; 32];
+        let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
+        let signature = signer.sign(&data);
+        assert!(nightshade.check_validator_signature(
+            &CryptoHash::default(),
+            &validators[0],
+            &data,
+            &signature
+        ));
+    }
+
+    #[test]
+    fn test_check_validator_signature_failure() {
+        let dir = TempDir::new("check_validator_signature_failure").unwrap();
+        let store = create_store(&get_store_path(dir.path()));
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut genesis_config =
+            GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
+        genesis_config.epoch_length = 2;
+        let nightshade = NightshadeRuntime::new(dir.path(), store, genesis_config);
+        let (store_update, _) = nightshade.genesis_state();
+        store_update.commit().unwrap();
+        let data = [0; 32];
+        let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
+        let signature = signer.sign(&data);
+        assert!(!nightshade.check_validator_signature(
+            &CryptoHash::default(),
+            &validators[1],
+            &data,
+            &signature
+        ));
     }
 }
