@@ -272,7 +272,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let prev_prev_stake_change =
                     vm.get_validators(prev_epoch_hash)?.stake_change.clone();
                 let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
-                println!("prev_stake_change: {:?}", prev_stake_change);
                 let stake_change = &vm.get_validators(*block_hash)?.stake_change;
                 for (account_id, new_stake) in prev_stake_change.iter() {
                     if *new_stake == 0 && !stake_change.contains_key(account_id) {
@@ -286,8 +285,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                         }
                     }
                 }
-                println!("prev_prev_stake_change: {:?}", prev_prev_stake_change);
-                println!("current_stake_change: {:?}", stake_change);
                 for (account_id, new_stake) in stake_change.iter() {
                     let account: Option<Account> = get_account(&state_update, account_id);
                     if let Some(mut account) = account {
