@@ -15,7 +15,7 @@ use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
 use rand::Rng;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex};
 
 lazy_static! {

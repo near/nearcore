@@ -29,6 +29,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
 use kvdb::DBValue;
+use std::collections::BTreeSet;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -273,13 +274,16 @@ impl RuntimeAdapter for NightshadeRuntime {
                     vm.get_validators(prev_epoch_hash)?.stake_change.clone();
                 let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
                 let stake_change = &vm.get_validators(*block_hash)?.stake_change;
+                let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
+                let keys: BTreeSet<_> = stake_change.keys().collect();
 
-                for account_id in stake_change.keys().chain(prev_stake_change.keys()) {
+                for account_id in prev_keys.union(&keys) {
                     let account: Option<Account> = get_account(&state_update, account_id);
                     if let Some(mut account) = account {
-                        let new_stake = *stake_change.get(account_id).unwrap_or(&0);
-                        let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
-                        let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&0);
+                        let new_stake = *stake_change.get(*account_id).unwrap_or(&0);
+                        let prev_stake = *prev_stake_change.get(*account_id).unwrap_or(&0);
+                        let prev_prev_stake =
+                            *prev_prev_stake_change.get(*account_id).unwrap_or(&0);
                         let max_of_stakes =
                             vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
                         if account.staked < max_of_stakes {
