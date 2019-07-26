@@ -19,7 +19,7 @@ use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
 use near_primitives::hash::CryptoHash;
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::{SignedTransaction, ReceiptTransaction};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
@@ -371,10 +371,14 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     state_response.shard_id,
                     state_response.hash.try_into()?,
                     state_response.payload,
-                    state_response.receipts.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?,
+                    state_response
+                        .receipts
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
-            None => unreachable!(),
+            None => Err(format!("Unexpected empty message body").into()),
         }
     }
 }
@@ -454,7 +458,9 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     shard_id,
                     hash: hash.into(),
                     payload,
-                    receipts: RepeatedField::from_iter(receipts.into_iter().map(std::convert::Into::into)),
+                    receipts: RepeatedField::from_iter(
+                        receipts.into_iter().map(std::convert::Into::into),
+                    ),
                     cached_size: Default::default(),
                     unknown_fields: Default::default(),
                 };
@@ -726,7 +732,12 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<ReceiptTransaction> },
+    StateResponse {
+        shard_id: ShardId,
+        hash: CryptoHash,
+        payload: Vec<u8>,
+        receipts: Vec<ReceiptTransaction>,
+    },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
