@@ -32,7 +32,7 @@ pub fn get_runtime_and_trie_from_genesis(
     let trie = create_trie();
     let dir = TempDir::new("ethash_test").unwrap();
     let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(dir.path())));
-    let runtime = Runtime::new(ethash_provider);
+    let runtime = Runtime::new(genesis_config.runtime_config.clone(), ethash_provider);
     let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
     let (store_update, genesis_root) = runtime.apply_genesis_state(
         trie_update,

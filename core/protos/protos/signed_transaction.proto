@@ -62,6 +62,12 @@ message DeleteKeyTransaction {
     bytes cur_key = 3;
 }
 
+message DeleteAccountTransaction {
+    uint64 nonce = 1;
+    string originator_id = 2;
+    string receiver_id = 3;
+}
+
 message SignedTransaction {
     bytes signature = 1;
     // In case this TX uses AccessKey, it needs to provide the public_key
@@ -75,6 +81,7 @@ message SignedTransaction {
         SwapKeyTransaction swap_key = 7;
         AddKeyTransaction add_key = 8;
         DeleteKeyTransaction delete_key = 9;
-        // Next 11
+        DeleteAccountTransaction delete_account = 11;
+        // Next 12
     }
 }

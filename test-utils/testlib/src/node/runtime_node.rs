@@ -1,11 +1,14 @@
 use std::sync::{Arc, RwLock};
 
+use near::GenesisConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
 use near_primitives::types::{AccountId, Balance};
 
 use crate::node::Node;
-use crate::runtime_utils::get_runtime_and_trie;
+use crate::runtime_utils::{
+    alice_account, bob_account, get_runtime_and_trie_from_genesis,
+};
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
@@ -16,8 +19,14 @@ pub struct RuntimeNode {
 
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
+        let genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+        Self::new_from_genesis(account_id, genesis_config)
+    }
+
+    pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-        let (runtime, trie, root) = get_runtime_and_trie();
+        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
         let client = Arc::new(RwLock::new(MockClient { runtime, trie, state_root: root }));
         RuntimeNode { signer, client }
     }

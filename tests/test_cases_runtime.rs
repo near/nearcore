@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod test {
+    use near::GenesisConfig;
     use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::alice_account;
+    use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
 
     fn create_runtime_node() -> RuntimeNode {
@@ -252,5 +253,33 @@ mod test {
     fn test_unstake_while_not_staked_runtime() {
         let node = create_runtime_node();
         test_unstake_while_not_staked(node);
+    }
+
+    #[test]
+    fn test_delete_account_runtime() {
+        let mut genesis_config =
+            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        genesis_config.runtime_config.storage_cost_byte_per_block = 10_000_000_000_000;
+        genesis_config.runtime_config.poke_threshold = 100;
+        let node = RuntimeNode::new_from_genesis(&alice_account(), genesis_config);
+        test_delete_account(node);
+    }
+
+    #[test]
+    fn test_delete_account_has_enough_money_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_fail(node);
+    }
+
+    #[test]
+    fn test_delete_account_no_account_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_no_account(node);
+    }
+
+    #[test]
+    fn test_delete_account_while_staking_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_while_staking(node);
     }
 }

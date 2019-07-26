@@ -34,14 +34,15 @@ pub type StorageUsage = u64;
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
-
+/// Index of the block.
 pub type BlockIndex = u64;
-
+/// Id of shards.
 pub type ShardId = u64;
-
+/// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
-
+/// Identifier for receipts, used to refer in callbacks.
 pub type ReceiptId = Vec<u8>;
+/// Identifier for callbacks, used to store storage and refer in receipts.
 pub type CallbackId = Vec<u8>;
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

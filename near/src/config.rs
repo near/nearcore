@@ -26,6 +26,7 @@ use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
 use node_runtime::StateRecord;
+use node_runtime::config::RuntimeConfig;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -307,6 +308,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Criterion for kicking out validators
     pub validator_kickout_threshold: f64,
+    /// Runtime configuration (mostly economics constants).
+    pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
@@ -358,6 +361,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            runtime_config: Default::default(),
             validators,
             records,
         }
@@ -398,6 +402,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            runtime_config: Default::default(),
             validators,
             records: vec![records],
         }
@@ -531,6 +536,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+                runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
@@ -588,6 +594,7 @@ pub fn create_testnet_configs_from_seeds(
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+        runtime_config: Default::default(),
         validators,
         records,
     };

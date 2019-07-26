@@ -6,16 +6,18 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, CallbackInfo, CallbackResult, CreateAccountTransaction,
-    DeleteKeyTransaction, ReceiptBody, ReceiptTransaction, SendMoneyTransaction, StakeTransaction,
-    SwapKeyTransaction,
+    DeleteAccountTransaction, DeleteKeyTransaction, ReceiptBody, ReceiptTransaction,
+    SendMoneyTransaction, StakeTransaction, SwapKeyTransaction,
 };
 use near_primitives::types::{AccountId, Balance, ValidatorStake};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
-use near_store::TrieUpdate;
+use near_store::{remove_account, total_account_storage, TrieUpdate};
 
+use crate::config::RuntimeConfig;
 use crate::{get_access_key, set_access_key, set_account, set_code};
 
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
+pub const SYSTEM_METHOD_DELETE_ACCOUNT: &[u8] = b"_sys:delete_account";
 
 const INVALID_ACCOUNT_ID: &str =
     "does not match requirements. Must be 5-32 characters (lower case letters/numbers or '@._-')";
@@ -275,6 +277,29 @@ pub fn delete_key(
     Ok(new_receipts)
 }
 
+pub fn delete_account(
+    body: &DeleteAccountTransaction,
+    hash: CryptoHash,
+    public_key: PublicKey,
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let new_nonce = create_nonce_with_nonce(&hash, 0);
+    let receipt = ReceiptTransaction::new(
+        body.originator_id.clone(),
+        body.receiver_id.clone(),
+        new_nonce,
+        ReceiptBody::NewCall(AsyncCall::new(
+            SYSTEM_METHOD_DELETE_ACCOUNT.to_vec(),
+            vec![],
+            0,
+            body.originator_id.clone(),
+            body.originator_id.clone(),
+            public_key,
+        )),
+    );
+    Ok(vec![receipt])
+}
+
+/// System call to create an account.
 pub fn system_create_account(
     state_update: &mut TrieUpdate,
     call: &AsyncCall,
@@ -287,4 +312,49 @@ pub fn system_create_account(
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
     set_account(state_update, &account_id, &new_account);
     Ok(vec![])
+}
+
+/// System call to delete given account initiated by an originator.
+/// Allow to delete account if:
+///  * User has less than `storage_price` * `state_size` * `poke_threshold`
+///  * If user stakes, send un-staking transaction but do not allow to delete account.
+///  * Otherwise delete account and refund the rest of the money to originator.
+pub fn system_delete_account(
+    state_update: &mut TrieUpdate,
+    call: &AsyncCall,
+    nonce: &CryptoHash,
+    account_id: &AccountId,
+    account: &mut Account,
+    runtime_config: &RuntimeConfig,
+    validator_proposals: &mut Vec<ValidatorStake>,
+) -> Result<Vec<ReceiptTransaction>, String> {
+    let required_amount = (total_account_storage(account_id, account) as u128)
+        * runtime_config.storage_cost_byte_per_block
+        * (runtime_config.poke_threshold as u128);
+    if account.amount > required_amount {
+        return Err(format!(
+            "Account {} has {}, which is more than enough to cover the storage for next {} blocks.",
+            account_id, account.amount, runtime_config.poke_threshold
+        ));
+    }
+    println!("{:?}", account);
+    if account.staked > 0 {
+        validator_proposals.push(ValidatorStake {
+            account_id: account_id.clone(),
+            // We don't actually need public key in this case, so passing empty key.
+            public_key: PublicKey::empty(),
+            amount: 0,
+        });
+        return Ok(vec![]);
+    }
+    let new_nonce = create_nonce_with_nonce(nonce, 0);
+    let reward = ReceiptTransaction::new(
+        call.originator_id.clone(),
+        call.originator_id.clone(),
+        new_nonce,
+        ReceiptBody::Refund(account.amount),
+    );
+    remove_account(state_update, account_id)
+        .map_err(|err| format!("Failed to delete all account data: {}", err))?;
+    Ok(vec![reward])
 }

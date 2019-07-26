@@ -19,30 +19,32 @@ use near_primitives::transaction::{
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
-use near_primitives::types::StorageUsage;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey, ShardId,
     ValidatorStake,
 };
 use near_primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, system_account,
+    account_to_shard_id, create_nonce_with_nonce, key_for_callback, system_account,
 };
 use near_store::{
-    account_storage_size, get_access_key, get_account, get_callback, get_code, set_access_key,
-    set_account, set_callback, set_code, StoreUpdate, TrieChanges, TrieUpdate,
+    get_access_key, get_account, get_callback, get_code, set_access_key, set_account, set_callback,
+    set_code, total_account_storage, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
-use crate::economics_config::EconomicsConfig;
+use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 pub use crate::store::StateRecord;
-use crate::system::{system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
+use crate::system::{
+    system_create_account, system_delete_account, SYSTEM_METHOD_CREATE_ACCOUNT,
+    SYSTEM_METHOD_DELETE_ACCOUNT,
+};
 
 pub mod adapter;
-pub mod economics_config;
+pub mod config;
 pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
@@ -71,13 +73,13 @@ pub struct ApplyResult {
 }
 
 pub struct Runtime {
+    config: RuntimeConfig,
     ethash_provider: Arc<Mutex<EthashProvider>>,
-    economics_config: EconomicsConfig,
 }
 
 impl Runtime {
-    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Runtime { ethash_provider, economics_config: Default::default() }
+    pub fn new(config: RuntimeConfig, ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
+        Runtime { config, ethash_provider }
     }
 
     fn call_function(
@@ -206,13 +208,9 @@ impl Runtime {
 
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
-        // The number of bytes the account occupies in the Trie.
-        let meta_storage =
-            key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
-        let total_storage = (account.storage_usage + meta_storage) as u128;
         let charge = ((block_index - account.storage_paid_at) as u128)
-            * total_storage
-            * self.economics_config.storage_cost_byte_per_block;
+            * (total_account_storage(account_id, account) as u128)
+            * self.config.storage_cost_byte_per_block;
         account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
@@ -232,7 +230,7 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
-        let transaction_cost = self.economics_config.transactions_costs.cost(&transaction.body);
+        let transaction_cost = self.config.transactions_costs.cost(&transaction.body);
         originator.checked_sub(transaction_cost)?;
         self.apply_rent(&originator_id, &mut originator, block_index);
         set_account(state_update, &originator_id, &originator);
@@ -289,6 +287,9 @@ impl Runtime {
             TransactionBody::AddKey(ref t) => system::add_key(state_update, t, &mut originator),
             TransactionBody::DeleteKey(ref t) => {
                 system::delete_key(state_update, t, &mut originator, transaction.get_hash())
+            }
+            TransactionBody::DeleteAccount(ref t) => {
+                system::delete_account(t, transaction.get_hash(), public_key)
             }
         }
     }
@@ -562,6 +563,7 @@ impl Runtime {
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), String> {
         let receiver: Option<Account> = get_account(state_update, &receipt.receiver);
         let receiver_exists = receiver.is_some();
@@ -588,6 +590,16 @@ impl Runtime {
                         )
                     } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         Err(format!("Account {} already exists", receipt.receiver))
+                    } else if async_call.method_name == SYSTEM_METHOD_DELETE_ACCOUNT {
+                        system_delete_account(
+                            state_update,
+                            &async_call,
+                            &receipt.nonce,
+                            &receipt.receiver,
+                            &mut receiver,
+                            &self.config,
+                            validator_proposals,
+                        )
                     } else {
                         self.apply_async_call(
                             state_update,
@@ -731,6 +743,7 @@ impl Runtime {
         block_index: BlockIndex,
         receipt: &ReceiptTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
+        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
         if account_to_shard_id(&receipt.receiver) == shard_id {
@@ -741,6 +754,7 @@ impl Runtime {
                 &mut tmp_new_receipts,
                 block_index,
                 &mut result,
+                validator_proposals,
             );
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);
@@ -786,6 +800,7 @@ impl Runtime {
                 block_index,
                 receipt,
                 &mut new_receipts,
+                &mut validator_proposals,
             ));
         }
         for transaction in transactions {

@@ -1,13 +1,16 @@
-//! Settings of the parameters of the economics.
+//! Settings of the parameters of the runtime.
 use near_primitives::transaction::TransactionBody;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, BlockIndex};
 use wasm::types::Config;
 
-/// The structure that holds the parameters of the economics.
+/// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct EconomicsConfig {
+pub struct RuntimeConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,
+    /// Number of blocks before you account runs out of space, anyone can delete it.
+    pub poke_threshold: BlockIndex,
+    /// Costs for different types of transactions.
     pub transactions_costs: TransactionsCosts,
     /// Config of wasm operations.
     pub wasm_config: Config,
@@ -25,6 +28,7 @@ pub struct TransactionsCosts {
     pub swap_key: Balance,
     pub add_key: Balance,
     pub delete_key: Balance,
+    pub delete_account: Balance,
 }
 
 impl TransactionsCosts {
@@ -46,6 +50,7 @@ impl TransactionsCosts {
             SwapKey(_) => self.swap_key.clone(),
             AddKey(_) => self.add_key.clone(),
             DeleteKey(_) => self.delete_key.clone(),
+            DeleteAccount(_) => self.delete_account.clone(),
         }
     }
 }
