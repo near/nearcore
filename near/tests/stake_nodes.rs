@@ -14,7 +14,9 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
 use rand::Rng;
-use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -271,10 +273,13 @@ fn test_validator_join() {
                 .map_err(|_| ()),
         );
 
+        let (done1, done2) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        let (done1_copy1, done2_copy1) = (done1.clone(), done2.clone());
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
                 let test_node1 = test_nodes[0].clone();
+                let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected = vec![
                         "near.0".to_string(),
@@ -290,10 +295,14 @@ fn test_validator_join() {
                                     path: format!("account/{}", test_nodes[1].account_id.clone()),
                                     data: vec![],
                                 })
-                                .then(|res| match res.unwrap().unwrap() {
+                                .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        assert_eq!(result.stake, 0);
-                                        assert_eq!(result.amount, TESTING_INIT_BALANCE);
+                                        if result.stake == 0
+                                            && result.amount == TESTING_INIT_BALANCE
+                                        {
+                                            done1_copy2.store(true, SeqCst);
+                                            println!("{}", done1_copy2.load(SeqCst));
+                                        }
                                         futures::future::ok(())
                                     }
                                     _ => panic!("wrong return result"),
@@ -306,25 +315,30 @@ fn test_validator_join() {
                                     path: format!("account/{}", test_nodes[2].account_id.clone()),
                                     data: vec![],
                                 })
-                                .then(|res| match res.unwrap().unwrap() {
+                                .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        assert_eq!(result.stake, TESTING_INIT_STAKE);
-                                        assert_eq!(
-                                            result.amount,
-                                            TESTING_INIT_BALANCE - TESTING_INIT_STAKE
-                                        );
+                                        if result.stake == TESTING_INIT_STAKE
+                                            && result.amount
+                                                == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                        {
+                                            done2_copy2.store(true, SeqCst);
+                                        }
+
                                         futures::future::ok(())
                                     }
                                     _ => panic!("wrong return result"),
                                 }),
                         );
-                        System::current().stop();
                     }
+
                     futures::future::ok(())
                 }));
+                if done1_copy1.load(SeqCst) && done2_copy1.load(SeqCst) {
+                    System::current().stop();
+                }
             }),
             1000,
-            5000,
+            10000,
         )
         .start();
 

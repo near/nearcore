@@ -84,6 +84,7 @@ pub fn staking(
             sender.staked = body.amount;
             set_account(state_update, sender_account_id, &sender);
         }
+        println!("STAKING account_id {} amount {}", sender_account_id, body.amount);
         Ok(vec![])
     } else {
         let err_msg = format!(
