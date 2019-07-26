@@ -171,10 +171,8 @@ impl Peer {
     }
 
     fn fetch_client_chain_info(&mut self, ctx: &mut Context<Peer>) {
-        ctx.wait(self.client_addr
-            .send(NetworkClientMessages::GetChainInfo)
-            .into_actor(self)
-            .then(move |res, act, _ctx| match res {
+        ctx.wait(self.client_addr.send(NetworkClientMessages::GetChainInfo).into_actor(self).then(
+            move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo { genesis, .. }) => {
                     act.genesis = genesis;
                     actix::fut::ok(())
@@ -184,7 +182,8 @@ impl Peer {
                     actix::fut::err(())
                 }
                 _ => actix::fut::err(()),
-            }));
+            },
+        ));
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
@@ -254,11 +253,16 @@ impl Peer {
             }
             PeerMessage::StateRequest(shard_id, hash) => {
                 NetworkClientMessages::StateRequest(shard_id, hash)
-            },
+            }
             PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
-            _ => unreachable!(),
+            PeerMessage::Handshake(_)
+            | PeerMessage::PeersRequest
+            | PeerMessage::PeersResponse(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type");
+                return;
+            }
         };
         self.client_addr
             .send(network_client_msg)
