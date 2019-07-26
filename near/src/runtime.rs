@@ -273,28 +273,15 @@ impl RuntimeAdapter for NightshadeRuntime {
                     vm.get_validators(prev_epoch_hash)?.stake_change.clone();
                 let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
                 let stake_change = &vm.get_validators(*block_hash)?.stake_change;
-                for (account_id, new_stake) in prev_stake_change.iter() {
-                    if *new_stake == 0 && !stake_change.contains_key(account_id) {
-                        // this account is not a validator in the current epoch and
-                        // might need to have their stake returned. Even if we have
-                        // already returned their stake, the following operation cannot hurt
-                        if let Some(mut account) = get_account(&state_update, account_id) {
-                            account.amount += account.staked;
-                            account.staked = 0;
-                            set_account(&mut state_update, account_id, &account);
-                        }
-                    }
-                }
-                for (account_id, new_stake) in stake_change.iter() {
+
+                for account_id in stake_change.keys().chain(prev_stake_change.keys()) {
                     let account: Option<Account> = get_account(&state_update, account_id);
                     if let Some(mut account) = account {
+                        let new_stake = *stake_change.get(account_id).unwrap_or(&0);
                         let prev_stake = *prev_stake_change.get(account_id).unwrap_or(&0);
                         let prev_prev_stake = *prev_prev_stake_change.get(account_id).unwrap_or(&0);
-                        let max_of_stakes = vec![prev_prev_stake, prev_stake, *new_stake]
-                            .into_iter()
-                            .max()
-                            .unwrap();
-                        println!("account id: {} max_of_stakes: {}", account_id, max_of_stakes);
+                        let max_of_stakes =
+                            vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
                         if account.staked < max_of_stakes {
                             error!("FATAL: staking invariance does not hold");
                         }

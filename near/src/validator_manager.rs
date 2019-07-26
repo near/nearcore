@@ -488,10 +488,9 @@ impl ValidatorManager {
             }
             for proposal in info.proposals {
                 if proposal.amount == 0 {
-                    validator_kickout.insert(proposal.account_id, true);
-                } else {
-                    proposals.push(proposal);
+                    validator_kickout.insert(proposal.account_id.clone(), true);
                 }
+                proposals.push(proposal);
             }
             // safe to unwrap because block_index_to_validator is computed from indices in this epoch
             let validator = *block_index_to_validator.get(&info.index).unwrap();
@@ -1015,7 +1014,7 @@ mod test {
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
-        let (h0, h1, h2) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]));
+        let (h0, h1, h2, h3, h4) = (hash(&[0]), hash(&[1]), hash(&[2]), hash(&[3]), hash(&[4]));
         vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
         vm.add_proposals(h0, h1, 1, vec![stake("test1", 0)], vec![]).unwrap().commit().unwrap();
@@ -1031,7 +1030,21 @@ mod test {
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
             )
-        )
+        );
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h2, &h3, &h4).unwrap();
+        vm.add_proposals(h3, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
+        assert_eq!(
+            vm.get_validators(h4).unwrap(),
+            &assignment(
+                vec![("test2", amount_staked)],
+                vec![0, 0],
+                vec![vec![(0, 2)]],
+                vec![],
+                6,
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+            )
+        );
     }
 
     #[test]
