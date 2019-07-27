@@ -5,6 +5,8 @@ mod test {
     use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
     use node_runtime::StateRecord;
+    use near_primitives::utils::key_for_data;
+    use near_primitives::serialize::to_base64;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
@@ -20,6 +22,7 @@ mod test {
             StateRecord::Account { account, .. } => { account.amount = 10_000_000_000_000_000_000 },
             _ => {}
         }
+        genesis_config.records[0].push(StateRecord::Data { key: to_base64(&key_for_data(&bob_account(), b"test")), value: to_base64(b"123") });
         RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
     }
 

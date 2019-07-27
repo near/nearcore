@@ -18,6 +18,7 @@ use near_primitives::transaction::Callback;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
     key_for_access_key, key_for_account, key_for_callback, key_for_code, prefix_for_access_key,
+    prefix_for_data,
 };
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
@@ -296,12 +297,7 @@ pub fn remove_account(
 ) -> Result<(), Box<dyn std::error::Error>> {
     state_update.remove(&key_for_account(account_id));
     state_update.remove(&key_for_code(account_id));
-    let mut keys = vec![];
-    for key in state_update.iter(&prefix_for_access_key(account_id))? {
-        keys.push(key);
-    }
-    for key in keys {
-        state_update.remove(&key);
-    }
+    state_update.remove_starts_with(&prefix_for_access_key(account_id))?;
+    state_update.remove_starts_with(&prefix_for_data(account_id))?;
     Ok(())
 }
