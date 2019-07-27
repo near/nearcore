@@ -15,7 +15,7 @@ use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, MerkleHash};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -30,6 +30,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
+    pub epoch_length: BlockIndex,
 }
 
 impl MockClient {
@@ -100,6 +101,7 @@ impl RuntimeUser {
                 shard_id: cur_apply_state.shard_id,
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
+                epoch_length: client.epoch_length,
             };
             let new_receipts: Vec<_> =
                 apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
@@ -138,6 +140,17 @@ impl RuntimeUser {
             }
         }
     }
+
+    fn apply_state(&self) -> ApplyState {
+        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        ApplyState {
+            root: client.state_root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+            epoch_length: client.epoch_length,
+        }
+    }
 }
 
 impl User for RuntimeUser {
@@ -152,13 +165,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![], vec![transaction]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction]);
         Ok(())
     }
 
@@ -166,24 +173,12 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![], vec![transaction.clone()]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()]);
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![vec![receipt]], vec![]);
+        self.apply_all(self.apply_state(), vec![vec![receipt]], vec![]);
         Ok(())
     }
 

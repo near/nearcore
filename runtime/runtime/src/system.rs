@@ -9,7 +9,7 @@ use near_primitives::transaction::{
     DeleteAccountTransaction, DeleteKeyTransaction, ReceiptBody, ReceiptTransaction,
     SendMoneyTransaction, StakeTransaction, SwapKeyTransaction,
 };
-use near_primitives::types::{AccountId, Balance, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, ValidatorStake, BlockIndex};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
 use near_store::{remove_account, total_account_storage, TrieUpdate};
 
@@ -316,8 +316,7 @@ pub fn system_create_account(
 
 /// System call to delete given account initiated by an originator.
 /// Allow to delete account if:
-///  * User has less than `storage_price` * `state_size` * `poke_threshold`
-///  * If user stakes, send un-staking transaction but do not allow to delete account.
+///  * User has less than `storage_price` * `state_size` * `poke_threshold` or is staking.
 ///  * Otherwise delete account and refund the rest of the money to originator.
 pub fn system_delete_account(
     state_update: &mut TrieUpdate,
@@ -325,36 +324,38 @@ pub fn system_delete_account(
     nonce: &CryptoHash,
     account_id: &AccountId,
     account: &mut Account,
+    block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
-    validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    let required_amount = (total_account_storage(account_id, account) as u128)
+    let total_storage = total_account_storage(account_id, account) as u128;
+    let required_amount = total_storage
         * runtime_config.storage_cost_byte_per_block
         * (runtime_config.poke_threshold as u128);
+    if account.staked != 0 {
+        return Err(format!("Account {} is staking, can not be deleted.", account_id));
+    }
     if account.amount > required_amount {
         return Err(format!(
             "Account {} has {}, which is more than enough to cover the storage for next {} blocks.",
             account_id, account.amount, runtime_config.poke_threshold
         ));
     }
-    println!("{:?}", account);
-    if account.staked > 0 {
-        validator_proposals.push(ValidatorStake {
-            account_id: account_id.clone(),
-            // We don't actually need public key in this case, so passing empty key.
-            public_key: PublicKey::empty(),
-            amount: 0,
-        });
-        return Ok(vec![]);
-    }
     let new_nonce = create_nonce_with_nonce(nonce, 0);
-    let reward = ReceiptTransaction::new(
+    let storage_due = total_storage
+        * runtime_config.storage_cost_byte_per_block
+        * ((block_index - account.storage_paid_at) as u128);
+    let reward = if account.amount < storage_due {
+        0
+    } else {
+        account.amount - storage_due
+    };
+    let receipt = ReceiptTransaction::new(
         call.originator_id.clone(),
         call.originator_id.clone(),
         new_nonce,
-        ReceiptBody::Refund(account.amount),
+        ReceiptBody::Refund(reward),
     );
     remove_account(state_update, account_id)
         .map_err(|err| format!("Failed to delete all account data: {}", err))?;
-    Ok(vec![reward])
+    Ok(vec![receipt])
 }

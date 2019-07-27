@@ -5,18 +5,13 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::AccountViewCallResult;
 use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::{
-    AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
-    DeleteAccountTransaction, DeleteKeyTransaction, DeployContractTransaction,
-    FinalTransactionResult, FinalTransactionStatus, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, StakeTransaction, SwapKeyTransaction, TransactionBody, TransactionStatus,
-};
+use near_primitives::transaction::{AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction, DeleteAccountTransaction, DeleteKeyTransaction, DeployContractTransaction, FinalTransactionResult, FinalTransactionStatus, FunctionCallTransaction, ReceiptBody, ReceiptTransaction, StakeTransaction, SwapKeyTransaction, TransactionBody, TransactionStatus, SendMoneyTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::key_for_callback;
 use near_store::set_callback;
 
 use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use crate::runtime_utils::{alice_account, bob_account, default_code_hash, encode_int, eve_account};
 use crate::test_helpers::wait;
 use crate::user::User;
 
@@ -31,6 +26,15 @@ fn submit_transaction(node: &impl Node, transaction: TransactionBody) -> FinalTr
     node_user.add_transaction(transaction).unwrap();
     wait_for_transaction(&node_user, &hash);
     node_user.get_transaction_final_result(&hash)
+}
+
+fn send_money(node: &impl Node, originator_id: AccountId, receiver_id: AccountId, amount: Balance) -> FinalTransactionResult {
+    submit_transaction(node, TransactionBody::SendMoney(SendMoneyTransaction {
+        nonce: node.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+        originator: originator_id,
+        receiver: receiver_id,
+        amount
+    }))
 }
 
 fn create_account(
@@ -58,11 +62,10 @@ fn stake(
     public_key: PublicKey,
     amount: Balance,
 ) -> FinalTransactionResult {
-    let account_id = &node.account_id().unwrap();
     submit_transaction(
         node,
         TransactionBody::Stake(StakeTransaction {
-            nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
+            nonce: node.get_account_nonce(&originator_id).unwrap_or_default() + 1,
             originator: originator_id,
             amount,
             public_key: public_key.to_base(),
@@ -1541,6 +1544,21 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(transaction_result.logs[0].receipts.len(), 0);
 }
 
+/// Account must have enough rent to pay for next `poke_threshold` blocks.
+pub fn test_fail_not_enough_rent(node: impl Node) {
+    let _ = create_account(&node, eve_account(), node.signer().public_key(), 10);
+    let result = send_money(&node, eve_account(), alice_account(), 10);
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+}
+
+/// Account must have enough rent to pay for next 4 x `epoch_length` blocks (otherwise can not stake).
+pub fn test_stake_fail_not_enough_rent(node: impl Node) {
+    let _ = create_account(&node, eve_account(), node.signer().public_key(),
+                           119_000_000_000_000_010);
+    let result = stake(&node, eve_account(), node.signer().public_key(), 5);
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+}
+
 pub fn test_delete_account(node: impl Node) {
     let initial_amount = node.user().view_account(&node.account_id().unwrap()).unwrap().amount;
     let bobs_amount = node.user().view_account(&bob_account()).unwrap().amount;
@@ -1574,6 +1592,6 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     let _ = create_account(&node, eve_account(), node.signer().public_key(), 10);
     let _ = stake(&node, eve_account(), node.signer().public_key(), 10);
     let result = delete_account(&node, eve_account());
-    assert_eq!(result.status, FinalTransactionStatus::Completed);
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
     assert!(node.user().view_account(&eve_account()).is_ok());
 }

@@ -54,12 +54,21 @@ mod system;
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+/// Number of epochs it takes to unstake.
+const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+
 #[derive(Debug)]
 pub struct ApplyState {
+    /// Previous merkle root of the state.
     pub root: MerkleHash,
+    /// Shard number.
     pub shard_id: ShardId,
-    pub block_index: u64,
+    /// Currently building block index.
+    pub block_index: BlockIndex,
+    /// Hash of previous committed block.
     pub parent_block_hash: CryptoHash,
+    /// Current epoch length.
+    pub epoch_length: BlockIndex,
 }
 
 pub struct ApplyResult {
@@ -215,12 +224,22 @@ impl Runtime {
         account.storage_paid_at = block_index;
     }
 
+    /// Check that account still has enough amount to pay rent.
+    fn check_rent(&self, account_id: &AccountId, account: &mut Account, runtime_config: &RuntimeConfig, epoch_length: BlockIndex) -> bool {
+        let buffer_length = if account.staked > 0 { epoch_length * (NUM_UNSTAKING_EPOCHS + 1) } else { runtime_config.poke_threshold };
+        let buffer_amount = (buffer_length as u128)
+            * (total_account_storage(account_id, account) as u128)
+            * self.config.storage_cost_byte_per_block;
+        account.amount > buffer_amount
+    }
+
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
         &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction: &SignedTransaction,
         validator_proposals: &mut Vec<ValidatorStake>,
         transaction_result: &mut TransactionResult,
@@ -237,7 +256,7 @@ impl Runtime {
         state_update.commit();
 
         let refund_account_id = &originator_id;
-        match transaction.body {
+        let result = match transaction.body {
             TransactionBody::SendMoney(ref t) => system::send_money(
                 state_update,
                 &t,
@@ -291,7 +310,11 @@ impl Runtime {
             TransactionBody::DeleteAccount(ref t) => {
                 system::delete_account(t, transaction.get_hash(), public_key)
             }
+        };
+        if !self.check_rent(&originator_id, &mut originator, &self.config, epoch_length) {
+            return Err(format!("Failed to execute, because result will leave less then required rent on the account {}", originator_id).into())
         }
+        result
     }
 
     fn return_data_to_receipts(
@@ -563,7 +586,6 @@ impl Runtime {
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
-        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Result<(), String> {
         let receiver: Option<Account> = get_account(state_update, &receipt.receiver);
         let receiver_exists = receiver.is_some();
@@ -597,8 +619,8 @@ impl Runtime {
                             &receipt.nonce,
                             &receipt.receiver,
                             &mut receiver,
+                            block_index,
                             &self.config,
-                            validator_proposals,
                         )
                     } else {
                         self.apply_async_call(
@@ -705,6 +727,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction: &SignedTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -713,6 +736,7 @@ impl Runtime {
         match self.apply_signed_transaction(
             state_update,
             block_index,
+            epoch_length,
             transaction,
             validator_proposals,
             &mut result,
@@ -743,7 +767,6 @@ impl Runtime {
         block_index: BlockIndex,
         receipt: &ReceiptTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
-        validator_proposals: &mut Vec<ValidatorStake>,
     ) -> TransactionResult {
         let mut result = TransactionResult::default();
         if account_to_shard_id(&receipt.receiver) == shard_id {
@@ -754,13 +777,14 @@ impl Runtime {
                 &mut tmp_new_receipts,
                 block_index,
                 &mut result,
-                validator_proposals,
             );
             for receipt in tmp_new_receipts {
                 result.receipts.push(receipt.nonce);
                 let shard_id = receipt.shard_id();
                 new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
             }
+            // TODO(1111): Receipt receiver after applying state transition should call `check_rent` to
+            // make sure there is still enough rent to pay after this state transition.
             match apply_result {
                 Ok(()) => {
                     state_update.commit();
@@ -800,7 +824,6 @@ impl Runtime {
                 block_index,
                 receipt,
                 &mut new_receipts,
-                &mut validator_proposals,
             ));
         }
         for transaction in transactions {
@@ -821,6 +844,7 @@ impl Runtime {
             tx_result.push(self.process_transaction(
                 &mut state_update,
                 block_index,
+                apply_state.epoch_length,
                 transaction,
                 &mut new_receipts,
                 &mut validator_proposals,

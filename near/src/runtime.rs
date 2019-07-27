@@ -290,6 +290,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             shard_id,
             block_index,
             parent_block_hash: *prev_block_hash,
+            epoch_length: self.genesis_config.epoch_length,
         };
 
         let apply_result =

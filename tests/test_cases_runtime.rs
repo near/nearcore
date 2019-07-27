@@ -4,9 +4,23 @@ mod test {
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
+    use node_runtime::StateRecord;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
+    }
+
+    fn create_runtime_with_expensive_storage() -> RuntimeNode {
+        let mut genesis_config =
+            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        // Set expensive state rent and add alice more money.
+        genesis_config.runtime_config.storage_cost_byte_per_block = 100_000_000_000_000;
+        genesis_config.runtime_config.poke_threshold = 10;
+        match &mut genesis_config.records[0][0] {
+            StateRecord::Account { account, .. } => { account.amount = 10_000_000_000_000_000_000 },
+            _ => {}
+        }
+        RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
     }
 
     #[test]
@@ -256,12 +270,20 @@ mod test {
     }
 
     #[test]
+    fn test_fail_not_enough_rent_runtime() {
+        let node = create_runtime_with_expensive_storage();
+        test_fail_not_enough_rent(node);
+    }
+
+    #[test]
+    fn test_stake_fail_not_enough_rent_runtime() {
+        let node = create_runtime_with_expensive_storage();
+        test_stake_fail_not_enough_rent(node);
+    }
+
+    #[test]
     fn test_delete_account_runtime() {
-        let mut genesis_config =
-            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
-        genesis_config.runtime_config.storage_cost_byte_per_block = 10_000_000_000_000;
-        genesis_config.runtime_config.poke_threshold = 100;
-        let node = RuntimeNode::new_from_genesis(&alice_account(), genesis_config);
+        let node = create_runtime_with_expensive_storage();
         test_delete_account(node);
     }
 
