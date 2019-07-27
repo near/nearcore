@@ -9,6 +9,7 @@ use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManager
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
+use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -30,6 +31,7 @@ pub fn setup_network_node(
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let block_producer = BlockProducer::from(signer.clone());
+    let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
@@ -37,9 +39,10 @@ pub fn setup_network_node(
             store.clone(),
             genesis_time,
             runtime,
+            config.public_key.clone().into(),
             ctx.address().recipient(),
             Some(block_producer),
-            config.public_key.clone().into(),
+            telemetry_actor,
         )
         .unwrap()
         .start();
