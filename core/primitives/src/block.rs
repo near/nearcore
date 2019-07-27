@@ -50,9 +50,11 @@ pub struct BlockHeader {
     pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
+    #[serde(with = "base_format")]
     pub signature: Signature,
 
     /// Cached value of hash for this block.
+    #[serde(with = "base_format")]
     hash: CryptoHash,
 }
 

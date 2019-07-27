@@ -15,7 +15,7 @@ use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::serialize::base_format;
+use crate::serialize::{base_bytes_format, base_format, option_base_format, u128_dec_format};
 use crate::types::{AccountId, Balance, CallbackId, Nonce, ShardId, StructSignature};
 use crate::utils::{account_to_shard_id, proto_to_result};
 
@@ -49,7 +49,10 @@ pub struct CreateAccountTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
     pub new_account_id: AccountId,
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
+    // TODO: replace to PublicKey
+    #[serde(with = "base_bytes_format")]
     pub public_key: Vec<u8>,
 }
 
@@ -140,6 +143,7 @@ pub struct FunctionCallTransaction {
     pub contract_id: AccountId,
     pub method_name: Vec<u8>,
     pub args: Vec<u8>,
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
@@ -190,6 +194,7 @@ pub struct SendMoneyTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
     pub receiver: AccountId,
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
@@ -222,6 +227,7 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
 pub struct StakeTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     pub public_key: String,
 }
@@ -256,7 +262,9 @@ pub struct SwapKeyTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
     // one of the current keys to the account that will be swapped out
+    #[serde(with = "base_bytes_format")]
     pub cur_key: Vec<u8>,
+    #[serde(with = "base_bytes_format")]
     pub new_key: Vec<u8>,
 }
 
@@ -298,6 +306,7 @@ impl fmt::Debug for SwapKeyTransaction {
 pub struct AddKeyTransaction {
     pub nonce: Nonce,
     pub originator: AccountId,
+    #[serde(with = "base_bytes_format")]
     pub new_key: Vec<u8>,
     pub access_key: Option<AccessKey>,
 }
@@ -458,9 +467,12 @@ impl TransactionBody {
 #[derive(Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
     pub body: TransactionBody,
+    #[serde(with = "base_format")]
     pub signature: StructSignature,
     // In case this TX uses AccessKey, it needs to provide the public_key
+    #[serde(with = "option_base_format")]
     pub public_key: Option<PublicKey>,
+    #[serde(with = "base_format")]
     hash: CryptoHash,
 }
 

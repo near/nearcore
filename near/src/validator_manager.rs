@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::iter;
 use std::sync::Arc;
@@ -109,7 +109,6 @@ fn proposals_to_assignments(
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
     let mut stake_change = BTreeMap::new();
-    let mut no_stake_change = HashSet::new();
     for p in proposals {
         if *validator_kickout.get(&p.account_id).unwrap_or(&false) {
             stake_change.insert(p.account_id, (0, p.amount));
@@ -129,7 +128,6 @@ fn proposals_to_assignments(
             Entry::Vacant(e) => {
                 if !*validator_kickout.get(&r.account_id).unwrap_or(&true) {
                     e.insert(r.clone());
-                    no_stake_change.insert(r.account_id.clone());
                 } else {
                     stake_change.insert(r.account_id.clone(), (0, r.amount));
                 }
@@ -146,8 +144,7 @@ fn proposals_to_assignments(
     let mut final_proposals = BTreeMap::new();
     for (account_id, p) in ordered_proposals {
         if p.amount >= threshold {
-            if !no_stake_change.contains(&p.account_id) && !stake_change.contains_key(&p.account_id)
-            {
+            if !stake_change.contains_key(&p.account_id) {
                 stake_change.insert(p.account_id.clone(), (p.amount, 0));
             }
             final_proposals.insert(account_id, p);
@@ -358,13 +355,12 @@ impl ValidatorManager {
             Ok(Some(value)) => value,
             Ok(None) => {
                 let pre_gensis_hash = CryptoHash::default();
-                let mut initial_assigment = proposals_to_assignments(
+                let initial_assigment = proposals_to_assignments(
                     initial_epoch_config.clone(),
                     &ValidatorAssignment::default(),
                     initial_validators,
                     HashMap::new(),
                 )?;
-                initial_assigment.stake_change = BTreeMap::new();
 
                 let mut store_update = store.store_update();
                 store_update.set_ser(
@@ -492,10 +488,9 @@ impl ValidatorManager {
             }
             for proposal in info.proposals {
                 if proposal.amount == 0 {
-                    validator_kickout.insert(proposal.account_id, true);
-                } else {
-                    proposals.push(proposal);
+                    validator_kickout.insert(proposal.account_id.clone(), true);
                 }
+                proposals.push(proposal);
             }
             // safe to unwrap because block_index_to_validator is computed from indices in this epoch
             let validator = *block_index_to_validator.get(&info.index).unwrap();
@@ -508,7 +503,7 @@ impl ValidatorManager {
             .store
             .get_ser(COL_LAST_EPOCH_PROPOSALS, epoch_hash.as_ref())?
             .unwrap_or_else(|| vec![]);
-        let mut cur_proposals = proposals.clone();
+        let cur_proposals = proposals.clone();
         last_epoch_proposals.append(&mut proposals);
         let proposals = last_epoch_proposals;
 
@@ -551,11 +546,6 @@ impl ValidatorManager {
             proposals,
             validator_kickout,
         )?;
-
-        cur_proposals = cur_proposals
-            .into_iter()
-            .filter(|p| *assignment.stake_change.get(&p.account_id).unwrap() != 0)
-            .collect();
 
         self.last_epoch = *new_hash;
         self.set_validators(new_hash, assignment, &mut store_update)?;
@@ -760,7 +750,7 @@ mod test {
             vec![vec![(0, 2)]],
             vec![],
             1,
-            change_stake(vec![]),
+            change_stake(vec![("test1", amount_staked)]),
         );
         let mut expected1 = expected0.clone();
         expected1.expected_epoch_start = 2;
@@ -781,7 +771,7 @@ mod test {
             vec![vec![(0, 1), (1, 1)]],
             vec![],
             3,
-            change_stake(vec![("test2", amount_staked)]),
+            change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
         );
         // test2 staked in epoch 1 and therefore should be included in epoch 3.
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected2);
@@ -871,7 +861,11 @@ mod test {
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 3,
-                change_stake(vec![])
+                change_stake(vec![
+                    ("test1", amount_staked),
+                    ("test2", amount_staked),
+                    ("test3", amount_staked)
+                ])
             )
         );
         // Validators for the third epoch in the first fork. Does not have `test1` because it didn't produce
@@ -884,7 +878,12 @@ mod test {
                 vec![vec![(2, 1), (1, 1), (0, 1)]],
                 vec![],
                 6,
-                change_stake(vec![("test1", 0), ("test4", amount_staked)])
+                change_stake(vec![
+                    ("test1", 0),
+                    ("test2", amount_staked),
+                    ("test3", amount_staked),
+                    ("test4", amount_staked)
+                ])
             )
         );
         // Validators for the fourth epoch in the second fork. Does not have `test2` because it didn't produce
@@ -897,7 +896,11 @@ mod test {
                 vec![vec![(0, 2), (1, 1)]],
                 vec![],
                 9,
-                change_stake(vec![("test2", 0)])
+                change_stake(vec![
+                    ("test1", amount_staked),
+                    ("test2", 0),
+                    ("test3", amount_staked)
+                ])
             )
         );
 
@@ -913,7 +916,12 @@ mod test {
                 vec![vec![(0, 2), (1, 1)]],
                 vec![],
                 9,
-                change_stake(vec![("test1", 0), ("test3", 0), ("test4", amount_staked)])
+                change_stake(vec![
+                    ("test1", 0),
+                    ("test2", amount_staked),
+                    ("test3", 0),
+                    ("test4", amount_staked)
+                ])
             )
         );
 
@@ -954,7 +962,7 @@ mod test {
                 vec![vec![(0, 1)]],
                 vec![],
                 4,
-                change_stake(vec![]),
+                change_stake(vec![("test1", amount_staked)]),
             )
         );
     }
@@ -982,7 +990,7 @@ mod test {
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test1", 0)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
             )
         );
         assert_eq!(
@@ -993,7 +1001,7 @@ mod test {
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test2", 0)])
+                change_stake(vec![("test1", amount_staked), ("test2", 0)])
             )
         );
     }
@@ -1006,7 +1014,7 @@ mod test {
         let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
         let mut vm =
             ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
-        let (h0, h1, h2) = (hash(&vec![0]), hash(&vec![1]), hash(&vec![2]));
+        let (h0, h1, h2, h3, h4) = (hash(&[0]), hash(&[1]), hash(&[2]), hash(&[3]), hash(&[4]));
         vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
         vm.add_proposals(h0, h1, 1, vec![stake("test1", 0)], vec![]).unwrap().commit().unwrap();
@@ -1020,9 +1028,23 @@ mod test {
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test1", 0)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
             )
-        )
+        );
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h2, &h3, &h4).unwrap();
+        vm.add_proposals(h3, h4, 4, vec![], vec![]).unwrap().commit().unwrap();
+        assert_eq!(
+            vm.get_validators(h4).unwrap(),
+            &assignment(
+                vec![("test2", amount_staked)],
+                vec![0, 0],
+                vec![vec![(0, 2)]],
+                vec![],
+                6,
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+            )
+        );
     }
 
     #[test]
@@ -1047,7 +1069,7 @@ mod test {
                 vec![vec![(0, 2)]],
                 vec![],
                 4,
-                change_stake(vec![("test1", 0)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
             )
         )
     }

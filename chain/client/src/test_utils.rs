@@ -5,13 +5,14 @@ use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use chrono::Utc;
 
 use near_chain::test_utils::KeyValueRuntime;
+use near_network::types::NetworkInfo;
 use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_store::test_utils::create_test_store;
+use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
-use near_network::types::NetworkInfo;
-use near_primitives::crypto::signature::PublicKey;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -29,6 +30,7 @@ pub fn setup(
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let genesis_time = Utc::now();
+    let telemetry = TelemetryActor::default().start();
     let view_client =
         ViewClientActor::new(store.clone(), genesis_time.clone(), runtime.clone()).unwrap();
     let client = ClientActor::new(
@@ -36,9 +38,10 @@ pub fn setup(
         store,
         genesis_time,
         runtime,
+        PublicKey::empty().into(),
         recipient,
         Some(signer.into()),
-        PublicKey::empty().into(),
+        telemetry,
     )
     .unwrap();
     (client, view_client)
