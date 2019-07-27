@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::iter;
 use std::sync::Arc;
@@ -12,7 +12,10 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
 };
-use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
+use near_store::{
+    Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_SLASHED_VALIDATORS,
+    COL_VALIDATORS,
+};
 
 const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 
@@ -449,6 +452,16 @@ impl ValidatorManager {
             .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
     }
 
+    fn get_slashed_validators(
+        &mut self,
+        epoch_hash: &CryptoHash,
+    ) -> Result<HashSet<AccountId>, ValidatorError> {
+        Ok(self
+            .store
+            .get_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref())?
+            .unwrap_or(HashSet::new()))
+    }
+
     fn set_validators(
         &mut self,
         epoch_hash: &CryptoHash,
@@ -480,6 +493,10 @@ impl ValidatorManager {
                 validator_assignment.expected_epoch_start,
             )
         };
+        let slashed = self.get_slashed_validators(epoch_hash)?;
+        for account_id in slashed.iter() {
+            validator_kickout.insert(account_id.clone(), true);
+        }
 
         loop {
             let info = self.get_index_info(&hash)?;
@@ -487,10 +504,12 @@ impl ValidatorManager {
                 break;
             }
             for proposal in info.proposals {
-                if proposal.amount == 0 {
-                    validator_kickout.insert(proposal.account_id.clone(), true);
+                if !slashed.contains(&proposal.account_id) {
+                    if proposal.amount == 0 {
+                        validator_kickout.insert(proposal.account_id.clone(), true);
+                    }
+                    proposals.push(proposal);
                 }
-                proposals.push(proposal);
             }
             // safe to unwrap because block_index_to_validator is computed from indices in this epoch
             let validator = *block_index_to_validator.get(&info.index).unwrap();
@@ -627,6 +646,38 @@ impl ValidatorManager {
         let block_producer_idx = idx % total_seats;
         let validator_idx = validator_assignment.block_producers[block_producer_idx as usize];
         Ok(validator_assignment.validators[validator_idx].clone())
+    }
+
+    /// Update slashed validator info for the given epoch
+    fn update_slashed(
+        &mut self,
+        epoch_hash: &CryptoHash,
+        validator: &AccountId,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), ValidatorError> {
+        let mut current_slashed = self
+            .store
+            .get_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref())?
+            .unwrap_or(HashSet::new());
+        current_slashed.insert(validator.clone());
+        store_update.set_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref(), &current_slashed)?;
+        Ok(())
+    }
+
+    /// Slash a validator. Update the slashed validator info for this epoch and next epoch (because
+    /// validator for next epoch has already been calculated). Note: `epoch_hash` here is the current epoch hash,
+    /// not the previous epoch hash.
+    pub fn slash(
+        &mut self,
+        epoch_hash: &CryptoHash,
+        validator: &AccountId,
+    ) -> Result<(), ValidatorError> {
+        let mut store_update = self.store.store_update();
+        let prev_epoch_hash = self.get_prev_epoch_hash(epoch_hash)?;
+        self.update_slashed(&prev_epoch_hash, validator, &mut store_update)?;
+        self.update_slashed(epoch_hash, validator, &mut store_update)?;
+        store_update.commit()?;
+        Ok(())
     }
 }
 
@@ -1106,6 +1157,41 @@ mod test {
                 &validator_assignment.validators[validator_assignment.block_producers[0]]
                     .account_id,
                 amount_staked
+            )
+        );
+    }
+
+    #[test]
+    fn test_slashing() {
+        let store = create_test_store();
+        let config = config(2, 1, 2, 0, 0.9);
+        let amount_staked = 1_000_000;
+        let validators = vec![stake("test1", amount_staked), stake("test2", amount_staked)];
+        let mut vm =
+            ValidatorManager::new(config.clone(), validators.clone(), store.clone()).unwrap();
+        let (h0, h1, h2, h3, h4) = (hash(&[0]), hash(&[1]), hash(&[2]), hash(&[3]), hash(&[4]));
+        vm.add_proposals(CryptoHash::default(), h0, 0, vec![], vec![]).unwrap().commit().unwrap();
+        vm.add_proposals(h0, h1, 1, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h0, &h1, &h2).unwrap();
+        vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
+        vm.slash(&h2, &"test1".to_string()).unwrap();
+        let slashed1: Vec<_> =
+            vm.get_slashed_validators(&h0).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed1, vec!["test1".to_string()]);
+        let slashed2: Vec<_> =
+            vm.get_slashed_validators(&h2).unwrap().clone().into_iter().collect();
+        assert_eq!(slashed2, vec!["test1".to_string()]);
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        vm.finalize_epoch(&h2, &h3, &h4).unwrap();
+        assert_eq!(
+            vm.get_validators(h4).unwrap(),
+            &assignment(
+                vec![("test2", amount_staked)],
+                vec![0, 0],
+                vec![vec![(0, 2)]],
+                vec![],
+                6,
+                change_stake(vec![("test1", 0), ("test2", amount_staked)])
             )
         );
     }

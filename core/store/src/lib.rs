@@ -41,7 +41,7 @@ pub const COL_PEERS: Option<u32> = Some(8);
 pub const COL_PROPOSALS: Option<u32> = Some(9);
 pub const COL_VALIDATORS: Option<u32> = Some(10);
 pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(11);
-pub const COL_RETURN_STAKE_VALIDATORS: Option<u32> = Some(12);
+pub const COL_SLASHED_VALIDATORS: Option<u32> = Some(12);
 const NUM_COLS: u32 = 13;
 
 pub struct Store {
