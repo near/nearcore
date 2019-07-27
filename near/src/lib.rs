@@ -29,9 +29,7 @@ pub fn get_store_path(base_path: &Path) -> String {
     store_path.push(STORE_PATH);
     match fs::canonicalize(store_path.clone()) {
         Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
-        _ => {
-            info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path)
-        }
+        _ => info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path),
     };
     store_path.to_str().unwrap().to_owned()
 }

@@ -6,7 +6,6 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 
 use near_chain::Block;
-use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
@@ -95,6 +94,8 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockIndex,
+    /// Maximum blocks ahead of us before becoming validators to announce account.
+    pub announce_account_horizon: BlockIndex,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
@@ -120,6 +121,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -145,6 +147,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -211,14 +214,6 @@ impl SyncStatus {
     pub fn is_syncing(&self) -> bool {
         self != &SyncStatus::NoSync
     }
-}
-
-pub struct NetworkInfo {
-    pub num_active_peers: usize,
-    pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
-    pub sent_bytes_per_sec: u64,
-    pub received_bytes_per_sec: u64,
 }
 
 /// Actor message requesting block by id or hash.
