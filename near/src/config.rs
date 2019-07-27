@@ -705,6 +705,7 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
+            "runtime_config": {},
             "validator_kickout_threshold": 0.9,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],

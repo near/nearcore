@@ -5,6 +5,7 @@ use wasm::types::Config;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct RuntimeConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,

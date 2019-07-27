@@ -11,6 +11,7 @@
   ],
   "dynamic_resharding": true,
   "epoch_length": 300,
+  "runtime_config": {},
   "validator_kickout_threshold": 0.9,
   "validators": [
     {
