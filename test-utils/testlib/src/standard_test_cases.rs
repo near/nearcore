@@ -1,18 +1,16 @@
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::AccountViewCallResult;
-use near_primitives::serialize::{BaseEncode, Decode};
+use near_primitives::serialize::Decode;
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
-    DeleteAccountTransaction, DeleteKeyTransaction, DeployContractTransaction,
-    FinalTransactionResult, FinalTransactionStatus, FunctionCallTransaction, ReceiptBody,
-    ReceiptTransaction, SendMoneyTransaction, StakeTransaction, SwapKeyTransaction,
-    TransactionBody, TransactionStatus,
+    DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
+    FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
+    TransactionStatus,
 };
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::Balance;
 use near_primitives::utils::key_for_callback;
 use near_store::set_callback;
 
@@ -25,102 +23,6 @@ use crate::user::User;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
-
-/// Submit given transaction to the node and wait until it executes.
-fn submit_transaction(node: &impl Node, transaction: TransactionBody) -> FinalTransactionResult {
-    let transaction = transaction.sign(&*node.signer());
-    let hash = transaction.get_hash();
-    let node_user = node.user();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    node_user.get_transaction_final_result(&hash)
-}
-
-fn send_money(
-    node: &impl Node,
-    originator_id: AccountId,
-    receiver_id: AccountId,
-    amount: Balance,
-) -> FinalTransactionResult {
-    submit_transaction(
-        node,
-        TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: node.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator: originator_id,
-            receiver: receiver_id,
-            amount,
-        }),
-    )
-}
-
-fn create_account(
-    node: &impl Node,
-    new_account_id: AccountId,
-    public_key: PublicKey,
-    amount: Balance,
-) -> FinalTransactionResult {
-    let account_id = &node.account_id().unwrap();
-    submit_transaction(
-        node,
-        TransactionBody::CreateAccount(CreateAccountTransaction {
-            nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-            originator: account_id.clone(),
-            new_account_id,
-            public_key: public_key.0[..].to_vec(),
-            amount,
-        }),
-    )
-}
-
-fn function_call(
-    node: &impl Node,
-    contract_id: AccountId,
-    method_name: &str,
-    args: Vec<u8>,
-    amount: Balance,
-) -> FinalTransactionResult {
-    let account_id = &node.account_id().unwrap();
-    submit_transaction(
-        node,
-        TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-            originator: account_id.clone(),
-            contract_id,
-            method_name: method_name.as_bytes().to_vec(),
-            args,
-            amount,
-        }),
-    )
-}
-
-fn stake(
-    node: &impl Node,
-    originator_id: AccountId,
-    public_key: PublicKey,
-    amount: Balance,
-) -> FinalTransactionResult {
-    submit_transaction(
-        node,
-        TransactionBody::Stake(StakeTransaction {
-            nonce: node.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator: originator_id,
-            amount,
-            public_key: public_key.to_base(),
-        }),
-    )
-}
-
-fn delete_account(node: &impl Node, receiver_id: AccountId) -> FinalTransactionResult {
-    let account_id = &node.account_id().unwrap();
-    submit_transaction(
-        node,
-        TransactionBody::DeleteAccount(DeleteAccountTransaction {
-            nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-            originator_id: account_id.to_string(),
-            receiver_id,
-        }),
-    )
-}
 
 /// validate transaction result in the case that it is successful and generates given number of receipts
 /// recursively.
@@ -189,9 +91,15 @@ pub fn wait_for_transaction(node_user: &Box<dyn User>, hash: &CryptoHash) {
 }
 
 pub fn test_smart_contract_simple(node: impl Node) {
-    let result = function_call(&node, bob_account(), "run_test", vec![], FUNCTION_CALL_AMOUNT);
     let node_user = node.user();
     let root = node_user.get_state_root();
+    let result = node_user.function_call(
+        alice_account(),
+        bob_account(),
+        "run_test",
+        vec![],
+        FUNCTION_CALL_AMOUNT,
+    );
     validate_tx_result(node_user, root, &result.logs[0].hash, 2);
 }
 
@@ -1534,7 +1442,7 @@ pub fn test_increase_stake(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let amount_staked = TESTING_INIT_STAKE + 1;
     let transaction_result =
-        stake(&node, node.account_id().unwrap().clone(), node.signer().public_key(), amount_staked);
+        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.logs[0].receipts.len(), 0);
     let node_user = node.user();
@@ -1552,7 +1460,7 @@ pub fn test_decrease_stake(node: impl Node) {
     let amount_staked = 10;
     let account_id = &node.account_id().unwrap();
     let transaction_result =
-        stake(&node, account_id.clone(), node.signer().public_key(), amount_staked);
+        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.logs[0].receipts.len(), 0);
     let new_root = node_user.get_state_root();
@@ -1564,47 +1472,58 @@ pub fn test_decrease_stake(node: impl Node) {
 }
 
 pub fn test_unstake_while_not_staked(node: impl Node) {
-    let _ = create_account(&node, eve_account(), node.signer().public_key(), 10);
-    let transaction_result = stake(&node, eve_account(), node.signer().public_key(), 0);
+    let node_user = node.user();
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let transaction_result = node_user.stake(eve_account(), node.signer().public_key(), 0);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.logs[0].receipts.len(), 0);
 }
 
 /// Account must have enough rent to pay for next `poke_threshold` blocks.
 pub fn test_fail_not_enough_rent(node: impl Node) {
-    let _ = create_account(&node, eve_account(), node.signer().public_key(), 10);
-    let result = send_money(&node, eve_account(), alice_account(), 10);
+    let node_user = node.user();
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let result = node_user.send_money(eve_account(), alice_account(), 10);
     assert_eq!(result.status, FinalTransactionStatus::Failed);
 }
 
 /// Account must have enough rent to pay for next 4 x `epoch_length` blocks (otherwise can not stake).
 pub fn test_stake_fail_not_enough_rent(node: impl Node) {
-    let _ =
-        create_account(&node, eve_account(), node.signer().public_key(), 119_000_000_000_000_010);
-    let result = stake(&node, eve_account(), node.signer().public_key(), 5);
+    let node_user = node.user();
+    let _ = node_user.create_account(
+        alice_account(),
+        eve_account(),
+        node.signer().public_key(),
+        119_000_000_000_000_010,
+    );
+    let result = node_user.stake(eve_account(), node.signer().public_key(), 5);
     assert_eq!(result.status, FinalTransactionStatus::Failed);
 }
 
 pub fn test_delete_account(node: impl Node) {
+    let node_user = node.user();
     // There is some data attached to the account.
-    assert!(node.user().view_state(&bob_account()).unwrap().values.len() > 0);
-    let initial_amount = node.user().view_account(&node.account_id().unwrap()).unwrap().amount;
-    let bobs_amount = node.user().view_account(&bob_account()).unwrap().amount;
-    let result = delete_account(&node, bob_account());
+    assert!(node_user.view_state(&bob_account()).unwrap().values.len() > 0);
+    let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
+    let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
+    let result = node_user.delete_account(alice_account(), bob_account());
     assert_eq!(result.status, FinalTransactionStatus::Completed);
-    assert!(node.user().view_account(&bob_account()).is_err());
+    assert!(node_user.view_account(&bob_account()).is_err());
     // No data left.
-    assert_eq!(node.user().view_state(&bob_account()).unwrap().values.len(), 0);
+    assert_eq!(node_user.view_state(&bob_account()).unwrap().values.len(), 0);
     // Receive back reward the balance of the bob's account.
     assert_eq!(
-        node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
+        node_user.view_account(&node.account_id().unwrap()).unwrap().amount,
         initial_amount + bobs_amount
     );
 }
 
 pub fn test_delete_account_fail(node: impl Node) {
-    let initial_amount = node.user().view_account(&node.account_id().unwrap()).unwrap().amount;
-    let result = delete_account(&node, bob_account());
+    let node_user = node.user();
+    let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
+    let result = node_user.delete_account(alice_account(), bob_account());
     assert_eq!(result.status, FinalTransactionStatus::Failed);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
@@ -1614,14 +1533,17 @@ pub fn test_delete_account_fail(node: impl Node) {
 }
 
 pub fn test_delete_account_no_account(node: impl Node) {
-    let result = delete_account(&node, eve_account());
+    let node_user = node.user();
+    let result = node_user.delete_account(alice_account(), eve_account());
     assert_eq!(result.status, FinalTransactionStatus::Failed);
 }
 
 pub fn test_delete_account_while_staking(node: impl Node) {
-    let _ = create_account(&node, eve_account(), node.signer().public_key(), 10);
-    let _ = stake(&node, eve_account(), node.signer().public_key(), 10);
-    let result = delete_account(&node, eve_account());
+    let node_user = node.user();
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let _ = node_user.stake(eve_account(), node.signer().public_key(), 10);
+    let result = node_user.delete_account(alice_account(), eve_account());
     assert_eq!(result.status, FinalTransactionStatus::Failed);
     assert!(node.user().view_account(&eve_account()).is_ok());
 }

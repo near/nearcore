@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
@@ -41,6 +42,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
+    pub signer: Arc<dyn EDSigner>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -56,9 +58,14 @@ lazy_static! {
 }
 
 impl RuntimeUser {
-    pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
+    pub fn new(
+        account_id: &str,
+        signer: Arc<dyn EDSigner>,
+        client: Arc<RwLock<MockClient>>,
+    ) -> Self {
         let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
+            signer,
             trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
             client,
@@ -233,5 +240,9 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
             .map_err(|err| err.to_string())
+    }
+
+    fn signer(&self) -> Arc<dyn EDSigner> {
+        self.signer.clone()
     }
 }

@@ -317,7 +317,7 @@ pub fn system_create_account(
 
 /// System call to delete given account initiated by an originator.
 /// Allow to delete account if:
-///  * User has less than `storage_price` * `state_size` * `poke_threshold` or is staking.
+///  * User has less than `storage_price` * `state_size` * `poke_threshold` and not staking.
 ///  * Otherwise delete account and refund the rest of the money to originator.
 pub fn system_delete_account(
     state_update: &mut TrieUpdate,
