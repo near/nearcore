@@ -108,6 +108,7 @@ pub trait RuntimeAdapter: Send + Sync {
         current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 

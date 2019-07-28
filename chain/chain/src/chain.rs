@@ -152,6 +152,7 @@ impl Chain {
                             0,
                             vec![],
                             vec![],
+                            vec![],
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
@@ -678,6 +679,7 @@ impl<'a> ChainUpdate<'a> {
                 block.header.height,
                 validator_proposals,
                 vec![],
+                vec![],
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
@@ -752,6 +754,7 @@ impl<'a> ChainUpdate<'a> {
                         header.hash(),
                         header.height,
                         header.validator_proposal.clone(),
+                        vec![],
                         vec![],
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
