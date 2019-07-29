@@ -27,8 +27,8 @@ use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_callback, system_account,
 };
 use near_store::{
-    get_access_key, get_account, get_callback, get_code, set_access_key, set_account, set_callback,
-    set_code, total_account_storage, StoreUpdate, TrieChanges, TrieUpdate,
+    get_account, get_callback, get_code, set_access_key, set_account, set_callback, set_code,
+    total_account_storage, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
@@ -56,6 +56,24 @@ pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+
+/// Check that account still has enough amount to pay rent.
+fn check_rent(
+    account_id: &AccountId,
+    account: &mut Account,
+    runtime_config: &RuntimeConfig,
+    epoch_length: BlockIndex,
+) -> bool {
+    let buffer_length = if account.staked > 0 {
+        epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
+    } else {
+        runtime_config.poke_threshold
+    };
+    let buffer_amount = (buffer_length as u128)
+        * (total_account_storage(account_id, account) as u128)
+        * runtime_config.storage_cost_byte_per_block;
+    account.amount > buffer_amount
+}
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -224,15 +242,6 @@ impl Runtime {
         account.storage_paid_at = block_index;
     }
 
-    /// Check that account still has enough amount to pay rent.
-    fn check_rent(&self, account_id: &AccountId, account: &mut Account, runtime_config: &RuntimeConfig, epoch_length: BlockIndex) -> bool {
-        let buffer_length = if account.staked > 0 { epoch_length * (NUM_UNSTAKING_EPOCHS + 1) } else { runtime_config.poke_threshold };
-        let buffer_amount = (buffer_length as u128)
-            * (total_account_storage(account_id, account) as u128)
-            * self.config.storage_cost_byte_per_block;
-        account.amount > buffer_amount
-    }
-
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
@@ -311,8 +320,8 @@ impl Runtime {
                 system::delete_account(t, transaction.get_hash(), public_key)
             }
         };
-        if !self.check_rent(&originator_id, &mut originator, &self.config, epoch_length) {
-            return Err(format!("Failed to execute, because result will leave less then required rent on the account {}", originator_id).into())
+        if !check_rent(&originator_id, &mut originator, &self.config, epoch_length) {
+            return Err(format!("Failed to execute, because result will leave less then required rent on the account {}", originator_id).into());
         }
         result
     }
@@ -585,6 +594,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> = get_account(state_update, &receipt.receiver);
@@ -621,6 +631,7 @@ impl Runtime {
                             &mut receiver,
                             block_index,
                             &self.config,
+                            epoch_length,
                         )
                     } else {
                         self.apply_async_call(
@@ -765,6 +776,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         receipt: &ReceiptTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
     ) -> TransactionResult {
@@ -776,6 +788,7 @@ impl Runtime {
                 receipt,
                 &mut tmp_new_receipts,
                 block_index,
+                epoch_length,
                 &mut result,
             );
             for receipt in tmp_new_receipts {
@@ -822,6 +835,7 @@ impl Runtime {
                 &mut state_update,
                 shard_id,
                 block_index,
+                apply_state.epoch_length,
                 receipt,
                 &mut new_receipts,
             ));

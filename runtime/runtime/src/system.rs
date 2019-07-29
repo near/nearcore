@@ -9,12 +9,15 @@ use near_primitives::transaction::{
     DeleteAccountTransaction, DeleteKeyTransaction, ReceiptBody, ReceiptTransaction,
     SendMoneyTransaction, StakeTransaction, SwapKeyTransaction,
 };
-use near_primitives::types::{AccountId, Balance, ValidatorStake, BlockIndex};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
-use near_store::{remove_account, total_account_storage, TrieUpdate};
+use near_store::{
+    get_access_key, remove_account, set_access_key, set_account, set_code, total_account_storage,
+    TrieUpdate,
+};
 
+use crate::check_rent;
 use crate::config::RuntimeConfig;
-use crate::{get_access_key, set_access_key, set_account, set_code};
 
 pub const SYSTEM_METHOD_CREATE_ACCOUNT: &[u8] = b"_sys:create_account";
 pub const SYSTEM_METHOD_DELETE_ACCOUNT: &[u8] = b"_sys:delete_account";
@@ -327,29 +330,22 @@ pub fn system_delete_account(
     account: &mut Account,
     block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
+    epoch_length: BlockIndex,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    let total_storage = total_account_storage(account_id, account) as u128;
-    let required_amount = total_storage
-        * runtime_config.storage_cost_byte_per_block
-        * (runtime_config.poke_threshold as u128);
     if account.staked != 0 {
         return Err(format!("Account {} is staking, can not be deleted.", account_id));
     }
-    if account.amount > required_amount {
+    if check_rent(account_id, account, runtime_config, epoch_length) {
         return Err(format!(
             "Account {} has {}, which is more than enough to cover the storage for next {} blocks.",
             account_id, account.amount, runtime_config.poke_threshold
         ));
     }
     let new_nonce = create_nonce_with_nonce(nonce, 0);
-    let storage_due = total_storage
+    let storage_due = (total_account_storage(account_id, account) as u128)
         * runtime_config.storage_cost_byte_per_block
         * ((block_index - account.storage_paid_at) as u128);
-    let reward = if account.amount < storage_due {
-        0
-    } else {
-        account.amount - storage_due
-    };
+    let reward = if account.amount < storage_due { 0 } else { account.amount - storage_due };
     let receipt = ReceiptTransaction::new(
         call.originator_id.clone(),
         call.originator_id.clone(),
