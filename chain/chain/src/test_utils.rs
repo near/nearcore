@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
+use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
@@ -17,7 +18,6 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Chain, ValidTransaction};
-use near_primitives::crypto::signature::Signature;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -98,11 +98,19 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn check_validator_signature(
         &self,
         _epoch_hash: &CryptoHash,
-        _account_id: &AccountId,
-        _data: &[u8],
-        _signature: &Signature,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
     ) -> bool {
-        true
+        if let Some(validator) = self
+            .validators
+            .iter()
+            .find(|&validator_stake| &validator_stake.account_id == account_id)
+        {
+            verify(data, signature, &validator.public_key)
+        } else {
+            false
+        }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -135,10 +143,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_offset(
         &self,
-        _parent_hash: CryptoHash,
+        parent_hash: CryptoHash,
         _block_index: BlockIndex,
     ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
-        Ok((CryptoHash::default(), 0))
+        Ok((parent_hash, 0))
     }
 
     fn apply_transactions(

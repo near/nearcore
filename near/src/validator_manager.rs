@@ -255,7 +255,7 @@ fn get_epoch_block_proposer_info(
 pub struct ValidatorEpochConfig {
     /// Epoch length in blocks.
     pub epoch_length: BlockIndex,
-    /// Source of randomnes.
+    /// Source of randomness.
     pub rng_seed: [u8; 32],
     /// Number of shards currently.
     pub num_shards: ShardId,

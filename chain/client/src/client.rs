@@ -18,13 +18,15 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
     ValidTransaction,
 };
-use near_network::types::{PeerId, ReasonForBan};
+use near_network::types::{
+    AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
+};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
-use near_primitives::crypto::signature::Signature;
-use near_primitives::hash::CryptoHash;
+use near_primitives::crypto::signature::{verify, Signature};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
@@ -34,10 +36,10 @@ use near_telemetry::TelemetryActor;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, NetworkInfo, ShardSyncStatus, Status, StatusSyncInfo,
-    SyncStatus,
+    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use futures::Future;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -61,6 +63,8 @@ pub struct ClientActor {
     block_sync: BlockSync,
     /// Keeps track of syncing state.
     state_sync: StateSync,
+    /// Last time we announced our accounts as validators.
+    last_val_announce_height: Option<BlockIndex>,
     /// Info helper.
     info_helper: InfoHelper,
 }
@@ -114,14 +118,70 @@ impl ClientActor {
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
+                routes: None,
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
             header_sync,
             block_sync,
             state_sync,
+            last_val_announce_height: None,
             info_helper,
         })
+    }
+
+    fn check_signature_account_announce(
+        &self,
+        announce_account: &AnnounceAccount,
+    ) -> Result<(), ReasonForBan> {
+        // Check header is correct.
+        let header_hash = announce_account.header_hash();
+        let header = announce_account.header();
+
+        // hash must match announcement hash ...
+        if header_hash != header.hash {
+            return Err(ReasonForBan::InvalidHash);
+        }
+
+        // ... and signature should be valid.
+        if !self.runtime_adapter.check_validator_signature(
+            &announce_account.epoch,
+            &announce_account.account_id,
+            header_hash.as_ref(),
+            &header.signature,
+        ) {
+            return Err(ReasonForBan::InvalidSignature);
+        }
+
+        // Check intermediates hops are correct.
+        // Skip first element (header)
+        announce_account
+            .route
+            .iter()
+            .skip(1)
+            .fold(Ok(header_hash), |previous_hash, hop| {
+                // Folding function will return None if at least one hop checking fail,
+                // otherwise it will return hash from last hop.
+                if let Ok(previous_hash) = previous_hash {
+                    let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
+
+                    let real_current_hash =
+                        &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+
+                    if real_current_hash != current_hash {
+                        return Err(ReasonForBan::InvalidHash);
+                    }
+
+                    if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
+                        Ok(previous_hash)
+                    } else {
+                        Err(ReasonForBan::InvalidSignature)
+                    }
+                } else {
+                    previous_hash
+                }
+            })
+            .map(|_hash| ())
     }
 }
 
@@ -239,6 +299,20 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
                 NetworkClientResponses::NoResponse
             }
+            NetworkClientMessages::AnnounceAccount(announce_account) => {
+                match self.check_signature_account_announce(&announce_account) {
+                    Ok(_) => {
+                        actix::spawn(
+                            self.network_actor
+                                .send(NetworkRequests::AnnounceAccount(announce_account))
+                                .map_err(|e| error!(target: "client", "{}", e))
+                                .map(|_| ()),
+                        );
+                        NetworkClientResponses::NoResponse
+                    }
+                    Err(ban_reason) => NetworkClientResponses::Ban { ban_reason },
+                }
+            }
         }
     }
 }
@@ -324,6 +398,78 @@ impl ClientActor {
         // We only want to reconcile the txpool against the new block *if* total weight has increased.
         if status == BlockStatus::Next || status == BlockStatus::Reorg {
             self.tx_pool.reconcile_block(&block);
+        }
+
+        self.check_send_announce_account(&block);
+    }
+
+    /// Check if client Account Id should be sent and send it.
+    /// Account Id is sent when is not current a validator but are becoming a validator soon.
+    fn check_send_announce_account(&mut self, block: &Block) {
+        // Announce AccountId if client is becoming a validator soon.
+
+        // First check that we currently have an AccountId
+        if self.block_producer.is_none() {
+            // There is no account id associated with this client
+            return;
+        }
+
+        let block_producer = self.block_producer.as_ref().unwrap();
+
+        let epoch_hash = match self.runtime_adapter.get_epoch_offset(
+            block.hash(),
+            block.header.height + self.config.announce_account_horizon,
+        ) {
+            Ok((epoch_hash, 0)) => epoch_hash,
+            // Don't announce if the block is unknown to us or the offset is greater than 0
+            _ => return,
+        };
+
+        if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
+            let epoch_height = epoch_block.header.height;
+
+            if let Some(last_val_announce_height) = self.last_val_announce_height {
+                if last_val_announce_height >= epoch_height {
+                    // This announcement was already done!
+                    return;
+                }
+            }
+
+            // Check client is part of the futures validators
+            if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
+                // TODO(MarX): Use HashSet in validator manager to do fast searching.
+                if validators.iter().any(|account_id| (account_id == &block_producer.account_id)) {
+                    self.last_val_announce_height = Some(epoch_height);
+                    let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
+
+                    actix::spawn(
+                        self.network_actor
+                            .send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
+                                block_producer.account_id.clone(),
+                                epoch_hash,
+                                self.node_id,
+                                hash,
+                                signature,
+                            )))
+                            .map_err(|e| error!(target: "client", "{:?}", e))
+                            .map(|_| ()),
+                    );
+                }
+            }
+        }
+    }
+
+    fn sign_announce_account(&self, epoch: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            let hash = AnnounceAccount::build_header_hash(
+                &block_producer.account_id,
+                &self.node_id,
+                epoch,
+            );
+            let signature = block_producer.signer.sign(hash.as_ref());
+            Ok((hash, signature))
+        } else {
+            Err(())
         }
     }
 
@@ -828,21 +974,11 @@ impl ClientActor {
     fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
         // TODO: replace with push from network?
         self.network_actor
-            .send(NetworkRequests::FetchInfo)
+            .send(NetworkRequests::FetchInfo { level: 0 })
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
-                Ok(NetworkResponses::Info {
-                    num_active_peers,
-                    peer_max_count,
-                    most_weight_peers,
-                    sent_bytes_per_sec,
-                    received_bytes_per_sec,
-                }) => {
-                    act.network_info.num_active_peers = num_active_peers;
-                    act.network_info.peer_max_count = peer_max_count;
-                    act.network_info.most_weight_peers = most_weight_peers;
-                    act.network_info.sent_bytes_per_sec = sent_bytes_per_sec;
-                    act.network_info.received_bytes_per_sec = received_bytes_per_sec;
+                Ok(NetworkResponses::Info(network_info)) => {
+                    act.network_info = network_info;
                     actix::fut::ok(())
                 }
                 Ok(NetworkResponses::NoResponse) => actix::fut::ok(()),
@@ -894,6 +1030,8 @@ impl ClientActor {
         // TODO: This header is missing, should collect for later? should have better way to verify then.
         let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
 
+        // TODO: Access runtime adapter only once to find the position and public key.
+
         // If given account is not current block proposer.
         let position = match self.get_epoch_block_proposers(header.epoch_hash) {
             Ok(validators) => validators.iter().position(|x| x == account_id),
@@ -905,6 +1043,7 @@ impl ClientActor {
         if position.is_none() {
             return false;
         }
+
         // Check signature is correct for given validator.
         if !self.runtime_adapter.check_validator_signature(
             &header.epoch_hash,
@@ -914,6 +1053,7 @@ impl ClientActor {
         ) {
             return false;
         }
+
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position.unwrap(), signature.clone());
         true
