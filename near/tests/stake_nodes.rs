@@ -99,7 +99,7 @@ fn test_stake_nodes() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 actix::spawn(test_nodes[0].client.send(Status {}).then(|res| {
-                    if res.unwrap().unwrap().validators.len() == 2 {
+                    if res.unwrap().unwrap().validators == vec!["near.1", "near.0"] {
                         System::current().stop();
                     }
                     futures::future::ok(())
