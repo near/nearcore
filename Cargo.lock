@@ -2238,6 +2238,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-vm-logic"
+version = "0.2.0"
+dependencies = [
+ "exonum_sodiumoxide 0.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "nearcore"
 version = "0.1.0"
 dependencies = [
