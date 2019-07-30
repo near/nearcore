@@ -31,6 +31,7 @@ pub enum TransactionBody {
     SwapKey(SwapKeyTransaction),
     AddKey(AddKeyTransaction),
     DeleteKey(DeleteKeyTransaction),
+    DeleteAccount(DeleteAccountTransaction),
 }
 
 impl TransactionBody {
@@ -392,6 +393,34 @@ impl fmt::Debug for DeleteKeyTransaction {
     }
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct DeleteAccountTransaction {
+    pub nonce: Nonce,
+    pub originator_id: AccountId,
+    pub receiver_id: AccountId,
+}
+
+impl From<transaction_proto::DeleteAccountTransaction> for DeleteAccountTransaction {
+    fn from(t: transaction_proto::DeleteAccountTransaction) -> Self {
+        DeleteAccountTransaction {
+            nonce: t.nonce,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
+        }
+    }
+}
+
+impl From<DeleteAccountTransaction> for transaction_proto::DeleteAccountTransaction {
+    fn from(t: DeleteAccountTransaction) -> Self {
+        transaction_proto::DeleteAccountTransaction {
+            nonce: t.nonce,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
+            ..Default::default()
+        }
+    }
+}
+
 impl TransactionBody {
     pub fn get_nonce(&self) -> u64 {
         match self {
@@ -403,6 +432,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(t) => t.nonce,
             TransactionBody::AddKey(t) => t.nonce,
             TransactionBody::DeleteKey(t) => t.nonce,
+            TransactionBody::DeleteAccount(t) => t.nonce,
         }
     }
 
@@ -416,6 +446,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(t) => t.originator.clone(),
             TransactionBody::AddKey(t) => t.originator.clone(),
             TransactionBody::DeleteKey(t) => t.originator.clone(),
+            TransactionBody::DeleteAccount(t) => t.originator_id.clone(),
         }
     }
 
@@ -430,6 +461,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(_) => None,
             TransactionBody::AddKey(_) => None,
             TransactionBody::DeleteKey(_) => None,
+            TransactionBody::DeleteAccount(_) => None,
         }
     }
 
@@ -465,6 +497,10 @@ impl TransactionBody {
             }
             TransactionBody::DeleteKey(t) => {
                 let proto: transaction_proto::DeleteKeyTransaction = t.into();
+                proto.write_to_bytes()
+            }
+            TransactionBody::DeleteAccount(t) => {
+                let proto: transaction_proto::DeleteAccountTransaction = t.into();
                 proto.write_to_bytes()
             }
         };
@@ -568,6 +604,10 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::DeleteKey(DeleteKeyTransaction::try_from(t)?)
             }
+            Some(transaction_proto::SignedTransaction_oneof_body::delete_account(t)) => {
+                bytes = t.write_to_bytes();
+                TransactionBody::DeleteAccount(DeleteAccountTransaction::from(t))
+            }
             None => return Err("No such transaction body type".into()),
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
@@ -610,6 +650,9 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
             }
             TransactionBody::DeleteKey(t) => {
                 transaction_proto::SignedTransaction_oneof_body::delete_key(t.into())
+            }
+            TransactionBody::DeleteAccount(t) => {
+                transaction_proto::SignedTransaction_oneof_body::delete_account(t.into())
             }
         };
         transaction_proto::SignedTransaction {

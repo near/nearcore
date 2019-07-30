@@ -1,11 +1,11 @@
 use std::sync::{Arc, RwLock};
 
+use near::GenesisConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
-use near_primitives::transaction::{FunctionCallTransaction, TransactionBody};
-use near_primitives::types::{AccountId, Balance};
+use near_primitives::types::AccountId;
 
 use crate::node::Node;
-use crate::runtime_utils::get_runtime_and_trie;
+use crate::runtime_utils::{alice_account, bob_account, get_runtime_and_trie_from_genesis};
 use crate::user::runtime_user::MockClient;
 use crate::user::{RuntimeUser, User};
 
@@ -16,39 +16,21 @@ pub struct RuntimeNode {
 
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
+        let genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+        Self::new_from_genesis(account_id, genesis_config)
+    }
+
+    pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-        let (runtime, trie, root) = get_runtime_and_trie();
-        let client = Arc::new(RwLock::new(MockClient { runtime, trie, state_root: root }));
+        let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
+        let client = Arc::new(RwLock::new(MockClient {
+            runtime,
+            trie,
+            state_root: root,
+            epoch_length: genesis_config.epoch_length,
+        }));
         RuntimeNode { signer, client }
-    }
-
-    pub fn send_money(&self, account_id: &AccountId, amount: Balance) {
-        let nonce = self.get_account_nonce(&self.account_id().unwrap()).unwrap_or_default() + 1;
-        let transaction =
-            TransactionBody::send_money(nonce, &self.account_id().unwrap(), account_id, amount)
-                .sign(&*self.signer());
-        self.user().add_transaction(transaction).unwrap();
-    }
-
-    pub fn call_function(
-        &self,
-        contract_id: &str,
-        method_name: &str,
-        args: Vec<u8>,
-        amount: Balance,
-    ) {
-        let account_id = self.account_id().unwrap();
-        let nonce = self.get_account_nonce(&account_id).unwrap_or_default() + 1;
-        let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce,
-            originator: account_id.to_string(),
-            contract_id: contract_id.to_string(),
-            method_name: method_name.as_bytes().to_vec(),
-            args,
-            amount,
-        })
-        .sign(&*self.signer());
-        self.user().add_transaction(transaction).unwrap();
     }
 }
 
@@ -70,7 +52,11 @@ impl Node for RuntimeNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RuntimeUser::new(&self.signer.account_id, self.client.clone()))
+        Box::new(RuntimeUser::new(
+            &self.signer.account_id,
+            self.signer.clone(),
+            self.client.clone(),
+        ))
     }
 }
 
@@ -78,19 +64,21 @@ impl Node for RuntimeNode {
 mod tests {
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
+    use crate::runtime_utils::{alice_account, bob_account};
 
     #[test]
     pub fn test_send_money() {
         let node = RuntimeNode::new(&"alice.near".to_string());
-        node.send_money(&"bob.near".to_string(), 1);
+        let node_user = node.user();
+        node_user.send_money(alice_account(), bob_account(), 1);
         let (alice1, bob1) = (
-            node.view_balance(&"alice.near".to_string()).unwrap(),
-            node.view_balance(&"bob.near".to_string()).unwrap(),
+            node.view_balance(&alice_account()).unwrap(),
+            node.view_balance(&bob_account()).unwrap(),
         );
-        node.send_money(&"bob.near".to_string(), 1);
+        node_user.send_money(alice_account(), bob_account(), 1);
         let (alice2, bob2) = (
-            node.view_balance(&"alice.near".to_string()).unwrap(),
-            node.view_balance(&"bob.near".to_string()).unwrap(),
+            node.view_balance(&alice_account()).unwrap(),
+            node.view_balance(&bob_account()).unwrap(),
         );
         assert_eq!(alice2, alice1 - 1);
         assert_eq!(bob2, bob1 + 1);

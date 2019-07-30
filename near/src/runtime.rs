@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use kvdb::DBValue;
 use log::{debug, error, info};
 
 use near_chain::{
@@ -28,8 +30,6 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
-use kvdb::DBValue;
-use std::collections::BTreeSet;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -51,7 +51,7 @@ impl NightshadeRuntime {
         let mut ethash_dir = home_dir.to_owned();
         ethash_dir.push(ETHASH_CACHE_PATH);
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
-        let runtime = Runtime::new(ethash_provider.clone());
+        let runtime = Runtime::new(genesis_config.runtime_config.clone(), ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
         let initial_epoch_config = ValidatorEpochConfig {
             epoch_length: genesis_config.epoch_length,
@@ -302,6 +302,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             shard_id,
             block_index,
             parent_block_hash: *prev_block_hash,
+            epoch_length: self.genesis_config.epoch_length,
         };
 
         let apply_result =
@@ -442,10 +443,8 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
 #[cfg(test)]
 mod test {
-    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-    use crate::runtime::POISONED_LOCK_ERR;
-    use crate::test_utils::*;
-    use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use tempdir::TempDir;
+
     use near_chain::RuntimeAdapter;
     use near_client::BlockProducer;
     use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
@@ -459,7 +458,11 @@ mod test {
     use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
-    use tempdir::TempDir;
+
+    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::runtime::POISONED_LOCK_ERR;
+    use crate::test_utils::*;
+    use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         TransactionBody::Stake(StakeTransaction {

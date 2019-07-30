@@ -63,6 +63,8 @@ pub enum RuntimeError {
     PromiseError,
     /// Invalid promise index given by the WASM
     InvalidPromiseIndex,
+    /// We tried to acces
+    InvalidRegisterId,
     /// Invalid result index given by the WASM to read results
     InvalidResultIndex,
     // WASM is trying to read data from a result that is an error
@@ -126,6 +128,7 @@ impl ::std::fmt::Display for RuntimeError {
             RuntimeError::InvalidReturn => write!(f, "Invalid return value"),
             RuntimeError::PromiseError => write!(f, "Error in the external promise method"),
             RuntimeError::InvalidPromiseIndex => write!(f, "Invalid promise index given by WASM"),
+            RuntimeError::InvalidRegisterId => write!(f, "Invalid identifier of the register"),
             RuntimeError::InvalidResultIndex => {
                 write!(f, "Invalid result index given by the WASM to read results")
             }

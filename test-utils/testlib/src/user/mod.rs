@@ -1,13 +1,19 @@
+use std::sync::Arc;
+
 use futures::Future;
 
 use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::{
-    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+    CreateAccountTransaction, DeleteAccountTransaction, FinalTransactionResult,
+    FunctionCallTransaction, ReceiptTransaction, SendMoneyTransaction, SignedTransaction,
+    StakeTransaction, TransactionBody, TransactionResult,
 };
 use near_primitives::types::{AccountId, Balance, MerkleHash};
 
@@ -55,6 +61,89 @@ pub trait User {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, String>;
+
+    fn signer(&self) -> Arc<dyn EDSigner>;
+
+    fn sign_and_commit_transaction(&self, body: TransactionBody) -> FinalTransactionResult {
+        let tx = body.sign(&*self.signer());
+        self.commit_transaction(tx).unwrap()
+    }
+
+    fn send_money(
+        &self,
+        originator_id: AccountId,
+        receiver_id: AccountId,
+        amount: Balance,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_transaction(TransactionBody::SendMoney(SendMoneyTransaction {
+            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+            originator: originator_id,
+            receiver: receiver_id,
+            amount,
+        }))
+    }
+
+    fn function_call(
+        &self,
+        originator_id: AccountId,
+        contract_id: AccountId,
+        method_name: &str,
+        args: Vec<u8>,
+        amount: Balance,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_transaction(TransactionBody::FunctionCall(FunctionCallTransaction {
+            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+            originator: originator_id,
+            contract_id,
+            method_name: method_name.as_bytes().to_vec(),
+            args,
+            amount,
+        }))
+    }
+
+    fn create_account(
+        &self,
+        originator_id: AccountId,
+        new_account_id: AccountId,
+        public_key: PublicKey,
+        amount: Balance,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_transaction(TransactionBody::CreateAccount(CreateAccountTransaction {
+            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+            originator: originator_id,
+            new_account_id,
+            public_key: public_key.0[..].to_vec(),
+            amount,
+        }))
+    }
+
+    fn delete_account(
+        &self,
+        originator_id: AccountId,
+        receiver_id: AccountId,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_transaction(TransactionBody::DeleteAccount(DeleteAccountTransaction {
+            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+            originator_id,
+            receiver_id,
+        }))
+    }
+
+    fn stake(
+        &self,
+        originator_id: AccountId,
+        public_key: PublicKey,
+        amount: Balance,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_transaction(
+            TransactionBody::Stake(StakeTransaction {
+                nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
+                originator: originator_id,
+                amount,
+                public_key: public_key.to_base(),
+            }),
+        )
+    }
 }
 
 /// Same as `User` by provides async API that can be used inside tokio.

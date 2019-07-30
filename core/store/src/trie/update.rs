@@ -40,6 +40,17 @@ impl TrieUpdate {
         self.prospective.insert(key.to_vec(), None).and_then(identity)
     }
 
+    pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let mut keys = vec![];
+        for key in self.iter(prefix)? {
+            keys.push(key);
+        }
+        for key in keys {
+            self.remove(&key);
+        }
+        Ok(())
+    }
+
     pub fn for_keys_with_prefix<F: FnMut(&[u8])>(&self, prefix: &[u8], mut f: F) {
         match self.iter(prefix) {
             Ok(iter) => {

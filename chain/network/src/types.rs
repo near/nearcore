@@ -515,7 +515,7 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
                 announce_account,
             )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
-            None => unreachable!(),
+            None => Err(format!("Unexpected empty message body").into()),
         }
     }
 }
