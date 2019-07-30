@@ -16,7 +16,10 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::serialize::{to_base, Decode, Encode};
 use near_primitives::transaction::Callback;
 use near_primitives::types::{AccountId, StorageUsage};
-use near_primitives::utils::{key_for_access_key, key_for_account, key_for_callback, key_for_code};
+use near_primitives::utils::{
+    key_for_access_key, key_for_account, key_for_callback, key_for_code, prefix_for_access_key,
+    prefix_for_data,
+};
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
 use near_protos::receipt as receipt_proto;
@@ -216,9 +219,18 @@ pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T)
     value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
 }
 
+/// Number of bytes the account data structure occupies in the storage.
 pub fn account_storage_size(account: &Account) -> StorageUsage {
     let proto: account_proto::Account = account.clone().into();
     proto.write_to_bytes().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
+}
+
+/// Number of bytes account and all of it's other data occupies in the storage.
+pub fn total_account_storage(account_id: &AccountId, account: &Account) -> StorageUsage {
+    // The number of bytes the account occupies in the Trie.
+    let meta_storage =
+        key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
+    account.storage_usage + meta_storage
 }
 
 pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
@@ -276,4 +288,16 @@ pub fn get_code(state_update: &TrieUpdate, account_id: &AccountId) -> Option<Con
     state_update
         .get(&key_for_code(account_id))
         .and_then(|code| Some(ContractCode::new(code.to_vec())))
+}
+
+/// Removes account, code and all access keys associated to it.
+pub fn remove_account(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    state_update.remove(&key_for_account(account_id));
+    state_update.remove(&key_for_code(account_id));
+    state_update.remove_starts_with(&prefix_for_access_key(account_id))?;
+    state_update.remove_starts_with(&prefix_for_data(account_id))?;
+    Ok(())
 }

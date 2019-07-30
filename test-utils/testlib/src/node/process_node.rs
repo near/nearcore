@@ -69,7 +69,10 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(&self.config.rpc_config.addr))
+        Box::new(RpcUser::new(
+            &self.config.rpc_config.addr,
+            self.config.block_producer.clone().unwrap().signer.clone(),
+        ))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {
