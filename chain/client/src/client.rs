@@ -14,10 +14,7 @@ use actix::{
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
-    ValidTransaction,
-};
+use near_chain::{Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter, ValidTransaction, ChainGenesis};
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
 };
@@ -85,15 +82,15 @@ impl ClientActor {
     pub fn new(
         config: ClientConfig,
         store: Arc<Store>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
         telemtetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
-        wait_until_genesis(&genesis_time);
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        wait_until_genesis(&chain_genesis.time);
+        let chain = Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
@@ -667,11 +664,14 @@ impl ClientActor {
             .get_epoch_offset(head.last_block_hash, next_height)
             .expect("Epoch hash should exist at this point");
 
+        // TODO: current gas used and gas limit.
         let block = Block::produce(
             &prev_header,
             next_height,
             state_root,
             epoch_hash,
+            0,
+            prev_header.gas_limit,
             transactions,
             self.approvals.drain().collect(),
             vec![],

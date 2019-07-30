@@ -5,7 +5,7 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, BlockHeader, Chain};
+use near_chain::{Block, BlockHeader, Chain, ChainGenesis};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
@@ -19,7 +19,7 @@ fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let chain = Chain::new(store, runtime, genesis_time).unwrap();
+    let chain = Chain::new(store, runtime, ChainGenesis::new(genesis_time, 1_000_000)).unwrap();
     chain.genesis().clone()
 }
 

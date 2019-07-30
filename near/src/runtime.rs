@@ -287,7 +287,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         let max_of_stakes =
                             vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
                         if account.staked < max_of_stakes {
-                            error!("FATAL: staking invariance does not hold");
+                            error!(target: "runtime", "FATAL: staking invariance does not hold");
                         }
                         let return_stake = account.staked - max_of_stakes;
                         account.staked -= return_stake;

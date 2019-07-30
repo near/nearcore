@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{BlockIndex, GasUsage, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -91,6 +91,19 @@ impl OrphanBlockPool {
     }
 }
 
+/// Chain genesis configuration.
+#[derive(Clone)]
+pub struct ChainGenesis {
+    pub time: DateTime<Utc>,
+    pub gas_limit: GasUsage,
+}
+
+impl ChainGenesis {
+    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage) -> Self {
+        Self { time, gas_limit }
+    }
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -104,13 +117,13 @@ impl Chain {
     pub fn new(
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_roots) = runtime_adapter.genesis_state();
-        let genesis = Block::genesis(state_roots[0], genesis_time);
+        let genesis = Block::genesis(state_roots[0], chain_genesis.time, chain_genesis.gas_limit);
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();

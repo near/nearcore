@@ -223,13 +223,15 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let genesis = Block::genesis(MerkleHash::default(), Utc::now());
+        let genesis = Block::genesis(MerkleHash::default(), Utc::now(), 1_000_000);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::produce(
             &genesis.header,
             1,
             MerkleHash::default(),
             CryptoHash::default(),
+            0,
+            1_000_000,
             vec![],
             HashMap::default(),
             vec![],
@@ -245,6 +247,8 @@ mod tests {
             2,
             MerkleHash::default(),
             CryptoHash::default(),
+            0,
+            1_000_000,
             vec![],
             approvals,
             vec![],

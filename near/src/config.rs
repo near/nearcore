@@ -23,7 +23,9 @@ use near_primitives::account::Account;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, ReadablePublicKey, ValidatorId,
+};
 use near_telemetry::TelemetryConfig;
 use node_runtime::StateRecord;
 
@@ -61,6 +63,9 @@ pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
+
+/// Initial gas limit.
+pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -306,6 +311,8 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
+    /// Initial gas limit.
+    pub gas_limit: GasUsage,
     /// Criterion for kicking out validators
     pub validator_kickout_threshold: f64,
     /// List of initial validators.
@@ -358,6 +365,7 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            gas_limit: INITIAL_GAS_LIMIT,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
             records,
@@ -398,6 +406,7 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            gas_limit: INITIAL_GAS_LIMIT,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             validators,
             records: vec![records],
@@ -531,6 +540,7 @@ pub fn init_configs(
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
+                gas_limit: INITIAL_GAS_LIMIT,
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
@@ -588,6 +598,7 @@ pub fn create_testnet_configs_from_seeds(
         avg_fisherman_per_shard: vec![0],
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
+        gas_limit: INITIAL_GAS_LIMIT,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         validators,
         records,
@@ -699,6 +710,7 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
+            "gas_limit": 1_000_000,
             "validator_kickout_threshold": 0.9,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],

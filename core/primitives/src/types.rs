@@ -28,6 +28,8 @@ pub type ValidatorId = usize;
 pub type ValidatorMask = Vec<bool>;
 /// Part of the signature.
 pub type PartialSignature = BlsSignature;
+/// GasUsage is used to measure gas spend.
+pub type GasUsage = u64;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.

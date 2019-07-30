@@ -17,7 +17,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Chain, ValidTransaction};
+use crate::{Chain, ValidTransaction, ChainGenesis};
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -225,7 +225,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
+    let chain = Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000)).unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
 }

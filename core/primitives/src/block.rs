@@ -14,7 +14,7 @@ use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::serialize::{base_format, vec_base_format};
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
+use crate::types::{BlockIndex, MerkleHash, ValidatorStake, GasUsage};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -48,6 +48,10 @@ pub struct BlockHeader {
     /// Epoch start hash of the previous epoch.
     /// Used for retrieving validator information
     pub epoch_hash: CryptoHash,
+    /// Sum of gas used across all chunks.
+    pub gas_used: GasUsage,
+    /// Gas limit, same for all chunks.
+    pub gas_limit: GasUsage,
 
     /// Signature of the block producer.
     #[serde(with = "base_format")]
@@ -70,6 +74,8 @@ impl BlockHeader {
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -86,6 +92,8 @@ impl BlockHeader {
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
             epoch_hash: epoch_hash.into(),
+            gas_used,
+            gas_limit,
             ..Default::default()
         }
     }
@@ -101,6 +109,8 @@ impl BlockHeader {
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -114,6 +124,8 @@ impl BlockHeader {
             total_weight,
             validator_proposal,
             epoch_hash,
+            gas_used,
+            gas_limit,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -125,7 +137,7 @@ impl BlockHeader {
         h.try_into().expect("Failed to parse just created header")
     }
 
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>, initial_gas_limit: GasUsage) -> Self {
         let header_body = Self::header_body(
             0,
             CryptoHash::default(),
@@ -137,6 +149,8 @@ impl BlockHeader {
             0.into(),
             vec![],
             CryptoHash::default(),
+            0,
+            initial_gas_limit
         );
         chain_proto::BlockHeader {
             body: SingularPtrField::some(header_body),
@@ -197,6 +211,8 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             total_weight,
             validator_proposal,
             epoch_hash,
+            gas_used: body.gas_used,
+            gas_limit: body.gas_limit,
             signature,
             hash,
         })
@@ -240,8 +256,8 @@ pub struct Block {
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        Block { header: BlockHeader::genesis(state_root, timestamp), transactions: vec![] }
+    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>, initial_gas_limit: GasUsage) -> Self {
+        Block { header: BlockHeader::genesis(state_root, timestamp, initial_gas_limit), transactions: vec![] }
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -250,6 +266,8 @@ impl Block {
         height: BlockIndex,
         state_root: MerkleHash,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
@@ -278,6 +296,8 @@ impl Block {
                 total_weight,
                 validator_proposal,
                 epoch_hash,
+                gas_used,
+                gas_limit,
                 signer,
             ),
             transactions,
@@ -288,13 +308,15 @@ impl Block {
         self.header.hash()
     }
 
-    // for tests
+    /// Used in tests.
     pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
         Block::produce(
             prev,
             prev.height + 1,
             prev.prev_state_root,
             prev.epoch_hash,
+            0,
+            prev.gas_limit,
             vec![],
             HashMap::default(),
             vec![],
