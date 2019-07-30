@@ -452,13 +452,13 @@ impl ValidatorManager {
             .ok_or_else(|| ValidatorError::Other("Should not happen".to_string()))
     }
 
-    fn get_slashed_validators(
-        &mut self,
-        epoch_hash: &CryptoHash,
+    pub fn get_slashed_validators(
+        &self,
+        block_hash: &CryptoHash,
     ) -> Result<HashSet<AccountId>, ValidatorError> {
         Ok(self
             .store
-            .get_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref())?
+            .get_ser(COL_SLASHED_VALIDATORS, block_hash.as_ref())?
             .unwrap_or(HashSet::new()))
     }
 
@@ -493,7 +493,7 @@ impl ValidatorManager {
                 validator_assignment.expected_epoch_start,
             )
         };
-        let slashed = self.get_slashed_validators(epoch_hash)?;
+        let mut slashed = self.get_slashed_validators(last_hash)?;
         for account_id in slashed.iter() {
             validator_kickout.insert(account_id.clone(), true);
         }
@@ -568,6 +568,10 @@ impl ValidatorManager {
 
         self.last_epoch = *new_hash;
         self.set_validators(new_hash, assignment, &mut store_update)?;
+        let validators = self.get_validators(*epoch_hash)?;
+        slashed =
+            slashed.into_iter().filter(|x| validators.validator_to_index.contains_key(x)).collect();
+        store_update.set_ser(COL_SLASHED_VALIDATORS, new_hash.as_ref(), &slashed)?;
         store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, &epoch_hash)?;
         store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, new_hash.as_ref(), &cur_proposals)?;
         store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
@@ -605,20 +609,6 @@ impl ValidatorManager {
             } else {
                 let epoch_start_info = self.get_index_info(&parent_info.epoch_start_hash)?;
                 if epoch_start_info.index + self.config.epoch_length <= index {
-                    // at this point the store update is not written to storage yet so we cannot call
-                    // get_prev_epoch_hash
-                    if !slashed_validators.is_empty() {
-                        self.update_slashed(
-                            &current_hash,
-                            slashed_validators.clone(),
-                            &mut store_update,
-                        )?;
-                        self.update_slashed(
-                            &epoch_start_info.epoch_start_hash,
-                            slashed_validators,
-                            &mut store_update,
-                        )?;
-                    }
                     // This is first block of the next epoch, finalize it and return current hash and index as epoch hash/start.
                     // TODO: remove this clutch
                     if self.get_validators(current_hash).is_err() {
@@ -628,14 +618,22 @@ impl ValidatorManager {
                             &current_hash,
                         )?;
                     }
+                    self.update_slashed(
+                        &current_hash,
+                        &current_hash,
+                        slashed_validators,
+                        &mut store_update,
+                    )?;
                     current_hash
                 } else {
+                    self.update_slashed(
+                        &prev_hash,
+                        &current_hash,
+                        slashed_validators,
+                        &mut store_update,
+                    )?;
                     // Otherwise, return parent's info.
-                    let epoch_hash = parent_info.epoch_start_hash;
-                    if !slashed_validators.is_empty() {
-                        self.slash(&epoch_hash, slashed_validators, &mut store_update)?;
-                    }
-                    epoch_hash
+                    parent_info.epoch_start_hash
                 }
             };
 
@@ -670,36 +668,26 @@ impl ValidatorManager {
     /// Update slashed validator info for the given epoch
     fn update_slashed(
         &mut self,
-        epoch_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        current_hash: &CryptoHash,
         validators: Vec<AccountId>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), ValidatorError> {
-        let mut current_slashed = self
-            .store
-            .get_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref())?
-            .unwrap_or(HashSet::new());
+        let mut slashed = self.get_slashed_validators(block_hash)?;
         for validator in validators {
-            current_slashed.insert(validator);
+            slashed.insert(validator);
         }
-        store_update.set_ser(COL_SLASHED_VALIDATORS, epoch_hash.as_ref(), &current_slashed)?;
+        store_update.set_ser(COL_SLASHED_VALIDATORS, current_hash.as_ref(), &slashed)?;
         Ok(())
     }
 
-    /// Slash validators. Update the slashed validator info for this epoch and next epoch (because
-    /// validator for next epoch has already been calculated). Note: `epoch_hash` here is the current epoch hash,
-    /// not the previous epoch hash.
-    fn slash(
-        &mut self,
-        epoch_hash: &CryptoHash,
-        validators: Vec<AccountId>,
-        store_update: &mut StoreUpdate,
-    ) -> Result<(), ValidatorError> {
-        println!("getting prev epoch hash with epoch hash {}", epoch_hash);
-        let prev_epoch_hash = self.get_prev_epoch_hash(epoch_hash)?;
-        println!("got prev epoch hash with epoch hash {}", epoch_hash);
-        self.update_slashed(&prev_epoch_hash, validators.clone(), store_update)?;
-        self.update_slashed(epoch_hash, validators, store_update)?;
-        Ok(())
+    /// For a given block and a given validator, query whether they are slashed
+    pub fn is_slashed(&self, block_hash: &CryptoHash, validator: &AccountId) -> bool {
+        if let Ok(slashed) = self.get_slashed_validators(block_hash) {
+            slashed.contains(validator)
+        } else {
+            false
+        }
     }
 }
 
@@ -1226,14 +1214,14 @@ mod test {
             .unwrap()
             .commit()
             .unwrap();
-        vm.add_proposals(h0, h1, 1, vec![], vec![], vec![]).unwrap().commit().unwrap();
-        vm.finalize_epoch(&h0, &h1, &h2).unwrap();
-        vm.add_proposals(h1, h2, 2, vec![], vec!["test1".to_string()], vec![])
+        vm.add_proposals(h0, h1, 1, vec![], vec!["test1".to_string()], vec![])
             .unwrap()
             .commit()
             .unwrap();
+        vm.finalize_epoch(&h0, &h1, &h2).unwrap();
+        vm.add_proposals(h1, h2, 2, vec![], vec![], vec![]).unwrap().commit().unwrap();
         let slashed1: Vec<_> =
-            vm.get_slashed_validators(&h0).unwrap().clone().into_iter().collect();
+            vm.get_slashed_validators(&h1).unwrap().clone().into_iter().collect();
         assert_eq!(slashed1, vec!["test1".to_string()]);
         let slashed2: Vec<_> =
             vm.get_slashed_validators(&h2).unwrap().clone().into_iter().collect();
