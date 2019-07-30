@@ -6,13 +6,12 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 
 use near_chain::Block;
-use near_network::types::FullPeerInfo;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -65,6 +64,8 @@ impl From<String> for Error {
 
 #[derive(Clone)]
 pub struct ClientConfig {
+    /// Version of the binary.
+    pub version: Version,
     /// Chain id for status.
     pub chain_id: String,
     /// Listening rpc port for status.
@@ -95,6 +96,8 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockIndex,
+    /// Maximum blocks ahead of us before becoming validators to announce account.
+    pub announce_account_horizon: BlockIndex,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
@@ -104,6 +107,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     pub fn test(skip_sync_wait: bool, block_prod_time: u64) -> Self {
         ClientConfig {
+            version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(block_prod_time),
@@ -119,6 +123,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -128,6 +133,7 @@ impl ClientConfig {
 impl ClientConfig {
     pub fn new() -> Self {
         ClientConfig {
+            version: Default::default(),
             chain_id: "test".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
@@ -143,6 +149,7 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -209,14 +216,6 @@ impl SyncStatus {
     pub fn is_syncing(&self) -> bool {
         self != &SyncStatus::NoSync
     }
-}
-
-pub struct NetworkInfo {
-    pub num_active_peers: usize,
-    pub peer_max_count: u32,
-    pub most_weight_peers: Vec<FullPeerInfo>,
-    pub sent_bytes_per_sec: u64,
-    pub received_bytes_per_sec: u64,
 }
 
 /// Actor message requesting block by id or hash.

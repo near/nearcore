@@ -235,4 +235,22 @@ mod test {
         let node = create_runtime_node();
         test_access_key_reject_non_function_call(node);
     }
+
+    #[test]
+    fn test_increase_stake_runtime() {
+        let node = create_runtime_node();
+        test_increase_stake(node);
+    }
+
+    #[test]
+    fn test_decrease_stake_runtime() {
+        let node = create_runtime_node();
+        test_decrease_stake(node);
+    }
+
+    #[test]
+    fn test_unstake_while_not_staked_runtime() {
+        let node = create_runtime_node();
+        test_unstake_while_not_staked(node);
+    }
 }

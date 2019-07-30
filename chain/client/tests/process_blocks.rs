@@ -10,10 +10,10 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, PeerChainInfo};
+use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
@@ -59,8 +59,8 @@ fn produce_blocks_with_tx() {
                     assert!(encoded_chunks.len() + 2 >= height);
 
                     // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
-                    let data_parts = 12 + 2 * ((height as usize) % 4);
-                    let total_parts = 1 + data_parts * (1 + (height as usize) % 3);
+                    let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
+                    let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
                     if encoded_chunks.len() + 2 == height {
                         encoded_chunks.push(EncodedShardChunk::from_header(
                             header_and_part.header.clone(),
@@ -117,6 +117,7 @@ fn receive_network_block() {
                 &last_block.header,
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -165,6 +166,7 @@ fn receive_network_block_header() {
                 &last_block.header,
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -206,6 +208,7 @@ fn produce_block_with_approvals() {
                 &last_block.header,
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -260,6 +263,7 @@ fn invalid_blocks() {
                 &last_block.header,
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -276,6 +280,7 @@ fn invalid_blocks() {
                 &block.header,
                 block.header.height + 1,
                 block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -287,6 +292,7 @@ fn invalid_blocks() {
                 &last_block.header,
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -338,7 +344,7 @@ fn client_sync_headers() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo => NetworkResponses::Info {
+                NetworkRequests::FetchInfo { level: _ } => NetworkResponses::Info(NetworkInfo {
                     num_active_peers: 1,
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {
@@ -351,7 +357,8 @@ fn client_sync_headers() {
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
-                },
+                    routes: None,
+                }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
                     assert_eq!(hashes.len(), 1);

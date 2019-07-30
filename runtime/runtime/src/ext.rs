@@ -10,9 +10,8 @@ use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
 };
 use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
-use near_primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
-use near_store::set;
-use near_store::{TrieUpdate, TrieUpdateIterator};
+use near_primitives::utils::{create_nonce_with_nonce, key_for_account};
+use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
@@ -87,7 +86,7 @@ impl<'a> RuntimeExt<'a> {
     /// write callbacks to stateUpdate
     pub fn flush_callbacks(&mut self) {
         for (id, callback) in self.callbacks.drain() {
-            set(self.trie_update, key_for_callback(&id), &callback);
+            set_callback(self.trie_update, &id, &callback);
         }
     }
 }

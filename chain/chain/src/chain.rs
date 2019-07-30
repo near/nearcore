@@ -1016,6 +1016,7 @@ impl<'a> ChainUpdate<'a> {
                             &chunk.header.prev_state_root,
                             chunk_header.height_included,
                             &chunk_header.prev_block_hash,
+                            &block.hash(),
                             &receipts,
                             &chunk.transactions,
                         )
@@ -1084,6 +1085,7 @@ impl<'a> ChainUpdate<'a> {
         let is_next = block.header.prev_hash == head.last_block_hash;
 
         // First real I/O expense.
+        self.check_header_signature(&block.header)?;
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
         let prev_prev_hash = prev.prev_hash;
@@ -1297,6 +1299,23 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
+        let validator = self
+            .runtime_adapter
+            .get_block_proposer(header.epoch_hash, header.height)
+            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
+        if self.runtime_adapter.check_validator_signature(
+            &header.epoch_hash,
+            &validator,
+            header.hash().as_ref(),
+            &header.signature,
+        ) {
+            Ok(())
+        } else {
+            Err(ErrorKind::InvalidSignature.into())
+        }
+    }
+
     fn validate_header(
         &mut self,
         header: &BlockHeader,
@@ -1307,7 +1326,9 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
         }
 
-        // First I/O cost, delayed as late as possible.
+        // First I/O cost, delay as much as possible.
+        self.check_header_signature(header)?;
+
         let prev_header = self.get_previous_header(header)?;
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
@@ -1317,7 +1338,6 @@ impl<'a> ChainUpdate<'a> {
                 ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into()
             );
         }
-
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures and returns new total weight.
         if *provenance != Provenance::PRODUCED {

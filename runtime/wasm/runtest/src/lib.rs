@@ -118,14 +118,15 @@ mod tests {
 
     use byteorder::{ByteOrder, LittleEndian};
 
+    use near_primitives::contract::ContractCode;
+    use near_primitives::crypto::signature::PublicKey;
     use near_primitives::hash::hash;
     use near_primitives::types::StorageUsage;
     use testlib::runtime_utils::{alice_account, bob_account};
     use wasm::executor::{self, ExecutionOutcome};
-    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
+    use wasm::types::{Config, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
-    use near_primitives::crypto::signature::PublicKey;
 
     fn infinite_initializer_contract() -> Vec<u8> {
         wabt::wat2wasm(
@@ -464,9 +465,7 @@ mod tests {
         let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
         println!("{:?}", outcome);
         match outcome.return_data {
-            Err(Error::Wasmer(msg)) => {
-                assert_eq!(msg, "WebAssembly trap occured during runtime: unknown")
-            }
+            Err(Error::Wasmer(msg)) => assert_eq!(msg, "unknown error"),
             _ => panic!("unexpected outcome"),
         }
     }

@@ -217,7 +217,7 @@ mod tests {
     }
 
     fn test_cross_shard_tx_common(rotate_validators: bool) {
-        let validator_groups = 2;
+        let validator_groups = 4;
         let num_iters = 64;
         init_test_logger();
         System::run(move || {
@@ -263,7 +263,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 50 },
+                if rotate_validators { 150 } else { 75 },
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),

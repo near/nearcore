@@ -3,11 +3,13 @@ use std::fs;
 use std::path::Path;
 
 use actix::System;
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, crate_version, SubCommand};
 use log::{info, LevelFilter};
 
-use near::config::init_testnet_configs;
+use git_version::git_version;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use near::config::init_testnet_configs;
+use near_primitives::types::Version;
 
 fn init_logging(verbose: bool) {
     if verbose {
@@ -29,7 +31,8 @@ fn init_logging(verbose: bool) {
 
 fn main() {
     let default_home = get_default_home();
-    let matches = App::new("NEAR Protocol Node v0.1")
+    let version = Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let matches = App::new("NEAR Protocol Node").version(format!("{} (build {})", version.version, version.build).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(false))
         .arg(
             Arg::with_name("home")
@@ -55,6 +58,7 @@ fn main() {
             .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
+            .arg(Arg::with_name("telemetry-url").long("telemetry-url").help("Customize telemetry url").takes_value(true))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
@@ -88,6 +92,8 @@ fn main() {
         ("run", Some(args)) => {
             // Load configs from home.
             let mut near_config = load_config(home_dir);
+            // Set current version in client config.
+            near_config.client_config.version = version;
             // Override some parameters from command line.
             if let Some(produce_empty_blocks) = args
                 .value_of("produce-empty-blocks")
@@ -118,6 +124,9 @@ fn main() {
             }
             if let Some(rpc_addr) = args.value_of("rpc-addr") {
                 near_config.rpc_config.addr = rpc_addr.to_string();
+            }
+            if let Some(telemetry_url) = args.value_of("telemetry-url") {
+                near_config.telemetry_config.endpoints.push(telemetry_url.to_string());
             }
 
             let system = System::new("NEAR");

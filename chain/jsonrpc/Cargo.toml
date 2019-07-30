@@ -20,7 +20,7 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = "0.1.15"
 uuid = { version = "~0.6", features = ["v4"] }
-protobuf = "2.4"
+protobuf = { version = "2.7", features = ["with-bytes"] }
 
 async-utils = { path = "../../async-utils" }
 near-primitives = { path = "../../core/primitives" }

@@ -100,7 +100,96 @@ pub mod base_format {
     }
 }
 
-pub mod base_vec_format {
+pub mod option_base_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{BaseDecode, BaseEncode};
+
+    pub fn serialize<T, S>(data: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: BaseEncode,
+        S: Serializer,
+    {
+        if let Some(x) = data {
+            serializer.serialize_str(&x.to_base())
+        } else {
+            serializer.serialize_str("")
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        T: BaseDecode + std::fmt::Debug,
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            T::from_base(&s).map(|x| Some(x)).map_err(|err| de::Error::custom(err.to_string()))
+        }
+    }
+}
+
+pub mod vec_base_format {
+    use std::fmt;
+
+    use serde::de;
+    use serde::de::{SeqAccess, Visitor};
+    use serde::export::PhantomData;
+    use serde::{Deserializer, Serializer};
+
+    use crate::serde::ser::SerializeSeq;
+
+    use super::{BaseDecode, BaseEncode};
+
+    pub fn serialize<T, S>(data: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: BaseEncode,
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(data.len()))?;
+        for element in data {
+            seq.serialize_element(&element.to_base())?;
+        }
+        seq.end()
+    }
+
+    struct VecBaseVisitor<T>(PhantomData<T>);
+
+    impl<'de, T> Visitor<'de> for VecBaseVisitor<T>
+    where
+        T: BaseDecode,
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an array with base58 in the first element")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<T>, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(elem) = seq.next_element::<String>()? {
+                vec.push(T::from_base(&elem).map_err(|err| de::Error::custom(err.to_string()))?);
+            }
+            Ok(vec)
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+    where
+        T: BaseDecode + std::fmt::Debug,
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(VecBaseVisitor(PhantomData))
+    }
+}
+
+pub mod base_bytes_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -122,7 +211,7 @@ pub mod base_vec_format {
     }
 }
 
-pub mod u128_hex_format {
+pub mod u128_dec_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -130,7 +219,7 @@ pub mod u128_hex_format {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&format!("{:X}", num))
+        serializer.serialize_str(&format!("{}", num))
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<u128, D::Error>
@@ -138,6 +227,6 @@ pub mod u128_hex_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        u128::from_str_radix(s.trim_start_matches("0x"), 16).map_err(de::Error::custom)
+        u128::from_str_radix(&s, 10).map_err(de::Error::custom)
     }
 }

@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::{PublicKey, Signature};
+use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
@@ -197,42 +197,54 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        parent_hash: CryptoHash,
-        _height: BlockIndex,
-    ) -> Result<Vec<(AccountId, u64)>, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
-        Ok(validators.iter().map(|x| (x.account_id.clone(), 1)).collect())
+        epoch_hash: CryptoHash,
+    ) -> Result<Vec<(AccountId)>, Box<dyn std::error::Error>> {
+        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash).unwrap().1];
+        Ok(validators.iter().map(|x| x.account_id.clone()).collect())
     }
 
     fn get_block_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
+        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash)?.1];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
     fn get_chunk_proposer(
         &self,
-        parent_hash: CryptoHash,
+        epoch_hash: CryptoHash,
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(parent_hash).unwrap().1];
+        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash).unwrap().1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        // The +1 is so that if all validators validate all shards in a test, the chunk producer
-        //     doesn't match the block producer
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
     }
 
-    fn check_validator_signature(&self, _account_id: &AccountId, _signature: &Signature) -> bool {
-        true
+    fn check_validator_signature(
+        &self,
+        _epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool {
+        if let Some(validator) = self
+            .validators
+            .iter()
+            .flatten()
+            .find(|&validator_stake| &validator_stake.account_id == account_id)
+        {
+            verify(data, signature, &validator.public_key)
+        } else {
+            false
+        }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -349,6 +361,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<

@@ -7,6 +7,7 @@ use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, Chain, Provenance};
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::TransactionBody;
 use near_store::create_store;
@@ -32,6 +33,7 @@ fn runtime_hanldle_fork() {
         chain.genesis(),
         1,
         genesis_chunks.clone(),
+        CryptoHash::default(),
         vec![tx1],
         HashMap::default(),
         vec![],
@@ -42,6 +44,7 @@ fn runtime_hanldle_fork() {
         chain.genesis(),
         2,
         genesis_chunks.clone(),
+        CryptoHash::default(),
         vec![tx2],
         HashMap::default(),
         vec![],
@@ -52,6 +55,7 @@ fn runtime_hanldle_fork() {
         &b1.header,
         3,
         genesis_chunks.clone(),
+        CryptoHash::default(),
         vec![tx3],
         HashMap::default(),
         vec![],

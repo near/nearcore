@@ -3,12 +3,12 @@ extern crate bencher;
 
 use bencher::Bencher;
 
+use near_primitives::contract::ContractCode;
 use near_primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, TransactionBody,
 };
 use near_primitives::types::Balance;
 use testlib::node::{Node, RuntimeNode};
-use wasm::types::ContractCode;
 
 fn runtime_send_money(bench: &mut Bencher) {
     let node = RuntimeNode::new(&"alice.near".to_string());

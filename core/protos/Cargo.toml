@@ -6,7 +6,7 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
-protobuf = { version = "2.2.4", features = ["with-bytes"] }
+protobuf = { version = "2.7", features = ["with-bytes"] }
 byteorder = "1.2"
 
 [build-dependencies]

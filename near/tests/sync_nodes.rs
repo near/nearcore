@@ -25,6 +25,7 @@ fn genesis_block(genesis_config: GenesisConfig) -> Block {
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
+// This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     start: &BlockHeader,
     genesis_block: &Block,

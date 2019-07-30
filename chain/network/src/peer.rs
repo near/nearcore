@@ -20,7 +20,7 @@ use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    SendMessage, Unregister,
+    ReasonForBan, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -194,7 +194,6 @@ impl Peer {
                 Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
                     let handshake = Handshake::new(
                         act.node_info.id,
-                        act.node_info.account_id.clone(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis, height, total_weight },
                     );
@@ -256,6 +255,15 @@ impl Peer {
             }
             PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
+            }
+            PeerMessage::AnnounceAccount(announce_account) => {
+                if announce_account.peer_id_sender() != peer_id {
+                    // Ban peer if tries to impersonate another peer.
+                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidPeerId);
+                    return;
+                } else {
+                    NetworkClientMessages::AnnounceAccount(announce_account)
+                }
             }
             PeerMessage::ChunkPartRequest(request) => {
                 NetworkClientMessages::ChunkPartRequest(request, peer_id)
@@ -374,7 +382,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     addr: handshake
                         .listen_port
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
-                    account_id: handshake.account_id.clone(),
+                    account_id: None,
                 };
                 self.chain_info = handshake.chain_info;
                 self.peer_manager_addr

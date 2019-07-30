@@ -54,6 +54,12 @@ pub enum ErrorKind {
     /// One of the chunks is invalid
     #[fail(display = "Incorrect Chunk")]
     InvalidChunk,
+    /// Invalid epoch hash
+    #[fail(display = "Invalid Epoch Hash")]
+    InvalidEpochHash,
+    /// Invalid Signature
+    #[fail(display = "Invalid Signature")]
+    InvalidSignature,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -111,7 +117,9 @@ impl Error {
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidStatePayload(_)
-            | ErrorKind::IncorrectNumberOfChunkHeaders => true,
+            | ErrorKind::IncorrectNumberOfChunkHeaders
+            | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidSignature => true,
         }
     }
 

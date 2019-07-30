@@ -44,3 +44,16 @@ message ReceiptTransaction {
     reserved 7;
     reserved "mana_accounting";
 }
+
+// Used in state storage to maintain information about callbacks.
+message Callback {
+    bytes method_name = 1;
+    bytes args = 2;
+    repeated bytes results = 3;
+    Uint128 amount = 4;
+    CallbackInfo callback = 5;
+    uint32 result_counter = 6;
+    string refund_account = 7;
+    string originator_id = 8;
+    bytes public_key = 9;
+}

@@ -11,6 +11,7 @@ use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::unwrap_or_return;
 
 use crate::types::{ShardSyncStatus, SyncStatus};
 
@@ -148,11 +149,13 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
-                                    let _ =
+                                    unwrap_or_return!(
                                         self.network_recipient.do_send(NetworkRequests::BanPeer {
                                             peer_id: peer.peer_info.id.clone(),
                                             ban_reason: ReasonForBan::HeightFraud,
-                                        });
+                                        }),
+                                        true
+                                    );
                                 }
                             }
                             _ => (),
@@ -518,11 +521,14 @@ impl StateSync {
         most_weight_peers: &Vec<FullPeerInfo>,
     ) -> Option<FullPeerInfo> {
         if let Some(peer) = most_weight_peer(most_weight_peers) {
-            let _ = self.network_recipient.do_send(NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                peer_id: peer.peer_info.id,
-            });
+            unwrap_or_return!(
+                self.network_recipient.do_send(NetworkRequests::StateRequest {
+                    shard_id,
+                    hash,
+                    peer_id: peer.peer_info.id,
+                }),
+                None
+            );
             return Some(peer);
         }
         None
