@@ -12,8 +12,7 @@ use near_primitives::transaction::{
 use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
 use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
 use near_store::{
-    get_access_key, remove_account, set_access_key, set_account, set_code, total_account_storage,
-    TrieUpdate,
+    get_access_key, remove_account, set_access_key, set_account, set_code, TrieUpdate,
 };
 
 use crate::check_rent;
@@ -328,7 +327,6 @@ pub fn system_delete_account(
     nonce: &CryptoHash,
     account_id: &AccountId,
     account: &mut Account,
-    block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
 ) -> Result<Vec<ReceiptTransaction>, String> {
@@ -342,15 +340,13 @@ pub fn system_delete_account(
         ));
     }
     let new_nonce = create_nonce_with_nonce(nonce, 0);
-    let storage_due = (total_account_storage(account_id, account) as u128)
-        * runtime_config.storage_cost_byte_per_block
-        * ((block_index - account.storage_paid_at) as u128);
-    let reward = if account.amount < storage_due { 0 } else { account.amount - storage_due };
+    // We use current amount as a reward, because this account's storage rent was updated before
+    // calling this function.
     let receipt = ReceiptTransaction::new(
         call.originator_id.clone(),
         call.originator_id.clone(),
         new_nonce,
-        ReceiptBody::Refund(reward),
+        ReceiptBody::Refund(account.amount),
     );
     remove_account(state_update, account_id)
         .map_err(|err| format!("Failed to delete all account data: {}", err))?;

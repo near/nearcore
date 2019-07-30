@@ -36,7 +36,7 @@ pub type StorageUsageChange = i64;
 pub type Nonce = u64;
 /// Index of the block.
 pub type BlockIndex = u64;
-/// Id of shards.
+/// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;

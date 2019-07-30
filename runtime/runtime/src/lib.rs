@@ -57,7 +57,9 @@ pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
 
-/// Check that account still has enough amount to pay rent.
+/// Returns true if the account has enough balance to pay storage rent for at least required number of blocks.
+/// Validators must have at least enought for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
+/// regular users - `poke_threshold` blocks.
 fn check_rent(
     account_id: &AccountId,
     account: &mut Account,
@@ -72,14 +74,14 @@ fn check_rent(
     let buffer_amount = (buffer_length as u128)
         * (total_account_storage(account_id, account) as u128)
         * runtime_config.storage_cost_byte_per_block;
-    account.amount > buffer_amount
+    account.amount >= buffer_amount
 }
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// Previous merkle root of the state.
+    /// Previous Merkle root of the state.
     pub root: MerkleHash,
-    /// Shard number.
+    /// Shard index.
     pub shard_id: ShardId,
     /// Currently building block index.
     pub block_index: BlockIndex,
@@ -629,7 +631,6 @@ impl Runtime {
                             &receipt.nonce,
                             &receipt.receiver,
                             &mut receiver,
-                            block_index,
                             &self.config,
                             epoch_length,
                         )

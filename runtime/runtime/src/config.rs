@@ -9,7 +9,7 @@ use wasm::types::Config;
 pub struct RuntimeConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,
-    /// Number of blocks before you account runs out of space, anyone can delete it.
+    /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
     pub poke_threshold: BlockIndex,
     /// Costs for different types of transactions.
     pub transactions_costs: TransactionsCosts,
@@ -37,21 +37,21 @@ impl TransactionsCosts {
     pub fn cost(&self, transaction_body: &TransactionBody) -> Balance {
         use TransactionBody::*;
         match transaction_body {
-            CreateAccount(_) => self.create_account.clone(),
-            DeployContract(_) => self.deploy_contract.clone(),
+            CreateAccount(_) => self.create_account,
+            DeployContract(_) => self.deploy_contract,
             FunctionCall(_)
                 if Some(transaction_body.get_originator())
                     == transaction_body.get_contract_id() =>
             {
-                self.self_function_call.clone()
+                self.self_function_call
             }
-            FunctionCall(_) => self.function_call.clone(),
-            SendMoney(_) => self.send_money.clone(),
-            Stake(_) => self.stake.clone(),
-            SwapKey(_) => self.swap_key.clone(),
-            AddKey(_) => self.add_key.clone(),
-            DeleteKey(_) => self.delete_key.clone(),
-            DeleteAccount(_) => self.delete_account.clone(),
+            FunctionCall(_) => self.function_call,
+            SendMoney(_) => self.send_money,
+            Stake(_) => self.stake,
+            SwapKey(_) => self.swap_key,
+            AddKey(_) => self.add_key,
+            DeleteKey(_) => self.delete_key,
+            DeleteAccount(_) => self.delete_account,
         }
     }
 }
