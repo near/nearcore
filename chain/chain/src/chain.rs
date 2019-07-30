@@ -1022,17 +1022,6 @@ impl<'a> ChainUpdate<'a> {
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
-                    // If block checks out, record validator proposals for given block.
-                    self.runtime_adapter
-                        .add_validator_proposals(
-                            block.header.prev_hash,
-                            block.hash(),
-                            block.header.height,
-                            validator_proposals,
-                            vec![],
-                        )
-                        .map_err(|err| ErrorKind::Other(err.to_string()))?;
-
                     self.chain_store_update.save_trie_changes(trie_changes);
                     // Save state root after applying transactions.
                     self.chain_store_update.save_post_state_root(&chunk_hash, &state_root);
@@ -1185,6 +1174,17 @@ impl<'a> ChainUpdate<'a> {
             self.chain_store_update.add_block_to_catchup(prev_hash, block.hash());
         }
 
+        // If block checks out, record validator proposals for given block.
+        self.runtime_adapter
+            .add_validator_proposals(
+                block.header.prev_hash,
+                block.hash(),
+                block.header.height,
+                block.header.validator_proposal.clone(),
+                vec![],
+            )
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;
         Ok((res, needs_to_start_fetching_state))
@@ -1304,7 +1304,7 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .get_block_proposer(header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
-        if self.runtime_adapter.check_validator_signature(
+        if self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,
             &validator,
             header.hash().as_ref(),

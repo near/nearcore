@@ -73,8 +73,14 @@ impl fmt::Display for ValidatorError {
 }
 
 impl From<std::io::Error> for ValidatorError {
-    fn from(error: std::io::Error) -> ValidatorError {
+    fn from(error: std::io::Error) -> Self {
         ValidatorError::Other(error.to_string())
+    }
+}
+
+impl From<ValidatorError> for near_chain::Error {
+    fn from(error: ValidatorError) -> Self {
+        near_chain::ErrorKind::ValidatorError(error.to_string()).into()
     }
 }
 
@@ -410,8 +416,9 @@ impl ValidatorManager {
         let prev_height = prev_block_header.height;
 
         // TODO(1049): handle that config epoch length can change over time from runtime.
-        let parent_info =
-            self.get_index_info(&parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
+        let parent_info = self
+            .get_index_info(&parent_hash)
+            .map_err(|_| ValidatorError::MissingBlock(parent_hash))?;
         let (epoch_start_index, epoch_start_parent_hash) =
             if parent_hash == parent_info.epoch_start_hash {
                 (parent_info.index, parent_info.prev_hash)

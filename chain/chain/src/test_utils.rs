@@ -113,17 +113,14 @@ impl KeyValueRuntime {
         Ok(prev_block_header.height)
     }
 
-    fn get_epoch_and_valset(
-        &self,
-        prev_hash: CryptoHash,
-    ) -> Result<(CryptoHash, usize), Box<dyn std::error::Error>> {
+    fn get_epoch_and_valset(&self, prev_hash: CryptoHash) -> Result<(CryptoHash, usize), Error> {
         if prev_hash == CryptoHash::default() {
             return Ok((prev_hash, 0));
         }
         let prev_block_header = self
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+            .ok_or(ErrorKind::Other("Missing block when computing the epoch".to_string()))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
@@ -191,8 +188,27 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> bool {
-        true
+    fn verify_validator_signature(
+        &self,
+        _epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool {
+        if let Some(validator) = self
+            .validators
+            .iter()
+            .flatten()
+            .find(|&validator_stake| &validator_stake.account_id == account_id)
+        {
+            verify(data, signature, &validator.public_key)
+        } else {
+            false
+        }
+    }
+
+    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn get_epoch_block_proposers(
@@ -226,25 +242,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
-    }
-
-    fn check_validator_signature(
-        &self,
-        _epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool {
-        if let Some(validator) = self
-            .validators
-            .iter()
-            .flatten()
-            .find(|&validator_stake| &validator_stake.account_id == account_id)
-        {
-            verify(data, signature, &validator.public_key)
-        } else {
-            false
-        }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -609,10 +606,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
-    fn get_epoch_hash(
-        &self,
-        parent_hash: CryptoHash,
-    ) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
         Ok(self.get_epoch_and_valset(parent_hash)?.0)
     }
 }

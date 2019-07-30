@@ -76,7 +76,17 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> bool;
+    /// Verify validator signature for the given epoch.
+    fn verify_validator_signature(
+        &self,
+        epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool;
+
+    /// Verify chunk header signature.
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
     /// Epoch block proposers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
@@ -99,15 +109,6 @@ pub trait RuntimeAdapter: Send + Sync {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
-
-    /// Check validator signature for the given epoch
-    fn check_validator_signature(
-        &self,
-        epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -214,10 +215,7 @@ pub trait RuntimeAdapter: Send + Sync {
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn get_epoch_hash(
-        &self,
-        parent_hash: CryptoHash,
-    ) -> Result<CryptoHash, Box<dyn std::error::Error>>;
+    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

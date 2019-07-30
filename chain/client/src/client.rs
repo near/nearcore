@@ -178,7 +178,7 @@ impl ClientActor {
         }
 
         // ... and signature should be valid.
-        if !self.runtime_adapter.check_validator_signature(
+        if !self.runtime_adapter.verify_validator_signature(
             &announce_account.epoch,
             &announce_account.account_id,
             header_hash.as_ref(),
@@ -1600,7 +1600,7 @@ impl ClientActor {
         }
 
         // Check signature is correct for given validator.
-        if !self.runtime_adapter.check_validator_signature(
+        if !self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,
             account_id,
             hash.as_ref(),

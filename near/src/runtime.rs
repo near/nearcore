@@ -132,15 +132,33 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> bool {
+    fn verify_validator_signature(
+        &self,
+        epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool {
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
+        if let Ok(validators) = vm.get_validators(*epoch_hash) {
+            if let Some(idx) = validators.validator_to_index.get(account_id) {
+                let staking_key = &validators.validators[*idx].public_key;
+                return verify(data, signature, staking_key);
+            }
+        }
+        false
+    }
+
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
+        let epoch_hash = self.get_epoch_hash(header.prev_block_hash)?;
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let public_key = &vm
-            .get_chunk_proposer_info(header.prev_block_hash, header.height_created, header.shard_id)
+            .get_chunk_proposer_info(epoch_hash, header.height_created, header.shard_id)
             .map(|vs| vs.public_key);
         if let Ok(public_key) = public_key {
-            verify(header.chunk_hash().0.as_ref(), &header.signature, public_key)
+            Ok(verify(header.chunk_hash().0.as_ref(), &header.signature, public_key))
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -174,23 +192,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         Ok(vm.get_chunk_proposer_info(epoch_hash, height, shard_id)?.account_id)
-    }
-
-    fn check_validator_signature(
-        &self,
-        epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool {
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(validators) = vm.get_validators(*epoch_hash) {
-            if let Some(idx) = validators.validator_to_index.get(account_id) {
-                let staking_key = &validators.validators[*idx].public_key;
-                return verify(data, signature, staking_key);
-            }
-        }
-        false
     }
 
     fn num_shards(&self) -> ShardId {
@@ -467,10 +468,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(offset == 0)
     }
 
-    fn get_epoch_hash(
-        &self,
-        parent_hash: CryptoHash,
-    ) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
         let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
         Ok(vm.get_epoch_offset(parent_hash, 0)?.0)
     }

@@ -537,7 +537,7 @@ impl ShardsManager {
             }
         }
 
-        if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header) {
+        if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             assert!(false); // TODO XXX MOO remove
             return Err("Incorrect chunk signature when processing ChunkOnePart".into());
         }
