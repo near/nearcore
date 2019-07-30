@@ -465,7 +465,7 @@ mod tests {
         let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
         println!("{:?}", outcome);
         match outcome.return_data {
-            Err(Error::Wasmer(msg)) => assert_eq!(msg, "WebAssembly trap occured during runtime: unknown"),
+            Err(Error::Wasmer(msg)) => assert_eq!(msg, "unknown error"),
             _ => panic!("unexpected outcome"),
         }
     }
@@ -777,5 +777,21 @@ mod tests {
             Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
             _ => panic!("unexpected outcome"),
         }
+    }
+
+    #[test]
+    fn test_singlepass_bug() {
+        let input_data = b"";
+
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/singlepass_crash.wasm");
+        let _outcome = run_with_filename(
+            b"hello",
+            input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+            path.to_str().unwrap(),
+        )
+        .expect("ok");
     }
 }
