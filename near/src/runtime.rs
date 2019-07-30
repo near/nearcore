@@ -1,9 +1,11 @@
+use std::collections::BTreeSet;
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use kvdb::DBValue;
 use log::{debug, error, info};
 
 use near_chain::{
@@ -28,8 +30,6 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
-use kvdb::DBValue;
-use std::collections::BTreeSet;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
