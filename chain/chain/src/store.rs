@@ -7,12 +7,14 @@ use log::debug;
 
 use near_primitives::hash::{hash_struct, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{
+    AccountId, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
-    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_ONE_PARTS,
-    COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_STATE_REF,
+    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_EXTRA,
+    COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS,
     COL_TRANSACTION_RESULT,
 };
 
@@ -39,6 +41,24 @@ pub struct StateSyncInfo {
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<(ShardId, ChunkHash)>,
+}
+
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChunkExtra {
+    pub state_root: MerkleHash,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub gas_used: GasUsage,
+}
+
+impl ChunkExtra {
+    pub fn new(
+        state_root: &MerkleHash,
+        validator_proposals: Vec<ValidatorStake>,
+        gas_used: GasUsage,
+    ) -> Self {
+        Self { state_root: *state_root, validator_proposals, gas_used }
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -72,8 +92,8 @@ pub trait ChainStoreAccess {
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
-    /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, h: &ChunkHash) -> Result<&MerkleHash, Error>;
+    /// Get chunk extra info for given chunk hash.
+    fn get_chunk_extra(&mut self, h: &ChunkHash) -> Result<&ChunkExtra, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -106,8 +126,8 @@ pub struct ChainStore {
     chunks: HashMap<ChunkHash, ShardChunk>,
     /// Cache with chunk one parts
     chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
-    /// Cache with state roots.
-    post_state_roots: SizedCache<Vec<u8>, MerkleHash>,
+    /// Cache with chunk extra.
+    chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with receipts.
@@ -133,7 +153,7 @@ impl ChainStore {
             headers: SizedCache::with_size(CACHE_SIZE),
             chunks: HashMap::new(),
             chunk_one_parts: HashMap::new(),
-            post_state_roots: SizedCache::with_size(CACHE_SIZE),
+            chunk_extras: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
@@ -302,10 +322,10 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, h: &ChunkHash) -> Result<&MerkleHash, Error> {
+    fn get_chunk_extra(&mut self, h: &ChunkHash) -> Result<&ChunkExtra, Error> {
         option_to_not_found(
-            read_with_cache(&*self.store, COL_STATE_REF, &mut self.post_state_roots, h.as_ref()),
-            &format!("STATE ROOT: {}", h.0),
+            read_with_cache(&*self.store, COL_CHUNK_EXTRA, &mut self.chunk_extras, h.as_ref()),
+            &format!("CHUNK EXTRA: {}", h.0),
         )
     }
 
@@ -393,7 +413,7 @@ pub struct ChainStoreUpdate<'a, T> {
     blocks: HashMap<CryptoHash, Block>,
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    post_state_roots: HashMap<ChunkHash, MerkleHash>,
+    chunk_extras: HashMap<ChunkHash, ChunkExtra>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
@@ -418,7 +438,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             deleted_blocks: HashSet::default(),
             headers: HashMap::default(),
             block_index: HashMap::default(),
-            post_state_roots: HashMap::default(),
+            chunk_extras: HashMap::default(),
             outgoing_receipts: HashMap::default(),
             incoming_receipts: HashMap::default(),
             transaction_results: HashMap::default(),
@@ -531,11 +551,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_post_state_root(&mut self, hash: &ChunkHash) -> Result<&MerkleHash, Error> {
-        if let Some(post_state_root) = self.post_state_roots.get(hash) {
-            Ok(post_state_root)
+    fn get_chunk_extra(&mut self, hash: &ChunkHash) -> Result<&ChunkExtra, Error> {
+        if let Some(chunk_extra) = self.chunk_extras.get(hash) {
+            Ok(chunk_extra)
         } else {
-            self.chain_store.get_post_state_root(hash)
+            self.chain_store.get_chunk_extra(hash)
         }
     }
 
@@ -670,8 +690,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     }
 
     /// Save post applying block state root.
-    pub fn save_post_state_root(&mut self, hash: &ChunkHash, state_root: &CryptoHash) {
-        self.post_state_roots.insert(hash.clone(), *state_root);
+    pub fn save_chunk_extra(&mut self, hash: &ChunkHash, chunk_extra: ChunkExtra) {
+        self.chunk_extras.insert(hash.clone(), chunk_extra);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -785,9 +805,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (hash, state_root) in self.post_state_roots.drain() {
+        for (hash, chunk_extra) in self.chunk_extras.drain() {
             store_update
-                .set_ser(COL_STATE_REF, hash.as_ref(), &state_root)
+                .set_ser(COL_CHUNK_EXTRA, hash.as_ref(), &chunk_extra)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.block_index.drain() {

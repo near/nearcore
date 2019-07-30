@@ -100,11 +100,12 @@ impl Handler<Query> for ViewClientActor {
         let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
         let state_root = self
             .chain
-            .get_post_state_root(&chunk_hash)
-            .map_err(|_e| "Failed to fetch the chunk while executing request")?;
+            .get_chunk_extra(&chunk_hash)
+            .map_err(|_e| "Failed to fetch the chunk while executing request")?
+            .state_root;
 
         self.runtime_adapter
-            .query(*state_root, head.height, path_parts, &msg.data)
+            .query(state_root, head.height, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }

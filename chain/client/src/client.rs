@@ -12,11 +12,13 @@ use actix::{
     WrapFuture,
 };
 use chrono::{DateTime, Utc};
+use futures::Future;
 use log::{debug, error, info, warn};
 
 use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
 };
+use near_chunks::ShardsManager;
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
 };
@@ -25,6 +27,7 @@ use near_network::{
 };
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
@@ -37,9 +40,6 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use futures::Future;
-use near_chunks::ShardsManager;
-use near_primitives::sharding::ShardChunkHeader;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -105,8 +105,8 @@ impl ClientActor {
         telemtetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&genesis_time);
-        let mut chain = Chain::new(store.clone(), runtime_adapter.clone(), genesis_time)?;
-        let mut shards_mgr = ShardsManager::new(
+        let chain = Chain::new(store.clone(), runtime_adapter.clone(), genesis_time)?;
+        let shards_mgr = ShardsManager::new(
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
             network_actor.clone(),
@@ -118,20 +118,6 @@ impl ClientActor {
         let state_sync = StateSync::new(network_actor.clone());
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
-        }
-
-        // Populate post-state-roots for chunks
-        let head = chain.head()?;
-        let head_block = chain.get_block(&head.last_block_hash)?;
-        let mut chunk_hashes = vec![];
-
-        for chunk_header in head_block.chunks.iter() {
-            chunk_hashes.push(chunk_header.chunk_hash().clone());
-        }
-
-        for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
-            let shard_id = shard_id as ShardId;
-            shards_mgr.set_state_root(shard_id, chain.get_post_state_root(&chunk_hash)?.clone());
         }
 
         let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
@@ -242,8 +228,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Transaction(tx) => {
                 let runtime_adapter = self.runtime_adapter.clone();
                 let shard_id = runtime_adapter.account_id_to_shard_id(&tx.body.get_originator());
-                if let Some(state_root) = self.shards_mgr.get_state_root(shard_id) {
-                    match self.runtime_adapter.validate_tx(shard_id, state_root, tx) {
+                if let Ok(chunk_extra) = self.chain.get_latest_chunk_extra(shard_id) {
+                    match self.runtime_adapter.validate_tx(shard_id, chunk_extra.state_root, tx) {
                         Ok(valid_transaction) => {
                             debug!(
                                 "MOO recording a transaction. I'm {:?}, {}",
@@ -537,26 +523,6 @@ impl ClientActor {
                     // If this block immediately follows the current tip, remove transactions
                     //    from the txpool
                     self.remove_transactions_for_block(bp.account_id.clone(), &block);
-
-                    // It's enough to update the state root for updated chunks only
-                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
-                        let shard_id = shard_id as ShardId;
-                        if block.header.height == chunk_header.height_included {
-                            if self.runtime_adapter.cares_about_shard(
-                                &bp.account_id,
-                                block.header.prev_hash,
-                                shard_id,
-                            ) {
-                                self.shards_mgr.set_state_root(
-                                    shard_id,
-                                    *self
-                                        .chain
-                                        .get_post_state_root(&chunk_header.chunk_hash())
-                                        .unwrap(),
-                                );
-                            }
-                        }
-                    }
                 }
                 BlockStatus::Fork => {
                     // If it's a fork, no need to reconcile transactions or produce chunks
@@ -603,24 +569,6 @@ impl ClientActor {
                     for to_remove_hash in to_remove {
                         let block = self.chain.get_block(&to_remove_hash).unwrap().clone();
                         self.remove_transactions_for_block(bp.account_id.clone(), &block);
-                    }
-
-                    // It's necessary to update the state root for all the shards we care about
-                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
-                        let shard_id = shard_id as ShardId;
-                        if self.runtime_adapter.cares_about_shard(
-                            &bp.account_id,
-                            block.header.prev_hash,
-                            shard_id,
-                        ) {
-                            self.shards_mgr.set_state_root(
-                                shard_id,
-                                *self
-                                    .chain
-                                    .get_post_state_root(&chunk_header.chunk_hash())
-                                    .unwrap(),
-                            );
-                        }
                     }
                 }
             };
@@ -897,9 +845,10 @@ impl ClientActor {
         );
 
         let state_root = self
-            .shards_mgr
-            .get_state_root(shard_id)
-            .ok_or_else(|| Error::ChunkProducer("No state root available".to_string()))?;
+            .chain
+            .get_latest_chunk_extra(shard_id)
+            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            .state_root;
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;

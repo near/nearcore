@@ -32,6 +32,7 @@ pub type PartialSignature = BlsSignature;
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
 pub type StorageUsageChange = i64;
+pub type GasUsage = u64;
 /// Nonce for transactions.
 pub type Nonce = u64;
 

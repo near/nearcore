@@ -274,6 +274,7 @@ impl Block {
                 height_created: 0,
                 height_included: 0,
                 shard_id: i,
+                validator_proposal: vec![],
                 signature: DEFAULT_SIGNATURE,
             })
             .collect()

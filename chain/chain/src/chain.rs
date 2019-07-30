@@ -13,7 +13,7 @@ use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, StateSyncInfo};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ChunkExtra, StateSyncInfo};
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
 };
@@ -174,7 +174,10 @@ impl Chain {
 
                     for (chunk_header, state_root) in genesis.chunks.iter().zip(state_roots.iter())
                     {
-                        store_update.save_post_state_root(&chunk_header.chunk_hash(), state_root);
+                        store_update.save_chunk_extra(
+                            &chunk_header.chunk_hash(),
+                            ChunkExtra::new(state_root, vec![], 0),
+                        );
                     }
 
                     head = Tip::from_header(&genesis.header);
@@ -815,10 +818,18 @@ impl Chain {
         self.store.block_exists(hash)
     }
 
-    /// Get state root hash after applying header with given hash.
+    /// Get chunk extra that was computed after applying chunk with given hash.
     #[inline]
-    pub fn get_post_state_root(&mut self, hash: &ChunkHash) -> Result<&MerkleHash, Error> {
-        self.store.get_post_state_root(hash)
+    pub fn get_chunk_extra(&mut self, hash: &ChunkHash) -> Result<&ChunkExtra, Error> {
+        self.store.get_chunk_extra(hash)
+    }
+
+    /// Helper to return latest chunk extra for given shard.
+    #[inline]
+    pub fn get_latest_chunk_extra(&mut self, shard_id: ShardId) -> Result<&ChunkExtra, Error> {
+        let chunk_hash =
+            self.get_block(&self.head()?.last_block_hash)?.chunks[shard_id as usize].chunk_hash();
+        self.store.get_chunk_extra(&chunk_hash)
     }
 
     /// Get transaction result for given hash of transaction.
@@ -1024,7 +1035,12 @@ impl<'a> ChainUpdate<'a> {
 
                     self.chain_store_update.save_trie_changes(trie_changes);
                     // Save state root after applying transactions.
-                    self.chain_store_update.save_post_state_root(&chunk_hash, &state_root);
+                    // XXX: gas used return.
+                    let gas_used = 0;
+                    self.chain_store_update.save_chunk_extra(
+                        &chunk_hash,
+                        ChunkExtra::new(&state_root, validator_proposals, gas_used),
+                    );
                     // Save resulting receipts.
                     for (_receipt_shard_id, receipts) in new_receipts.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,

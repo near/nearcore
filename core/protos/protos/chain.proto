@@ -31,6 +31,7 @@ message ShardChunkHeader {
     uint64 height_included = 6;
     uint64 shard_id = 7;
     bytes signature = 8;
+    repeated ValidatorStake validator_proposal = 9;
 }
 
 message Block {

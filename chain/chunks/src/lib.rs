@@ -40,7 +40,6 @@ pub struct ShardsManager {
     me: Option<AccountId>,
 
     tx_pools: HashMap<ShardId, TransactionPool>,
-    state_roots: HashMap<ShardId, CryptoHash>,
 
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     peer_mgr: Recipient<NetworkRequests>,
@@ -69,7 +68,6 @@ impl ShardsManager {
         Self {
             me,
             tx_pools: HashMap::new(),
-            state_roots: HashMap::new(),
             runtime_adapter,
             peer_mgr,
             store,
@@ -228,12 +226,6 @@ impl ShardsManager {
             .entry(shard_id)
             .or_insert_with(|| TransactionPool::new())
             .insert_transaction(tx);
-    }
-    pub fn get_state_root(&self, shard_id: ShardId) -> Option<CryptoHash> {
-        self.state_roots.get(&shard_id).map(|x| *x)
-    }
-    pub fn set_state_root(&mut self, shard_id: ShardId, root: CryptoHash) {
-        self.state_roots.insert(shard_id, root);
     }
     pub fn remove_transactions(
         &mut self,

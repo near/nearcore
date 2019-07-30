@@ -1088,8 +1088,8 @@ mod test {
     }
 
     #[test]
-    fn test_check_validator_signature() {
-        let dir = TempDir::new("check_validator_signature").unwrap();
+    fn test_verify_validator_signature() {
+        let dir = TempDir::new("verify_validator_signature").unwrap();
         let store = create_store(&get_store_path(dir.path()));
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
@@ -1102,7 +1102,7 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
-        assert!(nightshade.check_validator_signature(
+        assert!(nightshade.verify_validator_signature(
             &CryptoHash::default(),
             &validators[0],
             &data,
@@ -1111,8 +1111,8 @@ mod test {
     }
 
     #[test]
-    fn test_check_validator_signature_failure() {
-        let dir = TempDir::new("check_validator_signature_failure").unwrap();
+    fn test_verify_validator_signature_failure() {
+        let dir = TempDir::new("verify_validator_signature_failure").unwrap();
         let store = create_store(&get_store_path(dir.path()));
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
@@ -1125,7 +1125,7 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
-        assert!(!nightshade.check_validator_signature(
+        assert!(!nightshade.verify_validator_signature(
             &CryptoHash::default(),
             &validators[1],
             &data,

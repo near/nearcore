@@ -1,14 +1,19 @@
+use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
+use std::sync::Arc;
+
+use protobuf::RepeatedField;
+use reed_solomon_erasure::{ReedSolomon, Shard};
+
+use near_protos::chain as chain_proto;
+
 use crate::crypto::group_signature::GroupSignature;
 use crate::crypto::signature::{Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash_struct, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::transaction::{ReceiptTransaction, SignedTransaction};
-use crate::types::{MerkleHash, ShardId};
-use near_protos::chain as chain_proto;
-use reed_solomon_erasure::{ReedSolomon, Shard};
-use std::convert::{TryFrom, TryInto};
-use std::sync::Arc;
+use crate::types::{MerkleHash, ShardId, ValidatorStake};
 
 pub struct MainChainBlockHeader {
     pub prev_block_hash: CryptoHash,
@@ -36,13 +41,17 @@ impl AsRef<[u8]> for ChunkHash {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ShardChunkHeader {
+    /// Previous block hash.
     pub prev_block_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
     pub height_created: u64,
     pub height_included: u64,
+    /// Shard index.
     pub shard_id: ShardId,
+    /// Validator proposals.
+    pub validator_proposal: Vec<ValidatorStake>,
 
     /// Signature of the chunk producer.
     pub signature: Signature,
@@ -74,13 +83,18 @@ impl TryFrom<chain_proto::ShardChunkHeader> for ShardChunkHeader {
             height_created: proto.height_created,
             height_included: proto.height_included,
             shard_id: proto.shard_id,
+            validator_proposal: proto
+                .validator_proposal
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
             signature: proto.signature.try_into()?,
         })
     }
 }
 
 impl From<ShardChunkHeader> for chain_proto::ShardChunkHeader {
-    fn from(header: ShardChunkHeader) -> Self {
+    fn from(mut header: ShardChunkHeader) -> Self {
         chain_proto::ShardChunkHeader {
             prev_block_hash: header.prev_block_hash.into(),
             prev_state_root: header.prev_state_root.into(),
@@ -89,6 +103,9 @@ impl From<ShardChunkHeader> for chain_proto::ShardChunkHeader {
             height_created: header.height_created,
             height_included: header.height_included,
             shard_id: header.shard_id,
+            validator_proposal: RepeatedField::from_iter(
+                header.validator_proposal.drain(..).map(std::convert::Into::into),
+            ),
             signature: header.signature.into(),
             ..Default::default()
         }
@@ -177,6 +194,7 @@ impl EncodedShardChunk {
             height_created: height,
             height_included: 0,
             shard_id,
+            validator_proposal: vec![],
             signature: DEFAULT_SIGNATURE,
         };
 
