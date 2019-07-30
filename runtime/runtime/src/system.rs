@@ -1,5 +1,8 @@
 use std::convert::TryFrom;
 
+use regex::{escape, Regex};
+
+use lazy_static::lazy_static;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
@@ -10,7 +13,9 @@ use near_primitives::transaction::{
     SendMoneyTransaction, StakeTransaction, SwapKeyTransaction,
 };
 use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
-use near_primitives::utils::{create_nonce_with_nonce, is_valid_account_id, key_for_access_key};
+use near_primitives::utils::{
+    create_nonce_with_nonce, is_valid_account_id, key_for_access_key, system_account,
+};
 use near_store::{
     get_access_key, remove_account, set_access_key, set_account, set_code, TrieUpdate,
 };
@@ -302,18 +307,39 @@ pub fn delete_account(
     Ok(vec![receipt])
 }
 
+lazy_static! {
+    static ref NOT_ALLOWED_TLA_EMAIL: Regex = Regex::new(r"^[a-z0-9\-_]+@[a-z0-9\-_]+$").unwrap();
+}
+
+/// Follows https://github.com/nearprotocol/NEPs/pull/6/ to decide if given account id allowed.
+pub fn allow_create_account(
+    sender_account_id: &AccountId,
+    new_account_id: &AccountId,
+) -> Result<bool, String> {
+    if *new_account_id == system_account() {
+        return Ok(false);
+    }
+    let re = Regex::new(&format!(
+        r#"^([a-z0-9\-_]{{2,32}}|[a-z0-9\-_]+[@.]{})$"#,
+        escape(sender_account_id)
+    ))
+    .map_err(|err| err.to_string())?;
+    Ok(re.is_match(new_account_id) && !NOT_ALLOWED_TLA_EMAIL.is_match(new_account_id))
+}
+
 /// System call to create an account.
 pub fn system_create_account(
     state_update: &mut TrieUpdate,
     call: &AsyncCall,
-    account_id: &AccountId,
+    sender_account_id: &AccountId,
+    new_account_id: &AccountId,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if !is_valid_account_id(account_id) {
-        return Err(format!("Account name {} {}", account_id, INVALID_ACCOUNT_ID));
+    if !allow_create_account(sender_account_id, new_account_id)? {
+        return Err(format!("Account name {} {}", new_account_id, INVALID_ACCOUNT_ID));
     }
     let public_key = PublicKey::try_from(&call.args as &[u8]).map_err(|e| format!("{}", e))?;
     let new_account = Account::new(vec![public_key], call.amount, hash(&[]));
-    set_account(state_update, &account_id, &new_account);
+    set_account(state_update, &new_account_id, &new_account);
     Ok(vec![])
 }
 
@@ -351,4 +377,24 @@ pub fn system_delete_account(
     remove_account(state_update, account_id)
         .map_err(|err| format!("Failed to delete all account data: {}", err))?;
     Ok(vec![receipt])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_allow_create_account() {
+        assert!(!allow_create_account(&"test".to_string(), &"a".to_string()).unwrap());
+        assert!(allow_create_account(&"test".to_string(), &"ab".to_string()).unwrap());
+        assert!(!allow_create_account(&"test".to_string(), &"system".to_string()).unwrap());
+        assert!(!allow_create_account(&"test".to_string(), &"a.b".to_string()).unwrap());
+        assert!(allow_create_account(&"test".to_string(), &"x.test".to_string()).unwrap());
+        assert!(!allow_create_account(&"com".to_string(), &"xyz.google.com".to_string()).unwrap());
+        assert!(!allow_create_account(&"com".to_string(), &"facebook@com".to_string()).unwrap());
+        assert!(!allow_create_account(&"com".to_string(), &"abc@gmail.com".to_string()).unwrap());
+        assert!(
+            allow_create_account(&"gmail.com".to_string(), &"abc@gmail.com".to_string()).unwrap()
+        );
+    }
 }

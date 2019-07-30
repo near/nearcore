@@ -671,7 +671,12 @@ impl Runtime {
                 if let ReceiptBody::NewCall(call) = &receipt.body {
                     amount = call.amount;
                     if call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
-                        system_create_account(state_update, &call, &receipt.receiver)
+                        system_create_account(
+                            state_update,
+                            &call,
+                            &receipt.originator,
+                            &receipt.receiver,
+                        )
                     } else {
                         err
                     }
