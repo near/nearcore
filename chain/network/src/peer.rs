@@ -278,7 +278,12 @@ impl Peer {
             }
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
-            _ => unreachable!(),
+            PeerMessage::Handshake(_)
+            | PeerMessage::PeersRequest
+            | PeerMessage::PeersResponse(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type");
+                return;
+            }
         };
         self.client_addr
             .send(network_client_msg)

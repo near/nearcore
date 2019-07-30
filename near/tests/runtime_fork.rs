@@ -5,7 +5,7 @@ use tempdir::TempDir;
 
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::types::RuntimeAdapter;
-use near_chain::{Block, Chain, Provenance};
+use near_chain::{Block, Chain, ChainGenesis, Provenance};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
@@ -24,7 +24,9 @@ fn runtime_hanldle_fork() {
         Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
     let genesis_chunks = Block::genesis_chunks(runtime.genesis_state().1, runtime.num_shards());
 
-    let mut chain = Chain::new(store, runtime, genesis_config.genesis_time).unwrap();
+    let mut chain =
+        Chain::new(store, runtime, ChainGenesis::new(genesis_config.genesis_time, 1_000_000))
+            .unwrap();
 
     let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
     let tx2 = TransactionBody::send_money(1, "near.0", "near.1", 500).sign(&*signer);
@@ -34,6 +36,8 @@ fn runtime_hanldle_fork() {
         1,
         genesis_chunks.clone(),
         CryptoHash::default(),
+        0,
+        chain.genesis().gas_limit,
         vec![tx1],
         HashMap::default(),
         vec![],
@@ -45,6 +49,8 @@ fn runtime_hanldle_fork() {
         2,
         genesis_chunks.clone(),
         CryptoHash::default(),
+        0,
+        chain.genesis().gas_limit,
         vec![tx2],
         HashMap::default(),
         vec![],
@@ -56,6 +62,8 @@ fn runtime_hanldle_fork() {
         3,
         genesis_chunks.clone(),
         CryptoHash::default(),
+        0,
+        b1.header.gas_limit,
         vec![tx3],
         HashMap::default(),
         vec![],

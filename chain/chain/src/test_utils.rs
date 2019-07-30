@@ -6,8 +6,12 @@ use chrono::Utc;
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
+use near_primitives::merkle::merklize;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::get_public_key_from_seed;
+use near_primitives::transaction::ReceiptBody::NewCall;
+use near_primitives::transaction::TransactionBody::SendMoney;
 use near_primitives::transaction::{
     AsyncCall, ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
@@ -17,11 +21,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Chain, ValidTransaction};
-use near_primitives::merkle::merklize;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::transaction::ReceiptBody::NewCall;
-use near_primitives::transaction::TransactionBody::SendMoney;
+use crate::{Chain, ChainGenesis, ValidTransaction};
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -614,7 +614,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
+    let chain =
+        Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000)).unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
 }

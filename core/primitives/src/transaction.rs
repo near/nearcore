@@ -31,6 +31,7 @@ pub enum TransactionBody {
     SwapKey(SwapKeyTransaction),
     AddKey(AddKeyTransaction),
     DeleteKey(DeleteKeyTransaction),
+    DeleteAccount(DeleteAccountTransaction),
 }
 
 impl TransactionBody {
@@ -78,7 +79,8 @@ impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransact
             new_account_id: t.new_account_id,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -131,7 +133,8 @@ impl From<DeployContractTransaction> for transaction_proto::DeployContractTransa
             nonce: t.nonce,
             contract_id: t.contract_id,
             wasm_byte_array: t.wasm_byte_array,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -171,7 +174,8 @@ impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransactio
             method_name: t.method_name,
             args: t.args,
             amount: SingularPtrField::some(t.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -218,7 +222,8 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
             originator: t.originator,
             receiver: t.receiver,
             amount: SingularPtrField::some(t.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -252,7 +257,9 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
             originator: t.originator,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
-            ..Default::default()
+            bls_public_key: "".to_string(),
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -286,7 +293,8 @@ impl From<SwapKeyTransaction> for transaction_proto::SwapKeyTransaction {
             originator: t.originator,
             cur_key: t.cur_key,
             new_key: t.new_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -334,7 +342,8 @@ impl From<AddKeyTransaction> for transaction_proto::AddKeyTransaction {
             originator: t.originator,
             new_key: t.new_key,
             access_key: SingularPtrField::from_option(t.access_key.map(std::convert::Into::into)),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -368,7 +377,8 @@ impl From<DeleteKeyTransaction> for transaction_proto::DeleteKeyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             cur_key: t.cur_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -383,6 +393,34 @@ impl fmt::Debug for DeleteKeyTransaction {
     }
 }
 
+#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct DeleteAccountTransaction {
+    pub nonce: Nonce,
+    pub originator_id: AccountId,
+    pub receiver_id: AccountId,
+}
+
+impl From<transaction_proto::DeleteAccountTransaction> for DeleteAccountTransaction {
+    fn from(t: transaction_proto::DeleteAccountTransaction) -> Self {
+        DeleteAccountTransaction {
+            nonce: t.nonce,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
+        }
+    }
+}
+
+impl From<DeleteAccountTransaction> for transaction_proto::DeleteAccountTransaction {
+    fn from(t: DeleteAccountTransaction) -> Self {
+        transaction_proto::DeleteAccountTransaction {
+            nonce: t.nonce,
+            originator_id: t.originator_id,
+            receiver_id: t.receiver_id,
+            ..Default::default()
+        }
+    }
+}
+
 impl TransactionBody {
     pub fn get_nonce(&self) -> u64 {
         match self {
@@ -394,6 +432,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(t) => t.nonce,
             TransactionBody::AddKey(t) => t.nonce,
             TransactionBody::DeleteKey(t) => t.nonce,
+            TransactionBody::DeleteAccount(t) => t.nonce,
         }
     }
 
@@ -407,6 +446,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(t) => t.originator.clone(),
             TransactionBody::AddKey(t) => t.originator.clone(),
             TransactionBody::DeleteKey(t) => t.originator.clone(),
+            TransactionBody::DeleteAccount(t) => t.originator_id.clone(),
         }
     }
 
@@ -421,6 +461,7 @@ impl TransactionBody {
             TransactionBody::SwapKey(_) => None,
             TransactionBody::AddKey(_) => None,
             TransactionBody::DeleteKey(_) => None,
+            TransactionBody::DeleteAccount(_) => None,
         }
     }
 
@@ -456,6 +497,10 @@ impl TransactionBody {
             }
             TransactionBody::DeleteKey(t) => {
                 let proto: transaction_proto::DeleteKeyTransaction = t.into();
+                proto.write_to_bytes()
+            }
+            TransactionBody::DeleteAccount(t) => {
+                let proto: transaction_proto::DeleteAccountTransaction = t.into();
                 proto.write_to_bytes()
             }
         };
@@ -568,6 +613,10 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::DeleteKey(DeleteKeyTransaction::try_from(t)?)
             }
+            Some(transaction_proto::SignedTransaction_oneof_body::delete_account(t)) => {
+                bytes = t.write_to_bytes();
+                TransactionBody::DeleteAccount(DeleteAccountTransaction::from(t))
+            }
             None => return Err("No such transaction body type".into()),
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
@@ -611,6 +660,9 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
             TransactionBody::DeleteKey(t) => {
                 transaction_proto::SignedTransaction_oneof_body::delete_key(t.into())
             }
+            TransactionBody::DeleteAccount(t) => {
+                transaction_proto::SignedTransaction_oneof_body::delete_account(t.into())
+            }
         };
         transaction_proto::SignedTransaction {
             body: Some(body),
@@ -620,7 +672,8 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
                 res.set_value((&v).into());
                 res
             })),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -671,7 +724,8 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
             refund_account: call.refund_account,
             originator_id: call.originator_id,
             public_key: call.public_key.as_ref().to_vec(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -833,7 +887,8 @@ impl From<CallbackInfo> for receipt_proto::CallbackInfo {
             id: info.id,
             result_index: info.result_index as u64,
             receiver: info.receiver,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -885,7 +940,8 @@ impl From<CallbackResult> for receipt_proto::CallbackResult {
                 res.set_value(v);
                 res
             })),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -961,7 +1017,8 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             receiver: t.receiver,
             nonce: t.nonce.into(),
             body: Some(body),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

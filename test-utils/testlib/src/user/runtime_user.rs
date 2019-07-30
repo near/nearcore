@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
@@ -15,7 +16,7 @@ use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
     TransactionLogs, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, MerkleHash};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -30,6 +31,7 @@ pub struct MockClient {
     // TrieUpdate takes Arc<Trie>.
     pub trie: Arc<Trie>,
     pub state_root: MerkleHash,
+    pub epoch_length: BlockIndex,
 }
 
 impl MockClient {
@@ -40,6 +42,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
+    pub signer: Arc<dyn EDSigner>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -55,9 +58,14 @@ lazy_static! {
 }
 
 impl RuntimeUser {
-    pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
+    pub fn new(
+        account_id: &str,
+        signer: Arc<dyn EDSigner>,
+        client: Arc<RwLock<MockClient>>,
+    ) -> Self {
         let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
+            signer,
             trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
             client,
@@ -100,6 +108,7 @@ impl RuntimeUser {
                 shard_id: cur_apply_state.shard_id,
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
+                epoch_length: client.epoch_length,
             };
             let new_receipts: Vec<_> =
                 apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
@@ -138,6 +147,17 @@ impl RuntimeUser {
             }
         }
     }
+
+    fn apply_state(&self) -> ApplyState {
+        let client = self.client.read().expect(POISONED_LOCK_ERR);
+        ApplyState {
+            root: client.state_root,
+            shard_id: 0,
+            parent_block_hash: CryptoHash::default(),
+            block_index: 0,
+            epoch_length: client.epoch_length,
+        }
+    }
 }
 
 impl User for RuntimeUser {
@@ -152,13 +172,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![], vec![transaction]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction]);
         Ok(())
     }
 
@@ -166,24 +180,12 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![], vec![transaction.clone()]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()]);
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
     fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
-        let apply_state = ApplyState {
-            root: self.client.read().expect(POISONED_LOCK_ERR).state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-        };
-        self.apply_all(apply_state, vec![receipt], vec![]);
+        self.apply_all(self.apply_state(), vec![receipt], vec![]);
         Ok(())
     }
 
@@ -238,5 +240,9 @@ impl User for RuntimeUser {
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
             .map_err(|err| err.to_string())
+    }
+
+    fn signer(&self) -> Arc<dyn EDSigner> {
+        self.signer.clone()
     }
 }

@@ -8,8 +8,9 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, GasUsage, MerkleHash, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -17,7 +18,6 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ChunkExtra, S
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
 };
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -104,6 +104,19 @@ impl OrphanBlockPool {
     }
 }
 
+/// Chain genesis configuration.
+#[derive(Clone)]
+pub struct ChainGenesis {
+    pub time: DateTime<Utc>,
+    pub gas_limit: GasUsage,
+}
+
+impl ChainGenesis {
+    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage) -> Self {
+        Self { time, gas_limit }
+    }
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -118,14 +131,18 @@ impl Chain {
     pub fn new(
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_roots) = runtime_adapter.genesis_state();
-        let genesis =
-            Block::genesis(state_roots.clone(), genesis_time, runtime_adapter.num_shards());
+        let genesis = Block::genesis(
+            state_roots.clone(),
+            chain_genesis.time,
+            runtime_adapter.num_shards(),
+            chain_genesis.gas_limit,
+        );
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();

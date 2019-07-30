@@ -276,13 +276,16 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards);
+        let genesis =
+            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::produce(
             &genesis.header,
             1,
             Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
             CryptoHash::default(),
+            0,
+            1_000_000,
             vec![],
             HashMap::default(),
             vec![],
@@ -298,6 +301,8 @@ mod tests {
             2,
             vec![],
             CryptoHash::default(),
+            0,
+            1_000_000,
             vec![],
             approvals,
             vec![],

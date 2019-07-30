@@ -16,11 +16,10 @@ use near_primitives::serialize::{from_base64, to_base64, Decode};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::Callback;
 use near_primitives::types::BlockIndex;
-use near_primitives::utils::col;
+use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
 use near_store::{create_store, DBValue, Store, TrieIterator};
-use node_runtime::ext::ACCOUNT_DATA_SEPARATOR;
 use node_runtime::StateRecord;
 
 fn to_printable(blob: &[u8]) -> String {

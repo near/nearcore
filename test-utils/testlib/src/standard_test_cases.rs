@@ -3,19 +3,21 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::AccountViewCallResult;
-use near_primitives::serialize::{BaseEncode, Decode};
+use near_primitives::serialize::Decode;
 use near_primitives::transaction::{
     AddKeyTransaction, AsyncCall, Callback, CallbackInfo, CallbackResult, CreateAccountTransaction,
     DeleteKeyTransaction, DeployContractTransaction, FinalTransactionStatus,
-    FunctionCallTransaction, ReceiptBody, ReceiptTransaction, StakeTransaction, SwapKeyTransaction,
-    TransactionBody, TransactionStatus,
+    FunctionCallTransaction, ReceiptBody, ReceiptTransaction, SwapKeyTransaction, TransactionBody,
+    TransactionStatus,
 };
 use near_primitives::types::Balance;
 use near_primitives::utils::key_for_callback;
 use near_store::set_callback;
 
 use crate::node::{Node, RuntimeNode};
-use crate::runtime_utils::{bob_account, default_code_hash, encode_int, eve_account};
+use crate::runtime_utils::{
+    alice_account, bob_account, default_code_hash, encode_int, eve_account,
+};
 use crate::test_helpers::wait;
 use crate::user::User;
 
@@ -89,23 +91,16 @@ pub fn wait_for_transaction(node_user: &Box<dyn User>, hash: &CryptoHash) {
 }
 
 pub fn test_smart_contract_simple(node: impl Node) {
-    let account_id = &node.account_id().unwrap();
-    let transaction = TransactionBody::FunctionCall(FunctionCallTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        contract_id: bob_account(),
-        method_name: b"run_test".to_vec(),
-        args: vec![],
-        amount: FUNCTION_CALL_AMOUNT,
-    })
-    .sign(&*node.signer());
-
     let node_user = node.user();
-    let hash = transaction.get_hash();
     let root = node_user.get_state_root();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    validate_tx_result(node_user, root, &hash, 2);
+    let result = node_user.function_call(
+        alice_account(),
+        bob_account(),
+        "run_test",
+        vec![],
+        FUNCTION_CALL_AMOUNT,
+    );
+    validate_tx_result(node_user, root, &result.logs[0].hash, 2);
 }
 
 pub fn test_smart_contract_self_call(node: impl Node) {
@@ -1443,23 +1438,14 @@ pub fn test_access_key_reject_non_function_call(node: impl Node) {
 
 pub fn test_increase_stake(node: impl Node) {
     let node_user = node.user();
+    let root = node_user.get_state_root();
     let account_id = &node.account_id().unwrap();
     let amount_staked = TESTING_INIT_STAKE + 1;
-    let transaction = TransactionBody::Stake(StakeTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        amount: amount_staked,
-        public_key: node.signer().public_key().to_base(),
-    })
-    .sign(&*node.signer());
-
-    let hash = transaction.get_hash();
-    let root = node_user.get_state_root();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    let transaction_result = node_user.get_transaction_result(&hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Completed);
-    assert_eq!(transaction_result.receipts.len(), 0);
+    let transaction_result =
+        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
+    assert_eq!(transaction_result.logs[0].receipts.len(), 0);
+    let node_user = node.user();
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
@@ -1470,23 +1456,13 @@ pub fn test_increase_stake(node: impl Node) {
 
 pub fn test_decrease_stake(node: impl Node) {
     let node_user = node.user();
-    let account_id = &node.account_id().unwrap();
-    let amount_staked = 10;
-    let transaction = TransactionBody::Stake(StakeTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        amount: amount_staked,
-        public_key: node.signer().public_key().to_base(),
-    })
-    .sign(&*node.signer());
-
-    let hash = transaction.get_hash();
     let root = node_user.get_state_root();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    let transaction_result = node_user.get_transaction_result(&hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Completed);
-    assert_eq!(transaction_result.receipts.len(), 0);
+    let amount_staked = 10;
+    let account_id = &node.account_id().unwrap();
+    let transaction_result =
+        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
+    assert_eq!(transaction_result.logs[0].receipts.len(), 0);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
@@ -1497,32 +1473,77 @@ pub fn test_decrease_stake(node: impl Node) {
 
 pub fn test_unstake_while_not_staked(node: impl Node) {
     let node_user = node.user();
-    let account_id = &node.account_id().unwrap();
-    let transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: account_id.clone(),
-        new_account_id: eve_account(),
-        public_key: node.signer().public_key().0[..].to_vec(),
-        amount: 10,
-    })
-    .sign(&*node.signer());
-    let tx_hash = transaction.get_hash();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &tx_hash);
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let transaction_result = node_user.stake(eve_account(), node.signer().public_key(), 0);
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
+    assert_eq!(transaction_result.logs[0].receipts.len(), 0);
+}
 
-    let amount_staked = 0;
-    let transaction = TransactionBody::Stake(StakeTransaction {
-        nonce: node.get_account_nonce(account_id).unwrap_or_default() + 1,
-        originator: eve_account(),
-        amount: amount_staked,
-        public_key: node.signer().public_key().to_base(),
-    })
-    .sign(&*node.signer());
+/// Account must have enough rent to pay for next `poke_threshold` blocks.
+pub fn test_fail_not_enough_rent(node: impl Node) {
+    let node_user = node.user();
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let result = node_user.send_money(eve_account(), alice_account(), 10);
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+}
 
-    let hash = transaction.get_hash();
-    node_user.add_transaction(transaction).unwrap();
-    wait_for_transaction(&node_user, &hash);
-    let transaction_result = node_user.get_transaction_result(&hash);
-    assert_eq!(transaction_result.status, TransactionStatus::Failed);
-    assert_eq!(transaction_result.receipts.len(), 0);
+/// Account must have enough rent to pay for next 4 x `epoch_length` blocks (otherwise can not stake).
+pub fn test_stake_fail_not_enough_rent(node: impl Node) {
+    let node_user = node.user();
+    let _ = node_user.create_account(
+        alice_account(),
+        eve_account(),
+        node.signer().public_key(),
+        119_000_000_000_000_010,
+    );
+    let result = node_user.stake(eve_account(), node.signer().public_key(), 5);
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+}
+
+pub fn test_delete_account(node: impl Node) {
+    let node_user = node.user();
+    // There is some data attached to the account.
+    assert!(node_user.view_state(&bob_account()).unwrap().values.len() > 0);
+    let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
+    let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
+    let result = node_user.delete_account(alice_account(), bob_account());
+    assert_eq!(result.status, FinalTransactionStatus::Completed);
+    assert!(node_user.view_account(&bob_account()).is_err());
+    // No data left.
+    assert_eq!(node_user.view_state(&bob_account()).unwrap().values.len(), 0);
+    // Receive back reward the balance of the bob's account.
+    assert_eq!(
+        node_user.view_account(&node.account_id().unwrap()).unwrap().amount,
+        initial_amount + bobs_amount
+    );
+}
+
+pub fn test_delete_account_fail(node: impl Node) {
+    let node_user = node.user();
+    let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
+    let result = node_user.delete_account(alice_account(), bob_account());
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+    assert!(node.user().view_account(&bob_account()).is_ok());
+    assert_eq!(
+        node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
+        initial_amount
+    );
+}
+
+pub fn test_delete_account_no_account(node: impl Node) {
+    let node_user = node.user();
+    let result = node_user.delete_account(alice_account(), eve_account());
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+}
+
+pub fn test_delete_account_while_staking(node: impl Node) {
+    let node_user = node.user();
+    let _ =
+        node_user.create_account(alice_account(), eve_account(), node.signer().public_key(), 10);
+    let _ = node_user.stake(eve_account(), node.signer().public_key(), 10);
+    let result = node_user.delete_account(alice_account(), eve_account());
+    assert_eq!(result.status, FinalTransactionStatus::Failed);
+    assert!(node.user().view_account(&eve_account()).is_ok());
 }

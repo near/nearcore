@@ -1,13 +1,17 @@
-//! Settings of the parameters of the economics.
+//! Settings of the parameters of the runtime.
 use near_primitives::transaction::TransactionBody;
-use near_primitives::types::Balance;
+use near_primitives::types::{Balance, BlockIndex};
 use wasm::types::Config;
 
-/// The structure that holds the parameters of the economics.
+/// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct EconomicsConfig {
+#[serde(default)]
+pub struct RuntimeConfig {
     /// The cost to store one byte of storage per block.
     pub storage_cost_byte_per_block: Balance,
+    /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
+    pub poke_threshold: BlockIndex,
+    /// Costs for different types of transactions.
     pub transactions_costs: TransactionsCosts,
     /// Config of wasm operations.
     pub wasm_config: Config,
@@ -25,6 +29,7 @@ pub struct TransactionsCosts {
     pub swap_key: Balance,
     pub add_key: Balance,
     pub delete_key: Balance,
+    pub delete_account: Balance,
 }
 
 impl TransactionsCosts {
@@ -32,20 +37,21 @@ impl TransactionsCosts {
     pub fn cost(&self, transaction_body: &TransactionBody) -> Balance {
         use TransactionBody::*;
         match transaction_body {
-            CreateAccount(_) => self.create_account.clone(),
-            DeployContract(_) => self.deploy_contract.clone(),
+            CreateAccount(_) => self.create_account,
+            DeployContract(_) => self.deploy_contract,
             FunctionCall(_)
                 if Some(transaction_body.get_originator())
                     == transaction_body.get_contract_id() =>
             {
-                self.self_function_call.clone()
+                self.self_function_call
             }
-            FunctionCall(_) => self.function_call.clone(),
-            SendMoney(_) => self.send_money.clone(),
-            Stake(_) => self.stake.clone(),
-            SwapKey(_) => self.swap_key.clone(),
-            AddKey(_) => self.add_key.clone(),
-            DeleteKey(_) => self.delete_key.clone(),
+            FunctionCall(_) => self.function_call,
+            SendMoney(_) => self.send_money,
+            Stake(_) => self.stake,
+            SwapKey(_) => self.swap_key,
+            AddKey(_) => self.add_key,
+            DeleteKey(_) => self.delete_key,
+            DeleteAccount(_) => self.delete_account,
         }
     }
 }

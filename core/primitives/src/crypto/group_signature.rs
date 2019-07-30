@@ -32,7 +32,8 @@ impl From<GroupSignature> for types_proto::GroupSignature {
         types_proto::GroupSignature {
             signature: BaseEncode::to_base(&signature.signature),
             authority_mask: signature.authority_mask,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

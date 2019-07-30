@@ -16,7 +16,7 @@ use crate::merkle::merklize;
 use crate::serialize::{base_format, vec_base_format};
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -50,6 +50,10 @@ pub struct BlockHeader {
     /// Epoch start hash of the previous epoch.
     /// Used for retrieving validator information
     pub epoch_hash: CryptoHash,
+    /// Sum of gas used across all chunks.
+    pub gas_used: GasUsage,
+    /// Gas limit, same for all chunks.
+    pub gas_limit: GasUsage,
 
     /// Signature of the block producer.
     #[serde(with = "base_format")]
@@ -72,6 +76,8 @@ impl BlockHeader {
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -88,7 +94,10 @@ impl BlockHeader {
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
             epoch_hash: epoch_hash.into(),
-            ..Default::default()
+            gas_used,
+            gas_limit,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 
@@ -103,6 +112,8 @@ impl BlockHeader {
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -116,18 +127,25 @@ impl BlockHeader {
             total_weight,
             validator_proposal,
             epoch_hash,
+            gas_used,
+            gas_limit,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
         let h = chain_proto::BlockHeader {
             body: SingularPtrField::some(hb),
             signature: signer.sign(hash.as_ref()).into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         };
         h.try_into().expect("Failed to parse just created header")
     }
 
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+    pub fn genesis(
+        state_root: MerkleHash,
+        timestamp: DateTime<Utc>,
+        initial_gas_limit: GasUsage,
+    ) -> Self {
         let header_body = Self::header_body(
             0,
             CryptoHash::default(),
@@ -139,11 +157,14 @@ impl BlockHeader {
             0.into(),
             vec![],
             CryptoHash::default(),
+            0,
+            initial_gas_limit,
         );
         chain_proto::BlockHeader {
             body: SingularPtrField::some(header_body),
             signature: DEFAULT_SIGNATURE.into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
         .try_into()
         .expect("Failed to parse just created header")
@@ -199,6 +220,8 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             total_weight,
             validator_proposal,
             epoch_hash,
+            gas_used: body.gas_used,
+            gas_limit: body.gas_limit,
             signature,
             hash,
         })
@@ -223,10 +246,14 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
                 epoch_hash: header.epoch_hash.into(),
-                ..Default::default()
+                gas_used: header.gas_used,
+                gas_limit: header.gas_limit,
+                cached_size: Default::default(),
+                unknown_fields: Default::default(),
             }),
             signature: header.signature.into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -247,10 +274,15 @@ impl Block {
         state_roots: Vec<MerkleHash>,
         timestamp: DateTime<Utc>,
         num_shards: ShardId,
+        initial_gas_limit: GasUsage,
     ) -> Self {
         let chunks = Block::genesis_chunks(state_roots, num_shards);
         Block {
-            header: BlockHeader::genesis(Block::compute_state_root(&chunks), timestamp),
+            header: BlockHeader::genesis(
+                Block::compute_state_root(&chunks),
+                timestamp,
+                initial_gas_limit,
+            ),
             chunks,
             transactions: vec![],
         }
@@ -286,6 +318,8 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_hash: CryptoHash,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
@@ -314,6 +348,8 @@ impl Block {
                 total_weight,
                 validator_proposal,
                 epoch_hash,
+                gas_used,
+                gas_limit,
                 signer,
             ),
             chunks,
@@ -329,13 +365,15 @@ impl Block {
         self.header.hash()
     }
 
-    // for tests
+    /// Used in tests.
     pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>, num_shards: ShardId) -> Self {
         Block::produce(
             prev,
             prev.height + 1,
             Block::genesis_chunks(vec![CryptoHash::default()], num_shards),
             prev.epoch_hash,
+            0,
+            prev.gas_limit,
             vec![],
             HashMap::default(),
             vec![],
@@ -362,7 +400,8 @@ impl From<Block> for chain_proto::Block {
             header: SingularPtrField::some(block.header.into()),
             chunks: block.chunks.into_iter().map(std::convert::Into::into).collect(),
             transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

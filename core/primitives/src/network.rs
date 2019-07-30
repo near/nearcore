@@ -116,7 +116,13 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: id.into(), addr, account_id, ..Default::default() }
+        network_proto::PeerInfo {
+            id: id.into(),
+            addr,
+            account_id,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
     }
 }
 
@@ -167,7 +173,8 @@ impl From<Handshake> for network_proto::Handshake {
             ),
             account_id,
             listen_port,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
