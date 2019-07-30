@@ -265,7 +265,12 @@ impl Peer {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
-            _ => unreachable!(),
+            PeerMessage::Handshake(_)
+            | PeerMessage::PeersRequest
+            | PeerMessage::PeersResponse(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type");
+                return;
+            }
         };
         self.client_addr
             .send(network_client_msg)
