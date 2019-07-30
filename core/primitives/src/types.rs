@@ -95,7 +95,8 @@ impl From<ValidatorStake> for types_proto::ValidatorStake {
             account_id: validator.account_id,
             public_key: validator.public_key.to_string(),
             amount: SingularPtrField::some(validator.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

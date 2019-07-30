@@ -14,7 +14,7 @@ use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::serialize::{base_format, vec_base_format};
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, MerkleHash, ValidatorStake, GasUsage};
+use crate::types::{BlockIndex, GasUsage, MerkleHash, ValidatorStake};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -94,7 +94,8 @@ impl BlockHeader {
             epoch_hash: epoch_hash.into(),
             gas_used,
             gas_limit,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 
@@ -132,12 +133,17 @@ impl BlockHeader {
         let h = chain_proto::BlockHeader {
             body: SingularPtrField::some(hb),
             signature: signer.sign(hash.as_ref()).into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         };
         h.try_into().expect("Failed to parse just created header")
     }
 
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>, initial_gas_limit: GasUsage) -> Self {
+    pub fn genesis(
+        state_root: MerkleHash,
+        timestamp: DateTime<Utc>,
+        initial_gas_limit: GasUsage,
+    ) -> Self {
         let header_body = Self::header_body(
             0,
             CryptoHash::default(),
@@ -150,12 +156,13 @@ impl BlockHeader {
             vec![],
             CryptoHash::default(),
             0,
-            initial_gas_limit
+            initial_gas_limit,
         );
         chain_proto::BlockHeader {
             body: SingularPtrField::some(header_body),
             signature: DEFAULT_SIGNATURE.into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
         .try_into()
         .expect("Failed to parse just created header")
@@ -237,10 +244,14 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
                 epoch_hash: header.epoch_hash.into(),
-                ..Default::default()
+                gas_used: header.gas_used,
+                gas_limit: header.gas_limit,
+                cached_size: Default::default(),
+                unknown_fields: Default::default(),
             }),
             signature: header.signature.into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -256,8 +267,15 @@ pub struct Block {
 
 impl Block {
     /// Returns genesis block for given genesis date and state root.
-    pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>, initial_gas_limit: GasUsage) -> Self {
-        Block { header: BlockHeader::genesis(state_root, timestamp, initial_gas_limit), transactions: vec![] }
+    pub fn genesis(
+        state_root: MerkleHash,
+        timestamp: DateTime<Utc>,
+        initial_gas_limit: GasUsage,
+    ) -> Self {
+        Block {
+            header: BlockHeader::genesis(state_root, timestamp, initial_gas_limit),
+            transactions: vec![],
+        }
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -340,7 +358,8 @@ impl From<Block> for chain_proto::Block {
         chain_proto::Block {
             header: SingularPtrField::some(block.header.into()),
             transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
