@@ -18,6 +18,8 @@ pub mod col {
     pub const ACCESS_KEY: &[u8] = &[3];
 }
 
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
     let mut key = column.to_vec();
     key.append(&mut account_key.clone().into_bytes());
@@ -34,6 +36,12 @@ pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
     key
 }
 
+pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
+    let mut prefix = key_for_account(account_id);
+    prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    prefix
+}
+
 pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
     key.extend_from_slice(col::ACCESS_KEY);
@@ -43,6 +51,12 @@ pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec
 
 pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::CODE, account_key)
+}
+
+pub fn key_for_data(account_id: &AccountId, key: &[u8]) -> Vec<u8> {
+    let mut prefix = prefix_for_data(account_id);
+    prefix.extend_from_slice(key);
+    prefix
 }
 
 pub fn key_for_callback(id: &[u8]) -> Vec<u8> {

@@ -9,6 +9,7 @@ use futures::future::Future;
 
 use near_client::ClientActor;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::types::NetworkInfo;
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkConfig, NetworkRequests,
     NetworkResponses, PeerManagerActor,
@@ -49,8 +50,10 @@ fn peer_handshake() {
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
         WaitOrTimeout::new(
             Box::new(move |_| {
-                actix::spawn(pm1.send(NetworkRequests::FetchInfo).then(move |res| {
-                    if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
+                actix::spawn(pm1.send(NetworkRequests::FetchInfo { level: 0 }).then(move |res| {
+                    if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
+                        res.unwrap()
+                    {
                         if num_active_peers == 1 {
                             System::current().stop();
                         }
@@ -84,17 +87,22 @@ fn peers_connect_all() {
             Box::new(move |_| {
                 for i in 0..5 {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
-                        if let NetworkResponses::Info { num_active_peers, .. } = res.unwrap() {
-                            if num_active_peers > 4
-                                && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                    actix::spawn(peers[i].send(NetworkRequests::FetchInfo { level: 0 }).then(
+                        move |res| {
+                            if let NetworkResponses::Info(NetworkInfo {
+                                num_active_peers, ..
+                            }) = res.unwrap()
                             {
-                                println!("Peer {}: {}", i, num_active_peers);
-                                flags1.fetch_add(1 << i, Ordering::Relaxed);
+                                if num_active_peers > 4
+                                    && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
+                                {
+                                    println!("Peer {}: {}", i, num_active_peers);
+                                    flags1.fetch_add(1 << i, Ordering::Relaxed);
+                                }
                             }
-                        }
-                        future::result(Ok(()))
-                    }));
+                            future::result(Ok(()))
+                        },
+                    ));
                 }
                 // Stop if all connected to all after exchanging peers.
                 println!("Flags: {}", flags.load(Ordering::Relaxed));

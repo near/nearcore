@@ -128,8 +128,6 @@ pub struct Handshake {
     pub version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
-    /// Sender's account id, if present.
-    pub account_id: Option<AccountId>,
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Sender's information about known peers.
@@ -147,7 +145,6 @@ impl TryFrom<network_proto::Handshake> for Handshake {
         Ok(Handshake {
             version: proto.version,
             peer_id: proto.peer_id.try_into()?,
-            account_id,
             listen_port,
             peers_info,
         })

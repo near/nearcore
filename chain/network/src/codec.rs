@@ -91,7 +91,6 @@ mod test {
         let fake_handshake = Handshake {
             version: 1,
             peer_id: peer_info.id,
-            account_id: Some("alice.near".to_string()),
             listen_port: None,
             chain_info: PeerChainInfo {
                 genesis: Default::default(),

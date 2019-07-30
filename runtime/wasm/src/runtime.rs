@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use byteorder::{ByteOrder, LittleEndian};
 use wasmer_runtime::{memory::Memory, units::Bytes};
@@ -48,6 +48,9 @@ pub struct Runtime<'a> {
     random_buffer_offset: usize,
     pub logs: Vec<String>,
     memory: Memory,
+    /// Registers can be used by the guest to store blobs of data without moving them across
+    /// host-guest boundary.
+    registers: HashMap<u64, Vec<u8>>,
 }
 
 impl<'a> Runtime<'a> {
@@ -75,6 +78,7 @@ impl<'a> Runtime<'a> {
             random_buffer_offset: 0,
             logs: Vec::new(),
             memory,
+            registers: Default::default()
         }
     }
 
@@ -610,6 +614,57 @@ impl<'a> Runtime<'a> {
         Ok(buf.len() as u32)
     }
 
+    /// Writes the entire content from the register `register_id` into the memory of the guest starting with `ptr`.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_id` -- a register id from where to read the data;
+    /// * `ptr` -- location on guest memory where to copy the data.
+    ///
+    /// # Panics
+    ///
+    /// * If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
+    /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
+    ///
+    /// # Undefined Behavior
+    ///
+    /// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
+    /// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
+    fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
+        let register = self.registers.get(&register_id).ok_or(Error::InvalidRegisterId)? as *const Vec<u8>;
+        // `memory_set` does not manipulate with register so it is safe to use. Later once we switch
+        // entirely to registers we can move the body of `memory_set` inside `read_register` and
+        // remove `unsafe`.
+        self.memory_set(ptr as _, unsafe {&*register})
+    }
+
+    /// Returns the size of the blob stored in the given register.
+    /// * If register is used, then returns the size, which can potentially be zero;
+    /// * If register is not used, returns `u64::MAX`
+    ///
+    /// # Arguments
+    ///
+    /// * `register_id` -- a register id from where to read the data;
+    fn register_len(&mut self, register_id: u64) -> Result<u64> {
+        Ok(self.registers.get(&register_id).map(|r| r.len() as _).unwrap_or(std::u64::MAX as _))
+    }
+
+    #[allow(dead_code)]
+    /// Copies `data` into register. If register is unused will initialize it. If register has
+    /// larger capacity than needed for `data` will not re-allocate it. The register will lose
+    /// the pre-existing data if any.
+    ///
+    /// # Arguments
+    ///
+    /// * `register_id` -- a register into which to write the data;
+    /// * `data` -- data to be copied into register.
+    fn write_register(&mut self, register_id: u64, data: &[u8]) {
+        let register = self.registers.entry(register_id).or_insert_with(Vec::new);
+        register.clear();
+        register.reserve(data.len());
+        register.extend_from_slice(data);
+    }
+
     fn hash(&mut self, value_len: u32, value_ptr: u32, buf_ptr: u32) -> Result<()> {
         let buf = self.memory_get(value_ptr as usize, value_len as usize)?;
         let buf_hash = hash(&buf);
@@ -691,6 +746,8 @@ pub mod imports {
     }
 
     wrapped_imports! {
+        "read_register" => read_register<[register_id: u64, ptr: u64] -> []>,
+        "register_len" => register_len<[register_id: u64] -> [u64]>,
         // Storage related
         // name               // func          // signature
         // Storage write. Writes given value for the given key.

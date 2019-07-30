@@ -1,8 +1,13 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
+
 use actix::{Actor, Addr, System};
 use futures::future::Future;
-use lazy_static::lazy_static;
+use rand::Rng;
 use tempdir::TempDir;
 
+use lazy_static::lazy_static;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
@@ -13,10 +18,6 @@ use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
-use rand::Rng;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, Mutex};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -101,7 +102,7 @@ fn test_stake_nodes() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 actix::spawn(test_nodes[0].client.send(Status {}).then(|res| {
-                    if res.unwrap().unwrap().validators.len() == 2 {
+                    if res.unwrap().unwrap().validators == vec!["near.1", "near.0"] {
                         System::current().stop();
                     }
                     futures::future::ok(())

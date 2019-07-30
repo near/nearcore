@@ -1,11 +1,29 @@
 #[cfg(test)]
 mod test {
+    use near::GenesisConfig;
     use testlib::node::RuntimeNode;
-    use testlib::runtime_utils::alice_account;
+    use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
+    use node_runtime::StateRecord;
+    use near_primitives::utils::key_for_data;
+    use near_primitives::serialize::to_base64;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
+    }
+
+    fn create_runtime_with_expensive_storage() -> RuntimeNode {
+        let mut genesis_config =
+            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        // Set expensive state rent and add alice more money.
+        genesis_config.runtime_config.storage_cost_byte_per_block = 100_000_000_000_000;
+        genesis_config.runtime_config.poke_threshold = 10;
+        match &mut genesis_config.records[0][0] {
+            StateRecord::Account { account, .. } => { account.amount = 10_000_000_000_000_000_000 },
+            _ => {}
+        }
+        genesis_config.records[0].push(StateRecord::Data { key: to_base64(&key_for_data(&bob_account(), b"test")), value: to_base64(b"123") });
+        RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
     }
 
     #[test]
@@ -252,5 +270,41 @@ mod test {
     fn test_unstake_while_not_staked_runtime() {
         let node = create_runtime_node();
         test_unstake_while_not_staked(node);
+    }
+
+    #[test]
+    fn test_fail_not_enough_rent_runtime() {
+        let node = create_runtime_with_expensive_storage();
+        test_fail_not_enough_rent(node);
+    }
+
+    #[test]
+    fn test_stake_fail_not_enough_rent_runtime() {
+        let node = create_runtime_with_expensive_storage();
+        test_stake_fail_not_enough_rent(node);
+    }
+
+    #[test]
+    fn test_delete_account_runtime() {
+        let node = create_runtime_with_expensive_storage();
+        test_delete_account(node);
+    }
+
+    #[test]
+    fn test_delete_account_has_enough_money_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_fail(node);
+    }
+
+    #[test]
+    fn test_delete_account_no_account_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_no_account(node);
+    }
+
+    #[test]
+    fn test_delete_account_while_staking_runtime() {
+        let node = create_runtime_node();
+        test_delete_account_while_staking(node);
     }
 }

@@ -30,7 +30,10 @@ impl PeerStore {
             let value: Vec<u8> = value.into();
             let peer_id: PeerId = key.try_into()?;
             let mut peer_state: KnownPeerState = value.try_into()?;
-            peer_state.status = KnownPeerStatus::NotConnected;
+            match peer_state.status {
+                KnownPeerStatus::Banned(_, _) => {}
+                _ => peer_state.status = KnownPeerStatus::NotConnected
+            };
             peer_states.insert(peer_id, peer_state);
         }
         for peer_info in boot_nodes.iter() {
@@ -175,6 +178,42 @@ impl PeerStore {
             if !self.peer_states.contains_key(&peer_info.id) {
                 self.peer_states.insert(peer_info.id, KnownPeerState::new(peer_info));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    extern crate tempdir;
+    use super::*;
+    use near_store::{create_store};
+    use near_primitives::crypto::signature::get_key_pair;
+
+    fn gen_peer_info() -> PeerInfo {
+        PeerInfo{
+            id: PeerId::from(get_key_pair().0),
+            addr: None,
+            account_id: None,
+        }
+    }
+
+    #[test]
+    fn ban_store() {
+        let tmp_dir = tempdir::TempDir::new("_test_store_ban").unwrap();
+        let peer_info_a = gen_peer_info();
+        let peer_info_to_ban = gen_peer_info();
+        let boot_nodes = vec![peer_info_a.clone(), peer_info_to_ban.clone()];
+        {
+            let store = create_store(tmp_dir.path().to_str().unwrap());
+            let mut peer_store = PeerStore::new(store, &boot_nodes).unwrap();
+            assert_eq!(peer_store.healthy_peers(3).iter().count(), 2);
+            peer_store.peer_ban(&peer_info_to_ban.id, ReasonForBan::Abusive).unwrap();
+            assert_eq!(peer_store.healthy_peers(3).iter().count(), 1);
+        }
+        {
+            let store_new = create_store(tmp_dir.path().to_str().unwrap());
+            let peer_store_new = PeerStore::new(store_new, &boot_nodes).unwrap();
+            assert_eq!(peer_store_new.healthy_peers(3).iter().count(), 1);
         }
     }
 }
