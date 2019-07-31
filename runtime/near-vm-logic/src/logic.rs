@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::context::RuntimeContext;
+use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
 use crate::errors::HostError;
 use crate::rand_iter::RandIterator;
@@ -11,12 +11,12 @@ use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostError>;
 
-pub struct Runtime<'a, E: 'static, M: 'static> {
+pub struct VMLogic<'a, E: 'static, M: 'static> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
     ext: &'a mut E,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: RuntimeContext<'a>,
+    context: VMContext<'a>,
     /// Parameters of Wasm and economic parameters.
     config: Config,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -43,14 +43,14 @@ pub struct Runtime<'a, E: 'static, M: 'static> {
     rand_iter: RandIterator,
 }
 
-impl<'a, E: 'static, M: 'static> Runtime<'a, E, M>
+impl<'a, E: 'static, M: 'static> VMLogic<'a, E, M>
 where
     E: External,
     M: MemoryLike,
 {
     pub fn new(
         ext: &'a mut E,
-        context: RuntimeContext<'a>,
+        context: VMContext<'a>,
         config: Config,
         promise_results: &'a [PromiseResult],
         memory: &'a mut M,
@@ -96,8 +96,6 @@ where
     }
 
     /// Writes `u128` to Wasm memory.
-    /// Wasm defaults to little endian byte ordering, so we also use it here.
-    /// See: https://github.com/WebAssembly/design/blob/master/Portability.md
     fn memory_set_u128(memory: &mut M, offset: u64, value: u128) -> Result<()> {
         let data: [u8; size_of::<u128>()] = value.to_le_bytes();
         Self::memory_set(memory, offset, &data)
@@ -106,9 +104,9 @@ where
     /// Get `u128` from Wasm memory.
     fn memory_get_u128(memory: &M, offset: u64) -> Result<u128> {
         let buf = Self::memory_get(memory, offset, size_of::<u128>() as _)?;
+        assert_eq!(buf.len(), size_of::<u128>());
         let mut array = [0u8; size_of::<u128>()];
-        // Enforce panic if wrong number of bytes read.
-        array.copy_from_slice(&buf[0..size_of::<u128>()]);
+        array.copy_from_slice(&buf);
         Ok(u128::from_le_bytes(array))
     }
 
@@ -137,7 +135,7 @@ where
     /// * `register_id` -- a register id from where to read the data;
     /// * `ptr` -- location on guest memory where to copy the data.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If the content extends outside the memory allocated to the guest. In Wasmer, it returns `MemoryAccessViolation` error message;
     /// * If `register_id` is pointing to unused register returns `InvalidRegisterId` error message.
@@ -146,7 +144,7 @@ where
     ///
     /// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
     /// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
-    fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
+    pub fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         let Self { registers, memory, .. } = self;
         let register = registers.get(&register_id).ok_or(HostError::InvalidRegisterId)?;
         Self::memory_set(memory, ptr, register)
@@ -159,7 +157,7 @@ where
     /// # Arguments
     ///
     /// * `register_id` -- a register id from where to read the data;
-    fn register_len(&mut self, register_id: u64) -> Result<u64> {
+    pub fn register_len(&mut self, register_id: u64) -> Result<u64> {
         Ok(self.registers.get(&register_id).map(|r| r.len() as _).unwrap_or(std::u64::MAX))
     }
 
@@ -201,10 +199,10 @@ where
 
     /// Saves the account id of the current contract that we execute into the register.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the registers exceed the memory limit panics with `MemoryAccessViolation`.
-    fn current_account_id(&mut self, register_id: u64) -> Result<()> {
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         let data = self.context.current_account_id.as_bytes();
         self.write_register(register_id, data)
     }
@@ -214,10 +212,10 @@ where
     /// a node itself). This function returns the id of that account. Saves the bytes of the signer
     /// account id into the register.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the registers exceed the memory limit panics with `MemoryAccessViolation`.
-    fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let data = self.context.signer_account_id.as_bytes();
         self.write_register(register_id, data)
     }
@@ -226,10 +224,10 @@ where
     /// rare situations smart contract might want to know the exact access key that was used to send
     /// the original transaction, e.g. to increase the allowance or manipulate with the public key.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If the registers exceed the memory limit panics with `MemoryAccessViolation`.
-    fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let data = self.context.signer_account_pk.as_ref();
         self.write_register(register_id, data)
     }
@@ -238,22 +236,24 @@ where
     /// that does function invocation on the contract or another contract as a result of
     /// cross-contract call. Saves the bytes of the predecessor account id into the register.
     ///
-    /// # Panics
-    /// If the registers exceed the memory limit panics with `MemoryAccessViolation`.
+    /// # Errors
+    ///
+    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
-    fn predecessor_account_id(&mut self, _register_id: u64) -> Result<()> {
-        unimplemented!()
+    pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
+        let data = self.context.predecessor_account_id.as_ref();
+        self.write_register(register_id, data)
     }
 
     /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
-    /// f input is provided saves the bytes (potentially zero) of input into register. If input is
+    /// If input is provided saves the bytes (potentially zero) of input into register. If input is
     /// not provided makes the register "not used", i.e. `register_len` now returns `u64::MAX`.
-    fn input(&mut self, register_id: u64) -> Result<()> {
+    pub fn input(&mut self, register_id: u64) -> Result<()> {
         self.write_register(register_id, self.context.input)
     }
 
     /// Returns the current block index.
-    fn block_index(&self) -> Result<u64> {
+    pub fn block_index(&self) -> Result<u64> {
         Ok(self.context.block_index)
     }
 
@@ -264,7 +264,7 @@ where
     ///
     /// TODO: Include the storage of the account proto and all access keys. Implement once
     /// https://github.com/nearprotocol/NEPs/pull/8 is complete.
-    fn storage_usage(&self) -> Result<StorageUsage> {
+    pub fn storage_usage(&self) -> Result<StorageUsage> {
         Ok(self.ext.storage_usage())
     }
 
@@ -274,14 +274,13 @@ where
 
     /// The balance attached to the given account. This includes the attached_deposit that was
     /// attached to the transaction
-    /// TODO: Make sure we actually add the deposit before running contract.
-    fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
+    pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
         Self::memory_set(&mut self.memory, balance_ptr, &self.context.account_balance.to_le_bytes())
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts
-    fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
+    pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         Self::memory_set(
             &mut self.memory,
             balance_ptr,
@@ -290,15 +289,13 @@ where
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
-    /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
-    fn prepaid_gas(&mut self) -> Result<u64> {
-        unimplemented!()
+    pub fn prepaid_gas(&mut self) -> Result<Gas> {
+        Ok(self.context.prepaid_gas)
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
-    /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
-    fn used_gas(&mut self) -> Result<u64> {
-        unimplemented!()
+    pub fn used_gas(&mut self) -> Result<Gas> {
+        Ok(self.used_gas)
     }
 
     // ############
@@ -307,9 +304,10 @@ where
 
     /// Writes random bytes in the given register.
     ///
-    /// # Panics
+    /// # Errors
+    ///
     /// If the size of the registers exceed the set limit `MemoryAccessViolation`.
-    fn random_buf(&mut self, len: u64, register_id: u64) -> Result<()> {
+    pub fn random_buf(&mut self, len: u64, register_id: u64) -> Result<()> {
         let mut buf = vec![];
         for _ in 0..len {
             buf.push(self.rand_iter.next().unwrap());
@@ -318,7 +316,7 @@ where
     }
 
     /// Returns a random `u64` variable.
-    fn random_u64(&mut self) -> Result<u64> {
+    pub fn random_u64(&mut self) -> Result<u64> {
         let mut buf = [0u8; size_of::<u64>()];
         for i in 0..size_of::<u64>() {
             buf[i] = self.rand_iter.next().unwrap();
@@ -328,10 +326,11 @@ where
 
     /// Hashes the random sequence of bytes using sha256 and returns it into `register_id`.
     ///
-    /// # Panics
+    /// # Errors
+    ///
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
-    fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
+    pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
         let value = Self::memory_get(&self.memory, value_ptr, value_len)?;
         let value_hash = exonum_sodiumoxide::crypto::hash::sha256::hash(&value);
         self.write_register(register_id, value_hash.as_ref())
@@ -344,7 +343,7 @@ where
     /// Creates a promise that will execute a method on account with given arguments and attaches
     /// the given amount and gas. `amount_ptr` point to slices of bytes representing `u128`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
@@ -354,7 +353,7 @@ where
     ///
     /// Index of the new promise that uniquely identifies it within the current execution of the
     /// method.
-    fn promise_create(
+    pub fn promise_create(
         &mut self,
         account_id_len: u64,
         account_id_ptr: u64,
@@ -382,10 +381,9 @@ where
 
     /// Attaches the callback that is executed after promise pointed by `promise_idx` is complete.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// * If `promise_idx` does not correspond to an existing promise panics with
-    ///   `InvalidPromiseIndex`;
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
     ///   guest or host, with `MemoryAccessViolation`.
@@ -394,7 +392,7 @@ where
     ///
     /// Index of the new promise that uniquely identifies it within the current execution of the
     /// method.
-    fn promise_then(
+    pub fn promise_then(
         &mut self,
         promise_idx: u64,
         account_id_len: u64,
@@ -423,18 +421,18 @@ where
     /// `promise_idx_count` denoting the number of elements. The array contains indices of promises
     /// that need to be waited on jointly.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory with
     ///   `MemoryAccessViolation`;
-    /// * If any of the promises in the array do not correspond to existing promises panics with
+    /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
     ///
     /// # Returns
     ///
     /// Index of the new promise that uniquely identifies it within the current execution of the
     /// method.
-    fn promise_and(
+    pub fn promise_and(
         &mut self,
         promise_idx_ptr: u64,
         promise_idx_count: u64,
@@ -454,7 +452,7 @@ where
     /// * If there is only one callback returns `1`;
     /// * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
     /// * If the function was called not through the callback returns `0`.
-    fn promise_results_count(&self) -> Result<u64> {
+    pub fn promise_results_count(&self) -> Result<u64> {
         Ok(self.promise_results.len() as _)
     }
 
@@ -471,12 +469,11 @@ where
     /// * If promise result is complete and successful returns `1`;
     /// * If promise result is complete and failed returns `2`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// * If `result_idx` does not correspond to an existing result panics with
-    ///   `InvalidResultIndex`;
-    /// * If copying the blob exhausts the memory limit it panics with `MemoryAccessViolation`.
-    fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
+    /// * If `result_idx` does not correspond to an existing result returns `InvalidResultIndex`;
+    /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
+    pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
         match self
             .promise_results
             .get(result_idx as usize)
@@ -494,11 +491,10 @@ where
     /// When promise `promise_idx` finishes executing its result is considered to be the result of
     /// the current function.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If `promise_idx` does not correspond to an existing promise panics with
-    /// `InvalidPromiseIndex`.
-    fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
+    /// If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
         self.return_data = ReturnData::Promise(promise_idx);
         Ok(())
     }
@@ -508,28 +504,29 @@ where
     // #####################
     /// Sets the blob of data as the return value of the contract.
     ///
-    /// # Panics
+    /// # Errors
+    ///
     /// If `value_len + value_ptr` exceeds the memory container or points to an unused register it
-    /// panics with `MemoryAccessViolation`.
-    fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
+    /// returns `MemoryAccessViolation`.
+    pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         let return_val = Self::memory_get(&self.memory, value_ptr, value_len)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
 
     /// Terminates the execution of the program with panic `GuestPanic`.
-    fn panic(&self) -> Result<()> {
+    pub fn panic(&self) -> Result<()> {
         Err(HostError::GuestPanic)
     }
 
     /// Logs the UTF-8 encoded string.
     /// If `len == u64::MAX` then treats the string as null-terminated with character `'\0'`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-    /// * If string is not UTF-8 panics with `BadUtf8`.
-    fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
+    /// * If string is not UTF-8 returns `BadUtf8`.
+    pub fn log_utf8(&mut self, len: u64, ptr: u64) -> Result<()> {
         let mut buf;
         if len != std::u64::MAX {
             if len > self.config.max_log_len {
@@ -557,7 +554,7 @@ where
     }
 
     /// Helper function to read UTF-16 from guest memory.
-    fn get_utf16(&mut self, len: u64, ptr: u64) -> Result<String> {
+    pub fn get_utf16(&mut self, len: u64, ptr: u64) -> Result<String> {
         let mut buf;
         if len != std::u64::MAX {
             if len > self.config.max_log_len || len % 2 != 0 {
@@ -595,11 +592,11 @@ where
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
     /// null-terminated with two-byte sequence of `0x00 0x00`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
-    /// * If string is not UTF-16 panics with `BadUtf16`.
-    fn log_utf16(&mut self, ptr: u64, len: u64) -> Result<()> {
+    /// * If string is not UTF-16 returns `BadUtf16`.
+    pub fn log_utf16(&mut self, ptr: u64, len: u64) -> Result<()> {
         let str = self.get_utf16(ptr, len)?;
         let message = format!("LOG: {}", str);
         self.logs.push(message);
@@ -608,7 +605,7 @@ where
 
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
     /// contracts directly, but instead called by the code generated by AssemblyScript.
-    fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
+    pub fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
         let msg = self.get_utf16(msg_ptr as _, std::u64::MAX)?;
         let filename = self.get_utf16(filename_ptr as _, std::u64::MAX)?;
 
@@ -624,7 +621,7 @@ where
     /// # Errors
     ///
     /// * If account is not UTF-8 encoded then returns `BadUtf8`;
-    fn read_and_parse_account_id(&self, ptr: u64, len: u64) -> Result<AccountId> {
+    pub fn read_and_parse_account_id(&self, ptr: u64, len: u64) -> Result<AccountId> {
         let buf = Self::memory_get(&self.memory, ptr, len)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
@@ -637,7 +634,7 @@ where
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
     /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
-    fn gas(&mut self, gas_amount: u32) -> Result<()> {
+    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
         let new_burnt_gas =
             self.burnt_gas.checked_add(gas_amount as _).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
@@ -667,7 +664,7 @@ where
     ///
     /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
     /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
-    fn attach_gas_to_promise(&mut self, gas_amount: u64) -> Result<()> {
+    pub fn attach_gas_to_promise(&mut self, gas_amount: u64) -> Result<()> {
         let new_used_gas =
             self.used_gas.checked_add(gas_amount).ok_or(HostError::IntegerOverflow)?;
         if new_used_gas < self.context.prepaid_gas {
@@ -684,13 +681,13 @@ where
     /// * If key is not in use it inserts the key-value pair and does not modify the register. Returns `0`;
     /// * If key is in use it inserts the key-value and copies the old value into the `register_id`. Returns `1`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If `key_len + key_ptr` or `value_len + value_ptr` exceeds the memory container or points
-    ///   to an unused register it panics with `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it panics
-    ///   with `MemoryAccessViolation`.
-    fn storage_write(
+    ///   to an unused register it returns `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory container it returns
+    ///   `MemoryAccessViolation`.
+    pub fn storage_write(
         &mut self,
         key_len: u64,
         key_ptr: u64,
@@ -715,13 +712,13 @@ where
     ///   is zero bytes. Returns `1`;
     /// * If key is not present then does not modify the register. Returns `0`;
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-    ///   panics with `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it panics
-    ///   with `MemoryAccessViolation`.
-    fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
+    ///   returns `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory container it returns
+    ///   `MemoryAccessViolation`.
+    pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
         let read = self.ext.storage_get(&key)?;
         match read {
@@ -738,14 +735,14 @@ where
     ///   into the `register_id`, even if the content is zero bytes. Returns `1`;
     /// * If key is not present then does not modify the register. Returns `0`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// * If `key_len + key_ptr` exceeds the memory container or points to an unused register it
-    ///   panics with `MemoryAccessViolation`;
-    /// * If the registers exceed the memory limit panics with `MemoryAccessViolation`;
-    /// * If returning the preempted value into the registers exceed the memory container it panics
-    ///   with `MemoryAccessViolation`.
-    fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
+    ///   returns `MemoryAccessViolation`;
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
+    /// * If returning the preempted value into the registers exceed the memory container it returns
+    ///   `MemoryAccessViolation`.
+    pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
         let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
         let removed = self.ext.storage_remove(&key)?;
         match removed {
@@ -761,24 +758,40 @@ where
     /// * If key is used returns `1`, even if the value is zero bytes;
     /// * Otherwise returns `0`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If `key_len + key_ptr` exceeds the memory container it panics with `MemoryAccessViolation`.
-    fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
+    /// If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+    pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
         let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
         let res = self.ext.storage_has_key(&key)?;
         Ok(res as u64)
     }
 
-    /// Gets iterator for keys with given prefix
-    fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
+    /// Creates an iterator object inside the host. Returns the identifier that uniquely
+    /// differentiates the given iterator from other iterators that can be simultaneously created.
+    /// * It iterates over the keys that have the provided prefix. The order of iteration is defined
+    ///   by the lexicographic order of the bytes in the keys;
+    /// * If there are no keys, it creates an empty iterator, see below on empty iterators.
+    ///
+    /// # Errors
+    ///
+    /// If `prefix_len + prefix_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
+    pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
         let prefix = Self::memory_get(&self.memory, prefix_ptr, prefix_len)?;
         let storage_id = self.ext.storage_iter(&prefix)?;
         Ok(storage_id)
     }
 
-    /// Gets iterator for the range of keys between given start and end keys
-    fn storage_range(
+    /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
+    /// inclusive and `end` is exclusive. Unless lexicographically `start < end`, it creates an
+    /// empty iterator. Note, this definition allows for `start` or `end` keys to not actually exist
+    /// on the given trie.
+    ///
+    /// # Errors
+    ///
+    /// If `start_len + start_ptr` or `end_len + end_ptr` exceeds the memory container or points to
+    /// an unused register it returns `MemoryAccessViolation`.
+    pub fn storage_range(
         &mut self,
         start_len: u64,
         start_ptr: u64,
@@ -790,8 +803,29 @@ where
         self.ext.storage_range(&start_key, &end_key).map_err(|err| err.into())
     }
 
-    /// Advances iterator. Returns true if iteration isn't finished yet.
-    fn storage_iter_next(
+    /// Advances iterator and saves the next key and value in the register.
+    /// * If iterator is not empty (after calling next it points to a key-value), copies the key
+    ///   into `key_register_id` and value into `value_register_id` and returns `1`;
+    /// * If iterator is empty returns `0`;
+    /// This allows us to iterate over the keys that have zero bytes stored in values.
+    ///
+    /// # Errors
+    ///
+    /// * If `key_register_id == value_register_id` returns `MemoryAccessViolation`;
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`;
+    /// * If `iterator_id` does not correspond to an existing iterator returns `InvalidIteratorId`;
+    /// * If between the creation of the iterator and calling `storage_iter_next` the range over
+    ///   which it iterates was modified returns `IteratorWasInvalidated`. Specifically, if
+    ///   `storage_write` or `storage_remove` was invoked on the key key such that:
+    ///   * in case of `storage_iter_prefix`. `key` has the given prefix and:
+    ///     * Iterator was not called next yet.
+    ///     * `next` was already called on the iterator and it is currently pointing at the `key`
+    ///       `curr` such that `curr <= key`.
+    ///   * in case of `storage_iter_range`. `start<=key<end` and:
+    ///     * Iterator was not called `next` yet.
+    ///     * `next` was already called on the iterator and it is currently pointing at the key
+    ///       `curr` such that `curr<=key<end`.
+    pub fn storage_iter_next(
         &mut self,
         iterator_id: u64,
         key_register_id: u64,

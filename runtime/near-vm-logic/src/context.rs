@@ -1,7 +1,7 @@
 use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey};
 
 /// Context for the contract execution.
-pub struct RuntimeContext<'a> {
+pub struct VMContext<'a> {
     /// The account id of the current contract that we are executing.
     pub current_account_id: &'a AccountId,
     /// The account id of that signed the original transaction that led to this
