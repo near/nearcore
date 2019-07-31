@@ -8,11 +8,11 @@ use rand_xorshift::XorShiftRng;
 
 use crate::block::Block;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::crypto::signature::{PublicKey, SecretKey, Signature, DEFAULT_SIGNATURE};
+use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
-use crate::sharding::ShardChunkHeader;
+use crate::hash::CryptoHash;
 use crate::transaction::{SignedTransaction, TransactionBody};
-use crate::types::BlockIndex;
+use crate::types::{BlockIndex, ShardId};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -91,33 +91,21 @@ impl Block {
         Self::empty_with_height(prev, prev.header.height + 1, signer)
     }
 
+    /// This can not be used for proper testing, because chunks are arbitrary.
     pub fn empty_with_apporvals(
         prev: &Block,
         height: BlockIndex,
         approvals: HashMap<usize, Signature>,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
-        let chunks = prev
-            .chunks
-            .iter()
-            .map(|chunk| ShardChunkHeader {
-                prev_block_hash: prev.hash(),
-                prev_state_root: chunk.prev_state_root,
-                encoded_merkle_root: chunk.encoded_merkle_root,
-                encoded_length: 0,
-                height_created: prev.header.height,
-                height_included: prev.header.height,
-                shard_id: chunk.shard_id,
-                gas_used: 0,
-                gas_limit: chunk.gas_limit,
-                validator_proposal: vec![],
-                signature: DEFAULT_SIGNATURE,
-            })
-            .collect::<Vec<_>>();
         Block::produce(
             &prev.header,
             height,
-            chunks,
+            Block::genesis_chunks(
+                vec![CryptoHash::default()],
+                prev.chunks.len() as ShardId,
+                prev.header.gas_limit,
+            ),
             prev.header.epoch_hash,
             0,
             prev.header.gas_limit,
