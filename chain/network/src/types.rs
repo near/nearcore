@@ -386,6 +386,65 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
+pub enum DirectMessageBody {
+    BlockApproval(AccountId, CryptoHash, Signature),
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DirectMessage {
+    pub account_id: AccountId,
+    pub body: DirectMessageBody,
+}
+
+impl Message for DirectMessage {
+    type Result = bool;
+}
+
+impl TryFrom<network_proto::DirectMessage> for DirectMessage {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: network_proto::DirectMessage) -> Result<Self, Self::Error> {
+        let body = match proto.body {
+            Some(network_proto::DirectMessage_oneof_body::block_approval(block_approval)) => {
+                DirectMessageBody::BlockApproval(
+                    block_approval.account_id,
+                    block_approval.hash.try_into()?,
+                    block_approval.signature.try_into()?,
+                )
+            }
+            None => unreachable!(),
+        };
+
+        let account_id = proto.account_id.try_into()?;
+        Ok(DirectMessage { account_id, body })
+    }
+}
+
+impl From<DirectMessage> for network_proto::DirectMessage {
+    fn from(direct_message: DirectMessage) -> Self {
+        let body = match direct_message.body {
+            DirectMessageBody::BlockApproval(account_id, hash, signature) => {
+                Some(network_proto::DirectMessage_oneof_body::block_approval(
+                    network_proto::BlockApproval {
+                        account_id,
+                        hash: hash.into(),
+                        signature: signature.into(),
+                        cached_size: Default::default(),
+                        ..Default::default()
+                    },
+                ))
+            }
+        };
+
+        network_proto::DirectMessage {
+            account_id: direct_message.account_id,
+            body,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
 
@@ -398,7 +457,6 @@ pub enum PeerMessage {
 
     BlockRequest(CryptoHash),
     Block(Block),
-    BlockApproval(AccountId, CryptoHash, Signature),
 
     Transaction(SignedTransaction),
 
@@ -406,6 +464,7 @@ pub enum PeerMessage {
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
 
     AnnounceAccount(AnnounceAccount),
+    Direct(DirectMessage),
 }
 
 impl fmt::Display for PeerMessage {
@@ -419,11 +478,13 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
+            PeerMessage::Direct(direct_message) => match direct_message.body {
+                DirectMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+            },
         }
     }
 }
@@ -455,13 +516,6 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             }
             Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction)) => {
                 Ok(PeerMessage::Transaction(transaction.try_into()?))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval)) => {
-                Ok(PeerMessage::BlockApproval(
-                    block_approval.account_id,
-                    block_approval.hash.try_into()?,
-                    block_approval.signature.try_into()?,
-                ))
             }
             Some(network_proto::PeerMessage_oneof_message_type::block_request(block_request)) => {
                 Ok(PeerMessage::BlockRequest(block_request.try_into()?))
@@ -505,6 +559,9 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
                 announce_account,
             )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
+            Some(network_proto::PeerMessage_oneof_message_type::direct_message(direct_message)) => {
+                direct_message.try_into().map(PeerMessage::Direct)
+            }
             None => unreachable!(),
         }
     }
@@ -537,16 +594,6 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             ),
             PeerMessage::Transaction(transaction) => {
                 Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction.into()))
-            }
-            PeerMessage::BlockApproval(account_id, hash, signature) => {
-                let block_approval = network_proto::BlockApproval {
-                    account_id,
-                    hash: hash.into(),
-                    signature: signature.into(),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval))
             }
             PeerMessage::BlockRequest(hash) => {
                 Some(network_proto::PeerMessage_oneof_message_type::block_request(hash.into()))
@@ -596,6 +643,11 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::AnnounceAccount(announce_account) => {
                 Some(network_proto::PeerMessage_oneof_message_type::announce_account(
                     announce_account.into(),
+                ))
+            }
+            PeerMessage::Direct(direct_message) => {
+                Some(network_proto::PeerMessage_oneof_message_type::direct_message(
+                    direct_message.into(),
                 ))
             }
         };

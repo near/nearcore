@@ -26,9 +26,10 @@ use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::types::{
-    AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus,
-    NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, ReasonForBan, SendMessage, Unregister,
+    AnnounceAccount, Ban, Consolidate, DirectMessage, DirectMessageBody, FullPeerInfo,
+    InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
+    PeerMessage, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, SendMessage,
+    Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -395,17 +396,13 @@ impl PeerManagerActor {
     }
 
     /// Send message to specific account.
-    fn send_message_to_account(
-        &self,
-        ctx: &mut Context<Self>,
-        account_id: AccountId,
-        msg: SendMessage,
-    ) {
-        if let Some(peer_id) = self.routing_table.get_route(&account_id) {
+    fn send_message_to_account(&self, ctx: &mut Context<Self>, msg: DirectMessage) {
+        let account_id = &msg.account_id;
+        if let Some(peer_id) = self.routing_table.get_route(account_id) {
             if let Some(active_peer) = self.active_peers.get(peer_id) {
                 active_peer
                     .addr
-                    .send(msg)
+                    .send(SendMessage { message: PeerMessage::Direct(msg) })
                     .into_actor(self)
                     .map_err(|e, _, _| error!("Failed sending message: {}", e))
                     .and_then(|_, _, _| actix::fut::ok(()))
@@ -414,7 +411,7 @@ impl PeerManagerActor {
                 error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
             }
         } else {
-            warn!(target: "network", "Unknown account {} in routing table.", account_id);
+            warn!(target: "network", "Unknown account {} in routing table. Dropping message.", account_id);
         }
     }
 }
@@ -468,9 +465,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     if let Some(account_id) = &self.config.account_id {
                         self.send_message_to_account(
                             ctx,
-                            approval.target,
-                            SendMessage {
-                                message: PeerMessage::BlockApproval(
+                            DirectMessage {
+                                account_id: approval.target,
+                                body: DirectMessageBody::BlockApproval(
                                     account_id.clone(),
                                     approval.hash,
                                     approval.signature,
@@ -627,5 +624,21 @@ impl Handler<PeersResponse> for PeerManagerActor {
         self.peer_store.add_peers(
             msg.peers.drain(..).filter(|peer_info| peer_info.id != self.peer_id).collect(),
         );
+    }
+}
+
+/// "Return" true if this message is this peer me and should be sent to the client.
+/// Otherwise return false and try to route this message to the final receiver.
+impl Handler<DirectMessage> for PeerManagerActor {
+    type Result = bool;
+
+    fn handle(&mut self, msg: DirectMessage, ctx: &mut Self::Context) -> Self::Result {
+        if self.config.account_id.as_ref().map_or(false, |me| me == &msg.account_id) {
+            true
+        } else {
+            // Otherwise route it to its corresponding destination.
+            self.send_message_to_account(ctx, msg);
+            false
+        }
     }
 }

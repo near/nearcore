@@ -18,9 +18,9 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, SendMessage, Unregister,
+    Ban, Consolidate, DirectMessageBody, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo,
+    PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, ReasonForBan, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -240,9 +240,6 @@ impl Peer {
             PeerMessage::Transaction(transaction) => {
                 NetworkClientMessages::Transaction(transaction)
             }
-            PeerMessage::BlockApproval(account_id, hash, signature) => {
-                NetworkClientMessages::BlockApproval(account_id, hash, signature)
-            }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkClientMessages::BlockHeadersRequest(hashes)
@@ -265,6 +262,11 @@ impl Peer {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
+            PeerMessage::Direct(direct_message) => match direct_message.body {
+                DirectMessageBody::BlockApproval(account_id, hash, signature) => {
+                    NetworkClientMessages::BlockApproval(account_id, hash, signature)
+                }
+            },
             _ => unreachable!(),
         };
         self.client_addr
@@ -417,6 +419,19 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
+            }
+            (_, PeerStatus::Ready, PeerMessage::Direct(direct_message)) => {
+                debug!(target: "network", "Received direct message from {} to {}.", self.peer_info, direct_message.account_id);
+                self.peer_manager_addr
+                    .send(direct_message.clone())
+                    .into_actor(self)
+                    .then(move |res, act, ctx| {
+                        if res.unwrap_or(false) {
+                            act.receive_client_message(ctx, PeerMessage::Direct(direct_message));
+                        }
+                        actix::fut::ok(())
+                    })
+                    .spawn(ctx);
             }
             (_, PeerStatus::Ready, msg) => {
                 self.receive_client_message(ctx, msg);

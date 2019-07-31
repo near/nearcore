@@ -53,8 +53,8 @@ pub fn setup_network_node(
     peer_manager
 }
 
-/// Check that Accounts Id are propagated properly through the network, even when all peers are not
-/// connected to each other. Though it is necessary that the network is connected.
+/// Check that Accounts Id are propagated properly through the network, even when all peers aren't
+/// directly connected to each other. Though it is necessary that the network is connected.
 fn check_account_id_propagation(
     accounts_id: Vec<&'static str>,
     adjacency_list: Vec<Vec<usize>>,
