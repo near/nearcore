@@ -562,7 +562,7 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::direct_message(direct_message)) => {
                 direct_message.try_into().map(PeerMessage::Direct)
             }
-            None => unreachable!(),
+            None => Err(format!("Unexpected empty message body").into()),
         }
     }
 }

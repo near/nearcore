@@ -51,5 +51,5 @@ Checkout the [Running Locally](https://docs.nearprotocol.com/running-a-node#runn
 
 ## Developing
 
-Checkout the [Developing NEARCore](https://docs.nearprotocol.com/contribution/nearcore) section of documentation. You can see the most recently pushed code running at [neartest.com](https://neartest.com). Disclaimer: *Do not publish critical contracts on neartest.com.* This has a very high likelihood of being broken.
+Checkout the [Developing NEARCore](https://docs.nearprotocol.com/contribution/nearcore) section of documentation.
 

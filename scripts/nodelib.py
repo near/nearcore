@@ -88,6 +88,11 @@ def docker_stop_if_exists(name):
     except subprocess.CalledProcessError:
         pass
 
+"""Checks the ports saved in config.json"""
+def get_port(home_dir, net):
+    config = json.load(open(os.path.join(home_dir, 'config.json')))
+    p = config[net]['addr'][config[net]['addr'].find(':') + 1:]
+    return p + ":" + p
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
 def run_docker(image, home_dir, boot_nodes, verbose):
@@ -96,10 +101,12 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     docker_stop_if_exists('nearcore')
     # Start nearcore container, mapping home folder and ports.
     envs = ['-e', 'BOOT_NODES=%s' % boot_nodes]
+    rpc_port = get_port(home_dir, 'rpc')
+    network_port = get_port(home_dir, 'network')
     if verbose:
         envs.extend(['-e', 'VERBOSE=1'])
     subprocess.check_output(['docker', 'run',
-                    '-d', '--network=host', '-v', '%s:/srv/near' % home_dir,
+                    '-d', '-p', rpc_port, '-p', network_port, '-v', '%s:/srv/near' % home_dir,
                     '--name', 'nearcore', '--restart', 'unless-stopped'] + 
                     envs + [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
@@ -107,8 +114,7 @@ def run_docker(image, home_dir, boot_nodes, verbose):
                     '-d', '--restart', 'unless-stopped', '--name', 'watchtower',
                     '-v', '/var/run/docker.sock:/var/run/docker.sock',
                     'v2tec/watchtower', image])
-    print("To check logs call: docker logs --follow nearcore")
-
+    print("Node is running! \nTo check logs call: docker logs --follow nearcore")
 
 """Runs NEAR core locally."""
 def run_local(home_dir, is_release, boot_nodes, verbose):

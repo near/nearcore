@@ -1,22 +1,23 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::{Arc, Mutex};
+
 use actix::{Actor, Addr, System};
 use futures::future::Future;
-use lazy_static::lazy_static;
+use rand::Rng;
 use tempdir::TempDir;
 
+use lazy_static::lazy_static;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
-use near_primitives::rpc::QueryResponse;
+use near_primitives::rpc::{QueryResponse, ValidatorInfo};
 use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
-use rand::Rng;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::{Arc, Mutex};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -101,7 +102,12 @@ fn test_stake_nodes() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 actix::spawn(test_nodes[0].client.send(Status {}).then(|res| {
-                    if res.unwrap().unwrap().validators.len() == 2 {
+                    if res.unwrap().unwrap().validators
+                        == vec![
+                            ValidatorInfo { account_id: "near.1".to_string(), is_slashed: false },
+                            ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
+                        ]
+                    {
                         System::current().stop();
                     }
                     futures::future::ok(())
@@ -163,7 +169,10 @@ fn test_validator_kickout() {
                     let expected: Vec<_> = (num_nodes / 2..num_nodes)
                         .cycle()
                         .take(num_nodes)
-                        .map(|i| format!("near.{}", i))
+                        .map(|i| ValidatorInfo {
+                            account_id: format!("near.{}", i),
+                            is_slashed: false,
+                        })
                         .collect();
                     if res.unwrap().unwrap().validators == expected {
                         for i in 0..num_nodes / 2 {
@@ -282,10 +291,10 @@ fn test_validator_join() {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected = vec![
-                        "near.0".to_string(),
-                        "near.2".to_string(),
-                        "near.0".to_string(),
-                        "near.2".to_string(),
+                        ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
+                        ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
+                        ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
+                        ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
                     if res.unwrap().unwrap().validators == expected {
                         actix::spawn(

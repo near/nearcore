@@ -152,6 +152,7 @@ impl Chain {
                             0,
                             vec![],
                             vec![],
+                            vec![],
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
@@ -678,6 +679,7 @@ impl<'a> ChainUpdate<'a> {
                 block.header.height,
                 validator_proposals,
                 vec![],
+                vec![],
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
@@ -753,6 +755,7 @@ impl<'a> ChainUpdate<'a> {
                         header.height,
                         header.validator_proposal.clone(),
                         vec![],
+                        vec![],
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
@@ -771,7 +774,7 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(header.epoch_hash, header.height)
+            .get_block_proposer(&header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.check_validator_signature(
             &header.epoch_hash,
