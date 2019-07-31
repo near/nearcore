@@ -73,14 +73,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        _epoch_hash: CryptoHash,
-    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>> {
-        Ok(self.validators.iter().map(|x| x.account_id.clone()).collect())
+        _epoch_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+        Ok(self.validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
 
     fn get_block_proposer(
         &self,
-        _parent_hash: CryptoHash,
+        _epoch_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
@@ -136,6 +137,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
+        _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
