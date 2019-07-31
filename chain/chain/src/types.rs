@@ -60,13 +60,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
-        epoch_hash: CryptoHash,
-    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>>;
+        epoch_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
-        epoch_hash: CryptoHash,
+        epoch_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -108,6 +109,7 @@ pub trait RuntimeAdapter: Send + Sync {
         current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
