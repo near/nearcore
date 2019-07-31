@@ -324,7 +324,6 @@ fn test_validator_join() {
                                             && result.amount == TESTING_INIT_BALANCE
                                         {
                                             done1_copy2.store(true, Ordering::SeqCst);
-                                            println!("{}", done1_copy2.load(Ordering::SeqCst));
                                         }
                                         futures::future::ok(())
                                     }
