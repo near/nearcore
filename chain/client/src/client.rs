@@ -600,6 +600,8 @@ impl ClientActor {
                 }
             }
         }
+
+        self.check_send_announce_account(block.header.epoch_hash);
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -638,13 +640,11 @@ impl ClientActor {
                 }
             }
         }
-
-        self.check_send_announce_account(&block);
     }
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, block: &Block) {
+    fn check_send_announce_account(&mut self, epoch_hash: CryptoHash) {
         // Announce AccountId if client is becoming a validator soon.
 
         // First check that we currently have an AccountId
@@ -654,11 +654,8 @@ impl ClientActor {
         }
 
         let block_producer = self.block_producer.as_ref().unwrap();
+        debug!(target: "client", "Check announce account for {}", block_producer.account_id);
 
-        let epoch_hash = match self.runtime_adapter.get_epoch_hash(block.hash()) {
-            Ok(epoch_hash) => epoch_hash,
-            Err(_) => return,
-        };
         // TODO MOO XXX: only announce if become a validator soon
 
         if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
@@ -675,6 +672,7 @@ impl ClientActor {
             if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators.iter().any(|account_id| (account_id == &block_producer.account_id)) {
+                    debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
@@ -695,12 +693,12 @@ impl ClientActor {
         }
     }
 
-    fn sign_announce_account(&self, epoch: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
+    fn sign_announce_account(&self, epoch_hash: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
                 &block_producer.account_id,
                 &self.node_id,
-                epoch,
+                epoch_hash,
             );
             let signature = block_producer.signer.sign(hash.as_ref());
             Ok((hash, signature))
@@ -1402,6 +1400,7 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
+                self.check_send_announce_account(head.epoch_hash);
                 self.handle_scheduling_block_production(
                     ctx,
                     head.last_block_hash,

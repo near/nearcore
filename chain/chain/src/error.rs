@@ -84,7 +84,7 @@ impl Display for Error {
             Some(b) => format!("{}", b),
             None => String::from("Unknown"),
         };
-        let output = format!("{} \n Cause: {} \n Backtrace: {}", self.inner, cause, backtrace);
+        let output = format!("{} \n Cause: {} \n Backtrace: {}", self.inner, cause, "");
         Display::fmt(&output, f)
     }
 }

@@ -31,7 +31,7 @@ use near_primitives::merkle::MerklePath;
 use std::collections::HashMap;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Peer id is the public key.
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
