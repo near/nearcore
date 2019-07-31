@@ -68,7 +68,6 @@ pub trait RuntimeAdapter: Send + Sync {
     fn get_block_proposer(
         &self,
         epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 

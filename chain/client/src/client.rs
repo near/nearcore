@@ -440,9 +440,14 @@ impl ClientActor {
             }
 
             // Check client is part of the futures validators
-            if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
+            if let Ok(validators) =
+                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
+            {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
-                if validators.iter().any(|account_id| (account_id == &block_producer.account_id)) {
+                if validators
+                    .iter()
+                    .any(|account_id| (&(account_id.0) == &block_producer.account_id))
+                {
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
@@ -480,11 +485,10 @@ impl ClientActor {
     fn get_block_proposer(
         &self,
         epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
         self.runtime_adapter
-            .get_block_proposer(&epoch_hash, &block_hash, height)
+            .get_block_proposer(&epoch_hash, height)
             .map_err(|err| Error::Other(err.to_string()))
     }
 
@@ -505,7 +509,7 @@ impl ClientActor {
             .get_epoch_offset(block.header.epoch_hash, block.header.height + 1)
             .ok()?;
         let next_block_producer_account =
-            self.get_block_proposer(&epoch_hash, &block.hash(), block.header.height + 1);
+            self.get_block_proposer(&epoch_hash, block.header.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
@@ -551,10 +555,8 @@ impl ClientActor {
             self.runtime_adapter.get_epoch_offset(block_hash, check_height + 1),
             ()
         );
-        let next_block_producer_account = unwrap_or_return!(
-            self.get_block_proposer(&epoch_hash, &block_hash, check_height + 1),
-            ()
-        );
+        let next_block_producer_account =
+            unwrap_or_return!(self.get_block_proposer(&epoch_hash, check_height + 1), ());
         if let Some(block_producer) = &self.block_producer {
             if block_producer.account_id.clone() == next_block_producer_account {
                 ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
@@ -626,8 +628,7 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer =
-            self.get_block_proposer(&head.epoch_hash, &head.last_block_hash, next_height)?;
+        let next_block_proposer = self.get_block_proposer(&head.epoch_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -644,7 +645,7 @@ impl ClientActor {
         let total_validators = validators.len();
         let prev_same_bp = self
             .runtime_adapter
-            .get_block_proposer(&head.epoch_hash, &head.last_block_hash, last_height)
+            .get_block_proposer(&head.epoch_hash, last_height)
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.

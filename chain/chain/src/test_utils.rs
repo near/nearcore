@@ -82,7 +82,6 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_block_proposer(
         &self,
         _epoch_hash: &CryptoHash,
-        _block_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())

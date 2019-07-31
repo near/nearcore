@@ -774,7 +774,7 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(&header.epoch_hash, &header.hash(), header.height)
+            .get_block_proposer(&header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.check_validator_signature(
             &header.epoch_hash,

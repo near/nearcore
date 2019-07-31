@@ -137,7 +137,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let slashed = vm.get_slashed_validators(block_hash)?;
+        let slashed = vm.get_slashed_validators(block_hash)?.clone();
         let validator_assignment = vm.get_validators(*epoch_hash)?;
         Ok(validator_assignment
             .block_producers
@@ -153,16 +153,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn get_block_proposer(
         &self,
         epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let account_id = vm.get_block_proposer_info(*epoch_hash, height)?.account_id;
-        if vm.is_slashed(block_hash, &account_id) {
-            Err(format!("Validator {} is slashed", account_id).into())
-        } else {
-            Ok(account_id)
-        }
+        Ok(vm.get_block_proposer_info(*epoch_hash, height)?.account_id)
     }
 
     fn get_chunk_proposer(
@@ -260,7 +254,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         block_index: BlockIndex,
     ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
-        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         Ok(vm.get_epoch_offset(parent_hash, block_index)?)
     }
 
