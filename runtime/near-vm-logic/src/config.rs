@@ -1,11 +1,13 @@
 use crate::types::Gas;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
-    pub grow_mem_cost: Gas,
+    pub grow_mem_cost: u32,
     /// Gas cost of a regular operation.
-    pub regular_op_cost: Gas,
+    pub regular_op_cost: u32,
     /// Max amount of gas that can be used, excluding gas attached to promises.
     pub max_gas_burnt: Gas,
 
@@ -51,5 +53,14 @@ impl Default for Config {
             max_number_logs: 100,
             max_log_len: 500,
         }
+    }
+}
+
+impl Config {
+    /// Computes that has of the config. The computation is fast but not cryptographically secure.
+    pub fn non_crypto_hash(&self) -> u64 {
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        s.finish()
     }
 }

@@ -16,6 +16,7 @@ members = [
     "runtime/wasm",
     "runtime/wasm/runtest",
     "runtime/near-vm-logic",
+    "runtime/near-vm-runner",
     "chain/chain",
     "chain/pool",
     "chain/client",

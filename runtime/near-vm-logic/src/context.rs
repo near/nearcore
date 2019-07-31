@@ -20,7 +20,7 @@ pub struct VMContext<'a> {
     /// The current block index.
     pub block_index: BlockIndex,
 
-    /// The balance attached to the given account. This includes the `attached_deposit` that was
+    /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
     pub account_balance: Balance,
     /// The balance that was attached to the call that will be immediately deposited before the

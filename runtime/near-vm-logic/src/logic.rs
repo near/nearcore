@@ -11,19 +11,19 @@ use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostError>;
 
-pub struct VMLogic<'a, E: 'static, M: 'static> {
+pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
-    ext: &'a mut E,
+    ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext<'a>,
     /// Parameters of Wasm and economic parameters.
-    config: Config,
+    config: &'a Config,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
     /// results of the methods that made the callback are stored in this collection.
     promise_results: &'a [PromiseResult],
     /// Pointer to the guest memory.
-    memory: &'a mut M,
+    memory: &'a mut dyn MemoryLike,
 
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
@@ -43,20 +43,16 @@ pub struct VMLogic<'a, E: 'static, M: 'static> {
     rand_iter: RandIterator,
 }
 
-impl<'a, E: 'static, M: 'static> VMLogic<'a, E, M>
-where
-    E: External,
-    M: MemoryLike,
-{
+impl<'a> VMLogic<'a> {
     pub fn new(
-        ext: &'a mut E,
+        ext: &'a mut dyn External,
         context: VMContext<'a>,
-        config: Config,
+        config: &'a Config,
         promise_results: &'a [PromiseResult],
-        memory: &'a mut M,
+        memory: &'a mut dyn MemoryLike,
     ) -> Self {
         let rand_iter = RandIterator::new(&context.random_seed);
-        let current_account_balance = context.account_balance;
+        let current_account_balance = context.account_balance + context.attached_deposit;
         Self {
             ext,
             context,
@@ -77,7 +73,7 @@ where
     // # Memory helper functions #
     // ###########################
 
-    fn try_fit_mem(memory: &M, offset: u64, len: u64) -> Result<()> {
+    fn try_fit_mem(memory: &dyn MemoryLike, offset: u64, len: u64) -> Result<()> {
         if memory.fits_memory(offset, len) {
             Ok(())
         } else {
@@ -85,24 +81,24 @@ where
         }
     }
 
-    fn memory_get(memory: &M, offset: u64, len: u64) -> Result<Vec<u8>> {
+    fn memory_get(memory: &dyn MemoryLike, offset: u64, len: u64) -> Result<Vec<u8>> {
         Self::try_fit_mem(memory, offset, len)?;
         Ok(memory.read_memory(offset, len))
     }
 
-    fn memory_set(memory: &mut M, offset: u64, buf: &[u8]) -> Result<()> {
+    fn memory_set(memory: &mut dyn MemoryLike, offset: u64, buf: &[u8]) -> Result<()> {
         Self::try_fit_mem(memory, offset, buf.len() as _)?;
         Ok(memory.write_memory(offset, buf))
     }
 
     /// Writes `u128` to Wasm memory.
-    fn memory_set_u128(memory: &mut M, offset: u64, value: u128) -> Result<()> {
+    fn memory_set_u128(memory: &mut dyn MemoryLike, offset: u64, value: u128) -> Result<()> {
         let data: [u8; size_of::<u128>()] = value.to_le_bytes();
         Self::memory_set(memory, offset, &data)
     }
 
     /// Get `u128` from Wasm memory.
-    fn memory_get_u128(memory: &M, offset: u64) -> Result<u128> {
+    fn memory_get_u128(memory: &dyn MemoryLike, offset: u64) -> Result<u128> {
         let buf = Self::memory_get(memory, offset, size_of::<u128>() as _)?;
         assert_eq!(buf.len(), size_of::<u128>());
         let mut array = [0u8; size_of::<u128>()];
@@ -111,7 +107,11 @@ where
     }
 
     /// Reads an array of `u64` elements.
-    fn memory_get_array_u64(memory: &M, offset: u64, num_elements: u64) -> Result<Vec<u64>> {
+    fn memory_get_array_u64(
+        memory: &dyn MemoryLike,
+        offset: u64,
+        num_elements: u64,
+    ) -> Result<Vec<u64>> {
         let data = Self::memory_get(memory, offset, num_elements * size_of::<u64>() as u64)?;
         Ok(data
             .chunks(size_of::<u64>())
@@ -147,7 +147,7 @@ where
     pub fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
         let Self { registers, memory, .. } = self;
         let register = registers.get(&register_id).ok_or(HostError::InvalidRegisterId)?;
-        Self::memory_set(memory, ptr, register)
+        Self::memory_set(*memory, ptr, register)
     }
 
     /// Returns the size of the blob stored in the given register.
@@ -180,12 +180,9 @@ where
         register.reserve(data.len());
         register.extend_from_slice(data);
 
-        // Calculate the new memory usage before copying.
-        let usage: usize = self
-            .registers
-            .values()
-            .map(|v| size_of::<u64>() + v.capacity() * size_of::<u8>())
-            .sum();
+        // Calculate the new memory usage.
+        let usage: usize =
+            self.registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
         if usage > self.config.registers_memory_limit as _ {
             Err(HostError::MemoryAccessViolation)
         } else {
@@ -275,17 +272,13 @@ where
     /// The balance attached to the given account. This includes the attached_deposit that was
     /// attached to the transaction
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
-        Self::memory_set(&mut self.memory, balance_ptr, &self.context.account_balance.to_le_bytes())
+        Self::memory_set(self.memory, balance_ptr, &self.context.account_balance.to_le_bytes())
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
-        Self::memory_set(
-            &mut self.memory,
-            balance_ptr,
-            &self.context.attached_deposit.to_le_bytes(),
-        )
+        Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
@@ -331,7 +324,7 @@ where
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        let value = Self::memory_get(&self.memory, value_ptr, value_len)?;
+        let value = Self::memory_get(self.memory, value_ptr, value_len)?;
         let value_hash = exonum_sodiumoxide::crypto::hash::sha256::hash(&value);
         self.write_register(register_id, value_hash.as_ref())
     }
@@ -364,15 +357,13 @@ where
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<u64> {
-        let amount = Self::memory_get_u128(&self.memory, amount_ptr)?;
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let method_name = Self::memory_get(&self.memory, method_name_ptr, method_name_len)?;
-
-        if let Some(b'_') = method_name.get(0) {
-            return Err(HostError::PrivateMethod);
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName);
         }
-
-        let arguments = Self::memory_get(&self.memory, arguments_ptr, arguments_len)?;
+        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
         self.attach_gas_to_promise(gas)?;
         self.ext
             .promise_create(account_id, method_name, arguments, amount, gas)
@@ -405,12 +396,12 @@ where
         gas: u64,
     ) -> Result<u64> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let amount = Self::memory_get_u128(&self.memory, amount_ptr)?;
-        let method_name = Self::memory_get(&self.memory, method_name_ptr, method_name_len)?;
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
             return Err(HostError::EmptyMethodName);
         }
-        let arguments = Self::memory_get(&self.memory, arguments_ptr, arguments_len)?;
+        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
         self.ext
             .promise_then(promise_idx, account_id, method_name, arguments, amount, gas)
             .map_err(|err| err.into())
@@ -438,7 +429,7 @@ where
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
         let promise_ids =
-            Self::memory_get_array_u64(&self.memory, promise_idx_ptr, promise_idx_count)?;
+            Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
         self.ext.promise_and(&promise_ids).map_err(|err| err.into())
     }
 
@@ -509,7 +500,7 @@ where
     /// If `value_len + value_ptr` exceeds the memory container or points to an unused register it
     /// returns `MemoryAccessViolation`.
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
-        let return_val = Self::memory_get(&self.memory, value_ptr, value_len)?;
+        let return_val = Self::memory_get(self.memory, value_ptr, value_len)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
@@ -532,14 +523,14 @@ where
             if len > self.config.max_log_len {
                 return Err(HostError::BadUTF8);
             }
-            buf = Self::memory_get(&self.memory, ptr, len)?;
+            buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=self.config.max_log_len {
                 if i == self.config.max_log_len {
                     return Err(HostError::BadUTF8);
                 }
-                Self::try_fit_mem(&self.memory, ptr, i)?;
+                Self::try_fit_mem(self.memory, ptr, i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
                 if el == 0 {
                     break;
@@ -560,7 +551,7 @@ where
             if len > self.config.max_log_len || len % 2 != 0 {
                 return Err(HostError::BadUTF16);
             }
-            buf = Self::memory_get(&self.memory, ptr, len)?;
+            buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             let mut prev_nul = false;
@@ -568,7 +559,7 @@ where
                 if i == self.config.max_log_len {
                     return Err(HostError::BadUTF16);
                 }
-                Self::try_fit_mem(&self.memory, ptr, i)?;
+                Self::try_fit_mem(self.memory, ptr, i)?;
                 let el: u8 = self.memory.read_memory_u8(ptr + i);
                 let curr_nul = el == 0;
                 if prev_nul && curr_nul {
@@ -622,7 +613,7 @@ where
     ///
     /// * If account is not UTF-8 encoded then returns `BadUtf8`;
     pub fn read_and_parse_account_id(&self, ptr: u64, len: u64) -> Result<AccountId> {
-        let buf = Self::memory_get(&self.memory, ptr, len)?;
+        let buf = Self::memory_get(self.memory, ptr, len)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
     }
@@ -695,8 +686,8 @@ where
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
-        let value = Self::memory_get(&self.memory, value_ptr, value_len)?;
+        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
+        let value = Self::memory_get(self.memory, value_ptr, value_len)?;
         let evicted = self.ext.storage_set(&key, &value)?;
         match evicted {
             Some(value) => {
@@ -719,7 +710,7 @@ where
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
+        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
         let read = self.ext.storage_get(&key)?;
         match read {
             Some(value) => {
@@ -743,7 +734,7 @@ where
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
+        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
         let removed = self.ext.storage_remove(&key)?;
         match removed {
             Some(value) => {
@@ -762,7 +753,7 @@ where
     ///
     /// If `key_len + key_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_has_key(&mut self, key_len: u64, key_ptr: u64) -> Result<u64> {
-        let key = Self::memory_get(&self.memory, key_ptr, key_len)?;
+        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
         let res = self.ext.storage_has_key(&key)?;
         Ok(res as u64)
     }
@@ -777,7 +768,7 @@ where
     ///
     /// If `prefix_len + prefix_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
-        let prefix = Self::memory_get(&self.memory, prefix_ptr, prefix_len)?;
+        let prefix = Self::memory_get(self.memory, prefix_ptr, prefix_len)?;
         let storage_id = self.ext.storage_iter(&prefix)?;
         Ok(storage_id)
     }
@@ -798,8 +789,8 @@ where
         end_len: u64,
         end_ptr: u64,
     ) -> Result<u64> {
-        let start_key = Self::memory_get(&self.memory, start_ptr, start_len)?;
-        let end_key = Self::memory_get(&self.memory, end_ptr, end_len)?;
+        let start_key = Self::memory_get(self.memory, start_ptr, start_len)?;
+        let end_key = Self::memory_get(self.memory, end_ptr, end_len)?;
         self.ext.storage_range(&start_key, &end_key).map_err(|err| err.into())
     }
 
@@ -841,4 +832,39 @@ where
             None => Ok(0),
         }
     }
+
+    /// Computes the outcome for successful execution.
+    pub fn successful_outcome(self) -> VMOutcome {
+        VMOutcome::Success {
+            return_data: self.return_data,
+            account_balance: self.current_account_balance,
+            remaining_gas: self.context.prepaid_gas - self.used_gas,
+            logs: self.logs,
+        }
+    }
+
+    /// Computes the outcome for failed execution. `error_msg` is what should be attached to the
+    /// outcome instead of the `return_data`.
+    pub fn failed_outcome(self, error_msg: String) -> VMOutcome {
+        VMOutcome::Failure {
+            error_msg,
+            remaining_gas: self.context.prepaid_gas - self.burnt_gas,
+            logs: self.logs,
+        }
+    }
+}
+
+/// The outcome of executing the smart contract's method.
+pub enum VMOutcome {
+    Success {
+        return_data: ReturnData,
+        account_balance: Balance,
+        remaining_gas: Gas,
+        logs: Vec<String>,
+    },
+    Failure {
+        error_msg: String,
+        remaining_gas: Gas,
+        logs: Vec<String>,
+    },
 }
