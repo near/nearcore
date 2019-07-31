@@ -15,6 +15,7 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
+use near_chain::ChainGenesis;
 
 use futures::future;
 use futures::future::Future;
@@ -40,13 +41,14 @@ pub fn setup(
         validators_per_shard,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000);
     let telemetry = TelemetryActor::default().start();
     let view_client =
-        ViewClientActor::new(store.clone(), genesis_time.clone(), runtime.clone()).unwrap();
+        ViewClientActor::new(store.clone(), chain_genesis.clone(), runtime.clone()).unwrap();
     let client = ClientActor::new(
         ClientConfig::test(skip_sync_wait, block_prod_time),
         store,
-        genesis_time,
+        chain_genesis,
         runtime,
         PublicKey::empty().into(),
         recipient,

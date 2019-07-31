@@ -118,6 +118,8 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -167,6 +169,8 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -209,6 +213,8 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -244,7 +250,8 @@ fn invalid_blocks() {
                             header.prev_state_root,
                             Block::compute_state_root(&Block::genesis_chunks(
                                 vec![MerkleHash::default()], // must match RuntimeAdapter::genesis_state second return value
-                                1
+                                1,
+                                header.gas_limit
                             ))
                         );
                         assert_eq!(*approval, None);
@@ -264,6 +271,8 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -281,6 +290,8 @@ fn invalid_blocks() {
                 block.header.height + 1,
                 block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -293,6 +304,8 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
+                0,
+                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
                 vec![],

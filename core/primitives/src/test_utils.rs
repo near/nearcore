@@ -6,10 +6,15 @@ use log::LevelFilter;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
+use crate::block::Block;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::crypto::signature::{PublicKey, SecretKey};
+use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
+use crate::hash::CryptoHash;
 use crate::transaction::{SignedTransaction, TransactionBody};
+use crate::types::{BlockIndex, ShardId};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -74,5 +79,40 @@ impl TransactionBody {
     pub fn sign(self, signer: &dyn EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self, Some(signer.public_key()))
+    }
+}
+
+impl Block {
+    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_apporvals(prev, height, HashMap::default(), signer)
+    }
+
+    pub fn empty(prev: &Block, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_height(prev, prev.header.height + 1, signer)
+    }
+
+    /// This can not be used for proper testing, because chunks are arbitrary.
+    pub fn empty_with_apporvals(
+        prev: &Block,
+        height: BlockIndex,
+        approvals: HashMap<usize, Signature>,
+        signer: Arc<dyn EDSigner>,
+    ) -> Self {
+        Block::produce(
+            &prev.header,
+            height,
+            Block::genesis_chunks(
+                vec![CryptoHash::default()],
+                prev.chunks.len() as ShardId,
+                prev.header.gas_limit,
+            ),
+            prev.header.epoch_hash,
+            0,
+            prev.header.gas_limit,
+            vec![],
+            approvals,
+            vec![],
+            signer,
+        )
     }
 }

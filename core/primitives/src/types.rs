@@ -28,20 +28,23 @@ pub type ValidatorId = usize;
 pub type ValidatorMask = Vec<bool>;
 /// Part of the signature.
 pub type PartialSignature = BlsSignature;
+/// GasUsage is used to measure gas spend.
+pub type GasUsage = u64;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
 pub type StorageUsageChange = i64;
 /// Nonce for transactions.
 pub type Nonce = u64;
-
+/// Index of the block.
 pub type BlockIndex = u64;
-
+/// Shard index, from 0 to NUM_SHARDS - 1.
 pub type ShardId = u64;
-
+/// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
-
+/// Identifier for receipts, used to refer in callbacks.
 pub type ReceiptId = Vec<u8>;
+/// Identifier for callbacks, used to store storage and refer in receipts.
 pub type CallbackId = Vec<u8>;
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -93,7 +96,8 @@ impl From<ValidatorStake> for types_proto::ValidatorStake {
             account_id: validator.account_id,
             public_key: validator.public_key.to_string(),
             amount: SingularPtrField::some(validator.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

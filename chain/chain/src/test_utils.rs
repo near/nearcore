@@ -6,8 +6,12 @@ use chrono::Utc;
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
+use near_primitives::merkle::merklize;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::get_public_key_from_seed;
+use near_primitives::transaction::ReceiptBody::NewCall;
+use near_primitives::transaction::TransactionBody::SendMoney;
 use near_primitives::transaction::{
     AsyncCall, ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
@@ -17,11 +21,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
-use crate::{Chain, ValidTransaction};
-use near_primitives::merkle::merklize;
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::transaction::ReceiptBody::NewCall;
-use near_primitives::transaction::TransactionBody::SendMoney;
+use crate::{Chain, ChainGenesis, ValidTransaction};
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -113,17 +113,14 @@ impl KeyValueRuntime {
         Ok(prev_block_header.height)
     }
 
-    fn get_epoch_and_valset(
-        &self,
-        prev_hash: CryptoHash,
-    ) -> Result<(CryptoHash, usize), Box<dyn std::error::Error>> {
+    fn get_epoch_and_valset(&self, prev_hash: CryptoHash) -> Result<(CryptoHash, usize), Error> {
         if prev_hash == CryptoHash::default() {
             return Ok((prev_hash, 0));
         }
         let prev_block_header = self
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+            .ok_or(ErrorKind::Other("Missing block when computing the epoch".to_string()))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
@@ -191,8 +188,27 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
-    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> bool {
-        true
+    fn verify_validator_signature(
+        &self,
+        _epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool {
+        if let Some(validator) = self
+            .validators
+            .iter()
+            .flatten()
+            .find(|&validator_stake| &validator_stake.account_id == account_id)
+        {
+            verify(data, signature, &validator.public_key)
+        } else {
+            false
+        }
+    }
+
+    fn verify_chunk_header_signature(&self, _header: &ShardChunkHeader) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn get_epoch_block_proposers(
@@ -226,25 +242,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         let delta = ((shard_id + height + 1) % validators_per_shard) as usize;
         Ok(validators[offset + delta].account_id.clone())
-    }
-
-    fn check_validator_signature(
-        &self,
-        _epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool {
-        if let Some(validator) = self
-            .validators
-            .iter()
-            .flatten()
-            .find(|&validator_stake| &validator_stake.account_id == account_id)
-        {
-            verify(data, signature, &validator.public_key)
-        } else {
-            false
-        }
     }
 
     fn num_shards(&self) -> ShardId {
@@ -609,10 +606,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
-    fn get_epoch_hash(
-        &self,
-        parent_hash: CryptoHash,
-    ) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
         Ok(self.get_epoch_and_valset(parent_hash)?.0)
     }
 }
@@ -620,7 +614,8 @@ impl RuntimeAdapter for KeyValueRuntime {
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
+    let chain =
+        Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000)).unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
 }

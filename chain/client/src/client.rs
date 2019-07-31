@@ -12,11 +12,14 @@ use actix::{
     WrapFuture,
 };
 use chrono::{DateTime, Utc};
+use futures::Future;
 use log::{debug, error, info, warn};
 
 use near_chain::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
+    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis, ErrorKind, Provenance,
+    RuntimeAdapter,
 };
+use near_chunks::ShardsManager;
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
 };
@@ -25,6 +28,7 @@ use near_network::{
 };
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::ReceiptTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
@@ -37,9 +41,6 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use futures::Future;
-use near_chunks::ShardsManager;
-use near_primitives::sharding::ShardChunkHeader;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -97,16 +98,16 @@ impl ClientActor {
     pub fn new(
         config: ClientConfig,
         store: Arc<Store>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
         telemtetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
-        wait_until_genesis(&genesis_time);
-        let mut chain = Chain::new(store.clone(), runtime_adapter.clone(), genesis_time)?;
-        let mut shards_mgr = ShardsManager::new(
+        wait_until_genesis(&chain_genesis.time);
+        let chain = Chain::new(store.clone(), runtime_adapter.clone(), chain_genesis)?;
+        let shards_mgr = ShardsManager::new(
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
             network_actor.clone(),
@@ -118,20 +119,6 @@ impl ClientActor {
         let state_sync = StateSync::new(network_actor.clone());
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
-        }
-
-        // Populate post-state-roots for chunks
-        let head = chain.head()?;
-        let head_block = chain.get_block(&head.last_block_hash)?;
-        let mut chunk_hashes = vec![];
-
-        for chunk_header in head_block.chunks.iter() {
-            chunk_hashes.push(chunk_header.chunk_hash().clone());
-        }
-
-        for (shard_id, chunk_hash) in chunk_hashes.iter().enumerate() {
-            let shard_id = shard_id as ShardId;
-            shards_mgr.set_state_root(shard_id, chain.get_post_state_root(&chunk_hash)?.clone());
         }
 
         let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
@@ -168,6 +155,7 @@ impl ClientActor {
         &self,
         announce_account: &AnnounceAccount,
     ) -> Result<(), ReasonForBan> {
+        debug!(target: "client", "Received account announce: {:?}", announce_account);
         // Check header is correct.
         let header_hash = announce_account.header_hash();
         let header = announce_account.header();
@@ -178,7 +166,7 @@ impl ClientActor {
         }
 
         // ... and signature should be valid.
-        if !self.runtime_adapter.check_validator_signature(
+        if !self.runtime_adapter.verify_validator_signature(
             &announce_account.epoch,
             &announce_account.account_id,
             header_hash.as_ref(),
@@ -242,8 +230,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Transaction(tx) => {
                 let runtime_adapter = self.runtime_adapter.clone();
                 let shard_id = runtime_adapter.account_id_to_shard_id(&tx.body.get_originator());
-                if let Some(state_root) = self.shards_mgr.get_state_root(shard_id) {
-                    match self.runtime_adapter.validate_tx(shard_id, state_root, tx) {
+                if let Ok(chunk_extra) = self.chain.get_latest_chunk_extra(shard_id) {
+                    match self.runtime_adapter.validate_tx(shard_id, chunk_extra.state_root, tx) {
                         Ok(valid_transaction) => {
                             debug!(
                                 "MOO recording a transaction. I'm {:?}, {}",
@@ -537,26 +525,6 @@ impl ClientActor {
                     // If this block immediately follows the current tip, remove transactions
                     //    from the txpool
                     self.remove_transactions_for_block(bp.account_id.clone(), &block);
-
-                    // It's enough to update the state root for updated chunks only
-                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
-                        let shard_id = shard_id as ShardId;
-                        if block.header.height == chunk_header.height_included {
-                            if self.runtime_adapter.cares_about_shard(
-                                &bp.account_id,
-                                block.header.prev_hash,
-                                shard_id,
-                            ) {
-                                self.shards_mgr.set_state_root(
-                                    shard_id,
-                                    *self
-                                        .chain
-                                        .get_post_state_root(&chunk_header.chunk_hash())
-                                        .unwrap(),
-                                );
-                            }
-                        }
-                    }
                 }
                 BlockStatus::Fork => {
                     // If it's a fork, no need to reconcile transactions or produce chunks
@@ -604,24 +572,6 @@ impl ClientActor {
                         let block = self.chain.get_block(&to_remove_hash).unwrap().clone();
                         self.remove_transactions_for_block(bp.account_id.clone(), &block);
                     }
-
-                    // It's necessary to update the state root for all the shards we care about
-                    for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
-                        let shard_id = shard_id as ShardId;
-                        if self.runtime_adapter.cares_about_shard(
-                            &bp.account_id,
-                            block.header.prev_hash,
-                            shard_id,
-                        ) {
-                            self.shards_mgr.set_state_root(
-                                shard_id,
-                                *self
-                                    .chain
-                                    .get_post_state_root(&chunk_header.chunk_hash())
-                                    .unwrap(),
-                            );
-                        }
-                    }
                 }
             };
 
@@ -650,6 +600,8 @@ impl ClientActor {
                 }
             }
         }
+
+        self.check_send_announce_account(block.header.epoch_hash);
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -688,13 +640,11 @@ impl ClientActor {
                 }
             }
         }
-
-        self.check_send_announce_account(&block);
     }
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, block: &Block) {
+    fn check_send_announce_account(&mut self, epoch_hash: CryptoHash) {
         // Announce AccountId if client is becoming a validator soon.
 
         // First check that we currently have an AccountId
@@ -704,11 +654,8 @@ impl ClientActor {
         }
 
         let block_producer = self.block_producer.as_ref().unwrap();
+        debug!(target: "client", "Check announce account for {}", block_producer.account_id);
 
-        let epoch_hash = match self.runtime_adapter.get_epoch_hash(block.hash()) {
-            Ok(epoch_hash) => epoch_hash,
-            Err(_) => return,
-        };
         // TODO MOO XXX: only announce if become a validator soon
 
         if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
@@ -725,6 +672,7 @@ impl ClientActor {
             if let Ok(validators) = self.runtime_adapter.get_epoch_block_proposers(epoch_hash) {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators.iter().any(|account_id| (account_id == &block_producer.account_id)) {
+                    debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                     self.last_val_announce_height = Some(epoch_height);
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
@@ -745,12 +693,12 @@ impl ClientActor {
         }
     }
 
-    fn sign_announce_account(&self, epoch: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
+    fn sign_announce_account(&self, epoch_hash: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
                 &block_producer.account_id,
                 &self.node_id,
-                epoch,
+                epoch_hash,
             );
             let signature = block_producer.signer.sign(hash.as_ref());
             Ok((hash, signature))
@@ -896,10 +844,11 @@ impl ClientActor {
             block_producer.account_id
         );
 
-        let state_root = self
-            .shards_mgr
-            .get_state_root(shard_id)
-            .ok_or_else(|| Error::ChunkProducer("No state root available".to_string()))?;
+        let chunk_extra = self
+            .chain
+            .get_latest_chunk_extra(shard_id)
+            .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
+            .clone();
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
@@ -929,9 +878,12 @@ impl ClientActor {
             .shards_mgr
             .create_encoded_shard_chunk(
                 prev_block_hash,
-                state_root,
+                chunk_extra.state_root,
                 next_height,
                 shard_id,
+                chunk_extra.gas_used,
+                chunk_extra.gas_limit,
+                chunk_extra.validator_proposals.clone(),
                 &transactions,
                 &receipts,
                 block_producer.signer.clone(),
@@ -1044,6 +996,19 @@ impl ClientActor {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
+        // Collect aggregate of validators and gas usage/limits from chunks.
+        let mut validator_proposals = vec![];
+        let mut gas_used = 0;
+        let mut gas_limit = 0;
+        for chunk in chunks.iter() {
+            validator_proposals.extend_from_slice(&chunk.validator_proposal);
+            gas_used += chunk.gas_used;
+            gas_limit += chunk.gas_limit;
+        }
+        gas_used /= chunks.len() as u64;
+        gas_limit /= chunks.len() as u64;
+
+        // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
             chunk_header.height_included = next_height;
             chunks[shard_id as usize] = chunk_header;
@@ -1060,14 +1025,17 @@ impl ClientActor {
             .get_epoch_hash(head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
+        // TODO: current gas used and gas limit.
         let block = Block::produce(
             &prev_header,
             next_height,
             chunks,
             epoch_hash,
+            gas_used,
+            gas_limit,
             transactions,
             self.approvals.drain().collect(),
-            vec![],
+            validator_proposals,
             block_producer.signer.clone(),
         );
 
@@ -1432,6 +1400,7 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
+                self.check_send_announce_account(head.epoch_hash);
                 self.handle_scheduling_block_production(
                     ctx,
                     head.last_block_hash,
@@ -1600,7 +1569,7 @@ impl ClientActor {
         }
 
         // Check signature is correct for given validator.
-        if !self.runtime_adapter.check_validator_signature(
+        if !self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,
             account_id,
             hash.as_ref(),

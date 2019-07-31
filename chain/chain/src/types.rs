@@ -5,12 +5,12 @@ use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
+use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
-use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum BlockStatus {
@@ -76,7 +76,17 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> bool;
+    /// Verify validator signature for the given epoch.
+    fn verify_validator_signature(
+        &self,
+        epoch_hash: &CryptoHash,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool;
+
+    /// Verify chunk header signature.
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
     /// Epoch block proposers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
@@ -99,15 +109,6 @@ pub trait RuntimeAdapter: Send + Sync {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
-
-    /// Check validator signature for the given epoch
-    fn check_validator_signature(
-        &self,
-        epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -214,10 +215,7 @@ pub trait RuntimeAdapter: Send + Sync {
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn get_epoch_hash(
-        &self,
-        parent_hash: CryptoHash,
-    ) -> Result<CryptoHash, Box<dyn std::error::Error>>;
+    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
@@ -278,33 +276,16 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards);
+        let genesis =
+            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-        let b1 = Block::produce(
-            &genesis.header,
-            1,
-            Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
-            CryptoHash::default(),
-            vec![],
-            HashMap::default(),
-            vec![],
-            signer.clone(),
-        );
+        let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.total_weight.to_num(), 1);
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::produce(
-            &b1.header,
-            2,
-            vec![],
-            CryptoHash::default(),
-            vec![],
-            approvals,
-            vec![],
-            signer.clone(),
-        );
+        let b2 = Block::empty_with_apporvals(&b1, 2, approvals, signer.clone());
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

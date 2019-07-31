@@ -16,7 +16,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, GasUsage, ShardId, ValidatorStake};
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 use rand::Rng;
 use reed_solomon_erasure::option_shards_into_shards;
@@ -40,7 +40,6 @@ pub struct ShardsManager {
     me: Option<AccountId>,
 
     tx_pools: HashMap<ShardId, TransactionPool>,
-    state_roots: HashMap<ShardId, CryptoHash>,
 
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     peer_mgr: Recipient<NetworkRequests>,
@@ -69,7 +68,6 @@ impl ShardsManager {
         Self {
             me,
             tx_pools: HashMap::new(),
-            state_roots: HashMap::new(),
             runtime_adapter,
             peer_mgr,
             store,
@@ -228,12 +226,6 @@ impl ShardsManager {
             .entry(shard_id)
             .or_insert_with(|| TransactionPool::new())
             .insert_transaction(tx);
-    }
-    pub fn get_state_root(&self, shard_id: ShardId) -> Option<CryptoHash> {
-        self.state_roots.get(&shard_id).map(|x| *x)
-    }
-    pub fn set_state_root(&mut self, shard_id: ShardId, root: CryptoHash) {
-        self.state_roots.insert(shard_id, root);
     }
     pub fn remove_transactions(
         &mut self,
@@ -537,7 +529,7 @@ impl ShardsManager {
             }
         }
 
-        if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header) {
+        if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             assert!(false); // TODO XXX MOO remove
             return Err("Incorrect chunk signature when processing ChunkOnePart".into());
         }
@@ -681,6 +673,9 @@ impl ShardsManager {
         prev_state_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
+        validator_proposal: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<ReceiptTransaction>,
         signer: Arc<dyn EDSigner>,
@@ -714,6 +709,9 @@ impl ShardsManager {
             prev_state_root,
             height,
             shard_id,
+            gas_used,
+            gas_limit,
+            validator_proposal,
             encoded_length as u64,
             parts,
             data_parts,

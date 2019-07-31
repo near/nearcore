@@ -60,6 +60,9 @@ pub enum ErrorKind {
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
+    /// Validator error.
+    #[fail(display = "Validator Error")]
+    ValidatorError(String),
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -106,6 +109,7 @@ impl Error {
             | ErrorKind::ChunksMissing(_)
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
+            | ErrorKind::ValidatorError(_)
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)

@@ -4,9 +4,8 @@
 use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
-use chrono::{DateTime, Utc};
 
-use near_chain::{Block, Chain, ErrorKind, RuntimeAdapter};
+use near_chain::{Block, Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{
@@ -28,11 +27,12 @@ pub struct ViewClientActor {
 impl ViewClientActor {
     pub fn new(
         store: Arc<Store>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        let chain =
+            Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
         Ok(ViewClientActor { chain, runtime_adapter })
     }
 
@@ -100,11 +100,12 @@ impl Handler<Query> for ViewClientActor {
         let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
         let state_root = self
             .chain
-            .get_post_state_root(&chunk_hash)
-            .map_err(|_e| "Failed to fetch the chunk while executing request")?;
+            .get_chunk_extra(&chunk_hash)
+            .map_err(|_e| "Failed to fetch the chunk while executing request")?
+            .state_root;
 
         self.runtime_adapter
-            .query(*state_root, head.height, path_parts, &msg.data)
+            .query(state_root, head.height, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }

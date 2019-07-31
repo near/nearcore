@@ -8,16 +8,16 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, GasUsage, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, StateSyncInfo};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ChunkExtra, StateSyncInfo};
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
 };
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -104,6 +104,19 @@ impl OrphanBlockPool {
     }
 }
 
+/// Chain genesis configuration.
+#[derive(Clone)]
+pub struct ChainGenesis {
+    pub time: DateTime<Utc>,
+    pub gas_limit: GasUsage,
+}
+
+impl ChainGenesis {
+    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage) -> Self {
+        Self { time, gas_limit }
+    }
+}
+
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
@@ -118,14 +131,18 @@ impl Chain {
     pub fn new(
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        genesis_time: DateTime<Utc>,
+        chain_genesis: ChainGenesis,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
         // Get runtime initial state and create genesis block out of it.
         let (state_store_update, state_roots) = runtime_adapter.genesis_state();
-        let genesis =
-            Block::genesis(state_roots.clone(), genesis_time, runtime_adapter.num_shards());
+        let genesis = Block::genesis(
+            state_roots.clone(),
+            chain_genesis.time,
+            runtime_adapter.num_shards(),
+            chain_genesis.gas_limit,
+        );
 
         // Check if we have a head in the store, otherwise pick genesis block.
         let mut store_update = store.store_update();
@@ -174,7 +191,10 @@ impl Chain {
 
                     for (chunk_header, state_root) in genesis.chunks.iter().zip(state_roots.iter())
                     {
-                        store_update.save_post_state_root(&chunk_header.chunk_hash(), state_root);
+                        store_update.save_chunk_extra(
+                            &chunk_header.chunk_hash(),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit),
+                        );
                     }
 
                     head = Tip::from_header(&genesis.header);
@@ -815,10 +835,18 @@ impl Chain {
         self.store.block_exists(hash)
     }
 
-    /// Get state root hash after applying header with given hash.
+    /// Get chunk extra that was computed after applying chunk with given hash.
     #[inline]
-    pub fn get_post_state_root(&mut self, hash: &ChunkHash) -> Result<&MerkleHash, Error> {
-        self.store.get_post_state_root(hash)
+    pub fn get_chunk_extra(&mut self, hash: &ChunkHash) -> Result<&ChunkExtra, Error> {
+        self.store.get_chunk_extra(hash)
+    }
+
+    /// Helper to return latest chunk extra for given shard.
+    #[inline]
+    pub fn get_latest_chunk_extra(&mut self, shard_id: ShardId) -> Result<&ChunkExtra, Error> {
+        let chunk_hash =
+            self.get_block(&self.head()?.last_block_hash)?.chunks[shard_id as usize].chunk_hash();
+        self.store.get_chunk_extra(&chunk_hash)
     }
 
     /// Get transaction result for given hash of transaction.
@@ -1001,6 +1029,7 @@ impl<'a> ChainUpdate<'a> {
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
                         chunk.transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
+                    let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
                     let (
@@ -1022,20 +1051,14 @@ impl<'a> ChainUpdate<'a> {
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
-                    // If block checks out, record validator proposals for given block.
-                    self.runtime_adapter
-                        .add_validator_proposals(
-                            block.header.prev_hash,
-                            block.hash(),
-                            block.header.height,
-                            validator_proposals,
-                            vec![],
-                        )
-                        .map_err(|err| ErrorKind::Other(err.to_string()))?;
-
                     self.chain_store_update.save_trie_changes(trie_changes);
                     // Save state root after applying transactions.
-                    self.chain_store_update.save_post_state_root(&chunk_hash, &state_root);
+                    // XXX: gas used return.
+                    let gas_used = 0;
+                    self.chain_store_update.save_chunk_extra(
+                        &chunk_hash,
+                        ChunkExtra::new(&state_root, validator_proposals, gas_used, gas_limit),
+                    );
                     // Save resulting receipts.
                     for (_receipt_shard_id, receipts) in new_receipts.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
@@ -1163,11 +1186,10 @@ impl<'a> ChainUpdate<'a> {
             } else {
                 if prev_chunk_header != chunk_header {
                     info!(
-                        "MOO {:?} != {:?}, DEF: {}, GEN: {}",
+                        "MOO {:?} != {:?}, DEF: {}",
                         prev_chunk_header,
                         chunk_header,
                         CryptoHash::default(),
-                        Block::chunk_genesis_hash()
                     );
                     return Err(ErrorKind::InvalidChunk.into());
                 }
@@ -1184,6 +1206,17 @@ impl<'a> ChainUpdate<'a> {
         } else {
             self.chain_store_update.add_block_to_catchup(prev_hash, block.hash());
         }
+
+        // If block checks out, record validator proposals for given block.
+        self.runtime_adapter
+            .add_validator_proposals(
+                block.header.prev_hash,
+                block.hash(),
+                block.header.height,
+                block.header.validator_proposal.clone(),
+                vec![],
+            )
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;
@@ -1304,7 +1337,7 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .get_block_proposer(header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
-        if self.runtime_adapter.check_validator_signature(
+        if self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,
             &validator,
             header.hash().as_ref(),

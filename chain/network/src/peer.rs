@@ -278,7 +278,12 @@ impl Peer {
             }
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
-            _ => unreachable!(),
+            PeerMessage::Handshake(_)
+            | PeerMessage::PeersRequest
+            | PeerMessage::PeersResponse(_) => {
+                error!(target: "network", "Peer receive_client_message received unexpected type");
+                return;
+            }
         };
         self.client_addr
             .send(network_client_msg)
@@ -397,6 +402,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         match res {
                             Ok(true) => {
                                 debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id, act.peer_addr);
+                                println!("{:?} CONNECTED PEER: {:?}", act.node_info.id, peer_info);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.

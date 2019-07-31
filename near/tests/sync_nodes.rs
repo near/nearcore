@@ -6,13 +6,12 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, BlockHeader, Chain};
+use near_chain::{Block, Chain, ChainGenesis};
 use near_client::{ClientActor, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::ShardId;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
@@ -21,23 +20,22 @@ fn genesis_block(genesis_config: GenesisConfig) -> Block {
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let mut chain = Chain::new(store, runtime, genesis_time).unwrap();
+    let mut chain = Chain::new(store, runtime, ChainGenesis::new(genesis_time, 1_000_000)).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
-    start: &BlockHeader,
+    start: &Block,
     genesis_block: &Block,
     client: Addr<ClientActor>,
     num: usize,
     signer: Arc<InMemorySigner>,
-    num_shards: ShardId,
-) -> BlockHeader {
+) -> Block {
     let mut blocks = vec![];
     let mut prev = start;
     for _ in 0..num {
-        let mut block = Block::empty(prev, signer.clone(), num_shards);
+        let mut block = Block::empty(&prev, signer.clone());
         block.chunks = genesis_block.chunks.clone();
         block.header.prev_state_root = Block::compute_state_root(&block.chunks);
         let _ = client.do_send(NetworkClientMessages::Block(
@@ -46,9 +44,9 @@ fn add_blocks(
             false,
         ));
         blocks.push(block);
-        prev = &blocks[blocks.len() - 1].header;
+        prev = &blocks[blocks.len() - 1];
     }
-    blocks[blocks.len() - 1].header.clone()
+    blocks[blocks.len() - 1].clone()
 }
 
 /// One client is in front, another must sync to it before they can produce blocks.
@@ -72,14 +70,7 @@ fn sync_nodes() {
     let (client1, _) = start_with_config(dir1.path(), near1);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let _ = add_blocks(
-        &genesis_block.header,
-        &genesis_block,
-        client1,
-        11,
-        signer,
-        genesis_config.block_producers_per_shard.len() as ShardId,
-    );
+    let _ = add_blocks(&genesis_block, &genesis_block, client1, 11, signer);
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
     let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -128,17 +119,10 @@ fn sync_after_sync_nodes() {
     let (_, view_client2) = start_with_config(dir2.path(), near2);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let last_block = add_blocks(
-        &genesis_block.header,
-        &genesis_block,
-        client1.clone(),
-        11,
-        signer.clone(),
-        genesis_config.block_producers_per_shard.len() as ShardId,
-    );
+    let last_block =
+        add_blocks(&genesis_block, &genesis_block, client1.clone(), 11, signer.clone());
 
     let next_step = Arc::new(AtomicBool::new(false));
-    let num_shards = genesis_config.block_producers_per_shard.len() as ShardId;
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             let last_block1 = last_block.clone();
@@ -150,14 +134,8 @@ fn sync_after_sync_nodes() {
                 match &res {
                     Ok(Ok(b)) if b.header.height == 11 => {
                         if !next_step1.load(Ordering::Relaxed) {
-                            let _ = add_blocks(
-                                &last_block1,
-                                &genesis_block1,
-                                client11,
-                                11,
-                                signer1,
-                                num_shards,
-                            );
+                            let _ =
+                                add_blocks(&last_block1, &genesis_block1, client11, 11, signer1);
                             next_step1.store(true, Ordering::Relaxed);
                         }
                     }

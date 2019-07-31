@@ -31,7 +31,7 @@ use near_primitives::merkle::MerklePath;
 use std::collections::HashMap;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Peer id is the public key.
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
@@ -154,7 +154,13 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: (&id.0).into(), addr, account_id, ..Default::default() }
+        network_proto::PeerInfo {
+            id: (&id.0).into(),
+            addr,
+            account_id,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
     }
 }
 
@@ -187,7 +193,8 @@ impl From<PeerChainInfo> for network_proto::PeerChainInfo {
             genesis: chain_peer_info.genesis.into(),
             height: chain_peer_info.height,
             total_weight: chain_peer_info.total_weight.to_num(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -253,7 +260,8 @@ impl From<Handshake> for network_proto::Handshake {
             peer_id: handshake.peer_id.into(),
             listen_port,
             chain_info: SingularPtrField::some(handshake.chain_info.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -283,7 +291,8 @@ impl From<AnnounceAccountRoute> for network_proto::AnnounceAccountRoute {
             peer_id: announce_account_route.peer_id.into(),
             hash: announce_account_route.hash.into(),
             signature: announce_account_route.signature.into(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -383,7 +392,8 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
             route: RepeatedField::from_iter(
                 announce_account.route.into_iter().map(|hop| hop.into()),
             ),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -566,7 +576,7 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
                 announce_account,
             )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
-            None => unreachable!(),
+            None => Err(format!("Unexpected empty message body").into()),
         }
     }
 }
@@ -718,7 +728,11 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 ))
             }
         };
-        network_proto::PeerMessage { message_type, ..Default::default() }
+        network_proto::PeerMessage {
+            message_type,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
     }
 }
 

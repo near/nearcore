@@ -12,8 +12,9 @@ use testlib::node::{Node, RuntimeNode};
 
 fn runtime_send_money(bench: &mut Bencher) {
     let node = RuntimeNode::new(&"alice.near".to_string());
+    let node_user = node.user();
     bench.iter(|| {
-        node.send_money(&"bob.near".to_string(), 1);
+        node_user.send_money("alice.near".to_string(), "bob.near".to_string(), 1);
     });
 }
 
@@ -48,16 +49,17 @@ fn runtime_wasm_bad_code(bench: &mut Bencher) {
     let code = ContractCode::new(code.to_vec());
     let code = wasm::prepare::prepare_contract(&code, &wasm::types::Config::default()).unwrap();
     let node = setup_test_contract(&code);
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(), "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
     });
 }
 
 fn runtime_wasm_set_value(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function(
-            "test_contract",
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(),
             "setValue",
             b"{\"value\":\"123\"}".to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -67,16 +69,17 @@ fn runtime_wasm_set_value(bench: &mut Bencher) {
 
 fn runtime_wasm_benchmark_10_reads_legacy(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function("test_contract", "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(), "benchmark", b"{}".to_vec(), FUNCTION_CALL_AMOUNT);
     });
 }
 
 fn runtime_wasm_benchmark_storage_100(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function(
-            "test_contract",
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(),
             "benchmark_storage",
             b"{\"n\":100}".to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -86,9 +89,9 @@ fn runtime_wasm_benchmark_storage_100(bench: &mut Bencher) {
 
 fn runtime_wasm_benchmark_storage_1000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function(
-            "test_contract",
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(),
             "benchmark_storage",
             b"{\"n\":1000}".to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -98,9 +101,9 @@ fn runtime_wasm_benchmark_storage_1000(bench: &mut Bencher) {
 
 fn runtime_wasm_benchmark_sum_1000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function(
-            "test_contract",
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(),
             "benchmark_sum_n",
             b"{\"n\":1000}".to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -110,9 +113,9 @@ fn runtime_wasm_benchmark_sum_1000(bench: &mut Bencher) {
 
 fn runtime_wasm_benchmark_sum_1000000(bench: &mut Bencher) {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
+    let node_user = node.user();
     bench.iter(|| {
-        node.call_function(
-            "test_contract",
+        node_user.function_call("alice.near".to_string(), "test_contract".to_string(),
             "benchmark_sum_n",
             b"{\"n\":1000000}".to_vec(),
             FUNCTION_CALL_AMOUNT,

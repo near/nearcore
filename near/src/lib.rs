@@ -15,6 +15,7 @@ pub use crate::config::{
     init_configs, load_config, load_test_config, GenesisConfig, NearConfig, NEAR_BASE,
 };
 pub use crate::runtime::NightshadeRuntime;
+use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
@@ -56,10 +57,11 @@ pub fn start_with_config(
         Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
+    let chain_genesis = ChainGenesis::new(config.genesis_config.genesis_time, config.genesis_config.gas_limit);
 
     let view_client = ViewClientActor::new(
         store.clone(),
-        config.genesis_config.genesis_time.clone(),
+        chain_genesis.clone(),
         runtime.clone(),
     )
     .unwrap()
@@ -77,7 +79,7 @@ pub fn start_with_config(
         ClientActor::new(
             config.client_config,
             store.clone(),
-            config.genesis_config.genesis_time,
+            chain_genesis.clone(),
             runtime,
             node_id,
             network_actor.recipient(),

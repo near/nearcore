@@ -44,10 +44,18 @@ mod tests {
 
     #[test]
     fn fail_parse_u128() {
-        let x = uint128_proto::Uint128 { number: vec![], ..Default::default() };
+        let x = uint128_proto::Uint128 {
+            number: vec![],
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        };
         let y: Result<u128, _> = x.try_into();
         assert!(y.is_err());
-        let x = uint128_proto::Uint128 { number: vec![0; 20], ..Default::default() };
+        let x = uint128_proto::Uint128 {
+            number: vec![0; 20],
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        };
         let y: Result<u128, _> = x.try_into();
         assert!(y.is_err());
     }

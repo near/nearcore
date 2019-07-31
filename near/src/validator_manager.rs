@@ -8,14 +8,11 @@ use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 use serde_derive::{Deserialize, Serialize};
 
-use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
 };
-use near_store::{
-    Store, StoreUpdate, COL_BLOCK_HEADER, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS,
-};
+use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
 
 const LAST_EPOCH_KEY: &[u8] = b"LAST_EPOCH";
 
@@ -73,8 +70,14 @@ impl fmt::Display for ValidatorError {
 }
 
 impl From<std::io::Error> for ValidatorError {
-    fn from(error: std::io::Error) -> ValidatorError {
+    fn from(error: std::io::Error) -> Self {
         ValidatorError::Other(error.to_string())
+    }
+}
+
+impl From<ValidatorError> for near_chain::Error {
+    fn from(error: ValidatorError) -> Self {
+        near_chain::ErrorKind::ValidatorError(error.to_string()).into()
     }
 }
 
@@ -401,17 +404,10 @@ impl ValidatorManager {
             return Ok((parent_hash, 0));
         }
 
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())
-            .map_err(|err| ValidatorError::Other(err.to_string()))?
-            .ok_or(ValidatorError::MissingBlock(parent_hash))?;
-
-        let prev_height = prev_block_header.height;
-
         // TODO(1049): handle that config epoch length can change over time from runtime.
-        let parent_info =
-            self.get_index_info(&parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
+        let parent_info = self
+            .get_index_info(&parent_hash)
+            .map_err(|_| ValidatorError::MissingBlock(parent_hash))?;
         let (epoch_start_index, epoch_start_parent_hash) =
             if parent_hash == parent_info.epoch_start_hash {
                 (parent_info.index, parent_info.prev_hash)
@@ -423,7 +419,7 @@ impl ValidatorManager {
         // We compare to the height of the previous block and not to index so that the epoch is fully
         //    determined by the previous block. This allows chunk producers to know the epoch of the
         //    *next* block, and know whom to distribute chunk parts to
-        if epoch_start_index + self.config.epoch_length <= prev_height {
+        if epoch_start_index + self.config.epoch_length <= parent_info.index {
             // If this is next epoch index, return parent's epoch hash and 0 as offset.
             Ok((parent_info.epoch_start_hash, 0))
         } else {
@@ -446,14 +442,6 @@ impl ValidatorManager {
             assert!(false);
         }
 
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())
-            .map_err(|err| ValidatorError::Other(err.to_string()))?
-            .ok_or(ValidatorError::MissingBlock(parent_hash))?;
-
-        let prev_height = prev_block_header.height;
-
         // TODO(1049): handle that config epoch length can change over time from runtime.
         let parent_info =
             self.get_index_info(&parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
@@ -467,7 +455,7 @@ impl ValidatorManager {
         // We compare to the height of the previous block and not to index so that the epoch is fully
         //    determined by the previous block. This allows chunk producers to know the epoch of the
         //    *next* block, and know whom to distribute chunk parts to
-        if epoch_start_index + self.config.epoch_length <= prev_height {
+        if epoch_start_index + self.config.epoch_length <= parent_info.index {
             // The caller expects it to return error in this case.
             Err(ValidatorError::Other(
                 "Requesting the validators for the next epoch on the first block of an epoch"
@@ -791,9 +779,9 @@ mod test {
                 vec![0, 1, 0, 0, 1, 2],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
-                    vec![0, 1, 2],
+                    vec![0, 1, 0, 0, 1, 2],
                     vec![0, 1],
-                    vec![0],
+                    vec![0, 0],
                     vec![1, 2],
                     vec![0, 1]
                 ],
@@ -823,13 +811,13 @@ mod test {
         let expected0 = assignment(
             vec![("test1", amount_staked)],
             vec![0, 0],
-            vec![vec![0]],
+            vec![vec![0, 0]],
             vec![],
-            1,
+            0,
             change_stake(vec![("test1", amount_staked)]),
         );
         let mut expected1 = expected0.clone();
-        expected1.expected_epoch_start = 2;
+        expected1.expected_epoch_start = 1;
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h0, 1).unwrap().0).unwrap(), &expected0);
         assert_eq!(vm.get_validators(h1), Err(ValidatorError::EpochOutOfBounds));
         vm.finalize_epoch(&h0, &h0, &h1).unwrap();
@@ -838,10 +826,16 @@ mod test {
             .commit()
             .unwrap();
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h1, 2).unwrap().0).unwrap(), &expected1);
-        assert_eq!(vm.get_epoch_offset(h2, 3), Err(ValidatorError::EpochOutOfBounds));
+        assert_eq!(vm.get_epoch_offset(h2, 3), Err(ValidatorError::MissingBlock(h2)));
         vm.finalize_epoch(&h1, &h1, &h2).unwrap();
         vm.add_proposals(h1, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
-        let expected2 = assignment(
+        let mut expected2 = expected0.clone();
+        expected2.expected_epoch_start = 2;
+        // test2 staked in epoch 1 and therefore should be included in epoch 3.
+        assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected2);
+        vm.finalize_epoch(&h2, &h2, &h3).unwrap();
+        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
+        let expected3 = assignment(
             vec![("test1", amount_staked), ("test2", amount_staked)],
             vec![0, 1],
             vec![vec![0, 1]],
@@ -849,12 +843,6 @@ mod test {
             3,
             change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
         );
-        // test2 staked in epoch 1 and therefore should be included in epoch 3.
-        assert_eq!(vm.get_validators(vm.get_epoch_offset(h2, 3).unwrap().0).unwrap(), &expected2);
-        vm.finalize_epoch(&h2, &h2, &h3).unwrap();
-        vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
-        let mut expected3 = expected2.clone();
-        expected3.expected_epoch_start = 4;
         // no validator change in the last epoch
         assert_eq!(vm.get_validators(vm.get_epoch_offset(h3, 4).unwrap().0).unwrap(), &expected3);
 
@@ -865,9 +853,9 @@ mod test {
 
     /// Test handling forks across the epoch finalization.
     /// Fork with one BP in one chain and 2 BPs in another chain.
-    ///     |  /- 1 ----|----4-----|----7---
+    ///     |  /- 1 ----|----4-----|----7-----|----10-----
     ///   x-|-0
-    ///     |  \-----2--|-3-----5--|-6-----8
+    ///     |  \-----2--|-3-----5--|-6-----8--|--9----11--
     /// In upper fork, only test1 left + new validator test4.
     /// In lower fork, test1 and test3 are left.
     #[test]
@@ -906,9 +894,9 @@ mod test {
         vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
 
         // Second epoch_length blocks are all epoch <genesis>.
-        assert_eq!(vm.get_epoch_offset(h2, 3).unwrap().0, h0);
-        assert_eq!(vm.get_epoch_offset(h1, 4).unwrap().0, h0);
-        assert_eq!(vm.get_epoch_offset(h2, 5).unwrap().0, h0);
+        assert_eq!(vm.get_epoch_offset(h2, 3).unwrap().0, CryptoHash::default());
+        assert_eq!(vm.get_epoch_offset(h1, 4).unwrap().0, CryptoHash::default());
+        assert_eq!(vm.get_epoch_offset(h2, 5).unwrap().0, CryptoHash::default());
 
         vm.finalize_epoch(&h0, &h2, &h3).unwrap();
         vm.add_proposals(h2, h3, 3, vec![], vec![]).unwrap().commit().unwrap();
@@ -922,9 +910,9 @@ mod test {
         vm.add_proposals(h5, h6, 6, vec![], vec![]).unwrap().commit().unwrap();
 
         // Block #3 has been processed, so ready for next epoch defined by #3.
-        assert_eq!(vm.get_epoch_offset(h5, 6).unwrap().0, h3);
+        assert_eq!(vm.get_epoch_offset(h5, 6).unwrap().0, h0);
         // For block #7, epoch is defined by block #4.
-        assert_eq!(vm.get_epoch_offset(h4, 7).unwrap().0, h4);
+        assert_eq!(vm.get_epoch_offset(h4, 7).unwrap().0, h0);
         // For block 8, epoch is defined by block 2.
         assert_eq!(vm.get_epoch_offset(h6, 8).unwrap(), (h3, 2));
 
@@ -969,7 +957,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked), ("test3", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![0, 1]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -989,7 +977,7 @@ mod test {
             &assignment(
                 vec![("test4", amount_staked), ("test2", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![0, 1]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -1003,8 +991,8 @@ mod test {
 
         vm.add_proposals(h6, h8, 8, vec![], vec![]).unwrap().commit().unwrap();
 
-        assert_eq!(vm.get_epoch_offset(h7, 10).unwrap().0, h7);
-        assert_eq!(vm.get_epoch_offset(h8, 11).unwrap().0, h6);
+        assert_eq!(vm.get_epoch_offset(h7, 10).unwrap().0, h4);
+        assert_eq!(vm.get_epoch_offset(h8, 11).unwrap().0, h3);
 
         // Add the same slot second time already after epoch is finalized should do nothing.
         vm.add_proposals(h0, h2, 2, vec![], vec![]).unwrap().commit().unwrap();
@@ -1063,7 +1051,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1074,7 +1062,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", amount_staked), ("test2", 0)])
@@ -1101,7 +1089,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1115,7 +1103,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 6,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1142,7 +1130,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
