@@ -1,5 +1,4 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use actix::{Actor, Addr, System};
@@ -161,10 +160,15 @@ fn test_validator_kickout() {
             );
         }
 
+        let finalized_mark: Arc<Vec<_>> =
+            Arc::new((0..num_nodes).map(|_| Arc::new(AtomicBool::new(false))).collect());
+
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
                 let test_node1 = test_nodes[0].clone();
+                let finalized_mark1 = finalized_mark.clone();
+
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected: Vec<_> = (num_nodes / 2..num_nodes)
                         .cycle()
@@ -176,6 +180,7 @@ fn test_validator_kickout() {
                         .collect();
                     if res.unwrap().unwrap().validators == expected {
                         for i in 0..num_nodes / 2 {
+                            let mark = finalized_mark1[i].clone();
                             actix::spawn(
                                 test_node1
                                     .view_client
@@ -186,10 +191,13 @@ fn test_validator_kickout() {
                                         ),
                                         data: vec![],
                                     })
-                                    .then(|res| match res.unwrap().unwrap() {
+                                    .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            assert_eq!(result.stake, 0);
-                                            assert_eq!(result.amount, TESTING_INIT_BALANCE);
+                                            if result.stake == 0
+                                                || result.amount == TESTING_INIT_BALANCE
+                                            {
+                                                mark.store(true, Ordering::SeqCst);
+                                            }
                                             futures::future::ok(())
                                         }
                                         _ => panic!("wrong return result"),
@@ -197,6 +205,8 @@ fn test_validator_kickout() {
                             );
                         }
                         for i in num_nodes / 2..num_nodes {
+                            let mark = finalized_mark1[i].clone();
+
                             actix::spawn(
                                 test_node1
                                     .view_client
@@ -207,20 +217,24 @@ fn test_validator_kickout() {
                                         ),
                                         data: vec![],
                                     })
-                                    .then(|res| match res.unwrap().unwrap() {
+                                    .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
                                             assert_eq!(result.stake, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
                                                 TESTING_INIT_BALANCE - TESTING_INIT_STAKE
                                             );
+                                            mark.store(true, Ordering::SeqCst);
                                             futures::future::ok(())
                                         }
                                         _ => panic!("wrong return result"),
                                     }),
                             );
                         }
-                        System::current().stop();
+
+                        if finalized_mark1.iter().all(|mark| mark.load(Ordering::SeqCst)) {
+                            System::current().stop();
+                        }
                     }
                     futures::future::ok(())
                 }));
@@ -309,8 +323,7 @@ fn test_validator_join() {
                                         if result.stake == 0
                                             && result.amount == TESTING_INIT_BALANCE
                                         {
-                                            done1_copy2.store(true, SeqCst);
-                                            println!("{}", done1_copy2.load(SeqCst));
+                                            done1_copy2.store(true, Ordering::SeqCst);
                                         }
                                         futures::future::ok(())
                                     }
@@ -330,7 +343,7 @@ fn test_validator_join() {
                                             && result.amount
                                                 == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
                                         {
-                                            done2_copy2.store(true, SeqCst);
+                                            done2_copy2.store(true, Ordering::SeqCst);
                                         }
 
                                         futures::future::ok(())
@@ -342,7 +355,7 @@ fn test_validator_join() {
 
                     futures::future::ok(())
                 }));
-                if done1_copy1.load(SeqCst) && done2_copy1.load(SeqCst) {
+                if done1_copy1.load(Ordering::SeqCst) && done2_copy1.load(Ordering::SeqCst) {
                     System::current().stop();
                 }
             }),
