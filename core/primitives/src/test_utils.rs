@@ -6,10 +6,15 @@ use log::LevelFilter;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
+use crate::block::Block;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::crypto::signature::{PublicKey, SecretKey};
+use crate::crypto::signature::{PublicKey, SecretKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
+use crate::sharding::ShardChunkHeader;
 use crate::transaction::{SignedTransaction, TransactionBody};
+use crate::types::BlockIndex;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -74,5 +79,52 @@ impl TransactionBody {
     pub fn sign(self, signer: &dyn EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self, Some(signer.public_key()))
+    }
+}
+
+impl Block {
+    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_apporvals(prev, height, HashMap::default(), signer)
+    }
+
+    pub fn empty(prev: &Block, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_height(prev, prev.header.height + 1, signer)
+    }
+
+    pub fn empty_with_apporvals(
+        prev: &Block,
+        height: BlockIndex,
+        approvals: HashMap<usize, Signature>,
+        signer: Arc<dyn EDSigner>,
+    ) -> Self {
+        let chunks = prev
+            .chunks
+            .iter()
+            .map(|chunk| ShardChunkHeader {
+                prev_block_hash: prev.hash(),
+                prev_state_root: chunk.prev_state_root,
+                encoded_merkle_root: chunk.encoded_merkle_root,
+                encoded_length: 0,
+                height_created: prev.header.height,
+                height_included: prev.header.height,
+                shard_id: chunk.shard_id,
+                gas_used: 0,
+                gas_limit: chunk.gas_limit,
+                validator_proposal: vec![],
+                signature: DEFAULT_SIGNATURE,
+            })
+            .collect::<Vec<_>>();
+        Block::produce(
+            &prev.header,
+            height,
+            chunks,
+            prev.header.epoch_hash,
+            0,
+            prev.header.gas_limit,
+            vec![],
+            approvals,
+            vec![],
+            signer,
+        )
     }
 }

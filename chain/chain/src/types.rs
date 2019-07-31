@@ -279,35 +279,13 @@ mod tests {
         let genesis =
             Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-        let b1 = Block::produce(
-            &genesis.header,
-            1,
-            Block::genesis_chunks(vec![Block::chunk_genesis_hash()], num_shards),
-            CryptoHash::default(),
-            0,
-            1_000_000,
-            vec![],
-            HashMap::default(),
-            vec![],
-            signer.clone(),
-        );
+        let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.total_weight.to_num(), 1);
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::produce(
-            &b1.header,
-            2,
-            vec![],
-            CryptoHash::default(),
-            0,
-            1_000_000,
-            vec![],
-            approvals,
-            vec![],
-            signer.clone(),
-        );
+        let b2 = Block::empty_with_apporvals(&b1, 2, approvals, signer.clone());
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

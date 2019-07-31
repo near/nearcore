@@ -250,7 +250,8 @@ fn invalid_blocks() {
                             header.prev_state_root,
                             Block::compute_state_root(&Block::genesis_chunks(
                                 vec![MerkleHash::default()], // must match RuntimeAdapter::genesis_state second return value
-                                1
+                                1,
+                                header.gas_limit
                             ))
                         );
                         assert_eq!(*approval, None);

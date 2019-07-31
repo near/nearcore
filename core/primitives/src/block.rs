@@ -276,7 +276,7 @@ impl Block {
         num_shards: ShardId,
         initial_gas_limit: GasUsage,
     ) -> Self {
-        let chunks = Block::genesis_chunks(state_roots, num_shards);
+        let chunks = Block::genesis_chunks(state_roots, num_shards, initial_gas_limit);
         Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
@@ -288,24 +288,23 @@ impl Block {
         }
     }
 
-    pub fn chunk_genesis_hash() -> CryptoHash {
-        hash(&[42])
-    }
-
     pub fn genesis_chunks(
         state_roots: Vec<CryptoHash>,
         num_shards: ShardId,
+        initial_gas_limit: GasUsage,
     ) -> Vec<ShardChunkHeader> {
         assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
         (0..num_shards)
             .map(|i| ShardChunkHeader {
-                prev_block_hash: Block::chunk_genesis_hash(),
+                prev_block_hash: CryptoHash::default(),
                 prev_state_root: state_roots[i as usize % state_roots.len()],
-                encoded_merkle_root: Block::chunk_genesis_hash(),
+                encoded_merkle_root: CryptoHash::default(),
                 encoded_length: 0,
                 height_created: 0,
                 height_included: 0,
                 shard_id: i,
+                gas_used: 0,
+                gas_limit: initial_gas_limit,
                 validator_proposal: vec![],
                 signature: DEFAULT_SIGNATURE,
             })
@@ -363,22 +362,6 @@ impl Block {
 
     pub fn hash(&self) -> CryptoHash {
         self.header.hash()
-    }
-
-    /// Used in tests.
-    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>, num_shards: ShardId) -> Self {
-        Block::produce(
-            prev,
-            prev.height + 1,
-            Block::genesis_chunks(vec![CryptoHash::default()], num_shards),
-            prev.epoch_hash,
-            0,
-            prev.gas_limit,
-            vec![],
-            HashMap::default(),
-            vec![],
-            signer,
-        )
     }
 }
 

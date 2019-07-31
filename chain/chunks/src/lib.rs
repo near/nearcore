@@ -16,7 +16,7 @@ use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ShardChunk, ShardChunkHeader,
 };
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, GasUsage, ShardId, ValidatorStake};
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 use rand::Rng;
 use reed_solomon_erasure::option_shards_into_shards;
@@ -673,6 +673,9 @@ impl ShardsManager {
         prev_state_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
+        validator_proposal: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<ReceiptTransaction>,
         signer: Arc<dyn EDSigner>,
@@ -706,6 +709,9 @@ impl ShardsManager {
             prev_state_root,
             height,
             shard_id,
+            gas_used,
+            gas_limit,
+            validator_proposal,
             encoded_length as u64,
             parts,
             data_parts,

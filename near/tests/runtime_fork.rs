@@ -22,7 +22,11 @@ fn runtime_hanldle_fork() {
     let signer = Arc::new(InMemorySigner::from_seed("near.0", "near.0"));
     let runtime =
         Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
-    let genesis_chunks = Block::genesis_chunks(runtime.genesis_state().1, runtime.num_shards());
+    let genesis_chunks = Block::genesis_chunks(
+        runtime.genesis_state().1,
+        runtime.num_shards(),
+        genesis_config.gas_limit,
+    );
 
     let mut chain =
         Chain::new(store, runtime, ChainGenesis::new(genesis_config.genesis_time, 1_000_000))

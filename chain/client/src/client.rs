@@ -846,11 +846,11 @@ impl ClientActor {
             block_producer.account_id
         );
 
-        let state_root = self
+        let chunk_extra = self
             .chain
             .get_latest_chunk_extra(shard_id)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
-            .state_root;
+            .clone();
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
@@ -880,9 +880,12 @@ impl ClientActor {
             .shards_mgr
             .create_encoded_shard_chunk(
                 prev_block_hash,
-                state_root,
+                chunk_extra.state_root,
                 next_height,
                 shard_id,
+                chunk_extra.gas_used,
+                chunk_extra.gas_limit,
+                chunk_extra.validator_proposals.clone(),
                 &transactions,
                 &receipts,
                 block_producer.signer.clone(),
@@ -995,6 +998,19 @@ impl ClientActor {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
+        // Collect aggregate of validators and gas usage/limits from chunks.
+        let mut validator_proposals = vec![];
+        let mut gas_used = 0;
+        let mut gas_limit = 0;
+        for chunk in chunks.iter() {
+            validator_proposals.extend_from_slice(&chunk.validator_proposal);
+            gas_used += chunk.gas_used;
+            gas_limit += chunk.gas_limit;
+        }
+        gas_used /= chunks.len() as u64;
+        gas_limit /= chunks.len() as u64;
+
+        // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
             chunk_header.height_included = next_height;
             chunks[shard_id as usize] = chunk_header;
@@ -1017,11 +1033,11 @@ impl ClientActor {
             next_height,
             chunks,
             epoch_hash,
-            0,
-            prev_header.gas_limit,
+            gas_used,
+            gas_limit,
             transactions,
             self.approvals.drain().collect(),
-            vec![],
+            validator_proposals,
             block_producer.signer.clone(),
         );
 

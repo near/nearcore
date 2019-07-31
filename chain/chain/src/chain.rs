@@ -10,7 +10,7 @@ use log::{debug, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, GasUsage, MerkleHash, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, GasUsage, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -193,7 +193,7 @@ impl Chain {
                     {
                         store_update.save_chunk_extra(
                             &chunk_header.chunk_hash(),
-                            ChunkExtra::new(state_root, vec![], 0),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit),
                         );
                     }
 
@@ -1029,6 +1029,7 @@ impl<'a> ChainUpdate<'a> {
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
                         chunk.transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
+                    let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
                     let (
@@ -1056,7 +1057,7 @@ impl<'a> ChainUpdate<'a> {
                     let gas_used = 0;
                     self.chain_store_update.save_chunk_extra(
                         &chunk_hash,
-                        ChunkExtra::new(&state_root, validator_proposals, gas_used),
+                        ChunkExtra::new(&state_root, validator_proposals, gas_used, gas_limit),
                     );
                     // Save resulting receipts.
                     for (_receipt_shard_id, receipts) in new_receipts.drain() {
@@ -1185,11 +1186,10 @@ impl<'a> ChainUpdate<'a> {
             } else {
                 if prev_chunk_header != chunk_header {
                     info!(
-                        "MOO {:?} != {:?}, DEF: {}, GEN: {}",
+                        "MOO {:?} != {:?}, DEF: {}",
                         prev_chunk_header,
                         chunk_header,
                         CryptoHash::default(),
-                        Block::chunk_genesis_hash()
                     );
                     return Err(ErrorKind::InvalidChunk.into());
                 }

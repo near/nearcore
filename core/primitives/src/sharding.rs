@@ -13,7 +13,7 @@ use crate::crypto::signer::EDSigner;
 use crate::hash::{hash_struct, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::transaction::{ReceiptTransaction, SignedTransaction};
-use crate::types::{MerkleHash, ShardId, ValidatorStake};
+use crate::types::{BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake};
 
 pub struct MainChainBlockHeader {
     pub prev_block_hash: CryptoHash,
@@ -46,10 +46,14 @@ pub struct ShardChunkHeader {
     pub prev_state_root: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub encoded_length: u64,
-    pub height_created: u64,
-    pub height_included: u64,
+    pub height_created: BlockIndex,
+    pub height_included: BlockIndex,
     /// Shard index.
     pub shard_id: ShardId,
+    /// Gas used in this chunk.
+    pub gas_used: GasUsage,
+    /// Gas limit voted by validators.
+    pub gas_limit: GasUsage,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
 
@@ -66,6 +70,9 @@ impl ShardChunkHeader {
             self.encoded_merkle_root,
             self.encoded_length,
             self.height_created,
+            self.gas_used,
+            self.gas_limit,
+            self.validator_proposal.clone(),
             self.shard_id,
         )))
     }
@@ -83,6 +90,8 @@ impl TryFrom<chain_proto::ShardChunkHeader> for ShardChunkHeader {
             height_created: proto.height_created,
             height_included: proto.height_included,
             shard_id: proto.shard_id,
+            gas_used: proto.gas_used,
+            gas_limit: proto.gas_limit,
             validator_proposal: proto
                 .validator_proposal
                 .into_iter()
@@ -103,6 +112,8 @@ impl From<ShardChunkHeader> for chain_proto::ShardChunkHeader {
             height_created: header.height_created,
             height_included: header.height_included,
             shard_id: header.shard_id,
+            gas_used: header.gas_used,
+            gas_limit: header.gas_limit,
             validator_proposal: RepeatedField::from_iter(
                 header.validator_proposal.drain(..).map(std::convert::Into::into),
             ),
@@ -175,6 +186,10 @@ impl EncodedShardChunk {
         prev_state_root: CryptoHash,
         height: u64,
         shard_id: ShardId,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
+        validator_proposal: Vec<ValidatorStake>,
+
         encoded_length: u64,
         parts: Vec<Option<Shard>>,
 
@@ -194,7 +209,9 @@ impl EncodedShardChunk {
             height_created: height,
             height_included: 0,
             shard_id,
-            validator_proposal: vec![],
+            gas_used,
+            gas_limit,
+            validator_proposal,
             signature: DEFAULT_SIGNATURE,
         };
 

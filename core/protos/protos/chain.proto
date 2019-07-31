@@ -34,6 +34,8 @@ message ShardChunkHeader {
     uint64 shard_id = 7;
     bytes signature = 8;
     repeated ValidatorStake validator_proposal = 9;
+    uint64 gas_used = 10;
+    uint64 gas_limit = 11;
 }
 
 message Block {

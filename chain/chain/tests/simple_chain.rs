@@ -1,9 +1,5 @@
-use std::collections::HashMap;
-
 use near_chain::test_utils::setup;
-use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, ErrorKind, Provenance};
-use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 
 #[test]
@@ -16,11 +12,11 @@ fn empty_chain() {
 #[test]
 fn build_chain() {
     init_test_logger();
-    let (mut chain, runtime, signer) = setup();
-    let num_shards = runtime.num_shards();
+    let (mut chain, _, signer) = setup();
     for i in 0..4 {
-        let prev = chain.head_header().unwrap();
-        let block = Block::empty(&prev, signer.clone(), num_shards);
+        let prev_hash = chain.head_header().unwrap().hash();
+        let prev = chain.get_block(&prev_hash).unwrap();
+        let block = Block::empty(&prev, signer.clone());
         let tip =
             chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
@@ -31,11 +27,10 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orhpans() {
     init_test_logger();
-    let (mut chain, runtime, signer) = setup();
-    let num_shards = runtime.num_shards();
+    let (mut chain, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
-        let block = Block::empty(&blocks[i - 1].header, signer.clone(), num_shards);
+        let block = Block::empty(&blocks[i - 1], signer.clone());
         blocks.push(block);
     }
     assert_eq!(
@@ -72,35 +67,13 @@ fn build_chain_with_orhpans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, runtime, signer) = setup();
-    let num_shards = runtime.num_shards();
-    let b1 = Block::empty(chain.genesis(), signer.clone(), num_shards);
-    let b2 = Block::produce(
-        chain.genesis(),
-        2,
-        Block::genesis_chunks(vec![CryptoHash::default()], num_shards),
-        CryptoHash::default(),
-        0,
-        1_000_000,
-        vec![],
-        HashMap::default(),
-        vec![],
-        signer.clone(),
-    );
-    let b3 = Block::empty(&b1.header, signer.clone(), num_shards);
-    let b4 = Block::produce(
-        &b2.header,
-        4,
-        Block::genesis_chunks(vec![CryptoHash::default()], num_shards),
-        CryptoHash::default(),
-        0,
-        1_000_000,
-        vec![],
-        HashMap::default(),
-        vec![],
-        signer.clone(),
-    );
-    let b5 = Block::empty(&b4.header, signer, num_shards);
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
+    let b1 = Block::empty(&genesis, signer.clone());
+    let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
+    let b3 = Block::empty(&b1, signer.clone());
+    let b4 = Block::empty_with_height(&b2, 4, signer.clone());
+    let b5 = Block::empty(&b4, signer);
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());

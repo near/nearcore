@@ -44,11 +44,16 @@ pub struct StateSyncInfo {
 }
 
 /// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub struct ChunkExtra {
+    /// Post state root after applying give chunk.
     pub state_root: MerkleHash,
+    /// Validator proposals produced by given chunk.
     pub validator_proposals: Vec<ValidatorStake>,
+    /// Actually how much gas were used.
     pub gas_used: GasUsage,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: GasUsage,
 }
 
 impl ChunkExtra {
@@ -56,8 +61,9 @@ impl ChunkExtra {
         state_root: &MerkleHash,
         validator_proposals: Vec<ValidatorStake>,
         gas_used: GasUsage,
+        gas_limit: GasUsage,
     ) -> Self {
-        Self { state_root: *state_root, validator_proposals, gas_used }
+        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
     }
 }
 
@@ -462,7 +468,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     ) -> Result<Vec<ReceiptTransaction>, Error> {
         let mut ret = vec![];
 
-        if last_chunk_header.prev_block_hash == Block::chunk_genesis_hash() {
+        if last_chunk_header.prev_block_hash == CryptoHash::default() {
             return Ok(ret);
         }
 
