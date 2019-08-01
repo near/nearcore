@@ -27,7 +27,7 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
     validators: Vec<Vec<&str>>,
-    validators_per_shard: u64,
+    validator_groups: u64,
     account_id: &str,
     skip_sync_wait: bool,
     block_prod_time: u64,
@@ -38,7 +38,7 @@ pub fn setup(
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
-        validators_per_shard,
+        validator_groups,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000);
@@ -94,7 +94,7 @@ pub fn setup_mock(
 pub fn setup_mock_all_validators(
     validators: Vec<Vec<&'static str>>,
     key_pairs: Vec<PeerInfo>,
-    validators_per_shard: u64,
+    validator_groups: u64,
     skip_sync_wait: bool,
     block_prod_time: u64,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
@@ -224,21 +224,14 @@ pub fn setup_mock_all_validators(
                                         .then(move |response| {
                                             let response = response.unwrap();
                                             match response {
-                                                NetworkClientResponses::StateResponse {
-                                                    shard_id,
-                                                    hash,
-                                                    payload,
-                                                    receipts,
-                                                } =>
+                                                NetworkClientResponses::StateResponse(info) =>
                                                     {
                                                         for (i, name) in
                                                             validators_clone3.iter().flatten().enumerate()
                                                             {
                                                                 if *name == account_id {
                                                                     connectors2.write().unwrap()[i].0.do_send(
-                                                                        NetworkClientMessages::StateResponse(
-                                                                            shard_id, hash, payload, receipts,
-                                                                        ),
+                                                                        NetworkClientMessages::StateResponse(info),
                                                                     );
                                                                     break;
                                                                 }
@@ -252,6 +245,9 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
+                        NetworkRequests::AnnounceAccount(announce_account) => {
+                            println!("LOL {:?}", announce_account);
+                        }
                         _ => {}
                     };
                 }
@@ -260,7 +256,7 @@ pub fn setup_mock_all_validators(
             .start();
             let (client, view_client) = setup(
                 validators_clone1.clone(),
-                validators_per_shard,
+                validator_groups,
                 account_id,
                 skip_sync_wait,
                 block_prod_time,

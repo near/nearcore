@@ -8,6 +8,7 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::serialize::{Decode, Encode};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::ReceiptBody::NewCall;
@@ -37,6 +38,7 @@ pub struct KeyValueRuntime {
     tx_nonces: RwLock<HashMap<MerkleHash, HashSet<(AccountId, Nonce)>>>,
 
     hash_to_epoch: RwLock<HashMap<CryptoHash, CryptoHash>>,
+    hash_to_next_epoch: RwLock<HashMap<CryptoHash, CryptoHash>>,
     hash_to_valset: RwLock<HashMap<CryptoHash, u64>>,
     epoch_start: RwLock<HashMap<CryptoHash, u64>>,
 }
@@ -89,7 +91,8 @@ impl KeyValueRuntime {
             amounts: RwLock::new(amounts),
             receipt_nonces: RwLock::new(HashMap::new()),
             tx_nonces: RwLock::new(HashMap::new()),
-            hash_to_epoch: RwLock::new(map_with_default_hash1.clone()),
+            hash_to_epoch: RwLock::new(HashMap::new()),
+            hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash2.clone()),
             epoch_start: RwLock::new(map_with_default_hash2.clone()),
         }
@@ -113,9 +116,12 @@ impl KeyValueRuntime {
         Ok(prev_block_header.height)
     }
 
-    fn get_epoch_and_valset(&self, prev_hash: CryptoHash) -> Result<(CryptoHash, usize), Error> {
+    fn get_epoch_and_valset(
+        &self,
+        prev_hash: CryptoHash,
+    ) -> Result<(CryptoHash, usize, CryptoHash), Error> {
         if prev_hash == CryptoHash::default() {
-            return Ok((prev_hash, 0));
+            return Ok((prev_hash, 0, prev_hash));
         }
         let prev_block_header = self
             .store
@@ -123,46 +129,52 @@ impl KeyValueRuntime {
             .ok_or(ErrorKind::Other("Missing block when computing the epoch".to_string()))?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
+        let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
         let prev_prev_hash = prev_block_header.prev_hash;
-        let prev_epoch = hash_to_epoch.get(&prev_prev_hash).unwrap();
-        let prev_valset = *hash_to_valset.get(&prev_prev_hash).unwrap();
-
-        let (has_two_blocks, prev_epoch_start) =
-            if prev_block_header.prev_hash == CryptoHash::default() {
-                (false, 0)
-            } else {
-                let prev_prev_block_header = self
-                    .store
-                    .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_prev_hash.as_ref())
-                    .unwrap()
-                    .unwrap();
-
-                let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
-
-                (
-                    prev_epoch.clone()
-                        == hash_to_epoch.get(&prev_prev_block_header.prev_hash).unwrap().clone(),
-                    prev_epoch_start,
-                )
-            };
-
-        // We need to have at least two blocks in each epoch, otherwise switch epoch ~every 5 heights
-        let increment_epoch = has_two_blocks && prev_block_header.height - prev_epoch_start >= 5;
-
-        let (epoch, valset, epoch_start) = if increment_epoch {
-            (prev_hash, prev_valset + 1, prev_block_header.height)
-        } else {
-            (prev_epoch.clone(), prev_valset, prev_epoch_start)
+        let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
+        let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
+        let prev_valset = match prev_epoch {
+            Some(prev_epoch) => Some(*hash_to_valset.get(&prev_epoch).unwrap()),
+            None => None,
         };
 
+        let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
+
+        let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
+            || prev_block_header.height - prev_epoch_start >= 5;
+
+        let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
+            let new_valset = match prev_valset {
+                None => 0,
+                Some(prev_valset) => prev_valset + 1,
+            };
+            (prev_next_epoch.clone(), prev_hash, new_valset, prev_block_header.height)
+        } else {
+            (
+                prev_epoch.unwrap().clone(),
+                prev_next_epoch.clone(),
+                prev_valset.unwrap(),
+                prev_epoch_start,
+            )
+        };
+
+        hash_to_next_epoch.insert(prev_hash, next_epoch);
         hash_to_epoch.insert(prev_hash, epoch);
-        hash_to_valset.insert(prev_hash, valset);
+        hash_to_valset.insert(epoch, valset);
+        hash_to_valset.insert(next_epoch, valset + 1);
         epoch_start_map.insert(prev_hash, epoch_start);
 
-        Ok((epoch, valset as usize % self.validators.len()))
+        Ok((epoch, valset as usize % self.validators.len(), next_epoch))
+    }
+
+    fn get_valset_for_epoch(&self, epoch_hash: CryptoHash) -> usize {
+        // conveniently here if the prev_hash is passed mistakenly instead of the epoch_hash,
+        // the `unwrap` will trigger
+        return *self.hash_to_valset.read().unwrap().get(&epoch_hash).unwrap() as usize
+            % self.validators.len();
     }
 }
 
@@ -215,7 +227,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_hash: CryptoHash,
     ) -> Result<Vec<(AccountId)>, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash).unwrap().1];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_hash)];
         Ok(validators.iter().map(|x| x.account_id.clone()).collect())
     }
 
@@ -224,7 +236,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_hash: CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash)?.1];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_hash)];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
@@ -234,7 +246,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash).unwrap().1];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_hash)];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
@@ -546,47 +558,41 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn dump_state(
         &self,
         _shard_id: ShardId,
-        _state_root: MerkleHash,
+        state_root: MerkleHash,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Ok(vec![])
+        Encode::encode(&(
+            self.amounts.read().unwrap().get(&state_root),
+            self.tx_nonces.read().unwrap().get(&state_root),
+            self.receipt_nonces.read().unwrap().get(&state_root),
+        ))
+        .map_err(Into::into)
     }
 
     fn set_state(
         &self,
         _shard_id: ShardId,
-        _state_root: MerkleHash,
-        _payload: Vec<u8>,
+        state_root: MerkleHash,
+        payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let (amt, txn, rcn) = Decode::decode(payload.as_ref()).unwrap();
+        if let Some(amt) = amt {
+            self.amounts.write().unwrap().insert(state_root, amt);
+        }
+        if let Some(txn) = txn {
+            self.amounts.write().unwrap().insert(state_root, txn);
+        }
+        if let Some(rcn) = rcn {
+            self.amounts.write().unwrap().insert(state_root, rcn);
+        }
         Ok(())
     }
 
     fn is_epoch_second_block(
         &self,
-        parent_hash: CryptoHash,
+        _parent_hash: CryptoHash,
         _index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
-        let prev_prev_hash = prev_block_header.prev_hash;
-
-        // So this is a bit ugly, but `is_epoch_second_block` is the only method that is guaranteed
-        //    to be called from `process_block`, so call `get_epoch` here to get all the epoch
-        //    stuff computed and persisted
-        let _ = self.get_epoch_and_valset(parent_hash);
-
-        if prev_prev_hash == CryptoHash::default() {
-            Ok(true)
-        } else {
-            let prev_prev_block_header = self
-                .store
-                .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_prev_hash.as_ref())?
-                .ok_or("Missing block when computing the epoch")?;
-            let prev_prev_prev_hash = prev_prev_block_header.prev_hash;
-            Ok(self.get_epoch_and_valset(prev_prev_prev_hash)?.0
-                != self.get_epoch_and_valset(prev_prev_hash)?.0)
-        }
+        unreachable!();
     }
 
     fn is_epoch_start(
@@ -608,6 +614,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
         Ok(self.get_epoch_and_valset(parent_hash)?.0)
+    }
+
+    fn get_next_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
+        Ok(self.get_epoch_and_valset(parent_hash)?.2)
     }
 }
 

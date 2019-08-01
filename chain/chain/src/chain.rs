@@ -10,11 +10,11 @@ use log::{debug, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, GasUsage, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, GasUsage, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
-use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ChunkExtra, StateSyncInfo};
+use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, StateSyncInfo};
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
 };
@@ -698,27 +698,95 @@ impl Chain {
         maybe_new_head
     }
 
-    pub fn set_shard_state(
+    pub fn get_outgoing_receipts_for_shard(
+        &mut self,
+        prev_block_hash: CryptoHash,
+        shard_id: ShardId,
+        last_height_included: BlockIndex,
+    ) -> Result<(CryptoHash, Vec<ReceiptTransaction>), Error> {
+        self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
+    }
+
+    pub fn state_request(
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
+    ) -> Result<
+        (
+            ChunkHash,
+            ChunkExtra,
+            Vec<u8>,
+            (CryptoHash, Vec<ReceiptTransaction>),
+            Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
+        ),
+        Error,
+    > {
+        let prev_hash = self.get_block_header(&hash)?.prev_hash;
+        let prev_block = self.get_block(&prev_hash)?;
+
+        if shard_id as usize >= prev_block.chunks.len() {
+            return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
+        }
+
+        let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
+        let prev_chunk_hash = prev_chunk_header.chunk_hash();
+        let prev_chunk_extra = self.store.get_chunk_extra(&prev_chunk_hash)?.clone();
+
+        let payload = self
+            .runtime_adapter
+            .dump_state(shard_id, prev_chunk_extra.state_root)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+
+        let outgoing_receipts = self.get_outgoing_receipts_for_shard(
+            hash,
+            shard_id,
+            prev_chunk_header.height_included,
+        )?;
+        let incoming_receipts = ChainStoreUpdate::new(&mut self.store)
+            .get_incoming_receipts_for_shard(shard_id, hash, &prev_chunk_header)?;
+
+        Ok((
+            prev_chunk_hash.clone(),
+            prev_chunk_extra,
+            payload,
+            outgoing_receipts,
+            incoming_receipts.clone(),
+        ))
+    }
+
+    pub fn set_shard_state(
+        &mut self,
+        shard_id: ShardId,
+        _hash: CryptoHash,
+        prev_chunk_hash: ChunkHash,
+        prev_extra: ChunkExtra,
         payload: Vec<u8>,
-        _receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
+        outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
+        incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
     ) -> Result<(), Error> {
-        // TODO(1046): update this with any required changes for chunks support.
-        let header = self.get_block_header(&hash)?;
-        let (_prev_hash, state_root) = (header.prev_hash, header.prev_state_root);
+        // TODO (#1126): verify that prev_chunk_hash, prev_state_root, payload and receipts match
+        //    the corresponding merkle roots
 
         // Save state in the runtime, will also check it's validity.
         self.runtime_adapter
-            .set_state(shard_id, state_root, payload)
+            .set_state(shard_id, prev_extra.state_root, payload)
             .map_err(|err| ErrorKind::InvalidStatePayload(err.to_string()))?;
 
         // Update pointers to state root and receipts.
-        let /*mut*/ chain_store_update = self.store.store_update();
-        // TODO XXX
-        //chain_store_update.save_post_state_root(&prev_hash, &state_root);
-        //chain_store_update.save_receipt(&prev_hash, receipts);
+        let mut chain_store_update = self.store.store_update();
+        chain_store_update.save_chunk_extra(&prev_chunk_hash, prev_extra);
+        chain_store_update.save_outgoing_receipt(
+            &outgoing_receipts.0,
+            shard_id,
+            outgoing_receipts.1,
+        );
+        for incoming_receipt in incoming_receipts {
+            chain_store_update.save_incoming_receipt(
+                &incoming_receipt.0,
+                shard_id,
+                incoming_receipt.1,
+            );
+        }
         chain_store_update.commit()?;
 
         Ok(())
@@ -804,16 +872,6 @@ impl Chain {
     #[inline]
     pub fn get_block_header(&mut self, hash: &CryptoHash) -> Result<&BlockHeader, Error> {
         self.store.get_block_header(hash)
-    }
-
-    /// Gets a vector of post-receipts by block hash and shard_id
-    #[inline]
-    pub fn get_receipts(
-        &mut self,
-        hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<&Vec<ReceiptTransaction>, Error> {
-        self.store.get_outgoing_receipts(hash, shard_id)
     }
 
     /// Returns block header from the current chain for given height if present.
@@ -1020,11 +1078,13 @@ impl<'a> ChainUpdate<'a> {
                     ),
                 };
                 if care_about_shard {
-                    let receipts = self.chain_store_update.get_incoming_receipts_for_shard(
-                        shard_id,
-                        block.hash(),
-                        prev_chunk_header,
-                    )?;
+                    let receipts: Vec<ReceiptTransaction> = self
+                        .chain_store_update
+                        .get_incoming_receipts_for_shard(shard_id, block.hash(), prev_chunk_header)?
+                        .iter()
+                        .map(|x| x.1.clone())
+                        .flatten()
+                        .collect();
                     let chunk = self.chain_store_update.get_chunk(&chunk_header)?;
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
@@ -1120,16 +1180,6 @@ impl<'a> ChainUpdate<'a> {
 
         let (is_caught_up, needs_to_start_fetching_state) = if self
             .runtime_adapter
-            .is_epoch_second_block(prev_hash, block.header.height)
-            .map_err(|err| ErrorKind::Other(err.to_string()))?
-        {
-            // As of the second block of each epoch, we start DLing the state, and mark is as not
-            // caught up. The state DL will traverse all non-caught up blocks after the state is
-            // avaiable and apply the state transition for the shards that we will monitor as of
-            // the next epoch
-            (false, true)
-        } else if self
-            .runtime_adapter
             .is_epoch_start(prev_hash, block.header.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?
         {
@@ -1143,7 +1193,7 @@ impl<'a> ChainUpdate<'a> {
 
             // For the first block of the epoch we never apply state for the next epoch, so it's
             // always caught up. State download also doesn't happen until the next block.
-            (true, false)
+            (false, true)
         } else {
             (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, false)
         };
@@ -1167,13 +1217,6 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update.save_block(block.clone());
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
-
-        assert_eq!(
-            self.runtime_adapter
-                .is_epoch_start(prev_block.header.prev_hash, prev_block.header.height)
-                .unwrap(),
-            self.runtime_adapter.is_epoch_second_block(prev_hash, block.header.height).unwrap()
-        );
 
         self.save_incoming_receipts_from_block(me, prev_hash, &block)?;
 
@@ -1258,12 +1301,11 @@ impl<'a> ChainUpdate<'a> {
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
 
         debug!(
-            "MOO first_epoch: {:?}, prev_block: {:?}, block_hash: {:?}, is_epoch_start: {:?}, is_second: {:?}",
+            "MOO first_epoch: {:?}, prev_block: {:?}, block_hash: {:?}, is_epoch_start: {:?}",
             first_epoch,
             block.header.prev_hash,
             block.hash(),
             self.runtime_adapter.is_epoch_start(block.header.prev_hash, 0),
-            self.runtime_adapter.is_epoch_second_block(block.header.prev_hash, 0)
         );
 
         let mut queue = vec![block.header.prev_hash, epoch_start];
@@ -1292,12 +1334,11 @@ impl<'a> ChainUpdate<'a> {
 
             if saw_one {
                 debug!(
-                    "MOO new epoch: {:?}, is_epoch_start: {:?}, is_second: {:?}",
+                    "MOO new epoch: {:?}, is_epoch_start: {:?}",
                     self.runtime_adapter
                         .get_epoch_hash(block_hash)
                         .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?,
                     self.runtime_adapter.is_epoch_start(block_hash, 0),
-                    self.runtime_adapter.is_epoch_second_block(block_hash, 0)
                 );
                 assert_eq!(
                     self.runtime_adapter

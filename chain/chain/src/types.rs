@@ -216,6 +216,7 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<bool, Box<dyn std::error::Error>>;
 
     fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error>;
+    fn get_next_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

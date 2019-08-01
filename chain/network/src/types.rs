@@ -22,7 +22,7 @@ use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode, Encode};
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
-use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
@@ -416,7 +416,7 @@ pub enum PeerMessage {
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<(CryptoHash, Vec<ReceiptTransaction>)>),
+    StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
 
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -439,7 +439,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
-            PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
+            PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
@@ -512,12 +512,36 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                 ))
             }
             Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response)) => {
-                Ok(PeerMessage::StateResponse(
-                    state_response.shard_id,
-                    state_response.hash.try_into()?,
-                    state_response.payload,
+                let outgoing_receipts_proto =
                     state_response
-                        .receipts
+                        .outgoing_receipts
+                        .into_option()
+                        .ok_or::<Self::Error>("missing outgoing_receipts".into())?;
+                Ok(PeerMessage::StateResponse(StateResponseInfo {
+                    shard_id: state_response.shard_id,
+                    hash: state_response.hash.try_into()?,
+                    prev_chunk_hash: ChunkHash(state_response.prev_chunk_hash.try_into()?),
+                    prev_chunk_extra: ChunkExtra {
+                        state_root: state_response.prev_state_root.try_into()?,
+                        validator_proposals: state_response
+                            .validator_proposals
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<Vec<_>, _>>()?,
+                        gas_used: state_response.prev_gas_used.try_into()?,
+                        gas_limit: state_response.prev_gas_limit.try_into()?,
+                    },
+                    payload: state_response.payload,
+                    outgoing_receipts: (
+                        outgoing_receipts_proto.hash.try_into()?,
+                        outgoing_receipts_proto
+                            .receipts
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                    incoming_receipts: state_response
+                        .incoming_receipts
                         .into_iter()
                         .map(|receipt| {
                             Ok((
@@ -531,7 +555,7 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         })
                         .collect::<Result<Vec<(CryptoHash, Vec<ReceiptTransaction>)>, Self::Error>>(
                         )?,
-                ))
+                }))
             }
             Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
                 chunk_part_request,
@@ -651,12 +675,40 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request))
             }
-            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
+            PeerMessage::StateResponse(StateResponseInfo {
+                shard_id,
+                hash,
+                prev_chunk_hash,
+                prev_chunk_extra,
+                payload,
+                outgoing_receipts,
+                incoming_receipts,
+            }) => {
                 let state_response = network_proto::StateResponse {
                     shard_id,
                     hash: hash.into(),
+                    prev_chunk_hash: prev_chunk_hash.0.into(),
+                    prev_state_root: prev_chunk_extra.state_root.into(),
+                    validator_proposals: RepeatedField::from_iter(
+                        prev_chunk_extra
+                            .validator_proposals
+                            .into_iter()
+                            .map(std::convert::Into::into),
+                    ),
+                    prev_gas_used: prev_chunk_extra.gas_used.into(),
+                    prev_gas_limit: prev_chunk_extra.gas_limit.into(),
                     payload,
-                    receipts: RepeatedField::from_iter(receipts.into_iter().map(
+                    outgoing_receipts: SingularPtrField::some(
+                        network_proto::StateResponseReceipts {
+                            hash: outgoing_receipts.0.into(),
+                            receipts: RepeatedField::from_iter(
+                                outgoing_receipts.1.into_iter().map(std::convert::Into::into),
+                            ),
+                            cached_size: Default::default(),
+                            unknown_fields: Default::default(),
+                        },
+                    ),
+                    incoming_receipts: RepeatedField::from_iter(incoming_receipts.into_iter().map(
                         |(hash, receipts)| {
                             (network_proto::StateResponseReceipts {
                                 hash: hash.into(),
@@ -962,6 +1014,17 @@ impl Message for NetworkRequests {
     type Result = NetworkResponses;
 }
 
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct StateResponseInfo {
+    pub shard_id: ShardId,
+    pub hash: CryptoHash,
+    pub prev_chunk_hash: ChunkHash,
+    pub prev_chunk_extra: ChunkExtra,
+    pub payload: Vec<u8>,
+    pub outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
+    pub incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
+}
+
 #[derive(Debug)]
 pub enum NetworkClientMessages {
     /// Received transaction.
@@ -983,7 +1046,7 @@ pub enum NetworkClientMessages {
     /// State request.
     StateRequest(ShardId, CryptoHash),
     /// State response.
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<(CryptoHash, Vec<ReceiptTransaction>)>),
+    StateResponse(StateResponseInfo),
     /// Account announcement that needs to be validated before being processed
     AnnounceAccount(AnnounceAccount),
 
@@ -1013,12 +1076,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse {
-        shard_id: ShardId,
-        hash: CryptoHash,
-        payload: Vec<u8>,
-        receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
-    },
+    StateResponse(StateResponseInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
