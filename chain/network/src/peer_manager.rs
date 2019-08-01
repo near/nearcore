@@ -73,7 +73,6 @@ impl RoutingTableUpdate {
     }
 }
 
-// TODO(MarX): Avoid routes that contains me.
 #[derive(Debug, Clone)]
 pub struct RoutingTableEntry {
     // Target peer id for communication.
@@ -451,6 +450,13 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
+        // Check that we don't belong to this route. There is a chance that we remove from our routing table
+        // some account id, and after that receive a route to that account id that pass through us.
+        // This avoid accepting such route.
+        if announce_account.route.iter().any(|announce| announce.peer_id != self.peer_id) {
+            return;
+        }
+
         // If this is a new account send an announcement to random set of peers.
         if self.routing_table.update(&announce_account).is_new() {
             if announce_account.header().peer_id != self.peer_id {
