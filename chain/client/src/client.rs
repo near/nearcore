@@ -996,18 +996,6 @@ impl ClientActor {
         let prev_block = self.chain.get_block(&head.last_block_hash)?;
         let mut chunks = prev_block.chunks.clone();
 
-        // Collect aggregate of validators and gas usage/limits from chunks.
-        let mut validator_proposals = vec![];
-        let mut gas_used = 0;
-        let mut gas_limit = 0;
-        for chunk in chunks.iter() {
-            validator_proposals.extend_from_slice(&chunk.validator_proposal);
-            gas_used += chunk.gas_used;
-            gas_limit += chunk.gas_limit;
-        }
-        gas_used /= chunks.len() as u64;
-        gas_limit /= chunks.len() as u64;
-
         // Collect new chunks.
         for (shard_id, mut chunk_header) in new_chunks {
             chunk_header.height_included = next_height;
@@ -1031,16 +1019,18 @@ impl ClientActor {
             next_height,
             chunks,
             epoch_hash,
-            gas_used,
-            gas_limit,
             transactions,
             self.approvals.drain().collect(),
-            validator_proposals,
             block_producer.signer.clone(),
         );
 
         let ret = self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into());
         assert!(ret.is_ok());
+        if self.runtime_adapter.is_epoch_start(prev_block.hash(), block.header.height) {
+            // Epoch start: distribute rewards from last epoch and clear the accumulating sum of rewards
+        } else {
+            // Update the rewards
+        }
         ret
     }
 

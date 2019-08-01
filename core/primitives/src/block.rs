@@ -317,11 +317,8 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_hash: CryptoHash,
-        gas_used: GasUsage,
-        gas_limit: GasUsage,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
-        validator_proposal: Vec<ValidatorStake>,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         // TODO: merkelize transactions.
@@ -334,6 +331,21 @@ impl Block {
         } else {
             (vec![], vec![])
         };
+
+        // Collect aggregate of validators and gas usage/limits from chunks.
+        let mut validator_proposals = vec![];
+        let mut gas_used = 0;
+        let mut gas_limit = 0;
+        for chunk in chunks.iter() {
+            if chunk.height_included == height {
+                validator_proposals.extend_from_slice(&chunk.validator_proposal);
+                gas_used += chunk.gas_used;
+                gas_limit += chunk.gas_limit;
+            }
+        }
+        // TODO: fix this incorrect calculation
+        gas_limit /= chunks.len() as u64;
+
         let total_weight = (prev.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
         Block {
             header: BlockHeader::new(
@@ -345,7 +357,7 @@ impl Block {
                 approval_mask,
                 approval_sigs,
                 total_weight,
-                validator_proposal,
+                validator_proposals,
                 epoch_hash,
                 gas_used,
                 gas_limit,

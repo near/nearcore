@@ -107,11 +107,8 @@ impl Block {
                 prev.header.gas_limit,
             ),
             prev.header.epoch_hash,
-            0,
-            prev.header.gas_limit,
             vec![],
             approvals,
-            vec![],
             signer,
         )
     }
