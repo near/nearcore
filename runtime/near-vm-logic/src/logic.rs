@@ -178,7 +178,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// * `register_id` -- a register into which to write the data;
     /// * `data` -- data to be copied into register.
-    fn write_register(
+    pub fn write_register(&mut self, register_id: u64, data: &[u8]) -> Result<()> {
+        let Self { registers, config, .. } = self;
+        Self::internal_write_register(registers, config, register_id, data)
+    }
+
+    fn internal_write_register(
         registers: &mut HashMap<u64, Vec<u8>>,
         config: &Config,
         register_id: u64,
@@ -216,7 +221,7 @@ impl<'a> VMLogic<'a> {
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         let data = context.current_account_id.as_bytes();
-        Self::write_register(registers, config, register_id, data)
+        Self::internal_write_register(registers, config, register_id, data)
     }
 
     /// All contract calls are a result of some transaction that was signed by some account using
@@ -230,7 +235,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         let data = context.signer_account_id.as_bytes();
-        Self::write_register(registers, config, register_id, data)
+        Self::internal_write_register(registers, config, register_id, data)
     }
 
     /// Saves the public key fo the access key that was used by the signer into the register. In
@@ -243,7 +248,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         let data = context.signer_account_pk.as_ref();
-        Self::write_register(registers, config, register_id, data)
+        Self::internal_write_register(registers, config, register_id, data)
     }
 
     /// All contract calls are a result of a receipt, this receipt might be created by a transaction
@@ -257,7 +262,7 @@ impl<'a> VMLogic<'a> {
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         let data = context.predecessor_account_id.as_ref();
-        Self::write_register(registers, config, register_id, data)
+        Self::internal_write_register(registers, config, register_id, data)
     }
 
     /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
@@ -265,7 +270,7 @@ impl<'a> VMLogic<'a> {
     /// not provided makes the register "not used", i.e. `register_len` now returns `u64::MAX`.
     pub fn input(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
-        Self::write_register(registers, config, register_id, &context.input)
+        Self::internal_write_register(registers, config, register_id, &context.input)
     }
 
     /// Returns the current block index.
@@ -325,7 +330,7 @@ impl<'a> VMLogic<'a> {
         for _ in 0..len {
             buf.push(rand_iter.next().unwrap());
         }
-        Self::write_register(registers, config, register_id, &buf)
+        Self::internal_write_register(registers, config, register_id, &buf)
     }
 
     /// Returns a random `u64` variable.
@@ -347,7 +352,7 @@ impl<'a> VMLogic<'a> {
         let Self { memory, registers, config, .. } = self;
         let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let value_hash = exonum_sodiumoxide::crypto::hash::sha256::hash(&value);
-        Self::write_register(registers, config, register_id, value_hash.as_ref())
+        Self::internal_write_register(registers, config, register_id, value_hash.as_ref())
     }
 
     // ################
@@ -493,7 +498,7 @@ impl<'a> VMLogic<'a> {
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                Self::write_register(registers, config, register_id, data)?;
+                Self::internal_write_register(registers, config, register_id, data)?;
                 Ok(1)
             }
             PromiseResult::Failed => Ok(2),
@@ -713,7 +718,7 @@ impl<'a> VMLogic<'a> {
         let evicted = self.ext.storage_set(&key, &value)?;
         match evicted {
             Some(value) => {
-                Self::write_register(registers, config, register_id, &value)?;
+                Self::internal_write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -737,7 +742,7 @@ impl<'a> VMLogic<'a> {
         let read = ext.storage_get(&key)?;
         match read {
             Some(value) => {
-                Self::write_register(registers, config, register_id, &value)?;
+                Self::internal_write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -762,7 +767,7 @@ impl<'a> VMLogic<'a> {
         let removed = ext.storage_remove(&key)?;
         match removed {
             Some(value) => {
-                Self::write_register(registers, config, register_id, &value)?;
+                Self::internal_write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -850,8 +855,8 @@ impl<'a> VMLogic<'a> {
         let value = ext.storage_iter_next(iterator_id)?;
         match value {
             Some((key, value)) => {
-                Self::write_register(registers, config, key_register_id, &key)?;
-                Self::write_register(registers, config, value_register_id, &value)?;
+                Self::internal_write_register(registers, config, key_register_id, &key)?;
+                Self::internal_write_register(registers, config, value_register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),

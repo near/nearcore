@@ -2,8 +2,14 @@ use crate::MemoryLike;
 
 pub struct MockedMemory {}
 
+impl MockedMemory {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl MemoryLike for MockedMemory {
-    fn fits_memory(&self, offset: u64, len: u64) -> bool {
+    fn fits_memory(&self, _offset: u64, _len: u64) -> bool {
         true
     }
 
@@ -18,7 +24,7 @@ impl MemoryLike for MockedMemory {
     }
 
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) {
-        let mut dest =
+        let dest =
             unsafe { std::slice::from_raw_parts_mut(offset as *mut u8, buffer.len() as usize) };
         dest.copy_from_slice(buffer);
     }

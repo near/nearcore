@@ -1,5 +1,6 @@
 use crate::dependencies::ExternalError;
 
+#[derive(Debug, PartialEq)]
 pub enum HostError {
     MemoryAccessViolation,
     External(ExternalError),

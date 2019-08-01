@@ -72,28 +72,28 @@ impl External for MockedExternal {
 
     fn promise_create(
         &mut self,
-        account_id: String,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: u128,
-        gas: u64,
+        _account_id: String,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _amount: u128,
+        _gas: u64,
     ) -> Result<u64, ExternalError> {
         unimplemented!()
     }
 
     fn promise_then(
         &mut self,
-        promise_id: u64,
-        account_id: String,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: u128,
-        gas: u64,
+        _promise_id: u64,
+        _account_id: String,
+        _method_name: Vec<u8>,
+        _arguments: Vec<u8>,
+        _amount: u128,
+        _gas: u64,
     ) -> Result<u64, ExternalError> {
         unimplemented!()
     }
 
-    fn promise_and(&mut self, promise_indices: &[u64]) -> Result<u64, ExternalError> {
+    fn promise_and(&mut self, _promise_indices: &[u64]) -> Result<u64, ExternalError> {
         unimplemented!()
     }
 

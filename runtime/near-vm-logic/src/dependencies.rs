@@ -29,6 +29,7 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ExternalError {
     InvalidPromiseIndex,
     InvalidIteratorIndex,

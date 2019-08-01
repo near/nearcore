@@ -7,6 +7,11 @@ edition = "2018"
 [dependencies]
 exonum_sodiumoxide = "0.0.20"
 
+[[test]]
+name = "test_registers"
+path = "tests/test_registers.rs"
+required-features = ["mocks"]
+
 
 [features]
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
