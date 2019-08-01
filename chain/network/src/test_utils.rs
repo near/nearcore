@@ -38,6 +38,7 @@ impl NetworkConfig {
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
+            ttl_account_id_router: Duration::from_secs(60),
         }
     }
 }

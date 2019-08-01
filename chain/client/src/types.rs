@@ -96,6 +96,8 @@ pub struct ClientConfig {
     pub epoch_length: BlockIndex,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
+    /// Time to persist Accounts Id in the router without removing them.
+    pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
@@ -122,6 +124,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             announce_account_horizon: 5,
+            ttl_account_id_router: Duration::from_secs(60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -148,6 +151,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             announce_account_horizon: 5,
+            ttl_account_id_router: Duration::from_secs(60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }

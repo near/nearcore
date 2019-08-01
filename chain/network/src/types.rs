@@ -25,7 +25,7 @@ use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
-use std::collections::HashMap;
+use crate::peer_manager::RoutingTable;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -412,7 +412,7 @@ impl TryFrom<network_proto::DirectMessage> for DirectMessage {
                     block_approval.signature.try_into()?,
                 )
             }
-            None => unreachable!(),
+            None => return Err(format!("Unexpected empty message body").into()),
         };
 
         let account_id = proto.account_id.try_into()?;
@@ -675,6 +675,8 @@ pub struct NetworkConfig {
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: Duration,
+    /// Time to persist Accounts Id in the router without removing them.
+    pub ttl_account_id_router: Duration,
 }
 
 /// Status of the known peers.
@@ -847,7 +849,7 @@ pub struct NetworkInfo {
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
     // Only send full routes to accounts on demand
-    pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
+    pub routes: Option<RoutingTable>,
 }
 
 #[derive(Debug)]

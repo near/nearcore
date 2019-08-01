@@ -25,8 +25,8 @@ use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
-use node_runtime::StateRecord;
 use node_runtime::config::RuntimeConfig;
+use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -62,6 +62,9 @@ pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
+
+/// Time to persist Accounts Id in the router without removing them in seconds.
+pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -216,6 +219,7 @@ impl NearConfig {
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
                 announce_account_horizon: genesis_config.epoch_length / 2,
+                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
@@ -247,6 +251,7 @@ impl NearConfig {
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
+                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,

@@ -64,8 +64,10 @@ pub struct ClientActor {
     block_sync: BlockSync,
     /// Keeps track of syncing state.
     state_sync: StateSync,
+    /// Last height we announced our accounts as validators.
+    last_validator_announce_height: Option<BlockIndex>,
     /// Last time we announced our accounts as validators.
-    last_val_announce_height: Option<BlockIndex>,
+    last_validator_announce_time: Option<Instant>,
     /// Info helper.
     info_helper: InfoHelper,
 }
@@ -126,7 +128,8 @@ impl ClientActor {
             header_sync,
             block_sync,
             state_sync,
-            last_val_announce_height: None,
+            last_validator_announce_height: None,
+            last_validator_announce_time: None,
             info_helper,
         })
     }
@@ -404,15 +407,25 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
-        self.check_send_announce_account(&block);
+        self.check_send_announce_account(block.hash(), block.header.height);
     }
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, block: &Block) {
+    fn check_send_announce_account(&mut self, block_hash: CryptoHash, block_height: BlockIndex) {
         // Announce AccountId if client is becoming a validator soon.
 
-        // First check that we currently have an AccountId
+        let now = Instant::now();
+        // Check that we haven't announced it too recently
+        if let Some(last_validator_announce_time) = self.last_validator_announce_time {
+            // Don't make announcement if have passed less than half of the time in which other peers
+            // should remove our Account Id from their Routing Tables.
+            if 2 * (now - last_validator_announce_time) < self.config.ttl_account_id_router {
+                return;
+            }
+        }
+
+        // Check that we currently have an AccountId
         if self.block_producer.is_none() {
             // There is no account id associated with this client
             return;
@@ -420,10 +433,10 @@ impl ClientActor {
 
         let block_producer = self.block_producer.as_ref().unwrap();
 
-        let epoch_hash = match self.runtime_adapter.get_epoch_offset(
-            block.hash(),
-            block.header.height + self.config.announce_account_horizon,
-        ) {
+        let epoch_hash = match self
+            .runtime_adapter
+            .get_epoch_offset(block_hash, block_height + self.config.announce_account_horizon)
+        {
             Ok((epoch_hash, 0)) => epoch_hash,
             // Don't announce if the block is unknown to us or the offset is greater than 0
             _ => return,
@@ -432,7 +445,7 @@ impl ClientActor {
         if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
             let epoch_height = epoch_block.header.height;
 
-            if let Some(last_val_announce_height) = self.last_val_announce_height {
+            if let Some(last_val_announce_height) = self.last_validator_announce_height {
                 if last_val_announce_height >= epoch_height {
                     // This announcement was already done!
                     return;
@@ -441,14 +454,15 @@ impl ClientActor {
 
             // Check client is part of the futures validators
             if let Ok(validators) =
-                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
+                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block_hash)
             {
-                // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators
                     .iter()
                     .any(|account_id| (&(account_id.0) == &block_producer.account_id))
                 {
-                    self.last_val_announce_height = Some(epoch_height);
+                    self.last_validator_announce_height = Some(epoch_height);
+                    self.last_validator_announce_time = Some(now);
+
                     let (hash, signature) = self.sign_announce_account(epoch_hash).unwrap();
 
                     actix::spawn(
@@ -817,12 +831,8 @@ impl ClientActor {
                 // TODO: ?? should we add a wait for response here?
                 let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
