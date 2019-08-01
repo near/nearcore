@@ -916,10 +916,12 @@ pub enum NetworkRequests {
     ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
     /// Request chunk part and receipts
     ChunkOnePartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    /// Response to a peer with chunk part and receipts.
+    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    /// A chunk header and one part for another validator.
+    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
     /// A chunk part
     ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
-    /// A chunk header and one part
-    ChunkOnePart { account_id: AccountId, header_and_part: ChunkOnePart },
 }
 
 /// Combines peer address info and chain information.
@@ -990,7 +992,7 @@ pub enum NetworkClientMessages {
     /// Request chunk part
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
     /// Request chunk part
-    ChunkOnePartRequest(ChunkPartRequestMsg, AccountId),
+    ChunkOnePartRequest(ChunkPartRequestMsg, PeerId),
     /// A chunk part
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part

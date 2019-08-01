@@ -311,9 +311,8 @@ impl ShardsManager {
     pub fn process_chunk_one_part_request(
         &mut self,
         request: ChunkPartRequestMsg,
-        account_id: AccountId,
+        peer_id: PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        assert_ne!(Some(account_id.clone()), self.me);
         if let Some(encoded_chunk) = self.encoded_chunks.get(&request.chunk_hash) {
             if request.part_id as usize >= encoded_chunk.content.parts.len() {
                 return Err("Failed to process chunk one part request: part_id is too big".into());
@@ -327,27 +326,17 @@ impl ShardsManager {
                     "MOO responding with single part for chunk {:?}: {} to {}, I'm {:?}",
                     request.chunk_hash.clone(),
                     request.part_id,
-                    account_id.clone(),
+                    peer_id,
                     self.me.clone().unwrap()
                 );
-                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePart {
-                    account_id: account_id.clone(),
+                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartResponse {
+                    peer_id,
                     header_and_part: self.create_chunk_one_part(
                         request.chunk_hash.clone(),
                         encoded_chunk,
+                        // TODO: we may want to add set of shards this peer is interested in chunks for.
                         request.part_id,
-                        chunk
-                            .receipts
-                            .iter()
-                            .filter(|&receipt| {
-                                self.cares_about_shard_this_or_next_epoch(
-                                    &account_id,
-                                    chunk.header.prev_block_hash,
-                                    self.runtime_adapter.account_id_to_shard_id(&receipt.receiver),
-                                )
-                            })
-                            .cloned()
-                            .collect(),
+                        chunk.receipts,
                     ),
                 });
             } else {
@@ -782,7 +771,7 @@ impl ShardsManager {
                 self.process_chunk_one_part(one_part.clone()).unwrap();
             }
 
-            let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePart {
+            let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartMessage {
                 account_id: to_whom.clone(),
                 header_and_part: one_part,
             });

@@ -538,13 +538,21 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage {
+                        message: PeerMessage::ChunkOnePart(header_and_part),
+                    });
+                }
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::ChunkPart { peer_id, part } => {
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
                     active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePart { account_id, header_and_part } => {
+            NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
                 self.send_message_to_account(
                     ctx,
                     account_id,

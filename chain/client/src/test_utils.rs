@@ -165,17 +165,6 @@ pub fn setup_mock_all_validators(
                                 ))
                             }
                         }
-                        NetworkRequests::ChunkOnePart { account_id, header_and_part } => {
-                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
-                                if name == account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkOnePart(
-                                            header_and_part.clone(),
-                                        ),
-                                    );
-                                }
-                            }
-                        }
                         NetworkRequests::ChunkPartRequest { account_id, part_request } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
@@ -192,12 +181,35 @@ pub fn setup_mock_all_validators(
                             account_id: their_account_id,
                             part_request,
                         } => {
+                            let peer_id = key_pairs.iter().filter_map(|peer_info| if peer_info.account_id == Some(account_id.to_string()) { Some(peer_info.id) } else { None }).last().unwrap();
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkOnePartRequest(
                                             part_request.clone(),
-                                            account_id.to_string(),
+                                            peer_id,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                if name == account_id {
+                                    connectors1.write().unwrap()[i].0.do_send(
+                                        NetworkClientMessages::ChunkOnePart(
+                                            header_and_part.clone(),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                if peer_info.id == *peer_id {
+                                    connectors1.write().unwrap()[i].0.do_send(
+                                        NetworkClientMessages::ChunkOnePart(
+                                            header_and_part.clone(),
                                         ),
                                     );
                                 }

@@ -1107,8 +1107,9 @@ impl<'a> ChainUpdate<'a> {
         let head = self.chain_store_update.head()?;
         let is_next = block.header.prev_hash == head.last_block_hash;
 
-        // First real I/O expense.
         self.check_header_signature(&block.header)?;
+
+        // First real I/O expense.
         let prev = self.get_previous_header(&block.header)?;
         let prev_hash = prev.hash();
         let prev_prev_hash = prev.prev_hash;
@@ -1333,6 +1334,7 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
+        println!("CHECK HEADER: {:?}", header);
         let validator = self
             .runtime_adapter
             .get_block_proposer(header.epoch_hash, header.height)

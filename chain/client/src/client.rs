@@ -1400,6 +1400,7 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
+                println!("MOO CHECK ANNOUNCE: {:?}", head);
                 self.check_send_announce_account(head.epoch_hash);
                 self.handle_scheduling_block_production(
                     ctx,
