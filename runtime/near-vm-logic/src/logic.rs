@@ -4,9 +4,9 @@ use crate::dependencies::{External, MemoryLike};
 use crate::errors::HostError;
 use crate::rand_iter::RandIterator;
 use crate::types::{
-    AccountId, Balance, Gas, PromiseIndex, PromiseResult, ReturnData, StorageUsage,
+    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReturnData, StorageUsage,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostError>;
@@ -41,6 +41,11 @@ pub struct VMLogic<'a> {
     registers: HashMap<u64, Vec<u8>>,
     /// Endless random iterator is used to generate random bytes.
     rand_iter: RandIterator,
+
+    /// Iterators that were created and can still be used.
+    valid_iterators: HashSet<IteratorIndex>,
+    /// Iterators that became invalidated by mutating the trie.
+    invalid_iterators: HashSet<IteratorIndex>,
 }
 
 impl<'a> VMLogic<'a> {
@@ -66,6 +71,8 @@ impl<'a> VMLogic<'a> {
             logs: vec![],
             registers: HashMap::new(),
             rand_iter,
+            valid_iterators: HashSet::new(),
+            invalid_iterators: HashSet::new(),
         }
     }
 
@@ -712,7 +719,12 @@ impl<'a> VMLogic<'a> {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        let Self { memory, registers, config, .. } = self;
+        let Self { memory, registers, config, valid_iterators, invalid_iterators, ext, .. } = self;
+        // All iterators that were valid now become invalid
+        for invalidated_iter_idx in valid_iterators.drain() {
+            ext.storage_iter_remove(invalidated_iter_idx)?;
+            invalid_iterators.insert(invalidated_iter_idx);
+        }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let evicted = self.ext.storage_set(&key, &value)?;
@@ -762,7 +774,12 @@ impl<'a> VMLogic<'a> {
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        let Self { ext, memory, registers, config, .. } = self;
+        let Self { ext, memory, registers, config, valid_iterators, invalid_iterators, .. } = self;
+        // All iterators that were valid now become invalid
+        for invalidated_iter_idx in valid_iterators.drain() {
+            ext.storage_iter_remove(invalidated_iter_idx)?;
+            invalid_iterators.insert(invalidated_iter_idx);
+        }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let removed = ext.storage_remove(&key)?;
         match removed {
@@ -798,8 +815,9 @@ impl<'a> VMLogic<'a> {
     /// If `prefix_len + prefix_ptr` exceeds the memory container it returns `MemoryAccessViolation`.
     pub fn storage_iter_prefix(&mut self, prefix_len: u64, prefix_ptr: u64) -> Result<u64> {
         let prefix = Self::memory_get(self.memory, prefix_ptr, prefix_len)?;
-        let storage_id = self.ext.storage_iter(&prefix)?;
-        Ok(storage_id)
+        let iterator_index = self.ext.storage_iter(&prefix)?;
+        self.valid_iterators.insert(iterator_index);
+        Ok(iterator_index)
     }
 
     /// Iterates over all key-values such that keys are between `start` and `end`, where `start` is
@@ -820,7 +838,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         let start_key = Self::memory_get(self.memory, start_ptr, start_len)?;
         let end_key = Self::memory_get(self.memory, end_ptr, end_len)?;
-        self.ext.storage_range(&start_key, &end_key).map_err(|err| err.into())
+        let iterator_index = self.ext.storage_range(&start_key, &end_key)?;
+        self.valid_iterators.insert(iterator_index);
+        Ok(iterator_index)
     }
 
     /// Advances iterator and saves the next key and value in the register.
@@ -851,7 +871,13 @@ impl<'a> VMLogic<'a> {
         key_register_id: u64,
         value_register_id: u64,
     ) -> Result<u64> {
-        let Self { ext, registers, config, .. } = self;
+        let Self { ext, registers, config, valid_iterators, invalid_iterators, .. } = self;
+        if invalid_iterators.contains(&iterator_id) {
+            return Err(HostError::IteratorWasInvalidated);
+        } else if !valid_iterators.contains(&iterator_id) {
+            return Err(HostError::InvalidIteratorIndex);
+        }
+
         let value = ext.storage_iter_next(iterator_id)?;
         match value {
             Some((key, value)) => {

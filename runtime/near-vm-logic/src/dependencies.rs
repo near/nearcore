@@ -33,7 +33,6 @@ pub trait MemoryLike {
 pub enum ExternalError {
     InvalidPromiseIndex,
     InvalidIteratorIndex,
-    IteratorWasInvalidated,
     InvalidAccountId,
 }
 
@@ -56,6 +55,8 @@ pub trait External {
         &mut self,
         iterator_idx: IteratorIndex,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>>;
+
+    fn storage_iter_remove(&mut self, iterator_idx: IteratorIndex) -> Result<()>;
 
     fn promise_create(
         &mut self,

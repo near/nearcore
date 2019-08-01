@@ -5,6 +5,8 @@ pub enum HostError {
     MemoryAccessViolation,
     External(ExternalError),
     InvalidRegisterId,
+    InvalidIteratorIndex,
+    IteratorWasInvalidated,
     EmptyMethodName,
     GuestPanic,
     BadUTF8,

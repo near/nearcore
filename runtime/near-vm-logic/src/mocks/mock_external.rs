@@ -1,15 +1,15 @@
 use crate::dependencies::ExternalError;
 use crate::External;
 use std::collections::btree_map::Range;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
 
 #[derive(Default)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
-    iterators: Vec<Range<'static, Vec<u8>, Vec<u8>>>,
-    valid_iterators_start_at: usize,
+    iterators: HashMap<u64, Range<'static, Vec<u8>, Vec<u8>>>,
+    next_iterator_index: u64,
 }
 
 impl MockedExternal {
@@ -20,7 +20,6 @@ impl MockedExternal {
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
-        self.valid_iterators_start_at = self.iterators.len();
         Ok(self.fake_trie.insert(key.to_vec(), value.to_vec()))
     }
 
@@ -29,7 +28,6 @@ impl External for MockedExternal {
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
-        self.valid_iterators_start_at = self.iterators.len();
         Ok(self.fake_trie.remove(key))
     }
 
@@ -43,7 +41,8 @@ impl External for MockedExternal {
         let iterator = unsafe {
             transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
         };
-        self.iterators.push(iterator);
+        self.iterators.insert(self.next_iterator_index, iterator);
+        self.next_iterator_index += 1;
         Ok(res)
     }
 
@@ -53,7 +52,8 @@ impl External for MockedExternal {
         let iterator = unsafe {
             transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
         };
-        self.iterators.push(iterator);
+        self.iterators.insert(self.next_iterator_index, iterator);
+        self.next_iterator_index += 1;
         Ok(res)
     }
 
@@ -61,12 +61,17 @@ impl External for MockedExternal {
         &mut self,
         iterator_idx: u64,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>, ExternalError> {
-        if iterator_idx < self.valid_iterators_start_at as _ {
-            Err(ExternalError::IteratorWasInvalidated)
-        } else if iterator_idx >= self.iterators.len() as _ {
+        match self.iterators.get_mut(&iterator_idx) {
+            Some(iter) => Ok(iter.next().map(|(k, v)| (k.clone(), v.clone()))),
+            None => Err(ExternalError::InvalidIteratorIndex),
+        }
+    }
+
+    fn storage_iter_remove(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
+        if self.iterators.remove(&iterator_idx).is_none() {
             Err(ExternalError::InvalidIteratorIndex)
         } else {
-            Ok(self.iterators[iterator_idx as usize].next().map(|(k, v)| (k.clone(), v.clone())))
+            Ok(())
         }
     }
 
