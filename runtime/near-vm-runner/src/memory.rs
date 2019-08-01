@@ -28,13 +28,10 @@ impl MemoryLike for WasmerMemory {
         }
     }
 
-    fn read_memory(&self, offset: u64, len: u64) -> Vec<u8> {
-        if len == 0 {
-            Vec::new()
-        } else {
-            let offset = offset as usize;
-            let len = len as usize;
-            self.0.view()[offset..(offset + len)].iter().map(std::cell::Cell::get).collect()
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]) {
+        let offset = offset as usize;
+        for (i, cell) in self.0.view()[offset..(offset + buffer.len())].iter().enumerate() {
+            buffer[i] = cell.get();
         }
     }
 

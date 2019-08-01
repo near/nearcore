@@ -12,7 +12,7 @@ pub trait MemoryLike {
     /// # Panics
     ///
     /// If memory interval is outside the smart contract memory.
-    fn read_memory(&self, offset: u64, len: u64) -> Vec<u8>;
+    fn read_memory(&self, offset: u64, buffer: &mut [u8]);
 
     /// Reads a single byte from the memory.
     ///

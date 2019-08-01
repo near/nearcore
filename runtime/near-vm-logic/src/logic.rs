@@ -81,9 +81,17 @@ impl<'a> VMLogic<'a> {
         }
     }
 
+    fn memory_get_into(memory: &dyn MemoryLike, offset: u64, buf: &mut [u8]) -> Result<()> {
+        Self::try_fit_mem(memory, offset, buf.len() as u64)?;
+        memory.read_memory(offset, buf);
+        Ok(())
+    }
+
     fn memory_get(memory: &dyn MemoryLike, offset: u64, len: u64) -> Result<Vec<u8>> {
         Self::try_fit_mem(memory, offset, len)?;
-        Ok(memory.read_memory(offset, len))
+        let mut buf = vec![0; len as usize];
+        memory.read_memory(offset, &mut buf);
+        Ok(buf)
     }
 
     fn memory_set(memory: &mut dyn MemoryLike, offset: u64, buf: &[u8]) -> Result<()> {
@@ -99,10 +107,8 @@ impl<'a> VMLogic<'a> {
 
     /// Get `u128` from Wasm memory.
     fn memory_get_u128(memory: &dyn MemoryLike, offset: u64) -> Result<u128> {
-        let buf = Self::memory_get(memory, offset, size_of::<u128>() as _)?;
-        assert_eq!(buf.len(), size_of::<u128>());
         let mut array = [0u8; size_of::<u128>()];
-        array.copy_from_slice(&buf);
+        Self::memory_get_into(memory, offset, &mut array)?;
         Ok(u128::from_le_bytes(array))
     }
 
@@ -112,7 +118,10 @@ impl<'a> VMLogic<'a> {
         offset: u64,
         num_elements: u64,
     ) -> Result<Vec<u64>> {
-        let data = Self::memory_get(memory, offset, num_elements * size_of::<u64>() as u64)?;
+        let memory_len = num_elements
+            .checked_mul(size_of::<u64>() as u64)
+            .ok_or(HostError::MemoryAccessViolation)?;
+        let data = Self::memory_get(memory, offset, memory_len)?;
         Ok(data
             .chunks(size_of::<u64>())
             .map(|buf| {
