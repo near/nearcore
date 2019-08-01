@@ -1,8 +1,5 @@
 use std::mem::size_of;
 
-#[global_allocator]
-static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
 #[allow(unused)]
 extern "C" {
     fn read_register(register_id: u64, ptr: u64);
