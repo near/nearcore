@@ -16,7 +16,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext<'a>,
+    context: VMContext,
     /// Parameters of Wasm and economic parameters.
     config: &'a Config,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -46,7 +46,7 @@ pub struct VMLogic<'a> {
 impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
-        context: VMContext<'a>,
+        context: VMContext,
         config: &'a Config,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
@@ -178,21 +178,26 @@ impl<'a> VMLogic<'a> {
     ///
     /// * `register_id` -- a register into which to write the data;
     /// * `data` -- data to be copied into register.
-    fn write_register(&mut self, register_id: u64, data: &[u8]) -> Result<()> {
-        if data.len() as u64 > self.config.max_register_size
-            || self.registers.len() as u64 == self.config.max_number_registers
+    fn write_register(
+        registers: &mut HashMap<u64, Vec<u8>>,
+        config: &Config,
+        register_id: u64,
+        data: &[u8],
+    ) -> Result<()> {
+        if data.len() as u64 > config.max_register_size
+            || registers.len() as u64 == config.max_number_registers
         {
             return Err(HostError::MemoryAccessViolation);
         }
-        let register = self.registers.entry(register_id).or_insert_with(Vec::new);
+        let register = registers.entry(register_id).or_insert_with(Vec::new);
         register.clear();
         register.reserve(data.len());
         register.extend_from_slice(data);
 
         // Calculate the new memory usage.
         let usage: usize =
-            self.registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
-        if usage > self.config.registers_memory_limit as _ {
+            registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
+        if usage > config.registers_memory_limit as _ {
             Err(HostError::MemoryAccessViolation)
         } else {
             Ok(())
@@ -209,8 +214,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
-        let data = self.context.current_account_id.as_bytes();
-        self.write_register(register_id, data)
+        let Self { context, registers, config, .. } = self;
+        let data = context.current_account_id.as_bytes();
+        Self::write_register(registers, config, register_id, data)
     }
 
     /// All contract calls are a result of some transaction that was signed by some account using
@@ -222,8 +228,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
-        let data = self.context.signer_account_id.as_bytes();
-        self.write_register(register_id, data)
+        let Self { context, registers, config, .. } = self;
+        let data = context.signer_account_id.as_bytes();
+        Self::write_register(registers, config, register_id, data)
     }
 
     /// Saves the public key fo the access key that was used by the signer into the register. In
@@ -234,8 +241,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
-        let data = self.context.signer_account_pk.as_ref();
-        self.write_register(register_id, data)
+        let Self { context, registers, config, .. } = self;
+        let data = context.signer_account_pk.as_ref();
+        Self::write_register(registers, config, register_id, data)
     }
 
     /// All contract calls are a result of a receipt, this receipt might be created by a transaction
@@ -247,15 +255,17 @@ impl<'a> VMLogic<'a> {
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
     /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
-        let data = self.context.predecessor_account_id.as_ref();
-        self.write_register(register_id, data)
+        let Self { context, registers, config, .. } = self;
+        let data = context.predecessor_account_id.as_ref();
+        Self::write_register(registers, config, register_id, data)
     }
 
     /// Reads input to the contract call into the register. Input is expected to be in JSON-format.
     /// If input is provided saves the bytes (potentially zero) of input into register. If input is
     /// not provided makes the register "not used", i.e. `register_len` now returns `u64::MAX`.
     pub fn input(&mut self, register_id: u64) -> Result<()> {
-        self.write_register(register_id, self.context.input)
+        let Self { context, registers, config, .. } = self;
+        Self::write_register(registers, config, register_id, &context.input)
     }
 
     /// Returns the current block index.
@@ -310,11 +320,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// If the size of the registers exceed the set limit `MemoryAccessViolation`.
     pub fn random_buf(&mut self, len: u64, register_id: u64) -> Result<()> {
+        let Self { rand_iter, registers, config, .. } = self;
         let mut buf = vec![];
         for _ in 0..len {
-            buf.push(self.rand_iter.next().unwrap());
+            buf.push(rand_iter.next().unwrap());
         }
-        self.write_register(register_id, &buf)
+        Self::write_register(registers, config, register_id, &buf)
     }
 
     /// Returns a random `u64` variable.
@@ -333,9 +344,10 @@ impl<'a> VMLogic<'a> {
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        let value = Self::memory_get(self.memory, value_ptr, value_len)?;
+        let Self { memory, registers, config, .. } = self;
+        let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let value_hash = exonum_sodiumoxide::crypto::hash::sha256::hash(&value);
-        self.write_register(register_id, value_hash.as_ref())
+        Self::write_register(registers, config, register_id, value_hash.as_ref())
     }
 
     // ################
@@ -474,14 +486,14 @@ impl<'a> VMLogic<'a> {
     /// * If `result_idx` does not correspond to an existing result returns `InvalidResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
-        match self
-            .promise_results
+        let Self { promise_results, registers, config, .. } = self;
+        match promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex)?
         {
             PromiseResult::NotReady => Ok(0),
             PromiseResult::Successful(data) => {
-                self.write_register(register_id, data)?;
+                Self::write_register(registers, config, register_id, data)?;
                 Ok(1)
             }
             PromiseResult::Failed => Ok(2),
@@ -695,12 +707,13 @@ impl<'a> VMLogic<'a> {
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
-        let value = Self::memory_get(self.memory, value_ptr, value_len)?;
+        let Self { memory, registers, config, .. } = self;
+        let key = Self::memory_get(*memory, key_ptr, key_len)?;
+        let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let evicted = self.ext.storage_set(&key, &value)?;
         match evicted {
             Some(value) => {
-                self.write_register(register_id, &value)?;
+                Self::write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -719,11 +732,12 @@ impl<'a> VMLogic<'a> {
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     pub fn storage_read(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
-        let read = self.ext.storage_get(&key)?;
+        let Self { ext, memory, registers, config, .. } = self;
+        let key = Self::memory_get(*memory, key_ptr, key_len)?;
+        let read = ext.storage_get(&key)?;
         match read {
             Some(value) => {
-                self.write_register(register_id, &value)?;
+                Self::write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -743,11 +757,12 @@ impl<'a> VMLogic<'a> {
     /// * If returning the preempted value into the registers exceed the memory container it returns
     ///   `MemoryAccessViolation`.
     pub fn storage_remove(&mut self, key_len: u64, key_ptr: u64, register_id: u64) -> Result<u64> {
-        let key = Self::memory_get(self.memory, key_ptr, key_len)?;
-        let removed = self.ext.storage_remove(&key)?;
+        let Self { ext, memory, registers, config, .. } = self;
+        let key = Self::memory_get(*memory, key_ptr, key_len)?;
+        let removed = ext.storage_remove(&key)?;
         match removed {
             Some(value) => {
-                self.write_register(register_id, &value)?;
+                Self::write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),
@@ -831,11 +846,12 @@ impl<'a> VMLogic<'a> {
         key_register_id: u64,
         value_register_id: u64,
     ) -> Result<u64> {
-        let value = self.ext.storage_iter_next(iterator_id)?;
+        let Self { ext, registers, config, .. } = self;
+        let value = ext.storage_iter_next(iterator_id)?;
         match value {
             Some((key, value)) => {
-                self.write_register(key_register_id, &key)?;
-                self.write_register(value_register_id, &value)?;
+                Self::write_register(registers, config, key_register_id, &key)?;
+                Self::write_register(registers, config, value_register_id, &value)?;
                 Ok(1)
             }
             None => Ok(0),

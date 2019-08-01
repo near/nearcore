@@ -1,22 +1,22 @@
 use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey};
 
 /// Context for the contract execution.
-pub struct VMContext<'a> {
+pub struct VMContext {
     /// The account id of the current contract that we are executing.
-    pub current_account_id: &'a AccountId,
+    pub current_account_id: AccountId,
     /// The account id of that signed the original transaction that led to this
     /// execution.
-    pub signer_account_id: &'a AccountId,
+    pub signer_account_id: AccountId,
     /// The public key that was used to sign the original transaction that led to
     /// this execution.
-    pub signer_account_pk: &'a PublicKey,
+    pub signer_account_pk: PublicKey,
     /// If this execution is the result of cross-contract call or a callback then
     /// predecessor is the account that called it.
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
-    pub predecessor_account_id: &'a AccountId,
+    pub predecessor_account_id: AccountId,
     /// The input to the contract call.
-    pub input: &'a [u8],
+    pub input: Vec<u8>,
     /// The current block index.
     pub block_index: BlockIndex,
 

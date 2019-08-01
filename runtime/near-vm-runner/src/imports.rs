@@ -95,7 +95,6 @@ wrapped_imports! {
     promise_results_count<[] -> [u64]>,
     promise_result<[result_idx: u64, register_id: u64] -> [u64]>,
     promise_return<[promise_id: u64] -> []>,
-
     // ###############
     // # Storage API #
     // ###############
@@ -106,7 +105,6 @@ wrapped_imports! {
     storage_iter_prefix<[prefix_len: u64, prefix_ptr: u64] -> [u64]>,
     storage_range<[start_len: u64, start_ptr: u64, end_len: u64, end_ptr: u64] -> [u64]>,
     storage_iter_next<[iterator_id: u64, key_register_id: u64, value_register_id: u64] -> [u64]>,
-
     // Function for the injected gas counter. Automatically called by the gas meter.
     gas<[gas_amount: u32] -> []>,
 }

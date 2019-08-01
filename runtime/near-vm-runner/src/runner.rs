@@ -11,7 +11,7 @@ pub fn run<'a>(
     code: &[u8],
     method_name: &[u8],
     ext: &mut dyn External,
-    context: VMContext<'a>,
+    context: VMContext,
     config: &'a Config,
     promise_results: &'a [PromiseResult],
 ) -> Result<VMOutcome, VMError> {

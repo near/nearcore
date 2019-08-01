@@ -12,6 +12,12 @@ pub struct MockedExternal {
     valid_iterators_start_at: usize,
 }
 
+impl MockedExternal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         self.valid_iterators_start_at = self.iterators.len();

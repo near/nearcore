@@ -6,3 +6,8 @@ edition = "2018"
 
 [dependencies]
 exonum_sodiumoxide = "0.0.20"
+
+
+[features]
+# Mocks include some unsafe code to workaround lifetimes and therefore are optional.
+mocks = []

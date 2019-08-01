@@ -3,6 +3,7 @@ mod context;
 mod dependencies;
 mod errors;
 mod logic;
+#[cfg(feature = "mocks")]
 pub mod mocks;
 mod rand_iter;
 
