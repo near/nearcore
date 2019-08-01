@@ -3,6 +3,7 @@ mod context;
 mod dependencies;
 mod errors;
 mod logic;
+pub mod mocks;
 mod rand_iter;
 
 pub mod types;
