@@ -27,8 +27,8 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, GasUsage, ReadablePublicKey, ValidatorId,
 };
 use near_telemetry::TelemetryConfig;
-use node_runtime::StateRecord;
 use node_runtime::config::RuntimeConfig;
+use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -209,6 +209,7 @@ impl NearConfig {
                 rpc_addr: config.rpc.addr.clone(),
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
+                block_production_retry_delay: config.consensus.min_block_production_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),

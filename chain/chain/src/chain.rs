@@ -1149,7 +1149,7 @@ impl<'a> ChainUpdate<'a> {
             (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, false)
         };
 
-        debug!(target: "chain", "Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", block.hash(), is_caught_up, needs_to_start_fetching_state);
+        info!(target: "chain", "Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", block.hash(), is_caught_up, needs_to_start_fetching_state);
 
         // This is a fork in the context of both header and block processing
         // if this block does not immediately follow the chain head.
@@ -1253,18 +1253,18 @@ impl<'a> ChainUpdate<'a> {
         self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         ret.push(block.header.height);
 
-        let first_epoch = self
-            .runtime_adapter
-            .get_epoch_hash(block.header.prev_hash)
-            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
+        let first_epoch = block.header.epoch_hash;
+        //            .runtime_adapter
+        //            .get_epoch_hash(block.header.prev_hash)
+        //            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
 
-        debug!(
+        info!(target: "chain",
             "MOO first_epoch: {:?}, prev_block: {:?}, block_hash: {:?}, is_epoch_start: {:?}, is_second: {:?}",
             first_epoch,
             block.header.prev_hash,
             block.hash(),
-            self.runtime_adapter.is_epoch_start(block.header.prev_hash, 0),
-            self.runtime_adapter.is_epoch_second_block(block.header.prev_hash, 0)
+            self.runtime_adapter.is_epoch_start(block.header.prev_hash, block.header.height),
+            self.runtime_adapter.is_epoch_second_block(block.header.prev_hash, block.header.height)
         );
 
         let mut queue = vec![block.header.prev_hash, epoch_start];
@@ -1289,17 +1289,17 @@ impl<'a> ChainUpdate<'a> {
                 self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
                 ret.push(block.header.height);
                 queue.push(next_block_hash);
-            }
-
-            if saw_one {
-                debug!(
-                    "MOO new epoch: {:?}, is_epoch_start: {:?}, is_second: {:?}",
-                    self.runtime_adapter
-                        .get_epoch_hash(block_hash)
-                        .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?,
-                    self.runtime_adapter.is_epoch_start(block_hash, 0),
-                    self.runtime_adapter.is_epoch_second_block(block_hash, 0)
+                info!(target: "chain",
+                      "MOO block hash: {:?} new epoch: {:?}, is_epoch_start: {:?}, is_second: {:?}",
+                      block.hash(),
+                      self.runtime_adapter
+                          .get_epoch_hash(block_hash)
+                          .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?,
+                      self.runtime_adapter.is_epoch_start(block_hash, block.header.height),
+                      self.runtime_adapter.is_epoch_second_block(block_hash, block.header.height)
                 );
+            }
+            if saw_one {
                 assert_eq!(
                     self.runtime_adapter
                         .get_epoch_hash(block_hash)
@@ -1334,7 +1334,6 @@ impl<'a> ChainUpdate<'a> {
     }
 
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
-        println!("CHECK HEADER: {:?}", header);
         let validator = self
             .runtime_adapter
             .get_block_proposer(header.epoch_hash, header.height)

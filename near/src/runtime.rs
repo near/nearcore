@@ -340,7 +340,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
             let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
             if offset == 0 && epoch_hash != CryptoHash::default() {
-                vm.finalize_epoch(&epoch_hash, prev_block_hash, block_hash)?;
+                println!("...");
                 let prev_epoch_hash = vm.get_prev_epoch_hash(&epoch_hash)?;
                 let prev_prev_stake_change =
                     vm.get_validators(prev_epoch_hash)?.stake_change.clone();
@@ -466,6 +466,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
         let (_epoch_hash, offset) = vm.get_epoch_offset(parent_hash, index)?;
+        println!("LOL {:?} {:?} {}", parent_hash, index, offset);
         Ok(offset == 0)
     }
 

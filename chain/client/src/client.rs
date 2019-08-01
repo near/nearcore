@@ -934,6 +934,7 @@ impl ClientActor {
             self.runtime_adapter.get_epoch_hash(head.last_block_hash).unwrap(),
             next_height,
         )?;
+        println!("MOO Produce block {}? {:?} {:?}", next_block_proposer, last_height, next_height);
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -948,10 +949,17 @@ impl ClientActor {
             .map_err(|err| ErrorKind::Other(err.to_string()))?
         {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
+                // Currently state for the chunks we are interested in this epoch
+                // are not yet caught up (e.g. still state syncing).
+                // We reschedule block production.
+                // Alex's comment:
                 // The previous block is not caught up for the next epoch relative to the previous
                 // block, which is the current epoch for this block, so this block cannot be applied
-                // at all yet, needs to be orphaned
-                return Err(ErrorKind::Orphan.into());
+                // at all yet, block production must to be rescheduled
+                ctx.run_later(self.config.block_production_retry_delay, move |act, ctx| {
+                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
+                });
+                return Ok(());
             }
         }
 

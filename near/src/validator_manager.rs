@@ -416,10 +416,10 @@ impl ValidatorManager {
                 (epoch_start_info.index, epoch_start_info.prev_hash)
             };
 
-        // We compare to the height of the previous block and not to index so that the epoch is fully
-        //    determined by the previous block. This allows chunk producers to know the epoch of the
-        //    *next* block, and know whom to distribute chunk parts to
-        if epoch_start_index + self.config.epoch_length <= parent_info.index {
+        // We compare to the height of the previous block and expected end of the epoch.
+        // This allows chunk producers to know the epoch of the
+        // *next* block, and know whom to distribute chunk parts to
+        if epoch_start_index + self.config.epoch_length <= parent_info.index + 1 {
             // If this is next epoch index, return parent's epoch hash and 0 as offset.
             Ok((parent_info.epoch_start_hash, 0))
         } else {
@@ -455,7 +455,7 @@ impl ValidatorManager {
         // We compare to the height of the previous block and not to index so that the epoch is fully
         //    determined by the previous block. This allows chunk producers to know the epoch of the
         //    *next* block, and know whom to distribute chunk parts to
-        if epoch_start_index + self.config.epoch_length <= parent_info.index {
+        if epoch_start_index + self.config.epoch_length <= parent_info.index + 1 {
             // The caller expects it to return error in this case.
             Err(ValidatorError::Other(
                 "Requesting the validators for the next epoch on the first block of an epoch"
@@ -527,6 +527,7 @@ impl ValidatorManager {
             )
         };
 
+        println!("{:?}", epoch_hash);
         loop {
             let info = self.get_index_info(&hash)?;
             if info.epoch_start_hash != *epoch_hash || info.prev_hash == hash {
@@ -539,6 +540,7 @@ impl ValidatorManager {
                 proposals.push(proposal);
             }
             // safe to unwrap because block_index_to_validator is computed from indices in this epoch
+            println!("{} {:?}", info.index, block_index_to_validator);
             let validator = *block_index_to_validator.get(&info.index).unwrap();
             validator_tracker.entry(validator).and_modify(|e| *e += 1).or_insert(1);
             hash = info.prev_hash;
@@ -594,6 +596,7 @@ impl ValidatorManager {
         )?;
 
         self.last_epoch = *new_hash;
+        println!("MOO Assigment: {:?}", assignment);
         self.set_validators(new_hash, assignment, &mut store_update)?;
         store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, &epoch_hash)?;
         store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, new_hash.as_ref(), &cur_proposals)?;
@@ -610,6 +613,7 @@ impl ValidatorManager {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
     ) -> Result<StoreUpdate, ValidatorError> {
+        println!("MOO PROP {}: {:?}", index, proposals);
         let mut store_update = self.store.store_update();
         if self.store.get(COL_PROPOSALS, current_hash.as_ref())?.is_none() {
             // TODO: keep track of size here to make sure we can't be spammed storing non interesting forks.
@@ -630,16 +634,12 @@ impl ValidatorManager {
                 current_hash
             } else {
                 let epoch_start_info = self.get_index_info(&parent_info.epoch_start_hash)?;
-                if epoch_start_info.index + self.config.epoch_length <= index {
+                if epoch_start_info.index + self.config.epoch_length <= parent_info.index + 1 {
                     // This is first block of the next epoch, finalize it and return current hash and index as epoch hash/start.
                     // TODO: remove this clutch
-                    if self.get_validators(current_hash).is_err() {
-                        self.finalize_epoch(
-                            &parent_info.epoch_start_hash,
-                            &prev_hash,
-                            &current_hash,
-                        )?;
-                    }
+                    //                    if self.get_validators(current_hash).is_err() {
+                    self.finalize_epoch(&parent_info.epoch_start_hash, &prev_hash, &current_hash)?;
+                    //                    }
                     current_hash
                 } else {
                     // Otherwise, return parent's info.

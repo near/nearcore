@@ -74,6 +74,8 @@ pub struct ClientConfig {
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
     pub max_block_production_delay: Duration,
+    /// Retry delay for block production to wait for catching up with shard state.
+    pub block_production_retry_delay: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -112,6 +114,7 @@ impl ClientConfig {
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(block_prod_time),
             max_block_production_delay: Duration::from_millis(3 * block_prod_time),
+            block_production_retry_delay: Duration::from_millis(block_prod_time),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
@@ -138,6 +141,7 @@ impl ClientConfig {
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(2000),
+            block_production_retry_delay: Duration::from_millis(100),
             block_expected_weight: 1000,
             skip_sync_wait: false,
             sync_check_period: Duration::from_secs(10),
