@@ -889,38 +889,20 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    /// Computes the outcome for successful execution.
-    pub fn successful_outcome(self) -> VMOutcome {
-        VMOutcome::Success {
+    /// Computes the outcome of execution.
+    pub fn outcome(self) -> VMOutcome {
+        VMOutcome {
             return_data: self.return_data,
-            account_balance: self.current_account_balance,
-            remaining_gas: self.context.prepaid_gas - self.used_gas,
-            logs: self.logs,
-        }
-    }
-
-    /// Computes the outcome for failed execution. `error_msg` is what should be attached to the
-    /// outcome instead of the `return_data`.
-    pub fn failed_outcome(self, error_msg: String) -> VMOutcome {
-        VMOutcome::Failure {
-            error_msg,
-            remaining_gas: self.context.prepaid_gas - self.burnt_gas,
+            burnt_gas: self.burnt_gas,
+            used_gas: self.used_gas,
             logs: self.logs,
         }
     }
 }
 
-/// The outcome of executing the smart contract's method.
-pub enum VMOutcome {
-    Success {
-        return_data: ReturnData,
-        account_balance: Balance,
-        remaining_gas: Gas,
-        logs: Vec<String>,
-    },
-    Failure {
-        error_msg: String,
-        remaining_gas: Gas,
-        logs: Vec<String>,
-    },
+pub struct VMOutcome {
+    pub return_data: ReturnData,
+    pub burnt_gas: Gas,
+    pub used_gas: Gas,
+    pub logs: Vec<String>,
 }

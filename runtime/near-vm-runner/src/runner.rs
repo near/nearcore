@@ -30,13 +30,9 @@ pub fn run<'a>(
 
     let method_name = std::str::from_utf8(method_name).map_err(|_| VMError::MethodUTF8Error)?;
 
-    let res = match module
+    module
         .instantiate(&import_object)
         .map_err(|err| VMError::WasmerInstantiateError(format!("{}", err)))?
-        .call(&method_name, &[])
-    {
-        Ok(_) => logic.successful_outcome(),
-        Err(e) => logic.failed_outcome(format!("{}", e)),
-    };
-    Ok(res)
+        .call(&method_name, &[])?;
+    Ok(logic.outcome())
 }

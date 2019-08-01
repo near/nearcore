@@ -7,7 +7,7 @@ use std::mem::size_of;
 use std::path::PathBuf;
 
 fn assert_run_result(result: Result<VMOutcome, VMError>, expected_value: u64) {
-    if let Ok(VMOutcome::Success { return_data, .. }) = result {
+    if let Ok(VMOutcome { return_data, .. }) = result {
         if let ReturnData::Value(value) = return_data {
             let mut arr = [0u8; size_of::<u64>()];
             arr.copy_from_slice(&value);
