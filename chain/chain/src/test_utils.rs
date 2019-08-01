@@ -188,6 +188,31 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
     }
 
+    fn get_epoch_block_proposers(
+        &self,
+        _epoch_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+        Ok(self.validators.iter().map(|x| (x.account_id.clone(), false)).collect())
+    }
+
+    fn get_block_proposer(
+        &self,
+        _epoch_hash: &CryptoHash,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+        Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
+    }
+
+    fn get_chunk_proposer(
+        &self,
+        _shard_id: ShardId,
+        _parent_hash: CryptoHash,
+        height: BlockIndex,
+    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+        Ok(self.validators[(height as usize) % self.validators.len()].account_id.clone())
+    }
+
     fn verify_validator_signature(
         &self,
         _epoch_hash: &CryptoHash,
@@ -347,6 +372,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
+        _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())

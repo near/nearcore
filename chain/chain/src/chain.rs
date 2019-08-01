@@ -184,6 +184,7 @@ impl Chain {
                             0,
                             vec![],
                             vec![],
+                            vec![],
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update.save_block_header(genesis.header.clone());
@@ -1215,6 +1216,7 @@ impl<'a> ChainUpdate<'a> {
                 block.header.height,
                 block.header.validator_proposal.clone(),
                 vec![],
+                vec![],
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
@@ -1332,10 +1334,58 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
+    /// Process incoming block headers for syncing.
+    fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
+        // Sort headers by heights if they are out of order.
+        headers.sort_by(|left, right| left.height.cmp(&right.height));
+
+        let _first_header = if let Some(header) = headers.first() {
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
+            header
+        } else {
+            return Ok(None);
+        };
+
+        let all_known = if let Some(last_header) = headers.last() {
+            self.chain_store_update.get_block_header(&last_header.hash()).is_ok()
+        } else {
+            false
+        };
+
+        if !all_known {
+            // Validate header and then add to the chain. If validation of subsequent fails, headers won't be committed to the database.
+            for header in headers.iter() {
+                self.validate_header(header, &Provenance::SYNC)?;
+                self.chain_store_update.save_block_header(header.clone());
+
+                // Add validator proposals for given header.
+                self.runtime_adapter
+                    .add_validator_proposals(
+                        header.prev_hash,
+                        header.hash(),
+                        header.height,
+                        header.validator_proposal.clone(),
+                        vec![],
+                        vec![],
+                    )
+                    .map_err(|err| ErrorKind::Other(err.to_string()))?;
+            }
+        }
+
+        if let Some(header) = headers.last() {
+            // Update sync_head regardless of the total weight.
+            self.update_sync_head(header)?;
+            // Update header_head if total weight changed.
+            self.update_header_head(header)
+        } else {
+            Ok(None)
+        }
+    }
+
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(header.epoch_hash, header.height)
+            .get_block_proposer(&header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,
