@@ -73,7 +73,12 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, Box<dyn std::e
 
 #[cfg(test)]
 mod test {
-    use crate::types::{Handshake, PeerChainInfo, PeerInfo};
+    use near_primitives::crypto::signature::{get_key_pair, sign};
+    use near_primitives::hash::CryptoHash;
+
+    use crate::types::{
+        AnnounceAccount, DirectMessage, DirectMessageBody, Handshake, PeerChainInfo, PeerInfo,
+    };
 
     use super::*;
 
@@ -108,6 +113,35 @@ mod test {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = PeerInfo::random();
         let msg = PeerMessage::PeersResponse(vec![peer_info1, peer_info2]);
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_announce_account() {
+        let (pk, sk) = get_key_pair();
+        let signature = sign(vec![].as_slice(), &sk);
+        let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
+            "test1".to_string(),
+            CryptoHash::default(),
+            pk.into(),
+            CryptoHash::default(),
+            signature,
+        ));
+        test_codec(msg);
+    }
+
+    #[test]
+    fn test_peer_message_announce_direct_block_approval() {
+        let (_, sk) = get_key_pair();
+        let signature = sign(vec![].as_slice(), &sk);
+        let msg = PeerMessage::Direct(DirectMessage {
+            account_id: "test1".to_string(),
+            body: DirectMessageBody::BlockApproval(
+                "test2".to_string(),
+                CryptoHash::default(),
+                signature,
+            ),
+        });
         test_codec(msg);
     }
 }
