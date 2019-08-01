@@ -61,16 +61,16 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
         print("")
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
         print(chain_id)
-        if genesis_config['chain_id'] != chain_id:
+        if chain_id !='' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print("Folder %s already has network configuration for %s, which is not the official TestNet.\n"
                       "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
-                      "If you want to run a different network, either specify different --home_dir or remove %s to start from scratch." % (home_dir, genesis_config['chain_id'], home_dir))
+                      "If you want to run a different network, either specify different --home or remove %s to start from scratch." % (home_dir, genesis_config['chain_id'], home_dir))
             elif genesis_config['chain_id'] == 'testnet':
                 print("Folder %s already has network configuration for the official TestNet.\n"
                       "Use ./scripts/start_testnet.py instead to keep running it.\n"
-                      "If you want to run a different network, either specify different --home_dir or remove %s to start from scratch" % (home_dir, home_dir))
-            else:
+                      "If you want to run a different network, either specify different --home or remove %s to start from scratch" % (home_dir, home_dir))
+            elif chain_id != '':
                 print("Folder %s already has network configuration for %s. Use ./scripts/start_localnet.py to continue running it." % (home_dir, genesis_config['chain_id']))
             exit(1)
         print("Using existing node configuration from %s for %s" % (home_dir, genesis_config['chain_id']))
