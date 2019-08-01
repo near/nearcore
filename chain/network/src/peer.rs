@@ -254,7 +254,7 @@ impl Peer {
                 NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
             }
             PeerMessage::AnnounceAccount(announce_account) => {
-                if announce_account.peer_id_sender() != peer_id {
+                if announce_account.peer_id() != peer_id {
                     // Ban peer if tries to impersonate another peer.
                     self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidPeerId);
                     return;

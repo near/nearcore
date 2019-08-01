@@ -64,7 +64,9 @@ pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60;
+pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
+/// Maximum amount of routes to store for each account id.
+pub const MAX_ROUTES_TO_STORE: usize = 5;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -252,6 +254,7 @@ impl NearConfig {
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
                 ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
+                max_routes_to_store: MAX_ROUTES_TO_STORE,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,

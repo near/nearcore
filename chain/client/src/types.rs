@@ -124,7 +124,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             announce_account_horizon: 5,
-            ttl_account_id_router: Duration::from_secs(60),
+            ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }
@@ -151,7 +151,7 @@ impl ClientConfig {
             produce_empty_blocks: true,
             epoch_length: 10,
             announce_account_horizon: 5,
-            ttl_account_id_router: Duration::from_secs(60),
+            ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
         }

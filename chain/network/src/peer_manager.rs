@@ -60,6 +60,7 @@ struct ActivePeer {
 
 enum RoutingTableUpdate {
     NewAccount,
+    NewRoute,
     UpdatedAccount,
     Ignore,
 }
@@ -75,17 +76,87 @@ impl RoutingTableUpdate {
 
 #[derive(Debug, Clone)]
 pub struct RoutingTableEntry {
-    // Target peer id for communication.
-    peer_id: PeerId,
-    // Evidence for this route.
-    announcement: AnnounceAccount,
-    // Last time a route was used.
+    /// Keep track of several routes for the same account id.
+    routes: Vec<AnnounceAccount>,
+    /// Last time a route was used.
     last_update: Instant,
+    /// Index of the last route reported to the Peer Manager to send message.
+    last_route_reported: usize,
+    /// When new peers get connected to us, we will send one (among the shortest routes)
+    /// for every account id known to us.
+    /// This is the index of the last best route shared.
+    last_shortest_route_reported: usize,
+    /// Maximum number of routes that we should keep track.
+    max_routes_to_save: usize,
 }
 
 impl RoutingTableEntry {
-    fn num_hops(&self) -> usize {
-        self.announcement.num_hops()
+    fn new(route: AnnounceAccount, max_routes_to_save: usize) -> Self {
+        Self {
+            routes: vec![route],
+            last_update: Instant::now(),
+            last_route_reported: 0,
+            last_shortest_route_reported: 0,
+            max_routes_to_save,
+        }
+    }
+
+    fn route_through_peer_index(&self, peer_id: &PeerId) -> Option<usize> {
+        self.routes
+            .iter()
+            .enumerate()
+            .find(|(_, route)| route.peer_id() == *peer_id)
+            .map(|(position, _)| position)
+    }
+
+    fn add_route(&mut self, route: AnnounceAccount) -> RoutingTableUpdate {
+        self.last_update = Instant::now();
+        let peer_index = self.route_through_peer_index(&route.peer_id());
+
+        if let Some(peer_index) = peer_index {
+            // We already have a route through this peer.
+            if self.routes[peer_index].num_hops() <= route.num_hops() {
+                // Ignore this route since we already have a route at least as good
+                // as this one through this peer.
+                RoutingTableUpdate::Ignore
+            } else {
+                // Overwrite old route through this peer with better route.
+                self.routes[peer_index] = route;
+                RoutingTableUpdate::UpdatedAccount
+            }
+        } else {
+            if self.routes.len() == self.max_routes_to_save {
+                // Don't exceed maximum number of routes to store for every
+                RoutingTableUpdate::Ignore
+            } else {
+                self.routes.push(route);
+                RoutingTableUpdate::NewRoute
+            }
+        }
+    }
+
+    fn next_peer_id(&mut self) -> PeerId {
+        self.last_route_reported += 1;
+        if self.last_route_reported == self.routes.len() {
+            self.last_route_reported = 0;
+        }
+        self.routes[self.last_route_reported].peer_id()
+    }
+
+    pub fn next_best_route(&mut self) -> AnnounceAccount {
+        // Save unwrap (there is at least one route always).
+        let shortest_route_hops = self.routes.iter().map(|route| route.num_hops()).min().unwrap();
+
+        loop {
+            self.last_shortest_route_reported += 1;
+            if self.last_shortest_route_reported == self.routes.len() {
+                self.last_shortest_route_reported = 0;
+            }
+
+            if self.routes[self.last_shortest_route_reported].num_hops() == shortest_route_hops {
+                return self.routes[self.last_shortest_route_reported].clone();
+            }
+        }
     }
 }
 
@@ -94,11 +165,18 @@ pub struct RoutingTable {
     pub account_peers: HashMap<AccountId, RoutingTableEntry>,
     last_purge: Instant,
     ttl_account_id_router: Duration,
+    /// Maximum number of routes that we should keep track for each Account id
+    max_routes_to_save: usize,
 }
 
 impl RoutingTable {
-    fn new(ttl_account_id_router: Duration) -> Self {
-        Self { account_peers: HashMap::new(), last_purge: Instant::now(), ttl_account_id_router }
+    fn new(ttl_account_id_router: Duration, max_routes_to_save: usize) -> Self {
+        Self {
+            account_peers: HashMap::new(),
+            last_purge: Instant::now(),
+            ttl_account_id_router,
+            max_routes_to_save,
+        }
     }
 
     fn remove_old_routes(&mut self) {
@@ -116,50 +194,27 @@ impl RoutingTable {
         }
     }
 
-    fn update(&mut self, data: &AnnounceAccount) -> RoutingTableUpdate {
+    fn update(&mut self, data: AnnounceAccount) -> RoutingTableUpdate {
         self.remove_old_routes();
         match self.account_peers.get_mut(&data.account_id) {
             // If this account id is already tracked in the routing table ...
-            Some(entry) => {
-                // check if this connection is better than the one we keep track
-                // regarding number of intermediate hops.
-                if data.num_hops() < entry.num_hops() {
-                    // and add it
-                    self.account_peers.insert(
-                        data.account_id.clone(),
-                        RoutingTableEntry {
-                            peer_id: data.peer_id_sender(),
-                            announcement: data.clone(),
-                            last_update: Instant::now(),
-                        },
-                    );
-                    RoutingTableUpdate::UpdatedAccount
-                } else {
-                    entry.last_update = Instant::now();
-                    RoutingTableUpdate::Ignore
-                }
-            }
+            Some(entry) => entry.add_route(data),
             // If we don't have this account id store it in the routing table.
             None => {
                 self.account_peers.insert(
                     data.account_id.clone(),
-                    RoutingTableEntry {
-                        peer_id: data.peer_id_sender(),
-                        announcement: data.clone(),
-                        last_update: Instant::now(),
-                    },
+                    RoutingTableEntry::new(data, self.max_routes_to_save),
                 );
-
                 RoutingTableUpdate::NewAccount
             }
         }
     }
 
-    fn get_route(&mut self, account_id: &AccountId) -> Option<&PeerId> {
+    fn get_route(&mut self, account_id: &AccountId) -> Option<PeerId> {
         self.remove_old_routes();
         self.account_peers.get_mut(account_id).map(|entry| {
             entry.last_update = Instant::now();
-            &entry.peer_id
+            entry.next_peer_id()
         })
     }
 }
@@ -193,6 +248,7 @@ impl PeerManagerActor {
         let peer_store = PeerStore::new(store, &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
         let ttl_account_id_router = config.ttl_account_id_router;
+        let max_routes_to_save = config.max_routes_to_store;
         Ok(PeerManagerActor {
             peer_id: config.public_key.into(),
             config,
@@ -200,7 +256,7 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(ttl_account_id_router),
+            routing_table: RoutingTable::new(ttl_account_id_router, max_routes_to_save),
             monitor_peers_attempts: 0,
         })
     }
@@ -229,18 +285,18 @@ impl PeerManagerActor {
             },
         );
 
-        // TODO(MarX): After multiple routes => only send better connection
-        // TODO(MarX): After multiple routes => store only one per peer id
         // Sync routes to known account ids with new peer.
-        for announcement in
-            self.routing_table.account_peers.values().map(|entry| &entry.announcement)
+        for mut announcement in
+            self.routing_table.account_peers.values_mut().map(|entry| entry.next_best_route())
         {
+            // Update route with our information in case we are not the source.
+            if announcement.header().peer_id != self.peer_id {
+                announcement.extend(self.peer_id, &self.config.secret_key);
+            }
             actix::spawn(
-                addr.send(SendMessage {
-                    message: PeerMessage::AnnounceAccount(announcement.clone()),
-                })
-                .map_err(|e| error!(target: "network", "{}", e))
-                .map(|_| ()),
+                addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
+                    .map_err(|e| error!(target: "network", "{}", e))
+                    .map(|_| ()),
             );
         }
     }
@@ -452,13 +508,16 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // Check that we don't belong to this route. There is a chance that we remove from our routing table
         // some account id, and after that receive a route to that account id that pass through us.
-        // This avoid accepting such route.
-        if announce_account.route.iter().any(|announce| announce.peer_id != self.peer_id) {
+        // This avoid accepting such route. Take care of the case when the number of hops is 0, it could
+        // be possible that we are the owner of such account id.
+        if announce_account.num_hops() > 0
+            && announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id)
+        {
             return;
         }
 
         // If this is a new account send an announcement to random set of peers.
-        if self.routing_table.update(&announce_account).is_new() {
+        if self.routing_table.update(announce_account.clone()).is_new() {
             if announce_account.header().peer_id != self.peer_id {
                 // If this announcement was not sent by this peer, add peer information
                 announce_account.extend(self.peer_id, &self.config.secret_key);
@@ -473,7 +532,7 @@ impl PeerManagerActor {
     fn send_message_to_account(&mut self, ctx: &mut Context<Self>, msg: DirectMessage) {
         let account_id = &msg.account_id;
         if let Some(peer_id) = self.routing_table.get_route(account_id) {
-            if let Some(active_peer) = self.active_peers.get(peer_id) {
+            if let Some(active_peer) = self.active_peers.get(&peer_id) {
                 active_peer
                     .addr
                     .send(SendMessage { message: PeerMessage::Direct(msg) })

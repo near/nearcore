@@ -336,7 +336,8 @@ impl AnnounceAccount {
         self.route.first().unwrap()
     }
 
-    pub fn peer_id_sender(&self) -> PeerId {
+    /// Peer Id sending this announcement.
+    pub fn peer_id(&self) -> PeerId {
         self.route.last().unwrap().peer_id
     }
 
@@ -677,6 +678,8 @@ pub struct NetworkConfig {
     pub peer_stats_period: Duration,
     /// Time to persist Accounts Id in the router without removing them.
     pub ttl_account_id_router: Duration,
+    /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
+    pub max_routes_to_store: usize,
 }
 
 /// Status of the known peers.
