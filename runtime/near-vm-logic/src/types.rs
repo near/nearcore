@@ -4,6 +4,7 @@ pub type BlockIndex = u64;
 pub type Balance = u128;
 pub type Gas = u64;
 pub type PromiseIndex = u64;
+pub type ReceiptIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
 
@@ -12,8 +13,9 @@ pub enum ReturnData {
     /// Method returned some value or data.
     Value(Vec<u8>),
 
-    /// Method returned a promise.
-    Promise(PromiseIndex),
+    /// The return value of the method should be taken from the return value of another method
+    /// identified through receipt index.
+    ReceiptIndex(ReceiptIndex),
 
     /// Method hasn't returned any data or promise.
     None,

@@ -2,19 +2,21 @@ use crate::dependencies::ExternalError;
 
 #[derive(Debug, PartialEq)]
 pub enum HostError {
-    MemoryAccessViolation,
-    External(ExternalError),
-    InvalidRegisterId,
-    InvalidIteratorIndex,
-    IteratorWasInvalidated,
-    EmptyMethodName,
-    GuestPanic,
-    BadUTF8,
     BadUTF16,
-    IntegerOverflow,
-    UsageLimit,
+    BadUTF8,
     BalanceExceeded,
+    EmptyMethodName,
+    External(ExternalError),
+    GuestPanic,
+    IntegerOverflow,
+    InvalidIteratorIndex,
+    InvalidPromiseIndex,
+    CannotReturnJointPromise,
     InvalidPromiseResultIndex,
+    InvalidRegisterId,
+    IteratorWasInvalidated,
+    MemoryAccessViolation,
+    UsageLimit,
 }
 
 impl From<ExternalError> for HostError {

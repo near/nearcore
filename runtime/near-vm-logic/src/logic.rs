@@ -4,9 +4,12 @@ use crate::dependencies::{External, MemoryLike};
 use crate::errors::HostError;
 use crate::rand_iter::RandIterator;
 use crate::types::{
-    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReturnData, StorageUsage,
+    AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
+    StorageUsage,
 };
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostError>;
@@ -46,7 +49,60 @@ pub struct VMLogic<'a> {
     valid_iterators: HashSet<IteratorIndex>,
     /// Iterators that became invalidated by mutating the trie.
     invalid_iterators: HashSet<IteratorIndex>,
+
+    /// The DAG of promises, indexed by promise id.
+    promises: HashSet<Promise>,
 }
+
+#[derive(Debug)]
+/// Promises API allows to create a DAG-structure that defines dependencies between smart contract
+/// calls. A single promise can be created with zero or several dependencies on other promises.
+/// * If promise was created from a receipt (using `promise_create` or `promise_then`) then
+///   `promise_to_receipt` is `Receipt`;
+/// * If promise was created by merging several promises (using `promise_and`) then
+///   `promise_to_receipt` is `NotReceipt` but has receipts of all promises it depends on.
+struct Promise {
+    promise_to_receipt: PromiseToReceipts,
+    promise_idx: PromiseIndex,
+}
+
+#[derive(Debug)]
+enum PromiseToReceipts {
+    Receipt(ReceiptIndex),
+    NotReceipt(HashSet<ReceiptIndex>),
+}
+
+macro_rules! set(
+    { $($el:expr),* } => {
+        {
+            let mut s = ::std::collections::HashSet::new();
+            $(
+                s.insert($el);
+            )*
+            s
+        }
+     };
+);
+
+impl Borrow<PromiseIndex> for Promise {
+    fn borrow(&self) -> &PromiseIndex {
+        &self.promise_idx
+    }
+}
+
+impl Hash for Promise {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.promise_idx)
+    }
+}
+
+impl PartialEq for Promise {
+    fn eq(&self, other: &Self) -> bool {
+        self.promise_idx == other.promise_idx
+    }
+}
+
+impl Eq for Promise {}
 
 impl<'a> VMLogic<'a> {
     pub fn new(
@@ -73,6 +129,7 @@ impl<'a> VMLogic<'a> {
             rand_iter,
             valid_iterators: HashSet::new(),
             invalid_iterators: HashSet::new(),
+            promises: HashSet::new(),
         }
     }
 
@@ -398,9 +455,15 @@ impl<'a> VMLogic<'a> {
         }
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
         self.attach_gas_to_promise(gas)?;
-        self.ext
-            .promise_create(account_id, method_name, arguments, amount, gas)
-            .map_err(|err| err.into())
+        let new_receipt_idx =
+            self.ext.receipt_create(set![], account_id, method_name, arguments, amount, gas)?;
+
+        let promise_idx = self.promises.len() as PromiseIndex;
+        self.promises.insert(Promise {
+            promise_idx,
+            promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
+        });
+        Ok(promise_idx)
     }
 
     /// Attaches the callback that is executed after promise pointed by `promise_idx` is complete.
@@ -435,9 +498,29 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::EmptyMethodName);
         }
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-        self.ext
-            .promise_then(promise_idx, account_id, method_name, arguments, amount, gas)
-            .map_err(|err| err.into())
+        self.attach_gas_to_promise(gas)?;
+
+        // Update the DAG and return new promise idx.
+        let promise = self.promises.get(&promise_idx).ok_or(HostError::InvalidPromiseIndex)?;
+        let receipt_dependencies = match &promise.promise_to_receipt {
+            PromiseToReceipts::Receipt(receipt_idx) => set![*receipt_idx],
+            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
+        };
+
+        let new_receipt_idx = self.ext.receipt_create(
+            receipt_dependencies,
+            account_id,
+            method_name,
+            arguments,
+            amount,
+            gas,
+        )?;
+        let new_promise_idx = self.promises.len() as PromiseIndex;
+        self.promises.insert(Promise {
+            promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
+            promise_idx: new_promise_idx,
+        });
+        Ok(new_promise_idx)
     }
 
     /// Creates a new promise which completes when time all promises passed as arguments complete.
@@ -461,9 +544,27 @@ impl<'a> VMLogic<'a> {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
-        let promise_ids =
+        let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
-        self.ext.promise_and(&promise_ids).map_err(|err| err.into())
+
+        let mut receipt_dependencies = HashSet::new();
+        for promise_idx in &promise_indices {
+            let promise = self.promises.get(promise_idx).ok_or(HostError::InvalidPromiseIndex)?;
+            match &promise.promise_to_receipt {
+                PromiseToReceipts::Receipt(receipt_idx) => {
+                    receipt_dependencies.insert(*receipt_idx);
+                }
+                PromiseToReceipts::NotReceipt(receipt_indices) => {
+                    receipt_dependencies.extend(receipt_indices.clone());
+                }
+            }
+        }
+        let new_promise_idx = self.promises.len() as PromiseIndex;
+        self.promises.insert(Promise {
+            promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
+            promise_idx: new_promise_idx,
+        });
+        Ok(new_promise_idx)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
@@ -519,8 +620,18 @@ impl<'a> VMLogic<'a> {
     ///
     /// If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
-        self.return_data = ReturnData::Promise(promise_idx);
-        Ok(())
+        match self
+            .promises
+            .get(&promise_idx)
+            .ok_or(HostError::InvalidPromiseIndex)?
+            .promise_to_receipt
+        {
+            PromiseToReceipts::Receipt(receipt_idx) => {
+                self.return_data = ReturnData::ReceiptIndex(receipt_idx);
+                Ok(())
+            }
+            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise),
+        }
     }
 
     // #####################

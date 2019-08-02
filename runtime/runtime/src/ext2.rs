@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::{Arc, Mutex};
 
@@ -6,16 +6,13 @@ use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
-};
-use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
+use near_primitives::transaction::{Callback, ReceiptTransaction};
+use near_primitives::types::{AccountId, CallbackId, Nonce, ReceiptId};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
 use near_vm_logic::{External, ExternalError};
 
 use crate::ethereum::EthashProvider;
-use crate::POISONED_LOCK_ERR;
 use near_primitives::crypto::signature::PublicKey;
 
 pub struct RuntimeExt<'a> {
@@ -160,30 +157,15 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn promise_create(
+    fn receipt_create(
         &mut self,
+        receipt_indices: HashSet<u64>,
         account_id: String,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         amount: u128,
         gas: u64,
     ) -> Result<u64, ExternalError> {
-        unimplemented!()
-    }
-
-    fn promise_then(
-        &mut self,
-        promise_id: u64,
-        account_id: String,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: u128,
-        gas: u64,
-    ) -> Result<u64, ExternalError> {
-        unimplemented!()
-    }
-
-    fn promise_and(&mut self, promise_indices: &[u64]) -> Result<u64, ExternalError> {
         unimplemented!()
     }
 

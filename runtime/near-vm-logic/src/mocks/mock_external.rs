@@ -1,7 +1,7 @@
 use crate::dependencies::ExternalError;
 use crate::External;
 use std::collections::btree_map::Range;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::intrinsics::transmute;
 
 #[derive(Default)]
@@ -75,30 +75,15 @@ impl External for MockedExternal {
         }
     }
 
-    fn promise_create(
+    fn receipt_create(
         &mut self,
+        _receipt_indices: HashSet<u64>,
         _account_id: String,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
         _amount: u128,
         _gas: u64,
     ) -> Result<u64, ExternalError> {
-        unimplemented!()
-    }
-
-    fn promise_then(
-        &mut self,
-        _promise_id: u64,
-        _account_id: String,
-        _method_name: Vec<u8>,
-        _arguments: Vec<u8>,
-        _amount: u128,
-        _gas: u64,
-    ) -> Result<u64, ExternalError> {
-        unimplemented!()
-    }
-
-    fn promise_and(&mut self, _promise_indices: &[u64]) -> Result<u64, ExternalError> {
         unimplemented!()
     }
 
