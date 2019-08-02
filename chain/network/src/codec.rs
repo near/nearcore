@@ -131,10 +131,13 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_direct_block_approval() {
-        let (_, sk) = get_key_pair();
-        let signature = sign(vec![].as_slice(), &sk);
+        let (pk, sk) = get_key_pair();
+        let hash = CryptoHash::default();
+        let signature = sign(hash.as_ref(), &sk);
         let msg = PeerMessage::Direct(DirectMessage {
             account_id: "test1".to_string(),
+            author: pk.into(),
+            signature: signature.clone(),
             body: DirectMessageBody::BlockApproval(
                 "test2".to_string(),
                 CryptoHash::default(),

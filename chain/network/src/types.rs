@@ -15,7 +15,7 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
+use near_primitives::crypto::signature::{sign, verify, PublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
@@ -392,10 +392,46 @@ pub enum DirectMessageBody {
     ForwardTx(SignedTransaction),
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
-pub struct DirectMessage {
+impl DirectMessageBody {
+    pub fn hash(&self) -> CryptoHash {
+        match &self {
+            DirectMessageBody::BlockApproval(_, hash, _) => hash.clone(),
+            DirectMessageBody::ForwardTx(tx) => tx.get_hash(),
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct RawDirectMessage {
     pub account_id: AccountId,
     pub body: DirectMessageBody,
+}
+
+impl RawDirectMessage {}
+
+/// DirectMessage represent a package that will travel the network towards a specific account id.
+/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
+/// route must verify that this signature is valid otherwise previous sender of this package should
+/// be banned. If the final receiver of this package finds that the body is invalid the original
+/// sender of the package should be banned instead. (Notice that this peer might not be connected
+/// to us)
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DirectMessage {
+    /// Account id which is directed this message
+    pub account_id: AccountId,
+    /// Original sender of this message
+    pub author: PeerId,
+    /// Signature from the author of the message. If this signature is invalid we should ban
+    /// last sender of this message. If the message is invalid we should ben author of the message.
+    pub signature: Signature,
+    /// Message
+    pub body: DirectMessageBody,
+}
+
+impl DirectMessage {
+    pub fn verify(&self) -> bool {
+        verify(self.body.hash().as_ref(), &self.signature, &self.author.public_key())
+    }
 }
 
 impl Message for DirectMessage {
@@ -421,7 +457,9 @@ impl TryFrom<network_proto::DirectMessage> for DirectMessage {
         };
 
         let account_id = proto.account_id.try_into()?;
-        Ok(DirectMessage { account_id, body })
+        let author = proto.author.try_into().map_err(|e| format!("{}", e))?;
+        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
+        Ok(DirectMessage { account_id, author, signature, body })
     }
 }
 
@@ -446,6 +484,8 @@ impl From<DirectMessage> for network_proto::DirectMessage {
 
         network_proto::DirectMessage {
             account_id: direct_message.account_id,
+            author: direct_message.author.into(),
+            signature: direct_message.signature.into(),
             body,
             ..Default::default()
         }

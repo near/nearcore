@@ -18,11 +18,12 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, DirectMessage, DirectMessageBody, Handshake, NetworkClientMessages,
-    PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, ReasonForBan, SendMessage, Unregister,
+    Ban, Consolidate, DirectMessageBody, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo,
+    PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, RawDirectMessage, ReasonForBan, SendMessage, Unregister,
 };
-use crate::{NetworkClientResponses, PeerManagerActor};
+use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
+use futures::Future;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -264,6 +265,7 @@ impl Peer {
             }
             // All Direct messages received at this point are for us.
             PeerMessage::Direct(direct_message) => match direct_message.body {
+                // TODO(MarX): If this message is invalid the banned peer should be the original author and not the current sender.
                 DirectMessageBody::BlockApproval(account_id, hash, signature) => {
                     NetworkClientMessages::BlockApproval(account_id, hash, signature)
                 }
@@ -278,6 +280,7 @@ impl Peer {
                 return;
             }
         };
+
         self.client_addr
             .send(network_client_msg)
             .into_actor(self)
@@ -285,7 +288,7 @@ impl Peer {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
-                        act.peer_manager_addr.do_send(DirectMessage {
+                        act.peer_manager_addr.do_send(RawDirectMessage {
                             account_id,
                             body: DirectMessageBody::ForwardTx(tx)
                         })
@@ -438,22 +441,34 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Ready, PeerMessage::Direct(direct_message)) => {
                 debug!(target: "network", "Received direct message from {} to {}.", self.peer_info, direct_message.account_id);
 
-                // TODO(MarX): **Discuss** `Direct Messages` contains extra signature from the first peer.
-                // Everyone verifies this signature is ok and forward the message.
-                // If this signature is invalid we ban peer that send us this direct message (previous peer)
-                // and discard message.  If the receiver of this message detects this is an invalid message
-                // we ban original sender. Broadcast ban message with proofs.
+                // Receive invalid direct message from peer.
+                if !direct_message.verify() {
+                    actix::spawn(
+                        self.peer_manager_addr
+                            .send(NetworkRequests::BanPeer {
+                                peer_id: self.node_info.id,
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            })
+                            .map_err(|e| error!(target: "client", "{}", e))
+                            .map(|_| ()),
+                    );
 
-                self.peer_manager_addr
-                    .send(direct_message.clone())
-                    .into_actor(self)
-                    .then(move |res, act, ctx| {
-                        if res.unwrap_or(false) {
-                            act.receive_client_message(ctx, PeerMessage::Direct(direct_message));
-                        }
-                        actix::fut::ok(())
-                    })
-                    .spawn(ctx);
+                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidSignature);
+                } else {
+                    self.peer_manager_addr
+                        .send(direct_message.clone())
+                        .into_actor(self)
+                        .then(move |res, act, ctx| {
+                            if res.unwrap_or(false) {
+                                act.receive_client_message(
+                                    ctx,
+                                    PeerMessage::Direct(direct_message),
+                                );
+                            }
+                            actix::fut::ok(())
+                        })
+                        .spawn(ctx);
+                }
             }
             (_, PeerStatus::Ready, msg) => {
                 self.receive_client_message(ctx, msg);

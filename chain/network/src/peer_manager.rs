@@ -28,12 +28,13 @@ use crate::peer_store::PeerStore;
 use crate::types::{
     AnnounceAccount, Ban, Consolidate, DirectMessage, DirectMessageBody, FullPeerInfo,
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
-    PeerMessage, PeerType, PeersRequest, PeersResponse, QueryPeerStats, ReasonForBan, SendMessage,
-    Unregister,
+    PeerMessage, PeerType, PeersRequest, PeersResponse, QueryPeerStats, RawDirectMessage,
+    ReasonForBan, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
+use near_primitives::crypto::signature::sign;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -312,6 +313,7 @@ impl PeerManagerActor {
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
+    // TODO(MarX): Should broadcast this with evidence in case of *intentional* misbehaviour.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?}", peer_id);
         self.active_peers.remove(&peer_id);
@@ -548,6 +550,17 @@ impl PeerManagerActor {
             warn!(target: "network", "Unknown account {} in routing table. Dropping message.", account_id);
         }
     }
+
+    fn sign_direct_message(&self, msg: RawDirectMessage) -> DirectMessage {
+        let hash = msg.body.hash();
+        let signature = sign(hash.as_ref(), &self.config.secret_key);
+        DirectMessage {
+            account_id: msg.account_id,
+            author: self.peer_id,
+            signature,
+            body: msg.body,
+        }
+    }
 }
 
 impl Actor for PeerManagerActor {
@@ -598,14 +611,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     if let Some(account_id) = self.config.account_id.clone() {
                         self.send_message_to_account(
                             ctx,
-                            DirectMessage {
+                            self.sign_direct_message(RawDirectMessage {
                                 account_id: approval.target,
                                 body: DirectMessageBody::BlockApproval(
                                     account_id,
                                     approval.hash,
                                     approval.signature,
                                 ),
-                            },
+                            }),
                         );
                     }
                 }
@@ -769,9 +782,17 @@ impl Handler<DirectMessage> for PeerManagerActor {
         if self.config.account_id.as_ref().map_or(false, |me| me == &msg.account_id) {
             true
         } else {
-            // Otherwise route it to its corresponding destination.
             self.send_message_to_account(ctx, msg);
+            // Otherwise route it to its corresponding destination.
             false
         }
+    }
+}
+
+impl Handler<RawDirectMessage> for PeerManagerActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: RawDirectMessage, ctx: &mut Self::Context) {
+        self.send_message_to_account(ctx, self.sign_direct_message(msg));
     }
 }

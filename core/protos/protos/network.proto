@@ -70,9 +70,11 @@ message AnnounceAccount {
 
 message DirectMessage {
     string account_id = 1;
+    bytes author = 2;
+    bytes signature = 3;
     oneof body {
-        BlockApproval block_approval = 2;
-        SignedTransaction transaction = 3;
+        BlockApproval block_approval = 4;
+        SignedTransaction transaction = 5;
     }
 }
 
