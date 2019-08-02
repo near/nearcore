@@ -100,10 +100,10 @@ impl EpochManager {
             hash = info.prev_hash;
         }
 
-        let last_block_info = self.get_block_info(last_block_hash)?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
+        let last_block_info = self.get_block_info(&last_block_hash)?.clone();
         let first_block_info = self.get_block_info(&last_block_info.epoch_first_block)?.clone();
-        let num_blocks_expected = (last_block_info.index - first_block_info.index)
-            / (epoch_info.block_producers.len() as u64);
+        let num_expected_blocks = self.get_num_expected_blocks(&epoch_info, &first_block_info)?;
 
         // Compute kick outs for validators who are offline.
         let mut all_kicked_out = true;
@@ -111,11 +111,10 @@ impl EpochManager {
         let mut max_validator_id = None;
         let validator_kickout_threshold = self.config.validator_kickout_threshold;
 
-        let epoch_info = self.get_epoch_info(epoch_id)?;
         for (i, _) in epoch_info.validators.iter().enumerate() {
             let num_blocks = validator_tracker.get(&i).unwrap_or(&0).clone();
             // Note, we use * 100 to keep this in integer space.
-            let mut cur_ratio = (num_blocks * 100) / num_blocks_expected;
+            let mut cur_ratio = (num_blocks * 100) / num_expected_blocks[&i];
             let account_id = epoch_info.validators[i].account_id.clone();
             // TODO: replace validator_kickout_threshold with an integer
             if cur_ratio < (validator_kickout_threshold * 100.0) as u64 {
@@ -208,6 +207,25 @@ impl EpochManager {
         Ok(store_update)
     }
 
+    fn get_num_expected_blocks(
+        &mut self,
+        epoch_info: &EpochInfo,
+        epoch_first_block_info: &BlockInfo,
+    ) -> Result<HashMap<ValidatorId, u64>, EpochError> {
+        let mut num_expected = HashMap::default();
+        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?;
+        // We iterate from next index after previous epoch's last block, for epoch_length blocks.
+        for index in (prev_epoch_last_block.index + 1)
+            ..=(prev_epoch_last_block.index + self.config.epoch_length)
+        {
+            num_expected
+                .entry(self.block_producer_from_info(epoch_info, index))
+                .and_modify(|e| *e += 1)
+                .or_insert(1);
+        }
+        Ok(num_expected)
+    }
+
     fn block_producer_from_info(&self, epoch_info: &EpochInfo, index: BlockIndex) -> ValidatorId {
         epoch_info.block_producers[(index % (epoch_info.block_producers.len() as u64)) as usize]
     }
@@ -221,7 +239,7 @@ impl EpochManager {
 
     /// Returns true, if given current block info, next block suppose to be in the next epoch.
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        Ok(block_info.index
+        Ok(block_info.index + 1
             >= self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length)
     }
 
@@ -342,11 +360,10 @@ mod tests {
         let h = hash_range(4);
         record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 10)]);
-        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         // New epoch starts here.
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         assert_eq!(
-            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
+            epoch_manager.get_epoch_info(&EpochId(h[1])).unwrap(),
             &epoch_info(
                 vec![("test2", amount_staked)],
                 vec![0, 0],

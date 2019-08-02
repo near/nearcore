@@ -1,14 +1,11 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt;
 use std::iter;
 
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use near_primitives::types::{
-    AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
