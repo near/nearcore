@@ -7,7 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -59,6 +61,16 @@ pub enum ShardFullChunkOrOnePart<'a> {
     OnePart(&'a ChunkOnePart),
     // The chunk for particular shard is not present in the block
     NoChunk,
+}
+
+pub struct ApplyTransactionResult {
+    pub trie_changes: WrappedTrieChanges,
+    pub new_root: MerkleHash,
+    pub transaction_results: Vec<TransactionResult>,
+    pub receipt_result: ReceiptResult,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub new_total_supply: Balance,
+    pub gas_used: GasUsage,
 }
 
 /// Bridge between the chain and the runtime.
@@ -156,6 +168,8 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
+        gas_used: GasUsage,
+        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
@@ -169,16 +183,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
-        Box<dyn std::error::Error>,
-    >;
+    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>>;
 
     /// Query runtime with given `path` and `data`.
     fn query(

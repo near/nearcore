@@ -10,7 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorId, ValidatorStake,
 };
 use near_store::{Store, StoreUpdate, COL_LAST_EPOCH_PROPOSALS, COL_PROPOSALS, COL_VALIDATORS};
 
@@ -331,6 +331,7 @@ pub struct ValidatorIndexInfo {
     pub proposals: Vec<ValidatorStake>,
     pub validator_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
+    pub gas_used: GasUsage,
 }
 
 /// Manages current validators and validator proposals in the current epoch across different forks.
@@ -371,6 +372,7 @@ impl ValidatorManager {
                     proposals: vec![],
                     validator_mask: vec![],
                     slashed: HashSet::new(),
+                    gas_used: 0,
                 };
 
                 let mut store_update = store.store_update();
@@ -427,7 +429,8 @@ impl ValidatorManager {
         // TODO(1049): handle that config epoch length can change over time from runtime.
         let parent_info = self
             .get_index_info(&parent_hash)
-            .map_err(|_| ValidatorError::MissingBlock(parent_hash))?;
+            .map_err(|_| ValidatorError::MissingBlock(parent_hash))?
+            .clone();
         let (epoch_start_index, epoch_start_parent_hash) =
             if parent_hash == parent_info.epoch_start_hash {
                 (parent_info.index, parent_info.prev_hash)
@@ -455,7 +458,7 @@ impl ValidatorManager {
     // TODO XXX MOO: the common logic needs to be refactored out into a single function after merge
     // The caller must expect an error if the block is the first block of its epoch
     pub fn get_next_epoch_hash(
-        &self,
+        &mut self,
         parent_hash: CryptoHash,
     ) -> Result<CryptoHash, ValidatorError> {
         if parent_hash == CryptoHash::default() {
@@ -463,8 +466,10 @@ impl ValidatorManager {
         }
 
         // TODO(1049): handle that config epoch length can change over time from runtime.
-        let parent_info =
-            self.get_index_info(&parent_hash).map_err(|_| ValidatorError::EpochOutOfBounds)?;
+        let parent_info = self
+            .get_index_info(&parent_hash)
+            .map_err(|_| ValidatorError::EpochOutOfBounds)?
+            .clone();
         let epoch_start_index = if parent_hash == parent_info.epoch_start_hash {
             parent_info.index
         } else {
@@ -556,12 +561,14 @@ impl ValidatorManager {
         for account_id in slashed.iter() {
             validator_kickout.insert(account_id.clone(), true);
         }
+        let mut total_gas_used = 0;
 
         loop {
             let info = self.get_index_info(&hash)?.clone();
             if info.epoch_start_hash != *epoch_hash || info.prev_hash == hash {
                 break;
             }
+            total_gas_used += info.gas_used;
             for proposal in info.proposals {
                 if !slashed.contains(&proposal.account_id) {
                     if proposal.amount == 0 {
@@ -642,6 +649,8 @@ impl ValidatorManager {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
+        gas_used: GasUsage,
+        gas_price: Balance,
     ) -> Result<StoreUpdate, ValidatorError> {
         let mut store_update = self.store.store_update();
         if self.store.get(COL_PROPOSALS, current_hash.as_ref())?.is_none() {
@@ -693,7 +702,6 @@ impl ValidatorManager {
             for validator in slashed_validators {
                 slashed.insert(validator);
             }
-
             let info = ValidatorIndexInfo {
                 index,
                 epoch_start_hash,
@@ -701,6 +709,7 @@ impl ValidatorManager {
                 proposals,
                 validator_mask,
                 slashed,
+                gas_used,
             };
             store_update.set_ser(COL_PROPOSALS, current_hash.as_ref(), &info)?;
             self.validator_info.insert(current_hash, info);

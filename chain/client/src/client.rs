@@ -41,6 +41,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use near_primitives::rpc::ValidatorInfo;
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
@@ -673,7 +674,7 @@ impl ClientActor {
 
             // Check client is part of the futures validators
             if let Ok(validators) =
-                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
+                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &epoch_block.hash())
             {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators
@@ -743,7 +744,7 @@ impl ClientActor {
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                epoch_hash = block.header.epoch_hash
+                epoch_hash = block.header.epoch_hash;
                 if let Ok(validators) =
                     self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
                 {
@@ -948,7 +949,7 @@ impl ClientActor {
 
         // Check that we are were called at the block that we are producer for.
         let next_block_proposer = self.get_block_proposer(
-            self.runtime_adapter.get_epoch_hash(head.last_block_hash).unwrap(),
+            &self.runtime_adapter.get_epoch_hash(head.last_block_hash).unwrap(),
             next_height,
         )?;
         if block_producer.account_id != next_block_proposer {
@@ -1043,11 +1044,6 @@ impl ClientActor {
 
         let ret = self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into());
         assert!(ret.is_ok());
-        if self.runtime_adapter.is_epoch_start(prev_block.hash(), block.header.height) {
-            // Epoch start: distribute rewards from last epoch and clear the accumulating sum of rewards
-        } else {
-            // Update the rewards
-        }
         ret
     }
 

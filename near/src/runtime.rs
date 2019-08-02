@@ -8,16 +8,16 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::{debug, error, info};
 
-use near_chain::{
-    BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
-};
+use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{
     get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
@@ -31,6 +31,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
+use near_chain::types::ApplyTransactionResult;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -314,6 +315,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
+        gas_used: GasUsage,
+        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deal with validator proposals and epoch finishing.
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
@@ -325,18 +328,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             proposals,
             slashed_validators,
             validator_mask,
+            gas_used,
+            gas_price,
         )?
         .commit()
         .map_err(|err| err.into())
-    }
-
-    fn get_epoch_offset(
-        &self,
-        parent_hash: CryptoHash,
-        block_index: BlockIndex,
-    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>> {
-        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(vm.get_epoch_offset(parent_hash, block_index)?)
     }
 
     fn apply_transactions(
@@ -348,16 +344,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         {
             let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
@@ -403,13 +390,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_result =
             self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
 
-        Ok((
-            WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
-            apply_result.root,
-            apply_result.tx_result,
-            apply_result.new_receipts,
-            apply_result.validator_proposals,
-        ))
+        let result = ApplyTransactionResult {
+            trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
+            new_root: apply_result.root,
+            transaction_results: apply_result.tx_result,
+            receipt_result: apply_result.new_receipts,
+            validator_proposals: apply_result.validator_proposals,
+            new_total_supply: 0,
+            gas_used: 0,
+        };
+
+        Ok(result)
     }
 
     fn query(
@@ -475,7 +466,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let prev_block_header =
             self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.unwrap();
         let (_epoch_hash, offset) = vm.get_epoch_offset(prev_block_header.prev_hash, index)?;
@@ -487,13 +478,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         parent_hash: CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let (_epoch_hash, offset) = vm.get_epoch_offset(parent_hash, index)?;
         Ok(offset == 0)
     }
 
     fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
-        let vm = self.validator_manager.read().expect(POISONED_LOCK_ERR);
+        let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         Ok(vm.get_epoch_offset(parent_hash, 0)?.0)
     }
 }

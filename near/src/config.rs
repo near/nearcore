@@ -68,6 +68,9 @@ pub const FAST_EPOCH_LENGTH: u64 = 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
 
+/// Initial gas price.
+pub const INITIAL_GAS_PRICE: Balance = 100;
+
 /// Rewards
 pub const PROTOCOL_PERCENT: u8 = 10;
 pub const DEVELOPER_PERCENT: u8 = 30;
@@ -321,6 +324,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: GasUsage,
+    /// Initial gas price.
+    pub gas_price: Balance,
     /// Criterion for kicking out validators
     pub validator_kickout_threshold: f64,
     /// Runtime configuration (mostly economics constants).
@@ -384,6 +389,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
@@ -430,6 +436,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
@@ -569,6 +576,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
+                gas_price: INITIAL_GAS_PRICE,
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -632,6 +640,7 @@ pub fn create_testnet_configs_from_seeds(
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
+        gas_price: INITIAL_GAS_PRICE,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
         validators,
