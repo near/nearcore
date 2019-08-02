@@ -187,6 +187,29 @@ impl ClientActor {
             })
             .map(|_hash| ())
     }
+
+    fn active_validator(&self) -> Result<bool, Error> {
+        let head = self.chain.head()?;
+
+        let block_proposers = self
+            .runtime_adapter
+            .get_epoch_block_proposers(&head.epoch_hash, &head.last_block_hash)
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        let account_id = &self
+            .block_producer
+            .as_ref()
+            .ok_or(Error::BlockProducer("Called without block producer info.".to_string()))?
+            .account_id;
+
+        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
+        Ok(block_proposers
+            .into_iter()
+            .find_map(
+                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
+            )
+            .unwrap_or(false))
+    }
 }
 
 impl Actor for ClientActor {
@@ -211,8 +234,35 @@ impl Handler<NetworkClientMessages> for ClientActor {
         match msg {
             NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
                 Ok(valid_transaction) => {
-                    self.tx_pool.insert_transaction(valid_transaction);
-                    NetworkClientResponses::ValidTx
+                    let active_validator = unwrap_or_return!(
+                        self.active_validator(),
+                        NetworkClientResponses::NoResponse
+                    );
+
+                    if active_validator {
+                        self.tx_pool.insert_transaction(valid_transaction);
+                        NetworkClientResponses::ValidTx
+                    } else {
+                        let head = unwrap_or_return!(
+                            self.chain.head(),
+                            NetworkClientResponses::NoResponse
+                        );
+
+                        let target_height = head.height + 2;
+
+                        let (epoch_hash, _offset) = unwrap_or_return!(
+                            self.runtime_adapter
+                                .get_epoch_offset(head.last_block_hash, target_height),
+                            NetworkClientResponses::NoResponse
+                        );
+
+                        let account_id = unwrap_or_return!(
+                            self.runtime_adapter.get_block_proposer(&epoch_hash, target_height),
+                            NetworkClientResponses::NoResponse
+                        );
+
+                        NetworkClientResponses::ForwardTx(account_id, valid_transaction.transaction)
+                    }
                 }
                 Err(err) => NetworkClientResponses::InvalidTx(err),
             },
@@ -458,7 +508,7 @@ impl ClientActor {
             {
                 if validators
                     .iter()
-                    .any(|account_id| (&(account_id.0) == &block_producer.account_id))
+                    .any(|(account_id, _)| (account_id == &block_producer.account_id))
                 {
                     self.last_validator_announce_height = Some(epoch_height);
                     self.last_validator_announce_time = Some(now);

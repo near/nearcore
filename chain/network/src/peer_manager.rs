@@ -160,6 +160,7 @@ impl RoutingTableEntry {
     }
 }
 
+// TODO(MarX): When we disconnect from a peer (or ban) we should drop its entries in the Routing Table (if any) unregister
 #[derive(Debug, Clone)]
 pub struct RoutingTable {
     pub account_peers: HashMap<AccountId, RoutingTableEntry>,

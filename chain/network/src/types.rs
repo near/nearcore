@@ -389,6 +389,7 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum DirectMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
+    ForwardTx(SignedTransaction),
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -413,6 +414,9 @@ impl TryFrom<network_proto::DirectMessage> for DirectMessage {
                     block_approval.signature.try_into()?,
                 )
             }
+            Some(network_proto::DirectMessage_oneof_body::transaction(transaction)) => {
+                DirectMessageBody::ForwardTx(transaction.try_into()?)
+            }
             None => return Err(format!("Unexpected empty message body").into()),
         };
 
@@ -434,6 +438,9 @@ impl From<DirectMessage> for network_proto::DirectMessage {
                         ..Default::default()
                     },
                 ))
+            }
+            DirectMessageBody::ForwardTx(transaction) => {
+                Some(network_proto::DirectMessage_oneof_body::transaction(transaction.into()))
             }
         };
 
@@ -485,6 +492,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
             PeerMessage::Direct(direct_message) => match direct_message.body {
                 DirectMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                DirectMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
             },
         }
     }
@@ -910,6 +918,8 @@ pub enum NetworkClientResponses {
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
     InvalidTx(String),
+    /// Valid transaction but since we are not validators we send this transaction to current validators.
+    ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.

@@ -82,7 +82,6 @@ mod test {
 
     use super::*;
 
-    // TODO(MarX): Test codec for all types of Peer Messages
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
         let mut buffer = BytesMut::new();

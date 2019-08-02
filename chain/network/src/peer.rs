@@ -18,9 +18,9 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, DirectMessageBody, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo,
-    PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, ReasonForBan, SendMessage, Unregister,
+    Ban, Consolidate, DirectMessage, DirectMessageBody, Handshake, NetworkClientMessages,
+    PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, ReasonForBan, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -262,9 +262,13 @@ impl Peer {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
+            // All Direct messages received at this point are for us.
             PeerMessage::Direct(direct_message) => match direct_message.body {
                 DirectMessageBody::BlockApproval(account_id, hash, signature) => {
                     NetworkClientMessages::BlockApproval(account_id, hash, signature)
+                }
+                DirectMessageBody::ForwardTx(transaction) => {
+                    NetworkClientMessages::Transaction(transaction)
                 }
             },
             PeerMessage::Handshake(_)
@@ -280,6 +284,12 @@ impl Peer {
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
+                    Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
+                        act.peer_manager_addr.do_send(DirectMessage {
+                            account_id,
+                            body: DirectMessageBody::ForwardTx(tx)
+                        })
+                    }
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
                         // TODO: count as malicious behaviour?
@@ -427,6 +437,13 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             }
             (_, PeerStatus::Ready, PeerMessage::Direct(direct_message)) => {
                 debug!(target: "network", "Received direct message from {} to {}.", self.peer_info, direct_message.account_id);
+
+                // TODO(MarX): **Discuss** `Direct Messages` contains extra signature from the first peer.
+                // Everyone verifies this signature is ok and forward the message.
+                // If this signature is invalid we ban peer that send us this direct message (previous peer)
+                // and discard message.  If the receiver of this message detects this is an invalid message
+                // we ban original sender. Broadcast ban message with proofs.
+
                 self.peer_manager_addr
                     .send(direct_message.clone())
                     .into_actor(self)
