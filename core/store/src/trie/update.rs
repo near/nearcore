@@ -192,7 +192,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
         let stop_cond = |key: &Vec<u8>, prefix: &Vec<u8>, end_offset: &Option<Vec<u8>>| {
             !key.starts_with(prefix)
                 || match end_offset {
-                    Some(end) => key > end,
+                    Some(end) => key >= end,
                     None => false,
                 }
         };
@@ -366,7 +366,7 @@ mod tests {
         let values: Vec<Vec<u8>> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
 
-        let values: Vec<Vec<u8>> = trie_update.range(b"do", b"g", b"g2").unwrap().collect();
+        let values: Vec<Vec<u8>> = trie_update.range(b"do", b"g", b"g21").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
 
         let values: Vec<Vec<u8>> = trie_update.range(b"do", b"", b"xyz").unwrap().collect();

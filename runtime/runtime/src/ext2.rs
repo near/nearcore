@@ -116,6 +116,7 @@ impl<'a> External for RuntimeExt<'a> {
             // Any function that mutates trie_update must drop all existing iterators first.
             unsafe { &*(self.trie_update as *const TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
+                // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
                 .expect("Error reading from storage")
                 .peekable(),
         );
