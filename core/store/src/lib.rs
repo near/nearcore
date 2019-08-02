@@ -42,9 +42,8 @@ pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
 pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
 pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
 pub const COL_PEERS: Option<u32> = Some(9);
-pub const COL_PROPOSALS: Option<u32> = Some(10);
-pub const COL_VALIDATORS: Option<u32> = Some(11);
-pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(12);
+pub const COL_EPOCH_INFO: Option<u32> = Some(10);
+pub const COL_BLOCK_INFO: Option<u32> = Some(11);
 pub const COL_CHUNKS: Option<u32> = Some(13);
 pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(14);
 /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch

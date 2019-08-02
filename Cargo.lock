@@ -1021,6 +1021,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "epoch_manager"
+version = "0.0.1"
+dependencies = [
+ "near-chain 0.1.0",
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "errno"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
