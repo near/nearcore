@@ -84,6 +84,8 @@ impl TrieUpdate {
         let TrieUpdate { trie, root, committed, .. } = self;
         trie.update(&root, committed.into_iter())
     }
+
+    /// Returns Error if the underlying storage fails
     pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
         TrieUpdateIterator::new(self, prefix, b"", None)
     }

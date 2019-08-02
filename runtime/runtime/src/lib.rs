@@ -47,6 +47,7 @@ pub mod adapter;
 pub mod config;
 pub mod ethereum;
 pub mod ext;
+pub mod ext2;
 pub mod state_viewer;
 mod store;
 mod system;

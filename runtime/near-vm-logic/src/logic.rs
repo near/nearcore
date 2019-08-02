@@ -722,7 +722,7 @@ impl<'a> VMLogic<'a> {
         let Self { memory, registers, config, valid_iterators, invalid_iterators, ext, .. } = self;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
-            ext.storage_iter_remove(invalidated_iter_idx)?;
+            ext.storage_iter_drop(invalidated_iter_idx)?;
             invalid_iterators.insert(invalidated_iter_idx);
         }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
@@ -777,7 +777,7 @@ impl<'a> VMLogic<'a> {
         let Self { ext, memory, registers, config, valid_iterators, invalid_iterators, .. } = self;
         // All iterators that were valid now become invalid
         for invalidated_iter_idx in valid_iterators.drain() {
-            ext.storage_iter_remove(invalidated_iter_idx)?;
+            ext.storage_iter_drop(invalidated_iter_idx)?;
             invalid_iterators.insert(invalidated_iter_idx);
         }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
