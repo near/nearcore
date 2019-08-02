@@ -167,15 +167,15 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
-        let validator_assignemnt = vm.get_validators(epoch_hash)?;
-        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
+        let validator_assignment = vm.get_validators(epoch_hash)?;
+        let total_seats: u64 = validator_assignment.chunk_producers[shard_id as usize]
             .iter()
             .map(|(_, seats)| seats)
             .sum();
         let mut cur_seats = 0;
-        for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
+        for (index, seats) in validator_assignment.chunk_producers[shard_id as usize].iter() {
             if cur_seats + *seats > idx % total_seats {
-                return Ok(validator_assignemnt.validators[*index].account_id.clone());
+                return Ok(validator_assignment.validators[*index].account_id.clone());
             }
             cur_seats += *seats;
         }
