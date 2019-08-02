@@ -7,6 +7,7 @@ pub type PromiseIndex = u64;
 pub type IteratorIndex = u64;
 pub type StorageUsage = u64;
 
+#[derive(Debug, PartialEq)]
 pub enum ReturnData {
     /// Method returned some value or data.
     Value(Vec<u8>),
@@ -18,6 +19,7 @@ pub enum ReturnData {
     None,
 }
 
+#[derive(Debug, PartialEq)]
 /// When there is a callback attached to one or more contract calls the execution results of these
 /// calls are available to the contract invoked through the callback.
 pub enum PromiseResult {

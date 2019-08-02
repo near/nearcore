@@ -7,7 +7,7 @@ use std::intrinsics::transmute;
 #[derive(Default)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
-    fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
+    pub fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
     iterators: HashMap<u64, Range<'static, Vec<u8>, Vec<u8>>>,
     next_iterator_index: u64,
 }

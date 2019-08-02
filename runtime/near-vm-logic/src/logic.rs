@@ -900,6 +900,7 @@ impl<'a> VMLogic<'a> {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct VMOutcome {
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
