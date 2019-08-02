@@ -102,7 +102,7 @@ def print_staking_key(home_dir):
 def docker_stop_if_exists(name):
     try:
         result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
-        if name in result:
+        if name.encode('utf-8') in result:
             subprocess.check_output(['docker', 'stop', name])
             subprocess.check_output(['docker', 'rm', name])
     except subprocess.CalledProcessError:
