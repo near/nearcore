@@ -67,7 +67,7 @@ impl External for MockedExternal {
         }
     }
 
-    fn storage_iter_remove(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
+    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
         if self.iterators.remove(&iterator_idx).is_none() {
             Err(ExternalError::InvalidIteratorIndex)
         } else {

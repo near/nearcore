@@ -56,7 +56,7 @@ pub trait External {
         iterator_idx: IteratorIndex,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>>;
 
-    fn storage_iter_remove(&mut self, iterator_idx: IteratorIndex) -> Result<()>;
+    fn storage_iter_drop(&mut self, iterator_idx: IteratorIndex) -> Result<()>;
 
     fn promise_create(
         &mut self,
