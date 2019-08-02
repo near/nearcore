@@ -15,12 +15,14 @@ use near_primitives::transaction::TransactionBody::SendMoney;
 use near_primitives::transaction::{
     AsyncCall, ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
 };
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, Nonce, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, Nonce, ShardId, ValidatorStake,
+};
 use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
+use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
 use crate::{Chain, ChainGenesis, ValidTransaction};
 
 /// Simple key value runtime for tests.
@@ -213,18 +215,19 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        epoch_hash: CryptoHash,
-    ) -> Result<Vec<(AccountId)>, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash).unwrap().1];
-        Ok(validators.iter().map(|x| x.account_id.clone()).collect())
+        epoch_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+        let validators = &self.validators[self.get_epoch_and_valset(*epoch_hash).unwrap().1];
+        Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
 
     fn get_block_proposer(
         &self,
-        epoch_hash: CryptoHash,
+        epoch_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
-        let validators = &self.validators[self.get_epoch_and_valset(epoch_hash)?.1];
+        let validators = &self.validators[self.get_epoch_and_valset(*epoch_hash)?.1];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
@@ -347,7 +350,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         _current_hash: CryptoHash,
         _block_index: u64,
         _proposals: Vec<ValidatorStake>,
+        _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
+        _gas_used: GasUsage,
+        _gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -361,16 +367,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut tx_results = vec![];
 
         let mut accounts_mapping =
@@ -510,13 +507,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.receipt_nonces.write().unwrap().insert(new_state_root, receipt_nonces);
         self.tx_nonces.write().unwrap().insert(new_state_root, tx_nonces);
 
-        Ok((
-            WrappedTrieChanges::new(self.trie.clone(), TrieChanges::empty(state_root.clone())),
-            new_state_root,
-            tx_results,
-            new_receipts,
-            vec![],
-        ))
+        let apply_result = ApplyTransactionResult {
+            trie_changes: WrappedTrieChanges::new(
+                self.trie.clone(),
+                TrieChanges::empty(state_root.clone()),
+            ),
+            new_root: new_state_root,
+            transaction_results: tx_results,
+            receipt_result: new_receipts,
+            validator_proposals: vec![],
+            new_total_supply: 0,
+            gas_used: 0,
+        };
+
+        Ok(apply_result)
     }
 
     fn query(
@@ -615,7 +619,7 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain =
-        Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000)).unwrap();
+        Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000, 100)).unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
 }

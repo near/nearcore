@@ -68,6 +68,16 @@ pub const FAST_EPOCH_LENGTH: u64 = 60;
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
 
+/// Initial gas price.
+pub const INITIAL_GAS_PRICE: Balance = 100;
+
+/// Rewards
+pub const PROTOCOL_PERCENT: u8 = 10;
+pub const DEVELOPER_PERCENT: u8 = 30;
+
+/// Maximum inflation rate per year
+pub const MAX_INFLATION_RATE: u8 = 5;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -315,6 +325,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
     pub gas_limit: GasUsage,
+    /// Initial gas price.
+    pub gas_price: Balance,
     /// Criterion for kicking out validators
     pub validator_kickout_threshold: f64,
     /// Runtime configuration (mostly economics constants).
@@ -323,6 +335,14 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
     pub records: Vec<Vec<StateRecord>>,
+    /// Developer reward percentage (this is a number between 0 and 100)
+    pub developer_reward_percentage: u8,
+    /// Protocol treasury percentage (this is a number between 0 and 100)
+    pub protocol_reward_percentage: u8,
+    /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
+    pub max_inflation_rate: u8,
+    /// Total supply of tokens at genesis.
+    pub total_supply: u128,
 }
 
 impl GenesisConfig {
@@ -370,10 +390,15 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
             records,
+            developer_reward_percentage: DEVELOPER_PERCENT,
+            protocol_reward_percentage: PROTOCOL_PERCENT,
+            max_inflation_rate: MAX_INFLATION_RATE,
+            total_supply: INITIAL_TOKEN_SUPPLY,
         }
     }
 
@@ -412,10 +437,15 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
             records: vec![records],
+            developer_reward_percentage: DEVELOPER_PERCENT,
+            protocol_reward_percentage: PROTOCOL_PERCENT,
+            max_inflation_rate: MAX_INFLATION_RATE,
+            total_supply: INITIAL_TOKEN_SUPPLY,
         }
     }
 
@@ -547,6 +577,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
+                gas_price: INITIAL_GAS_PRICE,
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -560,6 +591,10 @@ pub fn init_configs(
                     TESTING_INIT_BALANCE,
                     TESTING_INIT_STAKE,
                 )]],
+                developer_reward_percentage: DEVELOPER_PERCENT,
+                protocol_reward_percentage: PROTOCOL_PERCENT,
+                max_inflation_rate: MAX_INFLATION_RATE,
+                total_supply: INITIAL_TOKEN_SUPPLY,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -606,10 +641,15 @@ pub fn create_testnet_configs_from_seeds(
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
+        gas_price: INITIAL_GAS_PRICE,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
         validators,
         records,
+        developer_reward_percentage: DEVELOPER_PERCENT,
+        protocol_reward_percentage: PROTOCOL_PERCENT,
+        max_inflation_rate: MAX_INFLATION_RATE,
+        total_supply: INITIAL_TOKEN_SUPPLY,
     };
     let mut configs = vec![];
     let first_node_port = open_port();

@@ -30,7 +30,9 @@ pub fn get_store_path(base_path: &Path) -> String {
     store_path.push(STORE_PATH);
     match fs::canonicalize(store_path.clone()) {
         Ok(path) => info!(target: "near", "Opening store database at {:?}", path),
-        _ => info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path),
+        _ => {
+            info!(target: "near", "Did not find {:?} path, will be creating new store database", store_path)
+        }
     };
     store_path.to_str().unwrap().to_owned()
 }
@@ -57,15 +59,15 @@ pub fn start_with_config(
         Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::new(config.genesis_config.genesis_time, config.genesis_config.gas_limit);
+    let chain_genesis = ChainGenesis::new(
+        config.genesis_config.genesis_time,
+        config.genesis_config.gas_limit,
+        config.genesis_config.gas_price,
+    );
 
-    let view_client = ViewClientActor::new(
-        store.clone(),
-        chain_genesis.clone(),
-        runtime.clone(),
-    )
-    .unwrap()
-    .start();
+    let view_client = ViewClientActor::new(store.clone(), chain_genesis.clone(), runtime.clone())
+        .unwrap()
+        .start();
     let view_client1 = view_client.clone();
     let node_id = config.network_config.public_key.clone().into();
     let client = ClientActor::create(move |ctx| {

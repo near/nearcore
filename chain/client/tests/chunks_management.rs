@@ -103,7 +103,8 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
                             System::current().stop();
                         }
                     }
-                    NetworkRequests::ChunkOnePart { account_id: _, header_and_part: _ } => {
+                    NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part: _ }
+                    | NetworkRequests::ChunkOnePartResponse { peer_id: _, header_and_part: _ } => {
                         one_part_msgs += 1;
                     }
                     NetworkRequests::ChunkPartRequest { account_id: _, part_request: _ } => {

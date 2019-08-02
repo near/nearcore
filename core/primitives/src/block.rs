@@ -16,7 +16,7 @@ use crate::merkle::merklize;
 use crate::serialize::{base_format, vec_base_format};
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -52,8 +52,10 @@ pub struct BlockHeader {
     pub epoch_hash: CryptoHash,
     /// Sum of gas used across all chunks.
     pub gas_used: GasUsage,
-    /// Gas limit, same for all chunks.
+    /// Gas limit. Same for all chunks.
     pub gas_limit: GasUsage,
+    /// Gas price. Same for all chunks
+    pub gas_price: Balance,
 
     /// Signature of the block producer.
     #[serde(with = "base_format")]
@@ -78,6 +80,7 @@ impl BlockHeader {
         epoch_hash: CryptoHash,
         gas_used: GasUsage,
         gas_limit: GasUsage,
+        gas_price: Balance,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -96,6 +99,7 @@ impl BlockHeader {
             epoch_hash: epoch_hash.into(),
             gas_used,
             gas_limit,
+            gas_price: SingularPtrField::some(gas_price.into()),
             cached_size: Default::default(),
             unknown_fields: Default::default(),
         }
@@ -114,6 +118,7 @@ impl BlockHeader {
         epoch_hash: CryptoHash,
         gas_used: GasUsage,
         gas_limit: GasUsage,
+        gas_price: Balance,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -129,6 +134,7 @@ impl BlockHeader {
             epoch_hash,
             gas_used,
             gas_limit,
+            gas_price,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -145,6 +151,7 @@ impl BlockHeader {
         state_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_limit: GasUsage,
+        initial_gas_price: Balance,
     ) -> Self {
         let header_body = Self::header_body(
             0,
@@ -159,6 +166,7 @@ impl BlockHeader {
             CryptoHash::default(),
             0,
             initial_gas_limit,
+            initial_gas_price,
         );
         chain_proto::BlockHeader {
             body: SingularPtrField::some(header_body),
@@ -222,6 +230,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             epoch_hash,
             gas_used: body.gas_used,
             gas_limit: body.gas_limit,
+            gas_price: proto_to_type(body.gas_price)?,
             signature,
             hash,
         })
@@ -248,6 +257,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 epoch_hash: header.epoch_hash.into(),
                 gas_used: header.gas_used,
                 gas_limit: header.gas_limit,
+                gas_price: SingularPtrField::some(header.gas_price.into()),
                 cached_size: Default::default(),
                 unknown_fields: Default::default(),
             }),
@@ -275,6 +285,7 @@ impl Block {
         timestamp: DateTime<Utc>,
         num_shards: ShardId,
         initial_gas_limit: GasUsage,
+        initial_gas_price: Balance,
     ) -> Self {
         let chunks = Block::genesis_chunks(state_roots, num_shards, initial_gas_limit);
         Block {
@@ -282,6 +293,7 @@ impl Block {
                 Block::compute_state_root(&chunks),
                 timestamp,
                 initial_gas_limit,
+                initial_gas_price,
             ),
             chunks,
             transactions: vec![],
@@ -317,11 +329,8 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_hash: CryptoHash,
-        gas_used: GasUsage,
-        gas_limit: GasUsage,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
-        validator_proposal: Vec<ValidatorStake>,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         // TODO: merkelize transactions.
@@ -334,6 +343,21 @@ impl Block {
         } else {
             (vec![], vec![])
         };
+
+        // Collect aggregate of validators and gas usage/limits from chunks.
+        let mut validator_proposals = vec![];
+        let mut gas_used = 0;
+        let mut gas_limit = 0;
+        for chunk in chunks.iter() {
+            if chunk.height_included == height {
+                validator_proposals.extend_from_slice(&chunk.validator_proposal);
+                gas_used += chunk.gas_used;
+                gas_limit += chunk.gas_limit;
+            }
+        }
+        // TODO: fix this incorrect calculation
+        gas_limit /= chunks.len() as u64;
+
         let total_weight = (prev.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
         Block {
             header: BlockHeader::new(
@@ -345,10 +369,12 @@ impl Block {
                 approval_mask,
                 approval_sigs,
                 total_weight,
-                validator_proposal,
+                validator_proposals,
                 epoch_hash,
                 gas_used,
                 gas_limit,
+                // TODO: calculate this correctly
+                prev.gas_price,
                 signer,
             ),
             chunks,

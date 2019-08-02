@@ -29,7 +29,7 @@ fn runtime_hanldle_fork() {
     );
 
     let mut chain =
-        Chain::new(store, runtime, ChainGenesis::new(genesis_config.genesis_time, 1_000_000))
+        Chain::new(store, runtime, ChainGenesis::new(genesis_config.genesis_time, 1_000_000, 100))
             .unwrap();
 
     let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
@@ -40,11 +40,8 @@ fn runtime_hanldle_fork() {
         1,
         genesis_chunks.clone(),
         CryptoHash::default(),
-        0,
-        chain.genesis().gas_limit,
         vec![tx1],
         HashMap::default(),
-        vec![],
         signer.clone(),
     );
     chain.process_block(&None, b1.clone(), Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
@@ -53,11 +50,8 @@ fn runtime_hanldle_fork() {
         2,
         genesis_chunks.clone(),
         CryptoHash::default(),
-        0,
-        chain.genesis().gas_limit,
         vec![tx2],
         HashMap::default(),
-        vec![],
         signer.clone(),
     );
     chain.process_block(&None, b2, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
@@ -66,11 +60,8 @@ fn runtime_hanldle_fork() {
         3,
         genesis_chunks.clone(),
         CryptoHash::default(),
-        0,
-        b1.header.gas_limit,
         vec![tx3],
         HashMap::default(),
-        vec![],
         signer.clone(),
     );
     chain.process_block(&None, b3, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();

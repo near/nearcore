@@ -7,7 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -61,6 +63,16 @@ pub enum ShardFullChunkOrOnePart<'a> {
     NoChunk,
 }
 
+pub struct ApplyTransactionResult {
+    pub trie_changes: WrappedTrieChanges,
+    pub new_root: MerkleHash,
+    pub transaction_results: Vec<TransactionResult>,
+    pub receipt_result: ReceiptResult,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub new_total_supply: Balance,
+    pub gas_used: GasUsage,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
@@ -92,13 +104,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
-        epoch_hash: CryptoHash,
-    ) -> Result<Vec<AccountId>, Box<dyn std::error::Error>>;
+        epoch_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
-        epoch_hash: CryptoHash,
+        epoch_hash: &CryptoHash,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
@@ -153,7 +166,10 @@ pub trait RuntimeAdapter: Send + Sync {
         current_hash: CryptoHash,
         block_index: BlockIndex,
         proposals: Vec<ValidatorStake>,
+        slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
+        gas_used: GasUsage,
+        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
@@ -167,16 +183,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
-        Box<dyn std::error::Error>,
-    >;
+    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>>;
 
     /// Query runtime with given `path` and `data`.
     fn query(
@@ -277,7 +284,7 @@ mod tests {
     fn test_block_produce() {
         let num_shards = 32;
         let genesis =
-            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000);
+            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000, 100);
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));

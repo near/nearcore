@@ -2,6 +2,7 @@ use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
 use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
+use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::types::NetworkInfo;
@@ -12,7 +13,6 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use near_chain::ChainGenesis;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -34,7 +34,7 @@ pub fn setup_network_node(
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000);
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(

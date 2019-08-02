@@ -3,6 +3,7 @@ syntax = "proto3";
 import "types.proto";
 import "receipt.proto";
 import "signed_transaction.proto";
+import "uint128.proto";
 
 message BlockHeaderBody {
     uint64 height = 1;
@@ -17,6 +18,7 @@ message BlockHeaderBody {
     bytes epoch_hash = 10;
     uint64 gas_used = 11;
     uint64 gas_limit = 12;
+    Uint128 gas_price = 13;
 }
 
 message BlockHeader {

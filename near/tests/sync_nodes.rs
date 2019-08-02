@@ -20,7 +20,8 @@ fn genesis_block(genesis_config: GenesisConfig) -> Block {
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
     let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let mut chain = Chain::new(store, runtime, ChainGenesis::new(genesis_time, 1_000_000)).unwrap();
+    let mut chain =
+        Chain::new(store, runtime, ChainGenesis::new(genesis_time, 1_000_000, 100)).unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 

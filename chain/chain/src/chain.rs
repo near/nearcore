@@ -10,7 +10,7 @@ use log::{debug, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, GasUsage, ShardId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -109,11 +109,12 @@ impl OrphanBlockPool {
 pub struct ChainGenesis {
     pub time: DateTime<Utc>,
     pub gas_limit: GasUsage,
+    pub gas_price: Balance,
 }
 
 impl ChainGenesis {
-    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage) -> Self {
-        Self { time, gas_limit }
+    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage, gas_price: Balance) -> Self {
+        Self { time, gas_limit, gas_price }
     }
 }
 
@@ -142,6 +143,7 @@ impl Chain {
             chain_genesis.time,
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
+            chain_genesis.gas_price,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -184,6 +186,9 @@ impl Chain {
                             0,
                             vec![],
                             vec![],
+                            vec![],
+                            0,
+                            chain_genesis.gas_price,
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update.save_block_header(genesis.header.clone());
@@ -315,6 +320,9 @@ impl Chain {
                         header.height,
                         header.validator_proposal.clone(),
                         vec![],
+                        vec![],
+                        header.gas_used,
+                        header.gas_price,
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
@@ -1032,13 +1040,7 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
-                    let (
-                        trie_changes,
-                        state_root,
-                        mut tx_results,
-                        mut new_receipts,
-                        validator_proposals,
-                    ) = self
+                    let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
                             shard_id,
@@ -1051,16 +1053,19 @@ impl<'a> ChainUpdate<'a> {
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
-                    self.chain_store_update.save_trie_changes(trie_changes);
+                    self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                     // Save state root after applying transactions.
-                    // XXX: gas used return.
-                    let gas_used = 0;
                     self.chain_store_update.save_chunk_extra(
                         &chunk_hash,
-                        ChunkExtra::new(&state_root, validator_proposals, gas_used, gas_limit),
+                        ChunkExtra::new(
+                            &apply_result.new_root,
+                            apply_result.validator_proposals,
+                            apply_result.gas_used,
+                            gas_limit,
+                        ),
                     );
                     // Save resulting receipts.
-                    for (_receipt_shard_id, receipts) in new_receipts.drain() {
+                    for (_receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
                         //    since they are later retrieved by the chunk producer of the source
                         //    shard to be distributed to the recipients.
@@ -1071,7 +1076,7 @@ impl<'a> ChainUpdate<'a> {
                         );
                     }
                     // Save receipt and transaction results.
-                    for (i, tx_result) in tx_results.drain(..).enumerate() {
+                    for (i, tx_result) in apply_result.transaction_results.drain(..).enumerate() {
                         if i < receipt_hashes.len() {
                             self.chain_store_update
                                 .save_transaction_result(&receipt_hashes[i], tx_result);
@@ -1216,6 +1221,9 @@ impl<'a> ChainUpdate<'a> {
                 block.header.height,
                 block.header.validator_proposal.clone(),
                 vec![],
+                vec![],
+                block.header.gas_used,
+                block.header.gas_price,
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
@@ -1336,7 +1344,7 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(header.epoch_hash, header.height)
+            .get_block_proposer(&header.epoch_hash, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.verify_validator_signature(
             &header.epoch_hash,

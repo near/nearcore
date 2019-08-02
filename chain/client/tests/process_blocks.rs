@@ -54,7 +54,8 @@ fn produce_blocks_with_tx() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::ChunkOnePart { account_id: _, header_and_part } = msg {
+                if let NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part } = msg
+                {
                     let height = header_and_part.header.height_created as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
@@ -118,11 +119,8 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -169,11 +167,8 @@ fn receive_network_block_header() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -213,11 +208,8 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer1,
             );
             let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
@@ -271,11 +263,8 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer.clone(),
             );
             block.header.prev_state_root = hash(&[1]);
@@ -290,11 +279,8 @@ fn invalid_blocks() {
                 block.header.height + 1,
                 block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -304,11 +290,8 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 CryptoHash::default(),
-                0,
-                last_block.header.gas_limit,
                 vec![],
                 HashMap::default(),
-                vec![],
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
