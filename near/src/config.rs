@@ -58,7 +58,7 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Criterion for kicking out validators.
-pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
+pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
@@ -333,10 +333,10 @@ pub struct GenesisConfig {
     pub gas_limit: GasUsage,
     /// Initial gas price.
     pub gas_price: Balance,
+    /// Criterion for kicking out validators (this is a number between 0 and 100)
+    pub validator_kickout_threshold: u8,
     /// Gas price adjustment rate
     pub gas_price_adjustment_rate: u8,
-    /// Criterion for kicking out validators
-    pub validator_kickout_threshold: f64,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
-            "protocol_version": 1,
+            "protocol_version": 2,
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
             "num_block_producers": 1,
@@ -771,10 +771,15 @@ mod tests {
             "dynamic_resharding": false,
             "epoch_length": 100,
             "gas_limit": 1_000_000,
+            "gas_price": 100,
             "runtime_config": {},
-            "validator_kickout_threshold": 0.9,
+            "validator_kickout_threshold": 90,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],
+            "developer_reward_percentage": 30,
+            "protocol_reward_percentage": 10,
+            "max_inflation_rate": 5,
+            "total_supply": 1_000_000,
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(

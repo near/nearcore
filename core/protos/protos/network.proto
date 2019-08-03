@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "types.proto";
 import "chain.proto";
 import "signed_transaction.proto";
 import "receipt.proto";
@@ -55,8 +56,14 @@ message StateResponseReceipts {
 message StateResponse {
     uint64 shard_id = 1;
     bytes hash = 2;
-    bytes payload = 3;
-    repeated StateResponseReceipts receipts = 4;
+    bytes prev_chunk_hash = 3;
+    bytes prev_state_root = 4;
+    uint64 prev_gas_used = 5;
+    uint64 prev_gas_limit = 6;
+    repeated ValidatorStake validator_proposals = 7;
+    bytes payload = 8;
+    StateResponseReceipts outgoing_receipts = 9;
+    repeated StateResponseReceipts incoming_receipts = 10;
 }
 
 message ChunkPartRequest{

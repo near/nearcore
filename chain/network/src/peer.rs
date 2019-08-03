@@ -251,9 +251,7 @@ impl Peer {
             PeerMessage::StateRequest(shard_id, hash) => {
                 NetworkClientMessages::StateRequest(shard_id, hash)
             }
-            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
-                NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
-            }
+            PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
                 if announce_account.peer_id_sender() != peer_id {
                     // Ban peer if tries to impersonate another peer.
@@ -298,8 +296,8 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload, receipts }) => {
-                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload, receipts))
+                    Ok(NetworkClientResponses::StateResponse(info)) => {
+                        act.send_message(PeerMessage::StateResponse(info))
                     }
                     Err(err) => {
                         error!(

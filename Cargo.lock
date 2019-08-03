@@ -2010,6 +2010,7 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
  "near-client 0.1.0",
+ "near-epoch-manager 0.0.1",
  "near-jsonrpc 0.1.0",
  "near-network 0.1.0",
  "near-pool 0.1.0",
@@ -2091,6 +2092,19 @@ dependencies = [
  "serde_derive 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
  "sysinfo 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "near-epoch-manager"
+version = "0.0.1"
+dependencies = [
+ "near-chain 0.1.0",
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
+ "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_derive 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

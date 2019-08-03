@@ -16,7 +16,7 @@ use crate::merkle::merklize;
 use crate::serialize::{base_format, vec_base_format};
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::proto_to_type;
 
 /// Number of nano seconds in one second.
@@ -49,7 +49,7 @@ pub struct BlockHeader {
     pub validator_proposal: Vec<ValidatorStake>,
     /// Epoch start hash of the previous epoch.
     /// Used for retrieving validator information
-    pub epoch_hash: CryptoHash,
+    pub epoch_id: EpochId,
     /// Sum of gas used across all chunks.
     pub gas_used: GasUsage,
     /// Gas limit. Same for all chunks.
@@ -79,7 +79,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
-        epoch_hash: CryptoHash,
+        epoch_id: EpochId,
         gas_used: GasUsage,
         gas_limit: GasUsage,
         gas_price: Balance,
@@ -99,7 +99,7 @@ impl BlockHeader {
             validator_proposal: RepeatedField::from_iter(
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
-            epoch_hash: epoch_hash.into(),
+            epoch_id: epoch_id.0.into(),
             gas_used,
             gas_limit,
             gas_price: SingularPtrField::some(gas_price.into()),
@@ -119,7 +119,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
-        epoch_hash: CryptoHash,
+        epoch_id: EpochId,
         gas_used: GasUsage,
         gas_limit: GasUsage,
         gas_price: Balance,
@@ -136,7 +136,7 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
-            epoch_hash,
+            epoch_id,
             gas_used,
             gas_limit,
             gas_price,
@@ -170,7 +170,7 @@ impl BlockHeader {
             vec![],
             0.into(),
             vec![],
-            CryptoHash::default(),
+            EpochId::default(),
             0,
             initial_gas_limit,
             initial_gas_price,
@@ -224,7 +224,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
-        let epoch_hash = body.epoch_hash.try_into()?;
+        let epoch_id = EpochId(body.epoch_id.try_into()?);
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -235,7 +235,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
-            epoch_hash,
+            epoch_id,
             gas_used: body.gas_used,
             gas_limit: body.gas_limit,
             gas_price: proto_to_type(body.gas_price)?,
@@ -263,7 +263,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 validator_proposal: RepeatedField::from_iter(
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
-                epoch_hash: header.epoch_hash.into(),
+                epoch_id: header.epoch_id.0.into(),
                 gas_used: header.gas_used,
                 gas_limit: header.gas_limit,
                 gas_price: SingularPtrField::some(header.gas_price.into()),
@@ -340,7 +340,7 @@ impl Block {
         prev: &BlockHeader,
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
-        epoch_hash: CryptoHash,
+        epoch_id: EpochId,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
@@ -391,7 +391,7 @@ impl Block {
                 approval_sigs,
                 total_weight,
                 validator_proposals,
-                epoch_hash,
+                epoch_id,
                 gas_used,
                 gas_limit,
                 // TODO: calculate this correctly

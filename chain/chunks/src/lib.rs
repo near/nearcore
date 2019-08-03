@@ -98,8 +98,8 @@ impl ShardsManager {
         parent_hash: CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        return self.runtime_adapter.cares_about_shard(account_id, parent_hash, shard_id)
-            || self.runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id);
+        return self.runtime_adapter.cares_about_shard(account_id, &parent_hash, shard_id)
+            || self.runtime_adapter.will_care_about_shard(account_id, &parent_hash, shard_id);
     }
     pub fn request_chunks(&mut self, chunks_to_request: Vec<ShardChunkHeader>) {
         for chunk_header in chunks_to_request {
@@ -111,7 +111,7 @@ impl ShardsManager {
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
 
-            let epoch_hash = self.runtime_adapter.get_epoch_hash(parent_hash).unwrap();
+            let epoch_hash = self.runtime_adapter.get_epoch_id(&parent_hash).unwrap();
 
             if !self.encoded_chunks.contains_key(&chunk_hash) {
                 if self.requested_one_parts.contains(&chunk_hash) {
@@ -120,9 +120,9 @@ impl ShardsManager {
                 self.requested_one_parts.insert(chunk_hash.clone());
 
                 let mut requested_one_part = false;
-                for part_id in 0..self.runtime_adapter.num_total_parts(parent_hash) {
+                for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
                     let part_id = part_id as u64;
-                    if self.runtime_adapter.get_part_owner(parent_hash, part_id).unwrap()
+                    if self.runtime_adapter.get_part_owner(&parent_hash, part_id).unwrap()
                         == self.me.clone().unwrap()
                     {
                         requested_one_part = true;
@@ -131,14 +131,14 @@ impl ShardsManager {
                             chunk_hash.clone(),
                             part_id,
                             self.runtime_adapter
-                                .get_chunk_proposer(epoch_hash, height, shard_id)
+                                .get_chunk_proposer(&epoch_hash, height, shard_id)
                                 .unwrap(),
                             self.me.clone().unwrap()
                         );
                         let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
                             account_id: self
                                 .runtime_adapter
-                                .get_chunk_proposer(epoch_hash, height, shard_id)
+                                .get_chunk_proposer(&epoch_hash, height, shard_id)
                                 .unwrap(),
                             part_request: ChunkPartRequestMsg {
                                 shard_id,
@@ -152,7 +152,7 @@ impl ShardsManager {
 
                 if match self.me.clone() {
                     None => false,
-                    Some(me) => self.runtime_adapter.cares_about_shard(&me, parent_hash, shard_id),
+                    Some(me) => self.runtime_adapter.cares_about_shard(&me, &parent_hash, shard_id),
                 } {
                     assert!(requested_one_part)
                 };
@@ -161,20 +161,20 @@ impl ShardsManager {
                     let mut rng = rand::thread_rng();
 
                     let part_id = rng.gen::<u64>()
-                        % (self.runtime_adapter.num_total_parts(parent_hash) as u64);
+                        % (self.runtime_adapter.num_total_parts(&parent_hash) as u64);
                     error!(
                         "MOO requesting RANDOM single part for chunk {:?}: {} from {}, I'm {:?}",
                         chunk_hash.clone(),
                         part_id,
                         self.runtime_adapter
-                            .get_chunk_proposer(epoch_hash, height, shard_id)
+                            .get_chunk_proposer(&epoch_hash, height, shard_id)
                             .unwrap(),
                         self.me.clone().unwrap()
                     );
                     let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
                         account_id: self
                             .runtime_adapter
-                            .get_chunk_proposer(epoch_hash, height, shard_id)
+                            .get_chunk_proposer(&epoch_hash, height, shard_id)
                             .unwrap(),
                         part_request: ChunkPartRequestMsg {
                             shard_id,
@@ -196,12 +196,12 @@ impl ShardsManager {
                     self.me.clone().unwrap()
                 );
 
-                for part_id in 0..self.runtime_adapter.num_total_parts(parent_hash) {
+                for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
                     let part_id = part_id as u64;
                     let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPartRequest {
                         account_id: self
                             .runtime_adapter
-                            .get_part_owner(parent_hash, part_id)
+                            .get_part_owner(&parent_hash, part_id)
                             .unwrap(),
                         part_request: ChunkPartRequestMsg {
                             shard_id,
@@ -406,14 +406,14 @@ impl ShardsManager {
                         .insert((part.chunk_hash.clone(), part.part_id), part.merkle_path);
 
                     match ShardsManager::check_chunk_complete(
-                        self.runtime_adapter.num_data_parts(prev_block_hash),
-                        self.runtime_adapter.num_total_parts(prev_block_hash),
+                        self.runtime_adapter.num_data_parts(&prev_block_hash),
+                        self.runtime_adapter.num_total_parts(&prev_block_hash),
                         chunk,
                     ) {
                         ChunkStatus::Complete(merkle_paths) => {
                             let mut store_update = self.store.store_update();
                             if let Ok(shard_chunk) = Self::decode_chunk(
-                                self.runtime_adapter.num_data_parts(prev_block_hash),
+                                self.runtime_adapter.num_data_parts(&prev_block_hash),
                                 chunk,
                             ) {
                                 debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk.header.chunk_hash().0, chunk.header.encoded_length, shard_chunk.transactions.len(), self.me);
@@ -446,7 +446,7 @@ impl ShardsManager {
                                 // Can't decode chunk, ignore it
                                 for i in 0..self
                                     .runtime_adapter
-                                    .num_total_parts(chunk.header.prev_block_hash)
+                                    .num_total_parts(&chunk.header.prev_block_hash)
                                 {
                                     self.merkle_paths.remove(&(part.chunk_hash.clone(), i as u64));
                                 }
@@ -458,7 +458,7 @@ impl ShardsManager {
                         ChunkStatus::Invalid => {
                             for i in 0..self
                                 .runtime_adapter
-                                .num_total_parts(chunk.header.prev_block_hash)
+                                .num_total_parts(&chunk.header.prev_block_hash)
                             {
                                 self.merkle_paths.remove(&(part.chunk_hash.clone(), i as u64));
                             }
@@ -481,7 +481,7 @@ impl ShardsManager {
         let chunk_hash = one_part.chunk_hash.clone();
         let prev_block_hash = one_part.header.prev_block_hash;
 
-        match self.runtime_adapter.get_part_owner(prev_block_hash, one_part.part_id) {
+        match self.runtime_adapter.get_part_owner(&prev_block_hash, one_part.part_id) {
             Ok(owner) => {
                 match self.me.clone() {
                     None => {
@@ -492,7 +492,7 @@ impl ShardsManager {
                     Some(me) => {
                         if self.runtime_adapter.cares_about_shard(
                             &me,
-                            prev_block_hash,
+                            &prev_block_hash,
                             one_part.shard_id,
                         ) {
                             if me != owner {
@@ -559,7 +559,7 @@ impl ShardsManager {
             Entry::Vacant(entry) => {
                 entry.insert(EncodedShardChunk::from_header(
                     one_part.header.clone(),
-                    self.runtime_adapter.num_total_parts(prev_block_hash),
+                    self.runtime_adapter.num_total_parts(&prev_block_hash),
                 ));
                 (true, true)
             }
@@ -596,7 +596,7 @@ impl ShardsManager {
         error!("MOO processing orphaned one parts after receiving {:?}", block_hash);
         for shard_id in 0..self.runtime_adapter.num_shards() {
             let shard_id = shard_id as ShardId;
-            for part_id in 0..self.runtime_adapter.num_total_parts(block_hash) {
+            for part_id in 0..self.runtime_adapter.num_total_parts(&block_hash) {
                 let part_id = part_id as u64;
                 if let Some(a) =
                     self.orphaned_one_parts.cache_remove(&(block_hash, shard_id, part_id))
@@ -670,8 +670,8 @@ impl ShardsManager {
         signer: Arc<dyn EDSigner>,
     ) -> Result<EncodedShardChunk, io::Error> {
         let mut bytes = Encode::encode(&(transactions, receipts))?;
-        let total_parts = self.runtime_adapter.num_total_parts(prev_block_hash);
-        let data_parts = self.runtime_adapter.num_data_parts(prev_block_hash);
+        let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
+        let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
         let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];
@@ -745,9 +745,9 @@ impl ShardsManager {
         let mut processed_one_part = false;
         let chunk_hash = encoded_chunk.chunk_hash();
         let shard_id = encoded_chunk.header.shard_id;
-        for part_ord in 0..self.runtime_adapter.num_total_parts(prev_block_hash) {
+        for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
-            let to_whom = self.runtime_adapter.get_part_owner(prev_block_hash, part_ord).unwrap();
+            let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
             let one_part = self.create_chunk_one_part(
                 chunk_hash.clone(),
                 &encoded_chunk,

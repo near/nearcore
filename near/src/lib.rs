@@ -19,9 +19,6 @@ use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
-#[cfg(test)]
-mod test_utils;
-mod validator_manager;
 
 const STORE_PATH: &str = "data";
 
