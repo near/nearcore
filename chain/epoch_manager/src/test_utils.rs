@@ -51,7 +51,7 @@ pub fn epoch_config(
     num_shards: ShardId,
     num_block_producers: usize,
     num_fisherman: usize,
-    validator_kickout_threshold: f64,
+    validator_kickout_threshold: u8,
 ) -> EpochConfig {
     EpochConfig {
         epoch_length,

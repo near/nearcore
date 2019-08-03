@@ -33,7 +33,7 @@ pub struct EpochConfig {
     /// Expected number of fisherman per each shard.
     pub avg_fisherman_per_shard: Vec<ValidatorId>,
     /// Criterion for kicking out validators
-    pub validator_kickout_threshold: f64,
+    pub validator_kickout_threshold: u8,
 }
 
 /// Information per epoch.

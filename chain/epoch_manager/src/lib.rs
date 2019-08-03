@@ -118,28 +118,26 @@ impl EpochManager {
 
         // Compute kick outs for validators who are offline.
         let mut all_kicked_out = true;
-        let mut maximum_block_prod_ratio = 0;
+        let mut maximum_block_prod = 0;
         let mut max_validator_id = None;
         let validator_kickout_threshold = self.config.validator_kickout_threshold;
         //        println!("{}: {:?} {:?}", first_block_info.index, num_expected_blocks, validator_tracker);
 
         for (i, _) in epoch_info.validators.iter().enumerate() {
-            let num_blocks = validator_tracker.get(&i).unwrap_or(&0).clone();
-            // Note, we use * 100 to keep this in integer space.
-            let mut cur_ratio = (num_blocks * 100) / num_expected_blocks[&i];
+            let mut num_blocks = validator_tracker.get(&i).unwrap_or(&0).clone();
             let account_id = epoch_info.validators[i].account_id.clone();
-            // TODO: replace validator_kickout_threshold with an integer
-            if cur_ratio < (validator_kickout_threshold * 100.0) as u64 {
+            // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
+            if num_blocks * 100 < (validator_kickout_threshold as u64) * num_expected_blocks[&i] {
                 validator_kickout.insert(account_id);
             } else {
                 if !validator_kickout.contains(&account_id) {
                     all_kicked_out = false;
                 } else {
-                    cur_ratio = 0;
+                    num_blocks = 0;
                 }
             }
-            if cur_ratio > maximum_block_prod_ratio {
-                maximum_block_prod_ratio = cur_ratio;
+            if num_blocks > maximum_block_prod {
+                maximum_block_prod = num_blocks;
                 max_validator_id = Some(i);
             }
         }
