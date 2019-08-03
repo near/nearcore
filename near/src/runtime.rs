@@ -333,7 +333,6 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        // TODO: don't commit here, instead contribute to upstream store update.
         let mut slashed = HashSet::default();
         for validator in slashed_validators {
             slashed.insert(validator);
@@ -342,6 +341,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             BlockInfo::new(block_index, parent_hash, proposals, validator_mask, slashed, gas_used);
         // TODO: add randomness here
         let rng_seed = [0; 32];
+        // TODO: don't commit here, instead contribute to upstream store update.
         epoch_manager
             .record_block_info(&current_hash, block_info, rng_seed)?
             .commit()
@@ -361,7 +361,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         // If we are starting to apply 2nd block in the next epoch.
-        if epoch_manager.is_next_block_epoch_second_block(prev_block_hash) {
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash).map_err(|err| Box::new(err))? {
             self.update_validator_accounts(
                 shard_id,
                 state_root,
