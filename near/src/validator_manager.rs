@@ -111,6 +111,7 @@ fn proposals_to_assignments(
     current_assignments: &ValidatorAssignment,
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashMap<AccountId, bool>,
+    total_gas_used: GasUsage,
 ) -> Result<ValidatorAssignment, ValidatorError> {
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
@@ -221,6 +222,8 @@ fn proposals_to_assignments(
 
     let final_stake_change = stake_change.into_iter().map(|(k, (v, _))| (k, v)).collect();
 
+    // Some part are left as uninitialized because passing their values will increase the number of
+    // argument this function takes.
     Ok(ValidatorAssignment {
         validators: final_proposals,
         validator_to_index,
@@ -229,6 +232,7 @@ fn proposals_to_assignments(
         fishermen: vec![],
         expected_epoch_start,
         stake_change: final_stake_change,
+        total_gas_used,
     })
 }
 
@@ -286,6 +290,8 @@ pub struct ValidatorAssignment {
     pub expected_epoch_start: BlockIndex,
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
+    /// Total gas used in the last epoch
+    pub total_gas_used: GasUsage,
 }
 
 impl PartialEq for ValidatorAssignment {
@@ -364,6 +370,7 @@ impl ValidatorManager {
                     &ValidatorAssignment::default(),
                     initial_validators,
                     HashMap::new(),
+                    0,
                 )?;
                 let validator_index_info = ValidatorIndexInfo {
                     index: 0,
@@ -583,6 +590,7 @@ impl ValidatorManager {
             validator_tracker.entry(validator).and_modify(|e| *e += 1).or_insert(1);
             hash = info.prev_hash;
         }
+
         let mut store_update = self.store.store_update();
 
         let mut last_epoch_proposals = self
@@ -631,6 +639,7 @@ impl ValidatorManager {
             self.get_validators(prev_epoch_hash)?,
             proposals,
             validator_kickout,
+            total_gas_used,
         )?;
 
         self.last_epoch = *new_hash;
@@ -652,7 +661,6 @@ impl ValidatorManager {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-        gas_price: Balance,
     ) -> Result<StoreUpdate, ValidatorError> {
         println!("MOO PROP {}: {:?}", index, proposals);
         let mut store_update = self.store.store_update();
@@ -780,6 +788,9 @@ mod test {
         num_block_producers: usize,
         num_fisherman: usize,
         validator_kickout_threshold: f64,
+        validator_reward_perecentage: u8,
+        gas_price_adjustment_rate: u8,
+        max_inflation_rate: u8,
     ) -> ValidatorEpochConfig {
         ValidatorEpochConfig {
             epoch_length,
@@ -789,6 +800,9 @@ mod test {
             block_producers_per_shard: (0..num_shards).map(|_| num_block_producers).collect(),
             avg_fisherman_per_shard: (0..num_shards).map(|_| num_fisherman).collect(),
             validator_kickout_threshold,
+            validator_reward_percentage,
+            gas_price_adjustment_rate,
+            max_inflation_rate,
         }
     }
 

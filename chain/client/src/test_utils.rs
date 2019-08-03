@@ -41,10 +41,9 @@ pub fn setup(
         validators_per_shard,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100);
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
     let telemetry = TelemetryActor::default().start();
-    let view_client =
-        ViewClientActor::new(store.clone(), chain_genesis.clone(), runtime.clone()).unwrap();
+    let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
     let client = ClientActor::new(
         ClientConfig::test(skip_sync_wait, block_prod_time),
         store,

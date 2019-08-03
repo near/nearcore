@@ -109,6 +109,8 @@ impl Block {
             prev.header.epoch_hash,
             vec![],
             approvals,
+            0,
+            0,
             signer,
         )
     }

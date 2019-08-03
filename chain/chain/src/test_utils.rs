@@ -353,7 +353,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
         _gas_used: GasUsage,
-        _gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -367,6 +366,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
+        _gas_price: Balance,
+        _total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut tx_results = vec![];
 
@@ -516,7 +517,6 @@ impl RuntimeAdapter for KeyValueRuntime {
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
-            new_total_supply: 0,
             gas_used: 0,
         };
 
@@ -618,8 +618,12 @@ impl RuntimeAdapter for KeyValueRuntime {
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain =
-        Chain::new(store, runtime.clone(), ChainGenesis::new(Utc::now(), 1_000_000, 100)).unwrap();
+    let chain = Chain::new(
+        store,
+        runtime.clone(),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0),
+    )
+    .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
 }

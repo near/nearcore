@@ -19,6 +19,7 @@ message BlockHeaderBody {
     uint64 gas_used = 11;
     uint64 gas_limit = 12;
     Uint128 gas_price = 13;
+    Uint128 total_supply = 14;
 }
 
 message BlockHeader {

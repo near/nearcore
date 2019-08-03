@@ -1,6 +1,6 @@
 use crate::validator_manager::ValidatorAssignment;
 use near_primitives::test_utils::get_key_pair_from_seed;
-use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ValidatorStake};
 use std::collections::{BTreeMap, HashMap};
 
 pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, Balance> {
@@ -14,6 +14,10 @@ pub fn assignment(
     fishermen: Vec<(usize, u64)>,
     expected_epoch_start: BlockIndex,
     stake_change: BTreeMap<AccountId, Balance>,
+    gas_price: Balance,
+    gas_limit: GasUsage,
+    reward: Balance,
+    total_supply: Balance,
 ) -> ValidatorAssignment {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -35,5 +39,9 @@ pub fn assignment(
         fishermen,
         expected_epoch_start,
         stake_change,
+        gas_limit,
+        gas_price,
+        validator_reward: reward,
+        total_supply,
     }
 }

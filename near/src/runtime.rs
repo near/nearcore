@@ -32,6 +32,7 @@ use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 use crate::config::GenesisConfig;
 use crate::validator_manager::{ValidatorEpochConfig, ValidatorManager};
 use near_chain::types::ApplyTransactionResult;
+use std::cmp::max;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -316,7 +317,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Deal with validator proposals and epoch finishing.
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
@@ -329,7 +329,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             slashed_validators,
             validator_mask,
             gas_used,
-            gas_price,
         )?
         .commit()
         .map_err(|err| err.into())
@@ -344,6 +343,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         {
@@ -355,9 +356,35 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let prev_prev_stake_change =
                     vm.get_validators(prev_epoch_hash)?.stake_change.clone();
                 let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
-                let stake_change = &vm.get_validators(*block_hash)?.stake_change;
+                let slashed = vm.get_slashed_validators(prev_block_hash)?.clone();
+                let (stake_change, validator_to_index, total_gas_used) = {
+                    let validator_assignment = vm.get_validators(*block_hash)?;
+                    (
+                        &validator_assignment.stake_change,
+                        &validator_assignment.validator_to_index,
+                        validator_assignment.total_gas_used,
+                    )
+                };
                 let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
                 let keys: BTreeSet<_> = stake_change.keys().collect();
+
+                // calculate reward for validators
+                // TODO: include storage rent
+                let total_tx_fee = gas_price * total_gas_used as u128;
+                // first order taylor approximation of the inflation
+                let max_inflation =
+                    self.genesis_config.max_inflation_rate as u128 * total_supply / (100 * 365);
+                let total_reward = max(
+                    max_inflation,
+                    (100 - self.genesis_config.developer_reward_percentage) as u128 * total_tx_fee
+                        / 100,
+                );
+                // TODO: add to protocol treasury
+                let protocol_reward =
+                    self.genesis_config.protocol_reward_percentage as u128 * total_reward / 100;
+                let validator_total_reward = total_reward - protocol_reward;
+                let num_validators = validator_to_index.len() - slashed.len();
+                let reward = validator_total_reward / (100 * num_validators as u128);
 
                 for account_id in prev_keys.union(&keys) {
                     let account: Option<Account> = get_account(&state_update, account_id);
@@ -374,6 +401,12 @@ impl RuntimeAdapter for NightshadeRuntime {
                         let return_stake = account.staked - max_of_stakes;
                         account.staked -= return_stake;
                         account.amount += return_stake;
+
+                        if validator_to_index.contains_key(*account_id)
+                            && !slashed.contains(*account_id)
+                        {
+                            account.staked += reward;
+                        }
                         set_account(&mut state_update, account_id, &account);
                     }
                 }
@@ -396,7 +429,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             transaction_results: apply_result.tx_result,
             receipt_result: apply_result.new_receipts,
             validator_proposals: apply_result.validator_proposals,
-            new_total_supply: 0,
             gas_used: 0,
         };
 

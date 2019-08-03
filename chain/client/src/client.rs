@@ -52,6 +52,12 @@ macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
     }
 }));
 
+/// Economics config taken from genesis config
+struct EconConfig {
+    gas_price_adjustment_rate: u8,
+    max_inflation_rate: u8,
+}
+
 pub struct ClientActor {
     config: ClientConfig,
     sync_status: SyncStatus,
@@ -81,6 +87,8 @@ pub struct ClientActor {
     last_val_announce_height: Option<BlockIndex>,
     /// Info helper.
     info_helper: InfoHelper,
+    /// economics constants
+    econ_config: EconConfig,
 }
 
 fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
@@ -107,7 +115,7 @@ impl ClientActor {
         telemtetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
-        let chain = Chain::new(store.clone(), runtime_adapter.clone(), chain_genesis)?;
+        let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
         let shards_mgr = ShardsManager::new(
             block_producer.as_ref().map(|x| x.account_id.clone()),
             runtime_adapter.clone(),
@@ -149,6 +157,10 @@ impl ClientActor {
             state_sync,
             last_val_announce_height: None,
             info_helper,
+            econ_config: EconConfig {
+                gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
+                max_inflation_rate: chain_genesis.max_inflation_rate,
+            },
         })
     }
 
@@ -1048,6 +1060,8 @@ impl ClientActor {
             epoch_hash,
             transactions,
             self.approvals.drain().collect(),
+            self.econ_config.gas_price_adjustment_rate,
+            self.econ_config.max_inflation_rate,
             block_producer.signer.clone(),
         );
 
