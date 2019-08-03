@@ -110,7 +110,7 @@ impl EpochManager {
         let new_proposals = proposals.clone();
         let mut all_proposals = self.get_rollover_proposals(epoch_id)?;
         all_proposals.append(&mut proposals);
-        //        println!("All proposals: {:?}", all_proposals);
+        println!("All proposals: {:?}", all_proposals);
 
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
         let first_block_info = self.get_block_info(&last_block_info.epoch_first_block)?.clone();
@@ -484,7 +484,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        //        println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);
+        println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
             .map_err(|err| EpochError::from(err))?;
