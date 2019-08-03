@@ -167,7 +167,7 @@ mod tests {
     fn test_proposals_to_assignments() {
         assert_eq!(
             proposals_to_epoch_info(
-                &epoch_config(2, 2, 1, 1, 0.9),
+                &epoch_config(2, 2, 1, 1, 90),
                 [0; 32],
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
@@ -190,7 +190,7 @@ mod tests {
                     num_block_producers: 6,
                     block_producers_per_shard: vec![6, 2, 2, 2, 2],
                     avg_fisherman_per_shard: vec![6, 2, 2, 2, 2],
-                    validator_kickout_threshold: 0.9,
+                    validator_kickout_threshold: 90,
                 },
                 [0; 32],
                 &EpochInfo::default(),
