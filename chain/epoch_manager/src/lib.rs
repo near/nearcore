@@ -54,7 +54,7 @@ impl EpochManager {
             let mut store_update = epoch_manager.store.store_update();
             epoch_manager.save_epoch_info(&mut store_update, &genesis_epoch_id, epoch_info)?;
             epoch_manager.save_block_info(&mut store_update, &CryptoHash::default(), block_info)?;
-            epoch_manager.save_epoch_proposals(&mut store_update, &genesis_epoch_id, vec![])?;
+            epoch_manager.save_rollover_proposals(&mut store_update, &genesis_epoch_id, vec![])?;
             store_update.commit()?;
         }
         Ok(epoch_manager)
@@ -108,7 +108,7 @@ impl EpochManager {
 
         // Proposals from last epoch rollover to this one.
         let new_proposals = proposals.clone();
-        let mut all_proposals = self.get_prev_epoch_proposals(last_block_hash)?;
+        let mut all_proposals = self.get_rollover_proposals(epoch_id)?;
         all_proposals.append(&mut proposals);
         //        println!("All proposals: {:?}", all_proposals);
 
@@ -183,7 +183,9 @@ impl EpochManager {
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
         self.save_epoch_info(store_update, &EpochId(*last_block_hash), next_next_epoch_info)?;
-        self.save_epoch_proposals(store_update, &epoch_id, new_proposals)?;
+        // Save rollover proposals in the next epoch id.
+        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        self.save_rollover_proposals(store_update, &next_epoch_id, new_proposals)?;
         // Return next epoch (T+1) id as hash of last block in previous epoch (T-1).
         Ok(EpochId(last_block_hash_prev_epoch))
     }
@@ -432,23 +434,23 @@ impl EpochManager {
         Ok(EpochId(first_block_info.prev_hash))
     }
 
-    fn get_prev_epoch_proposals(
+    fn get_rollover_proposals(
         &mut self,
-        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
     ) -> Result<Vec<ValidatorStake>, EpochError> {
-        let prev_epoch_id = self.get_prev_epoch_id(block_hash)?;
         self.store
-            .get_ser(COL_EPOCH_PROPOSALS, prev_epoch_id.0.as_ref())
+            .get_ser(COL_EPOCH_PROPOSALS, epoch_id.0.as_ref())
             .map_err(|err| EpochError::from(err))
             .and_then(|val| val.ok_or(EpochError::EpochOutOfBounds))
     }
 
-    fn save_epoch_proposals(
+    fn save_rollover_proposals(
         &mut self,
         store_update: &mut StoreUpdate,
         epoch_id: &EpochId,
         proposals: Vec<ValidatorStake>,
     ) -> Result<(), EpochError> {
+        //        println!("Save proposals: {:?} {:?}", epoch_id, proposals);
         store_update
             .set_ser(COL_EPOCH_PROPOSALS, epoch_id.0.as_ref(), &proposals)
             .map_err(|err| EpochError::from(err))
@@ -626,11 +628,11 @@ mod tests {
     }
 
     /// Test handling forks across the epoch finalization.
-    /// Fork with where one BP produces blocks on both chains and 2 BPs are in separate chains.
+    /// Fork with where one BP produces blocks in one chain and 2 BPs are in another chain.
     ///     |   | /--1---4------|--7---10------|---13---
     ///   x-|-0-|-
     ///     |   | \--2---3---5--|---6---8---9--|----11---12--
-    /// In upper fork, test2 + test3 are left + new validator test4.
+    /// In upper fork, only test2 left + new validator test4.
     /// In lower fork, test1 and test3 are left.
     #[test]
     fn test_fork_finalization() {
@@ -654,14 +656,18 @@ mod tests {
         record_block(&mut epoch_manager, h[7], h[10], 10, vec![]);
         record_block(&mut epoch_manager, h[10], h[13], 13, vec![]);
 
-        record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
-        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
-        record_block(&mut epoch_manager, h[3], h[5], 5, vec![]);
-        record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
-        record_block(&mut epoch_manager, h[6], h[8], 8, vec![]);
-        record_block(&mut epoch_manager, h[8], h[9], 9, vec![]);
-        record_block(&mut epoch_manager, h[9], h[11], 11, vec![]);
-        record_block(&mut epoch_manager, h[11], h[12], 12, vec![]);
+        // Builds alternative fork in the network.
+        let build_branch2 = |epoch_manager: &mut EpochManager| {
+            record_block(epoch_manager, h[0], h[2], 2, vec![]);
+            record_block(epoch_manager, h[2], h[3], 3, vec![]);
+            record_block(epoch_manager, h[3], h[5], 5, vec![]);
+            record_block(epoch_manager, h[5], h[6], 6, vec![]);
+            record_block(epoch_manager, h[6], h[8], 8, vec![]);
+            record_block(epoch_manager, h[8], h[9], 9, vec![]);
+            record_block(epoch_manager, h[9], h[11], 11, vec![]);
+            record_block(epoch_manager, h[11], h[12], 12, vec![]);
+        };
+        build_branch2(&mut epoch_manager);
 
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
@@ -676,17 +682,24 @@ mod tests {
         let epoch2_1 = epoch_manager.get_epoch_id(&h[13]).unwrap();
         assert_eq!(
             epoch_manager.get_all_block_producers(&epoch2_1.0, &h[1]).unwrap(),
-            vec![
-                ("test4".to_string(), false),
-                ("test3".to_string(), false),
-                ("test2".to_string(), false)
-            ]
+            vec![("test2".to_string(), false), ("test4".to_string(), false)]
         );
 
         let epoch2_2 = epoch_manager.get_epoch_id(&h[11]).unwrap();
         assert_eq!(
             epoch_manager.get_all_block_producers(&epoch2_2.0, &h[1]).unwrap(),
             vec![("test1".to_string(), false), ("test3".to_string(), false),]
+        );
+
+        // Check that if we have a different epoch manager and apply only second branch we get the same results.
+        let store2 = create_test_store();
+        let mut epoch_manager2 =
+            EpochManager::new(store2.clone(), config.clone(), validators.clone()).unwrap();
+        record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
+        build_branch2(&mut epoch_manager2);
+        assert_eq!(
+            epoch_manager.get_epoch_info(&epoch2_2),
+            epoch_manager2.get_epoch_info(&epoch2_2)
         );
     }
 
