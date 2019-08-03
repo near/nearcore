@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, BlockIndex, GasUsage, ShardId, ValidatorId, ValidatorStake,
+    AccountId, BlockIndex, EpochId, GasUsage, ShardId, ValidatorId, ValidatorStake,
 };
 use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO, COL_EPOCH_PROPOSALS};
 
 use crate::proposals::proposals_to_epoch_info;
-pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochId, EpochInfo, RngSeed};
+pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
 
 mod proposals;
 pub mod test_utils;
@@ -40,7 +40,7 @@ impl EpochManager {
             epochs_info: HashMap::default(),
             blocks_info: HashMap::default(),
         };
-        let genesis_epoch_id = EpochId(CryptoHash::default());
+        let genesis_epoch_id = EpochId::default();
         if !epoch_manager.has_epoch_info(&genesis_epoch_id)? {
             // Missing genesis epoch, means that there is no validator initialize yet.
             let epoch_info = proposals_to_epoch_info(
@@ -200,7 +200,7 @@ impl EpochManager {
             //            println!("Record block info: {:?}", block_info);
             if block_info.prev_hash == CryptoHash::default() {
                 // This is genesis block, we special case as new epoch.
-                let pre_genesis_epoch_id = EpochId(CryptoHash::default());
+                let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
                 self.save_epoch_info(
                     &mut store_update,
@@ -219,7 +219,7 @@ impl EpochManager {
                 }
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
-                    block_info.epoch_id = EpochId(CryptoHash::default());
+                    block_info.epoch_id = EpochId::default();
                     block_info.epoch_first_block = current_hash.clone();
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
@@ -247,22 +247,22 @@ impl EpochManager {
     /// the block at that index. We don't require caller to know about EpochIds.
     pub fn get_block_producer_info(
         &mut self,
-        epoch_id: &CryptoHash,
+        epoch_id: &EpochId,
         index: BlockIndex,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&EpochId(*epoch_id))?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         Ok(epoch_info.validators[self.block_producer_from_info(&epoch_info, index)].clone())
     }
 
     /// Returns all block producers in current epoch, with indicator is they are slashed or not.
     pub fn get_all_block_producers(
         &mut self,
-        epoch_id: &CryptoHash,
-        last_known_block: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, EpochError> {
-        let epoch_info = self.get_epoch_info(&EpochId(*epoch_id))?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         //        println!("{:?} Epoch info: {:?}", epoch_id, epoch_info);
-        let slashed = self.get_slashed_validators(last_known_block)?;
+        let slashed = self.get_slashed_validators(last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
         for validator_id in epoch_info.block_producers.iter() {
@@ -279,11 +279,11 @@ impl EpochManager {
     /// Given epoch id, index and shard id return validator that is chunk producer.
     pub fn get_chunk_producer_info(
         &mut self,
-        epoch_id: &CryptoHash,
+        epoch_id: &EpochId,
         index: BlockIndex,
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
-        let epoch_info = self.get_epoch_info(&EpochId(*epoch_id))?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
         Ok(epoch_info.validators[self.chunk_producer_from_info(&epoch_info, index, shard_id)]
             .clone())
     }
@@ -291,10 +291,10 @@ impl EpochManager {
     /// Returns validator for given account id for given epoch. We don't require caller to know about EpochIds.
     pub fn get_validator_by_account_id(
         &mut self,
-        epoch_id: &CryptoHash,
+        epoch_id: &EpochId,
         account_id: &AccountId,
     ) -> Result<Option<ValidatorStake>, EpochError> {
-        let epoch_info = self.get_epoch_info(&EpochId(*epoch_id))?;
+        let epoch_info = self.get_epoch_info(epoch_id)?;
         if let Some(idx) = epoch_info.validator_to_index.get(account_id) {
             return Ok(Some(epoch_info.validators[*idx].clone()));
         }
@@ -673,7 +673,7 @@ mod tests {
 
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch1.0, &h[1]).unwrap(),
+            epoch_manager.get_all_block_producers(&epoch1, &h[1]).unwrap(),
             vec![
                 ("test3".to_string(), false),
                 ("test2".to_string(), false),
@@ -683,13 +683,13 @@ mod tests {
 
         let epoch2_1 = epoch_manager.get_epoch_id(&h[13]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_1.0, &h[1]).unwrap(),
+            epoch_manager.get_all_block_producers(&epoch2_1, &h[1]).unwrap(),
             vec![("test2".to_string(), false), ("test4".to_string(), false)]
         );
 
         let epoch2_2 = epoch_manager.get_epoch_id(&h[11]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch2_2.0, &h[1]).unwrap(),
+            epoch_manager.get_all_block_producers(&epoch2_2, &h[1]).unwrap(),
             vec![("test1".to_string(), false), ("test3".to_string(), false),]
         );
 
@@ -814,7 +814,7 @@ mod tests {
 
         let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(
-            epoch_manager.get_all_block_producers(&epoch_id.0, &h[1]).unwrap(),
+            epoch_manager.get_all_block_producers(&epoch_id, &h[1]).unwrap(),
             vec![("test2".to_string(), false), ("test1".to_string(), true)]
         );
 

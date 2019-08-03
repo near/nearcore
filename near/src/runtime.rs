@@ -6,22 +6,24 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
-use log::{debug, error, info};
+use log::{debug, info};
 
+use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
-use near_primitives::account::{AccessKey, Account};
+use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager};
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake,
 };
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{
     get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges, COL_BLOCK_HEADER,
+    WrappedTrieChanges,
 };
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
@@ -30,9 +32,6 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
-use near_chain::types::ApplyTransactionResult;
-
-use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -169,7 +168,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Weight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let validator = epoch_manager
-            .get_block_producer_info(&header.epoch_hash, header.height)
+            .get_block_producer_info(&header.epoch_id, header.height)
             .map_err(|err| Error::from(err))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
@@ -179,14 +178,13 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn verify_validator_signature(
         &self,
-        epoch_hash: &CryptoHash,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
     ) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        if let Ok(Some(validator)) =
-            epoch_manager.get_validator_by_account_id(epoch_hash, account_id)
+        if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
         {
             return verify(data, signature, &validator.public_key);
         }
@@ -194,10 +192,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
-        let epoch_hash = self.get_epoch_hash(header.prev_block_hash)?;
+        let epoch_id = self.get_epoch_id(&header.prev_block_hash)?;
         let mut vm = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let public_key = &vm
-            .get_chunk_producer_info(&epoch_hash, header.height_created, header.shard_id)
+            .get_chunk_producer_info(&epoch_id, header.height_created, header.shard_id)
             .map(|vs| vs.public_key);
         if let Ok(public_key) = public_key {
             Ok(verify(header.chunk_hash().0.as_ref(), &header.signature, public_key))
@@ -208,30 +206,32 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_epoch_block_proposers(
         &self,
-        epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_all_block_producers(epoch_hash, block_hash).map_err(|err| err.into())
+        epoch_manager
+            .get_all_block_producers(epoch_id, last_known_block_hash)
+            .map_err(|err| err.into())
     }
 
     fn get_block_proposer(
         &self,
-        epoch_hash: &CryptoHash,
+        epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_block_producer_info(epoch_hash, height)?.account_id)
+        Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.account_id)
     }
 
     fn get_chunk_proposer(
         &self,
-        epoch_hash: CryptoHash,
+        epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        Ok(epoch_manager.get_chunk_producer_info(&epoch_hash, height, shard_id)?.account_id)
+        Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
     }
 
     fn num_shards(&self) -> ShardId {
@@ -239,11 +239,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         self.genesis_config.block_producers_per_shard.len() as ShardId
     }
 
-    fn num_total_parts(&self, parent_hash: CryptoHash) -> usize {
+    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id(&parent_hash).unwrap();
-        if let Ok(block_producers) =
-            epoch_manager.get_all_block_producers(&epoch_id.0, &parent_hash)
+        let epoch_id = epoch_manager.get_epoch_id(parent_hash).unwrap();
+        if let Ok(block_producers) = epoch_manager.get_all_block_producers(&epoch_id, &parent_hash)
         {
             let ret = block_producers.len();
             if ret > 1 {
@@ -256,7 +255,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_data_parts(&self, parent_hash: CryptoHash) -> usize {
+    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize {
         let total_parts = self.num_total_parts(parent_hash);
         if total_parts <= 3 {
             1
@@ -272,13 +271,13 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_part_owner(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         part_id: u64,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id(&parent_hash).map_err(|err| Box::new(err))?;
+        let epoch_id = epoch_manager.get_epoch_id(parent_hash).map_err(|err| Box::new(err))?;
         let block_producers = epoch_manager
-            .get_all_block_producers(&epoch_id.0, &parent_hash)
+            .get_all_block_producers(&epoch_id, parent_hash)
             .map_err(|err| Box::new(err))?;
         Ok(block_producers[part_id as usize % block_producers.len()].0.clone())
     }
@@ -286,22 +285,22 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn cares_about_shard(
         &self,
         account_id: &AccountId,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.cares_about_shard(&parent_hash, account_id, shard_id).unwrap_or(false)
+        epoch_manager.cares_about_shard(parent_hash, account_id, shard_id).unwrap_or(false)
     }
 
     fn will_care_about_shard(
         &self,
         account_id: &AccountId,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager
-            .cares_about_shard_next_epoch(&parent_hash, account_id, shard_id)
+            .cares_about_shard_next_epoch(parent_hash, account_id, shard_id)
             .unwrap_or(false)
     }
 
@@ -453,28 +452,30 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn is_epoch_second_block(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_second_block(&parent_hash).map_err(|err| err.into())
+        epoch_manager.is_next_block_epoch_second_block(parent_hash).map_err(|err| err.into())
     }
 
     fn is_epoch_start(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_start(&parent_hash).map_err(|err| err.into())
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(|err| err.into())
     }
 
-    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error> {
+    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .get_epoch_id(&parent_hash)
-            .map(|epoch_id| epoch_id.0)
-            .map_err(|err| Error::from(err))
+        epoch_manager.get_epoch_id(parent_hash).map_err(|err| Error::from(err))
+    }
+
+    fn get_next_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_next_epoch_id(parent_hash).map_err(|err| Error::from(err))
     }
 }
 
@@ -558,7 +559,7 @@ mod test {
         CreateAccountTransaction, ReceiptTransaction, SignedTransaction, StakeTransaction,
         TransactionBody,
     };
-    use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
+    use near_primitives::types::{Balance, BlockIndex, EpochId, Nonce, ValidatorStake};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
 
@@ -1155,7 +1156,7 @@ mod test {
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
         assert!(!nightshade.verify_validator_signature(
-            &CryptoHash::default(),
+            &EpochId::default(),
             &validators[1],
             &data,
             &signature

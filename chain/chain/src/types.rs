@@ -8,7 +8,7 @@ use near_primitives::rpc::QueryResponse;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake,
 };
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
@@ -91,7 +91,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
-        epoch_hash: &CryptoHash,
+        epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
@@ -104,21 +104,21 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns error if height is outside of known boundaries.
     fn get_epoch_block_proposers(
         &self,
-        epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
 
     /// Block proposer for given height for the main block. Return error if outside of known boundaries.
     fn get_block_proposer(
         &self,
-        epoch_hash: &CryptoHash,
+        epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_proposer(
         &self,
-        epoch_hash: CryptoHash,
+        epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
@@ -126,28 +126,30 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
 
-    fn num_total_parts(&self, parent_hash: CryptoHash) -> usize;
-    fn num_data_parts(&self, parent_hash: CryptoHash) -> usize;
+    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize;
+
+    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize;
 
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+
     fn get_part_owner(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         part_id: u64,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
     fn cares_about_shard(
         &self,
         account_id: &AccountId,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool;
 
     fn will_care_about_shard(
         &self,
         account_id: &AccountId,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool;
 
@@ -212,17 +214,21 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn is_epoch_second_block(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>>;
 
     fn is_epoch_start(
         &self,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         index: BlockIndex,
     ) -> Result<bool, Box<dyn std::error::Error>>;
 
-    fn get_epoch_hash(&self, parent_hash: CryptoHash) -> Result<CryptoHash, Error>;
+    /// Get epoch id given hash of previous block.
+    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get next epoch id given hash of previous block.
+    fn get_next_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
@@ -238,8 +244,8 @@ pub struct Tip {
     pub prev_block_hash: CryptoHash,
     /// Total weight on that fork
     pub total_weight: Weight,
-    /// Previous epoch hash. Used for getting validator info.
-    pub epoch_hash: CryptoHash,
+    /// Previous epoch id. Used for getting validator info.
+    pub epoch_id: EpochId,
 }
 
 impl Tip {
@@ -250,7 +256,7 @@ impl Tip {
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
             total_weight: header.total_weight,
-            epoch_hash: header.epoch_hash,
+            epoch_id: header.epoch_id.clone(),
         }
     }
 }

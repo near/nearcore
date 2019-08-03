@@ -15,7 +15,7 @@ message BlockHeaderBody {
     repeated bytes approval_sigs = 7;
     uint64 total_weight = 8;
     repeated ValidatorStake validator_proposal = 9;
-    bytes epoch_hash = 10;
+    bytes epoch_id = 10;
     uint64 gas_used = 11;
     uint64 gas_limit = 12;
     Uint128 gas_price = 13;

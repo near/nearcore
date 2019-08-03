@@ -44,7 +44,7 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
     let mut genesis_config = GenesisConfig::testing_spec(num_accounts, num_nodes);
     genesis_config.epoch_length = epoch_length;
     genesis_config.num_block_producers = num_accounts;
-    genesis_config.validator_kickout_threshold = 0.2;
+    genesis_config.validator_kickout_threshold = 20;
     let first_node = open_port();
 
     let configs = (0..num_accounts).map(|i| {

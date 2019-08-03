@@ -7,9 +7,7 @@ use log::debug;
 
 use near_primitives::hash::{hash_struct, CryptoHash};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{
-    AccountId, BlockIndex, GasUsage, MerkleHash, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
@@ -41,30 +39,6 @@ pub struct StateSyncInfo {
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<(ShardId, ChunkHash)>,
-}
-
-/// Information after chunk was processed, used to produce or check next chunk.
-#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
-pub struct ChunkExtra {
-    /// Post state root after applying give chunk.
-    pub state_root: MerkleHash,
-    /// Validator proposals produced by given chunk.
-    pub validator_proposals: Vec<ValidatorStake>,
-    /// Actually how much gas were used.
-    pub gas_used: GasUsage,
-    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
-    pub gas_limit: GasUsage,
-}
-
-impl ChunkExtra {
-    pub fn new(
-        state_root: &MerkleHash,
-        validator_proposals: Vec<ValidatorStake>,
-        gas_used: GasUsage,
-        gas_limit: GasUsage,
-    ) -> Self {
-        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
-    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -179,6 +153,36 @@ impl ChainStore {
             })
             .collect()
     }
+
+    pub fn get_outgoing_receipts_for_shard(
+        &mut self,
+        prev_block_hash: CryptoHash,
+        shard_id: ShardId,
+        last_included_height: BlockIndex,
+    ) -> Result<(CryptoHash, Vec<ReceiptTransaction>), Error> {
+        let mut receipts_block_hash = prev_block_hash.clone();
+        loop {
+            let block_header = self.get_block_header(&receipts_block_hash)?;
+
+            assert!(
+                block_header.height < last_included_height
+                    || block_header.height >= last_included_height
+            );
+
+            if block_header.height == last_included_height {
+                let receipts = if let Ok(cur_receipts) =
+                    self.get_outgoing_receipts(&receipts_block_hash, shard_id)
+                {
+                    cur_receipts.clone()
+                } else {
+                    vec![]
+                };
+                return Ok((receipts_block_hash, receipts));
+            } else {
+                receipts_block_hash = block_header.prev_hash.clone();
+            }
+        }
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -253,8 +257,8 @@ impl ChainStoreAccess for ChainStore {
                 if me.as_ref().map_or_else(
                     || false,
                     |me| {
-                        runtime_adapter.cares_about_shard(me, parent_hash, shard_id)
-                            || runtime_adapter.will_care_about_shard(me, parent_hash, shard_id)
+                        runtime_adapter.cares_about_shard(me, &parent_hash, shard_id)
+                            || runtime_adapter.will_care_about_shard(me, &parent_hash, shard_id)
                     },
                 ) {
                     let entry = self.chunks.entry(chunk_hash.clone());
@@ -300,8 +304,8 @@ impl ChainStoreAccess for ChainStore {
             } else if me.as_ref().map_or_else(
                 || false,
                 |me| {
-                    runtime_adapter.cares_about_shard(&me, parent_hash, shard_id)
-                        || runtime_adapter.will_care_about_shard(&me, parent_hash, shard_id)
+                    runtime_adapter.cares_about_shard(&me, &parent_hash, shard_id)
+                        || runtime_adapter.will_care_about_shard(&me, &parent_hash, shard_id)
                 },
             ) {
                 ret.push(ShardFullChunkOrOnePart::FullChunk(
@@ -465,7 +469,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         shard_id: ShardId,
         mut block_hash: CryptoHash,
         last_chunk_header: &ShardChunkHeader,
-    ) -> Result<Vec<ReceiptTransaction>, Error> {
+    ) -> Result<Vec<(CryptoHash, Vec<ReceiptTransaction>)>, Error> {
         let mut ret = vec![];
 
         if last_chunk_header.prev_block_hash == CryptoHash::default() {
@@ -482,7 +486,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             let prev_hash = header.prev_hash;
 
             if let Ok(receipts) = self.get_incoming_receipts(&block_hash, shard_id) {
-                ret.extend_from_slice(receipts);
+                ret.push((block_hash, receipts.clone()));
             }
 
             block_hash = prev_hash;

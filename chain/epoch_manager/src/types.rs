@@ -3,18 +3,9 @@ use std::fmt;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, GasUsage, ShardId, ValidatorId, ValidatorStake,
 };
 use serde_derive::{Deserialize, Serialize};
-
-#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Default)]
-pub struct EpochId(pub CryptoHash);
-
-impl AsRef<[u8]> for EpochId {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
 
 pub type RngSeed = [u8; 32];
 

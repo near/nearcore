@@ -263,7 +263,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 75 },
+                if rotate_validators { 150 } else { 50 },
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),

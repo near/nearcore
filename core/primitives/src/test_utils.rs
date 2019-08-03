@@ -106,7 +106,7 @@ impl Block {
                 prev.chunks.len() as ShardId,
                 prev.header.gas_limit,
             ),
-            prev.header.epoch_hash,
+            prev.header.epoch_id.clone(),
             vec![],
             approvals,
             signer,
