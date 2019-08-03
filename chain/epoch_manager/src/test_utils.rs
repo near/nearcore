@@ -3,6 +3,15 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorS
 use std::collections::{BTreeMap, HashMap};
 
 use crate::types::{EpochConfig, EpochInfo};
+use near_primitives::hash::{hash, CryptoHash};
+
+pub fn hash_range(num: usize) -> Vec<CryptoHash> {
+    let mut result = vec![];
+    for i in 0..num {
+        result.push(hash(&vec![i as u8]));
+    }
+    result
+}
 
 pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, Balance> {
     stake_changes.into_iter().map(|(k, v)| (k.to_string(), v)).collect()

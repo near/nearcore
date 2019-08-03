@@ -1,5 +1,5 @@
 [package]
-name = "epoch_manager"
+name = "near-epoch-manager"
 version = "0.0.1"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
