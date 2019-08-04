@@ -152,7 +152,7 @@ pub fn setup_mock_all_validators(
                                     .collect(),
                                 sent_bytes_per_sec: 0,
                                 received_bytes_per_sec: 0,
-                                routes: None
+                                known_producers: vec![],
                             })
                         }
                         NetworkRequests::Block { block } => {
@@ -300,7 +300,7 @@ pub fn setup_no_network(
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
-                routes: None,
+                known_producers: vec![],
             }),
             _ => NetworkResponses::NoResponse,
         }),

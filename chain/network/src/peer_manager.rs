@@ -413,6 +413,7 @@ impl PeerManagerActor {
                     .and_then(|_, _, _| actix::fut::ok(()))
                     .spawn(ctx);
             } else {
+                panic!(format!("Sending message: {:?} to {}", msg, account_id));
                 error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
             }
         } else {
@@ -446,11 +447,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkRequests::FetchInfo { level } => {
+            NetworkRequests::FetchInfo => {
                 let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
 
-                let routes =
-                    if level > 0 { Some(self.routing_table.account_peers.clone()) } else { None };
+                let known_producers =
+                    self.routing_table.account_peers.keys().cloned().collect::<Vec<_>>();
 
                 NetworkResponses::Info(NetworkInfo {
                     num_active_peers: self.num_active_peers(),
@@ -458,7 +459,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     most_weight_peers: self.most_weight_peers(),
                     sent_bytes_per_sec,
                     received_bytes_per_sec,
-                    routes,
+                    known_producers,
                 })
             }
             NetworkRequests::Block { block } => {

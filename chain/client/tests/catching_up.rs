@@ -2,7 +2,6 @@
 #[cfg(feature = "expensive_tests")]
 mod tests {
     use actix::{Addr, System};
-    use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, ViewClientActor};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};

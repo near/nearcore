@@ -104,25 +104,24 @@ fn check_account_id_propagation(
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
 
                     if count.load(Ordering::Relaxed) == 0 {
-                        actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(
-                            move |res| {
-                                if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
-                                    res.unwrap()
-                                {
-                                    if routes.unwrap().len() == total_nodes {
-                                        count.fetch_add(1, Ordering::Relaxed);
+                        actix::spawn(pm.send(NetworkRequests::FetchInfo).then(move |res| {
+                            if let NetworkResponses::Info(NetworkInfo { known_producers, .. }) =
+                                res.unwrap()
+                            {
+                                println!("KP: {:?}", known_producers);
+                                if known_producers.len() == total_nodes - 1 {
+                                    count.fetch_add(1, Ordering::Relaxed);
 
-                                        if counters
-                                            .iter()
-                                            .all(|counter| counter.load(Ordering::Relaxed) == 1)
-                                        {
-                                            System::current().stop();
-                                        }
+                                    if counters
+                                        .iter()
+                                        .all(|counter| counter.load(Ordering::Relaxed) == 1)
+                                    {
+                                        System::current().stop();
                                     }
                                 }
-                                future::result(Ok(()))
-                            },
-                        ));
+                            }
+                            future::result(Ok(()))
+                        }));
                     }
                 }
             }),

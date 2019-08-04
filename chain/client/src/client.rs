@@ -146,7 +146,7 @@ impl ClientActor {
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
-                routes: None,
+                known_producers: vec![],
             },
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
@@ -1536,7 +1536,7 @@ impl ClientActor {
     fn fetch_network_info(&mut self, ctx: &mut Context<Self>) {
         // TODO: replace with push from network?
         self.network_actor
-            .send(NetworkRequests::FetchInfo { level: 0 })
+            .send(NetworkRequests::FetchInfo)
             .into_actor(self)
             .then(move |res, act, _ctx| match res {
                 Ok(NetworkResponses::Info(network_info)) => {

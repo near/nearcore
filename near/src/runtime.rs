@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, RwLockWriteGuard};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
@@ -88,14 +88,14 @@ impl NightshadeRuntime {
     /// and allocate rewards.
     fn update_validator_accounts(
         &self,
-        shard_id: ShardId,
-        state_root: &MerkleHash,
+        epoch_manager: &mut RwLockWriteGuard<EpochManager>,
+        _shard_id: ShardId,
+        _state_root: &MerkleHash,
         block_hash: &CryptoHash,
         state_update: &mut TrieUpdate,
         gas_price: Balance,
         total_supply: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let prev_epoch_id = epoch_manager.get_prev_epoch_id(block_hash)?;
         let prev_prev_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&prev_epoch_id)?;
         let prev_prev_stake_change =
@@ -402,7 +402,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
         gas_price: Balance,
@@ -413,6 +413,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         // If we are starting to apply 2nd block in the next epoch.
         if epoch_manager.is_next_block_epoch_start(prev_block_hash).map_err(|err| Box::new(err))? {
             self.update_validator_accounts(
+                &mut epoch_manager,
                 shard_id,
                 state_root,
                 prev_block_hash,

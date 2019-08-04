@@ -19,6 +19,7 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
+use near_primitives::merkle::MerklePath;
 use near_primitives::serialize::{BaseEncode, Decode, Encode};
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
@@ -27,8 +28,6 @@ use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
-use near_primitives::merkle::MerklePath;
-use std::collections::HashMap;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 2;
@@ -945,9 +944,7 @@ pub struct Ban {
 #[derive(Debug)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
-    /// Level denote how much information is going to be delivered.
-    /// Higher level implies more information. (This is useful for testing)
-    FetchInfo { level: usize },
+    FetchInfo,
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
     /// Sends block header announcement, with possibly attaching approval for this block if
@@ -990,8 +987,8 @@ pub struct NetworkInfo {
     pub most_weight_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
-    // Only send full routes to accounts on demand
-    pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
+    /// Accounts of known block and chunk producers from routing table.  
+    pub known_producers: Vec<AccountId>,
 }
 
 #[derive(Debug)]
