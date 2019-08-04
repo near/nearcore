@@ -593,14 +593,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn is_epoch_second_block(
-        &self,
-        _parent_hash: &CryptoHash,
-        _index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        unreachable!();
-    }
-
     fn is_epoch_start(
         &self,
         parent_hash: &CryptoHash,

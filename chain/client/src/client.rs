@@ -690,7 +690,7 @@ impl ClientActor {
 
         // TODO MOO XXX: only announce if become a validator soon
 
-        let epoch_height = if epoch_id.0 == CryptoHash::default() {
+        let epoch_height = if epoch_id == EpochId::default() {
             0
         } else {
             // TODO MOO WTF

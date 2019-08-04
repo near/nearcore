@@ -212,12 +212,6 @@ pub trait RuntimeAdapter: Send + Sync {
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
-    fn is_epoch_second_block(
-        &self,
-        parent_hash: &CryptoHash,
-        index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>>;
-
     fn is_epoch_start(
         &self,
         parent_hash: &CryptoHash,

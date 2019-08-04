@@ -359,15 +359,6 @@ impl EpochManager {
         let block_info = self.get_block_info(parent_hash)?.clone();
         self.is_next_block_in_next_epoch(&block_info)
     }
-
-    /// Returns true if next block after given block hash is 2nd block in the epoch.
-    pub fn is_next_block_epoch_second_block(
-        &mut self,
-        parent_hash: &CryptoHash,
-    ) -> Result<bool, EpochError> {
-        let block_info = self.get_block_info(parent_hash)?.clone();
-        Ok(block_info.epoch_id == self.get_epoch_id(&block_info.prev_hash)?)
-    }
 }
 
 /// Private utilities for EpochManager.

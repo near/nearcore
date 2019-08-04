@@ -453,15 +453,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(())
     }
 
-    fn is_epoch_second_block(
-        &self,
-        parent_hash: &CryptoHash,
-        index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_second_block(parent_hash).map_err(|err| err.into())
-    }
-
     fn is_epoch_start(
         &self,
         parent_hash: &CryptoHash,
