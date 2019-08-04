@@ -56,7 +56,7 @@ pub fn send_money(
     } else {
         Err(format!(
             "Account {} tries to send {}, but has staked {} and only has {}",
-            transaction.originator, transaction.amount, sender.staked, sender.amount,
+            transaction.originator, transaction.amount, sender.stake, sender.amount,
         ))
     }
 }
@@ -68,9 +68,9 @@ pub fn staking(
     sender: &mut Account,
     validator_proposals: &mut Vec<ValidatorStake>,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    let increment = if body.amount > sender.staked { body.amount - sender.staked } else { 0 };
+    let increment = if body.amount > sender.stake { body.amount - sender.stake } else { 0 };
     if sender.amount >= increment {
-        if sender.staked == 0 && body.amount == 0 {
+        if sender.stake == 0 && body.amount == 0 {
             // if the account hasn't staked, it cannot unstake
             return Err(format!(
                 "Account {} is not yet staked, but tries to unstake",
@@ -83,9 +83,9 @@ pub fn staking(
                 .map_err(|err| err.to_string())?,
             amount: body.amount,
         });
-        if sender.staked < body.amount {
+        if sender.stake < body.amount {
             sender.amount -= increment;
-            sender.staked = body.amount;
+            sender.stake = body.amount;
             set_account(state_update, sender_account_id, &sender);
         }
         println!("MOO STAKING account_id {} amount {}", sender_account_id, body.amount);
@@ -93,7 +93,7 @@ pub fn staking(
     } else {
         let err_msg = format!(
             "Account {} tries to stake {}, but has staked {} and only has {}",
-            body.originator, body.amount, sender.staked, sender.amount,
+            body.originator, body.amount, sender.stake, sender.amount,
         );
         Err(err_msg)
     }
@@ -330,7 +330,7 @@ pub fn system_delete_account(
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
 ) -> Result<Vec<ReceiptTransaction>, String> {
-    if account.staked != 0 {
+    if account.stake != 0 {
         return Err(format!("Account {} is staking, can not be deleted.", account_id));
     }
     if check_rent(account_id, account, runtime_config, epoch_length) {

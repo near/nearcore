@@ -66,7 +66,7 @@ fn check_rent(
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
 ) -> bool {
-    let buffer_length = if account.staked > 0 {
+    let buffer_length = if account.stake > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
     } else {
         runtime_config.poke_threshold
@@ -157,7 +157,7 @@ impl Runtime {
                     "Account {} tries to call some contract with the amount {}, but has staked {} and only has {}",
                     transaction.originator,
                     transaction.amount,
-                    sender.staked,
+                    sender.stake,
                     sender.amount
                 )
             )
@@ -201,7 +201,7 @@ impl Runtime {
                     "Account {} tries to call itself with the amount {}, but has staked {} and only has {}",
                     transaction.originator,
                     transaction.amount,
-                    account.staked,
+                    account.stake,
                     account.amount
                 )
             );
@@ -918,7 +918,7 @@ impl Runtime {
         for (account_id, _, amount) in validators {
             let mut account: Account =
                 get_account(&state_update, account_id).expect("account must exist");
-            account.staked = *amount;
+            account.stake = *amount;
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();

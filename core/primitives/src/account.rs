@@ -17,14 +17,14 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-     #[serde(with = "vec_base_format")]
+    #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     pub nonce: Nonce,
     // amount + staked is the total value of the account
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub staked: Balance,
+    pub stake: Balance,
     #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
@@ -39,7 +39,7 @@ impl Account {
             public_keys,
             nonce: 0,
             amount,
-            staked: 0,
+            stake: 0,
             code_hash,
             storage_usage: 0,
             storage_paid_at: 0,
@@ -74,7 +74,7 @@ impl TryFrom<account_proto::Account> for Account {
                 .collect::<Result<Vec<_>, _>>()?,
             nonce: account.nonce,
             amount: account.amount.unwrap_or_default().try_into()?,
-            staked: account.staked.unwrap_or_default().try_into()?,
+            stake: account.stake.unwrap_or_default().try_into()?,
             code_hash: account.code_hash.try_into()?,
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
@@ -90,7 +90,7 @@ impl From<Account> for account_proto::Account {
             ),
             nonce: account.nonce,
             amount: SingularPtrField::some(account.amount.into()),
-            staked: SingularPtrField::some(account.staked.into()),
+            stake: SingularPtrField::some(account.stake.into()),
             code_hash: account.code_hash.into(),
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
