@@ -369,6 +369,37 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
+    pub fn get_epoch_id_from_prev_block(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(parent_hash)? {
+            self.get_next_epoch_id(parent_hash)
+        } else {
+            self.get_epoch_id(parent_hash)
+        }
+    }
+
+    pub fn get_next_epoch_id_from_prev_block(
+        &mut self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, EpochError> {
+        if self.is_next_block_epoch_start(parent_hash)? {
+            // Because we ID epochs based on the last block of T - 2, this is ID for next next epoch.
+            Ok(EpochId(*parent_hash))
+        } else {
+            self.get_next_epoch_id(parent_hash)
+        }
+    }
+
+    pub fn get_epoch_start_height(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<BlockIndex, EpochError> {
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block.clone();
+        Ok(self.get_block_info(&epoch_first_block)?.index)
+    }
+
     pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
         if !self.epochs_info.contains_key(epoch_id) {
             let epoch_info = self

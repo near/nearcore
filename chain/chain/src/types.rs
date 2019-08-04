@@ -87,6 +87,14 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
+    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    fn validate_tx(
+        &self,
+        shard_id: ShardId,
+        state_root: MerkleHash,
+        transaction: SignedTransaction,
+    ) -> Result<ValidTransaction, String>;
+
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
         &self,
@@ -99,23 +107,23 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
 
-    /// Epoch block proposers (ordered by their order in the proposals) for given shard.
+    /// Epoch block producers (ordered by their order in the proposals) for given shard.
     /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_proposers(
+    fn get_epoch_block_producers(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
 
-    /// Block proposer for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_proposer(
+    /// Block producers for given height for the main block. Return error if outside of known boundaries.
+    fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>>;
 
-    /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_proposer(
+    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
+    fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
@@ -152,13 +160,18 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> bool;
 
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(
-        &self,
-        shard_id: ShardId,
-        state_root: MerkleHash,
-        transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String>;
+    /// Returns true, if given hash is last block in it's epoch.
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
+    /// Get epoch id given hash of previous block.
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get next epoch id given hash of previous block.
+    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
+        -> Result<EpochId, Error>;
+
+    /// Get epoch start for given block hash.
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -211,18 +224,6 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: MerkleHash,
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
-
-    fn is_epoch_start(
-        &self,
-        parent_hash: &CryptoHash,
-        index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>>;
-
-    /// Get epoch id given hash of previous block.
-    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
-
-    /// Get next epoch id given hash of previous block.
-    fn get_next_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the

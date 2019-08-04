@@ -227,7 +227,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(true)
     }
 
-    fn get_epoch_block_proposers(
+    fn get_epoch_block_producers(
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
@@ -236,7 +236,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
 
-    fn get_block_proposer(
+    fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
@@ -245,7 +245,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
-    fn get_chunk_proposer(
+    fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
@@ -326,7 +326,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
     ) -> bool {
         // figure out if this block is the first block of an epoch
-        let first_block_of_the_epoch = self.is_epoch_start(parent_hash, 0).unwrap();
+        let first_block_of_the_epoch = self.is_next_block_epoch_start(parent_hash).unwrap();
 
         // If it is the first block of the epoch, Nightshade runtime can't infer the next validator set
         //    emulate that behavior
@@ -593,29 +593,36 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(())
     }
 
-    fn is_epoch_start(
-        &self,
-        parent_hash: &CryptoHash,
-        _index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+        let prev_block_header =
+            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.ok_or(
+                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
+            )?;
         let prev_prev_hash = prev_block_header.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
-    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
         Ok(self.get_epoch_and_valset(*parent_hash)?.0)
     }
 
-    fn get_next_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+    fn get_next_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
         Ok(self.get_epoch_and_valset(*parent_hash)?.2)
+    }
+
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+        let block_header =
+            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, block_hash.as_ref())?.ok_or(
+                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
+            )?;
+        Ok(block_header.height)
     }
 }
 

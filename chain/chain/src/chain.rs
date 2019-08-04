@@ -1204,7 +1204,7 @@ impl<'a> ChainUpdate<'a> {
 
         let (is_caught_up, needs_to_start_fetching_state) = if self
             .runtime_adapter
-            .is_epoch_start(&prev_hash, block.header.height)
+            .is_next_block_epoch_start(&prev_hash)
             .map_err(|err| ErrorKind::Other(err.to_string()))?
         {
             if !self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -1328,7 +1328,7 @@ impl<'a> ChainUpdate<'a> {
             first_epoch,
             block.header.prev_hash,
             block.hash(),
-            self.runtime_adapter.is_epoch_start(&block.header.prev_hash, 0),
+            self.runtime_adapter.is_next_block_epoch_start(&block.header.prev_hash),
         );
 
         let mut queue = vec![block.header.prev_hash, epoch_start];
@@ -1358,13 +1358,13 @@ impl<'a> ChainUpdate<'a> {
                 debug!(
                     "MOO new epoch: {:?}, is_epoch_start: {:?}",
                     self.runtime_adapter
-                        .get_epoch_id(&block_hash)
+                        .get_epoch_id_from_prev_block(&block_hash)
                         .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?,
-                    self.runtime_adapter.is_epoch_start(&block_hash, 0),
+                    self.runtime_adapter.is_next_block_epoch_start(&block_hash),
                 );
                 assert_eq!(
                     self.runtime_adapter
-                        .get_epoch_id(&block_hash)
+                        .get_epoch_id_from_prev_block(&block_hash)
                         .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?,
                     first_epoch
                 );
@@ -1398,7 +1398,7 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(&header.epoch_id, header.height)
+            .get_block_producer(&header.epoch_id, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.verify_validator_signature(
             &header.epoch_id,

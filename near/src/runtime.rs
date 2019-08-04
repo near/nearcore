@@ -216,7 +216,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
-        let epoch_id = self.get_epoch_id(&header.prev_block_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(&header.prev_block_hash)?;
         let mut vm = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let public_key = &vm
             .get_chunk_producer_info(&epoch_id, header.height_created, header.shard_id)
@@ -228,7 +228,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn get_epoch_block_proposers(
+    fn get_epoch_block_producers(
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
@@ -239,7 +239,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             .map_err(|err| err.into())
     }
 
-    fn get_block_proposer(
+    fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
@@ -248,7 +248,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.account_id)
     }
 
-    fn get_chunk_proposer(
+    fn get_chunk_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
@@ -326,6 +326,29 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager
             .cares_about_shard_next_epoch(parent_hash, account_id, shard_id)
             .unwrap_or(false)
+    }
+
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(|err| err.into())
+    }
+
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+    }
+
+    fn get_next_epoch_id_from_prev_block(
+        &self,
+        parent_hash: &CryptoHash,
+    ) -> Result<EpochId, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_next_epoch_id_from_prev_block(parent_hash).map_err(|err| Error::from(err))
+    }
+
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
     }
 
     fn validate_tx(
@@ -477,25 +500,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
         store_update.commit()?;
         Ok(())
-    }
-
-    fn is_epoch_start(
-        &self,
-        parent_hash: &CryptoHash,
-        index: BlockIndex,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.is_next_block_epoch_start(parent_hash).map_err(|err| err.into())
-    }
-
-    fn get_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_epoch_id(parent_hash).map_err(|err| Error::from(err))
-    }
-
-    fn get_next_epoch_id(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error> {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.get_next_epoch_id(parent_hash).map_err(|err| Error::from(err))
     }
 }
 
@@ -709,7 +713,7 @@ mod test {
                 last_block_hash: new_hash,
                 prev_block_hash: self.head.last_block_hash,
                 height: self.head.height + 1,
-                epoch_id: self.runtime.get_epoch_id(&new_hash).unwrap(),
+                epoch_id: self.runtime.get_epoch_id_from_prev_block(&new_hash).unwrap(),
                 total_weight: Weight::from(self.head.total_weight.to_num() + 1),
             };
         }
@@ -771,9 +775,9 @@ mod test {
             env.step(vec![]);
         }
 
-        let epoch_id = env.runtime.get_epoch_id(&env.head.last_block_hash).unwrap();
+        let epoch_id = env.runtime.get_epoch_id_from_prev_block(&env.head.last_block_hash).unwrap();
         assert_eq!(
-            env.runtime.get_epoch_block_proposers(&epoch_id, &env.head.last_block_hash).unwrap(),
+            env.runtime.get_epoch_block_producers(&epoch_id, &env.head.last_block_hash).unwrap(),
             vec![("test3".to_string(), false), ("test1".to_string(), false)]
         );
 

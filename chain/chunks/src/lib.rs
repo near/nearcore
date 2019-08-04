@@ -111,7 +111,7 @@ impl ShardsManager {
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
 
-            let epoch_hash = self.runtime_adapter.get_epoch_id(&parent_hash).unwrap();
+            let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash).unwrap();
 
             if !self.encoded_chunks.contains_key(&chunk_hash) {
                 if self.requested_one_parts.contains(&chunk_hash) {
@@ -131,14 +131,14 @@ impl ShardsManager {
                             chunk_hash.clone(),
                             part_id,
                             self.runtime_adapter
-                                .get_chunk_proposer(&epoch_hash, height, shard_id)
+                                .get_chunk_producer(&epoch_id, height, shard_id)
                                 .unwrap(),
                             self.me.clone().unwrap()
                         );
                         let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
                             account_id: self
                                 .runtime_adapter
-                                .get_chunk_proposer(&epoch_hash, height, shard_id)
+                                .get_chunk_producer(&epoch_id, height, shard_id)
                                 .unwrap(),
                             part_request: ChunkPartRequestMsg {
                                 shard_id,
@@ -167,14 +167,14 @@ impl ShardsManager {
                         chunk_hash.clone(),
                         part_id,
                         self.runtime_adapter
-                            .get_chunk_proposer(&epoch_hash, height, shard_id)
+                            .get_chunk_producer(&epoch_id, height, shard_id)
                             .unwrap(),
                         self.me.clone().unwrap()
                     );
                     let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
                         account_id: self
                             .runtime_adapter
-                            .get_chunk_proposer(&epoch_hash, height, shard_id)
+                            .get_chunk_producer(&epoch_id, height, shard_id)
                             .unwrap(),
                         part_request: ChunkPartRequestMsg {
                             shard_id,
