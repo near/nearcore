@@ -370,7 +370,7 @@ impl GenesisConfig {
                         - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     public_keys: vec![signer.public_key],
                     code_hash,
-                    staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    stake: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     storage_usage: 0,
                     storage_paid_at: 0,
                 },

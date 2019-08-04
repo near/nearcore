@@ -554,6 +554,7 @@ mod test {
     use near_chain::{RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_epoch_manager::test_utils::{change_stake, epoch_info, hash_range};
+    use near_primitives::block::Weight;
     use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::rpc::AccountViewCallResult;
@@ -571,7 +572,6 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_primitives::block::Weight;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         TransactionBody::Stake(StakeTransaction {
@@ -618,6 +618,7 @@ mod test {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
         state_roots: Vec<MerkleHash>,
+        pub last_receipts: Vec<Vec<ReceiptTransaction>>,
     }
     impl TestEnv {
         pub fn new(prefix: &str, validators: Vec<AccountId>, epoch_length: BlockIndex) -> Self {
@@ -652,14 +653,11 @@ mod test {
                     total_weight: Weight::default(),
                 },
                 state_roots,
+                last_receipts: vec![],
             }
         }
 
-        pub fn step(
-            &mut self,
-            receipts: Vec<Vec<ReceiptTransaction>>,
-            transactions: Vec<SignedTransaction>,
-        ) -> Vec<Vec<ReceiptTransaction>> {
+        pub fn step(&mut self, transactions: Vec<SignedTransaction>) {
             // TODO: add support for shards.
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
             let (state_root, proposals, receipts) = self.runtime.update(
@@ -667,10 +665,11 @@ mod test {
                 self.head.height + 1,
                 &self.head.last_block_hash,
                 &new_hash,
-                &receipts.iter().flatten().cloned().collect::<Vec<_>>(),
+                &self.last_receipts.iter().flatten().cloned().collect::<Vec<_>>(),
                 &transactions,
             );
             self.state_roots[0] = state_root;
+            self.last_receipts = receipts;
             self.runtime
                 .add_validator_proposals(
                     self.head.last_block_hash,
@@ -690,12 +689,11 @@ mod test {
                 epoch_id: self.runtime.get_epoch_id(&new_hash).unwrap(),
                 total_weight: Weight::from(self.head.total_weight.to_num() + 1),
             };
-            receipts
         }
 
-        pub fn view_account(&self, account_id: &AccountId) -> AccountViewCallResult {
+        pub fn view_account(&self, account_id: &str) -> AccountViewCallResult {
             // TODO: add support for shards.
-            self.runtime.view_account(self.state_roots[0], account_id).unwrap()
+            self.runtime.view_account(self.state_roots[0], &account_id.to_string()).unwrap()
         }
     }
 
@@ -716,7 +714,7 @@ mod test {
 
         // test1 stakes twice the current stake, because test1 and test2 have the same amount of stake before, test2 will be
         // kicked out.
-        env.step(vec![], vec![staking_transaction]);
+        env.step(vec![staking_transaction]);
         let account = env.view_account(&block_producers[0].account_id);
         assert_eq!(
             account,
@@ -742,158 +740,35 @@ mod test {
         })
         .sign(&*block_producers[0].signer.clone());
         let staking_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
-        let receipts = env.step(vec![], vec![create_account_transaction]);
-        env.step(receipts, vec![staking_transaction]);
-        env.step(vec![], vec![]);
-        env.step(vec![], vec![]);
-        env.step(vec![], vec![]);
-        env.step(vec![], vec![]);
-        env.step(vec![], vec![]);
+        env.step(vec![create_account_transaction]);
+        env.step(vec![staking_transaction]);
+
+        // Roll steps for 2 epochs to pass.
+        for _ in 4..9 {
+            env.step(vec![]);
+        }
 
         let epoch_id = env.runtime.get_epoch_id(&env.head.last_block_hash).unwrap();
         assert_eq!(
             env.runtime.get_epoch_block_proposers(&epoch_id, &env.head.last_block_hash).unwrap(),
             vec![("test3".to_string(), false), ("test1".to_string(), false)]
         );
-        // TODO: add more checks about account status.
 
-        //        state_root = new_root;
-        //        assert_eq!(
-        //            validator_stakes,
-        //            vec![ValidatorStake::new(
-        //                block_producers[0].account_id.clone(),
-        //                block_producers[0].signer.public_key(),
-        //                TESTING_INIT_STAKE * 2
-        //            )]
-        //        );
-        //
-        //
-        //        state_root = nightshade
-        //            .update(
-        //                &state_root,
-        //                2,
-        //                &h[1],
-        //                &h[2],
-        //                &receipts.iter().flatten().cloned().collect::<Vec<_>>(),
-        //                &vec![],
-        //            )
-        //            .0;
-        //        nightshade.add_validator_proposals(h[1], h[2], 2, vec![], vec![], vec![], 0, 0).unwrap();
-        //        // test3 stakes the same amount as test1 and will be confirmed as a validator in the next epoch
-        //        let (new_root, validator_stakes, _) =
-        //            nightshade.update(&state_root, 3, &h[2], &h[3], &vec![], &vec![staking_transaction]);
-        //        state_root = new_root;
-        //        assert_eq!(
-        //            validator_stakes,
-        //            vec![ValidatorStake::new(
-        //                new_validator.account_id.clone(),
-        //                new_validator.signer.public_key(),
-        //                TESTING_INIT_STAKE * 2
-        //            )]
-        //        );
-        //        nightshade
-        //            .add_validator_proposals(h[2], h[3], 3, validator_stakes, vec![], vec![], 0, 0)
-        //            .unwrap();
-        //        nightshade.update(&state_root, 4, &h[3], &h[4], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[3], h[4], 4, vec![], vec![], vec![], 0, 0).unwrap();
-        //        state_root = nightshade.update(&state_root, 5, &h[4], &h[5], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[4], h[5], 5, vec![], vec![], vec![], 0, 0).unwrap();
-        //        {
-        //            let mut vm = nightshade.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        //            let validators = vm.get_epoch_info_from_hash(&h[5]).unwrap();
-        //            // for epoch 3 (starts at h[5]), test2 will be kicked out and test3 will join
-        //            assert_eq!(
-        //                validators,
-        //                &epoch_info(
-        //                    vec![("test3", TESTING_INIT_STAKE * 2), ("test1", TESTING_INIT_STAKE * 2)],
-        //                    vec![1, 0],
-        //                    vec![vec![1, 0]],
-        //                    vec![],
-        //                    change_stake(vec![
-        //                        ("test1", TESTING_INIT_STAKE * 2),
-        //                        ("test2", 0),
-        //                        ("test3", TESTING_INIT_STAKE * 2)
-        //                    ])
-        //                )
-        //            );
-        //        }
-        //        let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
-        //        assert_eq!(
-        //            account,
-        //            AccountViewCallResult {
-        //                account_id: block_producers[0].account_id.clone(),
-        //                nonce: 2,
-        //                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5,
-        //                stake: TESTING_INIT_STAKE * 2,
-        //                public_keys: vec![block_producers[0].signer.public_key()],
-        //                code_hash: account.code_hash
-        //            }
-        //        );
-        //        state_root = nightshade.update(&state_root, 6, &h[5], &h[6], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[5], h[6], 6, vec![], vec![], vec![], 0, 0).unwrap();
-        //
-        //        let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
-        //        assert_eq!(
-        //            account,
-        //            AccountViewCallResult {
-        //                account_id: block_producers[1].account_id.clone(),
-        //                nonce: 0,
-        //                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-        //                stake: TESTING_INIT_STAKE,
-        //                public_keys: vec![block_producers[1].signer.public_key()],
-        //                code_hash: account.code_hash
-        //            }
-        //        );
-        //
-        //        let account = nightshade.view_account(state_root, &new_validator.account_id).unwrap();
-        //        assert_eq!(
-        //            account,
-        //            AccountViewCallResult {
-        //                account_id: new_validator.account_id.clone(),
-        //                nonce: 1,
-        //                amount: TESTING_INIT_STAKE,
-        //                stake: TESTING_INIT_STAKE * 2,
-        //                public_keys: vec![new_validator.signer.public_key()],
-        //                code_hash: account.code_hash
-        //            }
-        //        );
-        //
-        //        state_root = nightshade.update(&state_root, 7, &h[6], &h[7], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[6], h[7], 7, vec![], vec![], vec![], 0, 0).unwrap();
-        //        state_root = nightshade.update(&state_root, 8, &h[7], &h[8], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[7], h[8], 8, vec![], vec![], vec![], 0, 0).unwrap();
-        //
-        //        let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
-        //        assert_eq!(
-        //            account,
-        //            AccountViewCallResult {
-        //                account_id: block_producers[1].account_id.clone(),
-        //                nonce: 0,
-        //                amount: TESTING_INIT_BALANCE,
-        //                stake: 0,
-        //                public_keys: vec![block_producers[1].signer.public_key()],
-        //                code_hash: account.code_hash
-        //            }
-        //        );
-        //
-        //        state_root = nightshade.update(&state_root, 9, &h[8], &h[9], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[8], h[9], 9, vec![], vec![], vec![], 0, 0).unwrap();
-        //        state_root = nightshade.update(&state_root, 10, &h[9], &h[10], &vec![], &vec![]).0;
-        //        nightshade.add_validator_proposals(h[9], h[10], 10, vec![], vec![], vec![], 0, 0).unwrap();
-        //
-        //        // make sure their is no double return of stake
-        //        let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
-        //        assert_eq!(
-        //            account,
-        //            AccountViewCallResult {
-        //                account_id: block_producers[1].account_id.clone(),
-        //                nonce: 0,
-        //                amount: TESTING_INIT_BALANCE,
-        //                stake: 0,
-        //                public_keys: vec![block_producers[1].signer.public_key()],
-        //                code_hash: account.code_hash
-        //            }
-        //        );
+        let test1_acc = env.view_account("test1");
+        // Staked 2 * X, sent 3 * X to test3.
+        assert_eq!(
+            (test1_acc.amount, test1_acc.stake),
+            (TESTING_INIT_BALANCE - 5 * TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
+        );
+        let test2_acc = env.view_account("test2");
+        // Got money back after being kicked out.
+        assert_eq!((test2_acc.amount, test2_acc.stake), (TESTING_INIT_BALANCE, 0));
+        let test3_acc = env.view_account("test3");
+        // Got 3 * X, staking 2 * X of them.
+        assert_eq!(
+            (test3_acc.amount, test3_acc.stake),
+            (TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
+        );
     }
 
     //    #[test]
@@ -1208,20 +1083,12 @@ mod test {
     //
     #[test]
     fn test_verify_validator_signature_failure() {
-        let dir = TempDir::new("verify_validator_signature_failure").unwrap();
-        let store = create_store(&get_store_path(dir.path()));
-        let num_nodes = 2;
-        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut genesis_config =
-            GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
-        genesis_config.epoch_length = 2;
-        let nightshade = NightshadeRuntime::new(dir.path(), store, genesis_config);
-        let (store_update, _) = nightshade.genesis_state();
-        store_update.commit().unwrap();
+        let validators = (0..2).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let env = TestEnv::new("verify_validator_signature_failure", validators.clone(), 2);
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
-        assert!(!nightshade.verify_validator_signature(
+        assert!(!env.runtime.verify_validator_signature(
             &EpochId::default(),
             &validators[1],
             &data,
