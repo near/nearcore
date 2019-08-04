@@ -14,6 +14,7 @@ use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
+use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
@@ -240,11 +241,7 @@ fn invalid_blocks() {
                         assert_eq!(header.height, 1);
                         assert_eq!(
                             header.prev_state_root,
-                            Block::compute_state_root(&Block::genesis_chunks(
-                                vec![MerkleHash::default()], // must match RuntimeAdapter::genesis_state second return value
-                                1,
-                                header.gas_limit
-                            ))
+                            merklize(&vec![MerkleHash::default()]).0
                         );
                         assert_eq!(*approval, None);
                         System::current().stop();
