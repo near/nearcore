@@ -1,5 +1,5 @@
 use near_primitives::test_utils::get_key_pair_from_seed;
-use near_primitives::types::{AccountId, Balance, BlockIndex, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorStake};
 use std::collections::{BTreeMap, HashMap};
 
 use crate::types::{EpochConfig, EpochInfo};
@@ -23,6 +23,7 @@ pub fn epoch_info(
     chunk_producers: Vec<Vec<usize>>,
     fishermen: Vec<(usize, u64)>,
     stake_change: BTreeMap<AccountId, Balance>,
+    total_gas_used: GasUsage,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -43,6 +44,7 @@ pub fn epoch_info(
         chunk_producers,
         fishermen,
         stake_change,
+        total_gas_used,
     }
 }
 

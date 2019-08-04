@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -6,12 +6,12 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
-use log::{debug, info};
+use log::{debug, error, info};
 
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
@@ -32,6 +32,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
+use std::cmp::max;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -91,40 +92,63 @@ impl NightshadeRuntime {
         state_root: &MerkleHash,
         block_hash: &CryptoHash,
         state_update: &mut TrieUpdate,
-    ) {
-        //        {
-        //            let mut vm = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        //            let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
-        //            if offset == 0 && epoch_hash != CryptoHash::default() {
-        //                println!("...");
-        //                let prev_epoch_hash = vm.get_prev_epoch_hash(&epoch_hash)?;
-        //                let prev_prev_stake_change =
-        //                    vm.get_validators(prev_epoch_hash)?.stake_change.clone();
-        //                let prev_stake_change = vm.get_validators(epoch_hash)?.stake_change.clone();
-        //                let stake_change = &vm.get_validators(*block_hash)?.stake_change;
-        //                let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
-        //                let keys: BTreeSet<_> = stake_change.keys().collect();
-        //
-        //                for account_id in prev_keys.union(&keys) {
-        //                    let account: Option<Account> = get_account(&state_update, account_id);
-        //                    if let Some(mut account) = account {
-        //                        let new_stake = *stake_change.get(*account_id).unwrap_or(&0);
-        //                        let prev_stake = *prev_stake_change.get(*account_id).unwrap_or(&0);
-        //                        let prev_prev_stake =
-        //                            *prev_prev_stake_change.get(*account_id).unwrap_or(&0);
-        //                        let max_of_stakes =
-        //                            vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
-        //                        if account.staked < max_of_stakes {
-        //                            error!(target: "runtime", "FATAL: staking invariance does not hold");
-        //                        }
-        //                        let return_stake = account.staked - max_of_stakes;
-        //                        account.staked -= return_stake;
-        //                        account.amount += return_stake;
-        //                        set_account(&mut state_update, account_id, &account);
-        //                    }
-        //                }
-        //            }
-        //        }
+        gas_price: Balance,
+        total_supply: Balance,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let prev_epoch_id = epoch_manager.get_prev_epoch_id(block_hash)?;
+        let prev_prev_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&prev_epoch_id)?;
+        let prev_prev_stake_change =
+            epoch_manager.get_epoch_info(&prev_prev_epoch_id)?.stake_change.clone();
+        let prev_stake_change = epoch_manager.get_epoch_info(&prev_epoch_id)?.stake_change.clone();
+        let prev_block_hash = epoch_manager.get_block_info(&block_hash)?.prev_hash;
+        let slashed = epoch_manager.get_slashed_validators(&prev_block_hash)?.clone();
+        let (stake_change, validator_to_index, total_gas_used) = {
+            let epoch_info = epoch_manager.get_epoch_info_from_hash(block_hash)?;
+            (&epoch_info.stake_change, &epoch_info.validator_to_index, epoch_info.total_gas_used)
+        };
+        let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
+        let keys: BTreeSet<_> = stake_change.keys().collect();
+
+        // calculate reward for validators
+        // TODO: include storage rent
+        let total_tx_fee = gas_price * total_gas_used as u128;
+        // first order taylor approximation of the inflation
+        let max_inflation =
+            self.genesis_config.max_inflation_rate as u128 * total_supply / (100 * 365);
+        let total_reward = max(
+            max_inflation,
+            (100 - self.genesis_config.developer_reward_percentage) as u128 * total_tx_fee / 100,
+        );
+        // TODO: add to protocol treasury
+        let protocol_reward =
+            self.genesis_config.protocol_reward_percentage as u128 * total_reward / 100;
+        let validator_total_reward = total_reward - protocol_reward;
+        let num_validators = validator_to_index.len() - slashed.len();
+        let reward = validator_total_reward / (100 * num_validators as u128);
+
+        for account_id in prev_keys.union(&keys) {
+            let account: Option<Account> = get_account(&state_update, account_id);
+            if let Some(mut account) = account {
+                let new_stake = *stake_change.get(*account_id).unwrap_or(&0);
+                let prev_stake = *prev_stake_change.get(*account_id).unwrap_or(&0);
+                let prev_prev_stake = *prev_prev_stake_change.get(*account_id).unwrap_or(&0);
+                let max_of_stakes =
+                    vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
+                if account.stake < max_of_stakes {
+                    error!(target: "runtime", "FATAL: staking invariance does not hold");
+                }
+                let return_stake = account.stake - max_of_stakes;
+                account.stake -= return_stake;
+                account.amount += return_stake;
+
+                if validator_to_index.contains_key(*account_id) && !slashed.contains(*account_id) {
+                    account.stake += reward;
+                }
+                set_account(state_update, account_id, &account);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -328,7 +352,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check that genesis block doesn't have any proposals.
         assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
@@ -359,6 +382,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
@@ -369,7 +394,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 state_root,
                 prev_block_hash,
                 &mut state_update,
-            );
+                gas_price,
+                total_supply,
+            )?;
         }
         let apply_state = ApplyState {
             root: *state_root,
@@ -388,7 +415,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             transaction_results: apply_result.tx_result,
             receipt_result: apply_result.new_receipts,
             validator_proposals: apply_result.validator_proposals,
-            new_total_supply: 0,
             gas_used: 0,
         };
 
@@ -560,7 +586,9 @@ mod test {
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
 
-    use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::config::{
+        INITIAL_GAS_PRICE, INITIAL_TOKEN_SUPPLY, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+    };
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
@@ -583,6 +611,8 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<ReceiptTransaction>,
             transactions: &Vec<SignedTransaction>,
+            gas_price: Balance,
+            total_supply: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Vec<ReceiptTransaction>>) {
             let mut root = *state_root;
             let result = self
@@ -594,6 +624,8 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    gas_price,
+                    total_supply,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -631,7 +663,6 @@ mod test {
                     vec![],
                     vec![],
                     0,
-                    0,
                 )
                 .unwrap();
             Self {
@@ -658,6 +689,8 @@ mod test {
                 &new_hash,
                 &self.last_receipts.iter().flatten().cloned().collect::<Vec<_>>(),
                 &transactions,
+                INITIAL_GAS_PRICE,
+                INITIAL_TOKEN_SUPPLY,
             );
             self.state_roots[0] = state_root;
             self.last_receipts = receipts;
@@ -669,7 +702,6 @@ mod test {
                     proposals,
                     vec![],
                     vec![],
-                    0,
                     0,
                 )
                 .unwrap();

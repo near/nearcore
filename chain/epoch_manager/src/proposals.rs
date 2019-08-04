@@ -5,7 +5,7 @@ use std::iter;
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use near_primitives::types::{AccountId, Balance, ValidatorId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, GasUsage, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -40,6 +40,7 @@ pub fn proposals_to_epoch_info(
     epoch_info: &EpochInfo,
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashSet<AccountId>,
+    total_gas_used: GasUsage,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
     let mut ordered_proposals = BTreeMap::new();
@@ -146,6 +147,7 @@ pub fn proposals_to_epoch_info(
         chunk_producers,
         fishermen: vec![],
         stake_change: final_stake_change,
+        total_gas_used,
     })
 }
 
@@ -172,6 +174,7 @@ mod tests {
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
                 HashSet::new(),
+                0
             )
             .unwrap(),
             epoch_info(
@@ -179,7 +182,8 @@ mod tests {
                 vec![0],
                 vec![vec![0], vec![0]],
                 vec![],
-                change_stake(vec![("test1", 1_000_000)])
+                change_stake(vec![("test1", 1_000_000)]),
+                0
             )
         );
         assert_eq!(
@@ -200,6 +204,7 @@ mod tests {
                     stake("test3", 1_000_000)
                 ],
                 HashSet::new(),
+                0
             )
             .unwrap(),
             epoch_info(
@@ -218,7 +223,8 @@ mod tests {
                     ("test1", 1_000_000),
                     ("test2", 1_000_000),
                     ("test3", 1_000_000)
-                ])
+                ]),
+                0
             )
         );
     }

@@ -42,6 +42,8 @@ pub struct EpochInfo {
     pub fishermen: Vec<(ValidatorId, u64)>,
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
+    /// Total gas used in epoch (T-2)
+    pub total_gas_used: GasUsage,
 }
 
 impl PartialEq for EpochInfo {

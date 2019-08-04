@@ -71,6 +71,12 @@ pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
 /// Initial gas price.
 pub const INITIAL_GAS_PRICE: Balance = 100;
 
+/// The rate at which the gas price can be adjusted (alpha in the formula).
+/// The formula is
+/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
+/// This constant is supposedly 0.01 and should be divided by 100 when used
+pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
+
 /// Rewards
 pub const PROTOCOL_PERCENT: u8 = 10;
 pub const DEVELOPER_PERCENT: u8 = 30;
@@ -329,6 +335,8 @@ pub struct GenesisConfig {
     pub gas_price: Balance,
     /// Criterion for kicking out validators (this is a number between 0 and 100)
     pub validator_kickout_threshold: u8,
+    /// Gas price adjustment rate
+    pub gas_price_adjustment_rate: u8,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
@@ -391,6 +399,7 @@ impl GenesisConfig {
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price: INITIAL_GAS_PRICE,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
@@ -438,6 +447,7 @@ impl GenesisConfig {
             epoch_length: FAST_EPOCH_LENGTH,
             gas_limit: INITIAL_GAS_LIMIT,
             gas_price: INITIAL_GAS_PRICE,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
@@ -578,6 +588,7 @@ pub fn init_configs(
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
                 gas_price: INITIAL_GAS_PRICE,
+                gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -642,6 +653,7 @@ pub fn create_testnet_configs_from_seeds(
         epoch_length: FAST_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
         gas_price: INITIAL_GAS_PRICE,
+        gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
         validators,

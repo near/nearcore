@@ -27,12 +27,11 @@ pub struct ViewClientActor {
 impl ViewClientActor {
     pub fn new(
         store: Arc<Store>,
-        chain_genesis: ChainGenesis,
+        chain_genesis: &ChainGenesis,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain =
-            Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
+        let chain = Chain::new(store, runtime_adapter.clone(), chain_genesis)?;
         Ok(ViewClientActor { chain, runtime_adapter })
     }
 

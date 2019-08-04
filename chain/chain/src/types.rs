@@ -69,7 +69,6 @@ pub struct ApplyTransactionResult {
     pub transaction_results: Vec<TransactionResult>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub new_total_supply: Balance,
     pub gas_used: GasUsage,
 }
 
@@ -171,7 +170,6 @@ pub trait RuntimeAdapter: Send + Sync {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-        gas_price: Balance,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
@@ -185,6 +183,8 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>>;
 
     /// Query runtime with given `path` and `data`.
@@ -283,8 +283,14 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis =
-            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000, 100);
+        let genesis = Block::genesis(
+            vec![MerkleHash::default()],
+            Utc::now(),
+            num_shards,
+            1_000_000,
+            100,
+            1_000_000_000,
+        );
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));

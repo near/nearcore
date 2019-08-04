@@ -110,11 +110,28 @@ pub struct ChainGenesis {
     pub time: DateTime<Utc>,
     pub gas_limit: GasUsage,
     pub gas_price: Balance,
+    pub total_supply: Balance,
+    pub max_inflation_rate: u8,
+    pub gas_price_adjustment_rate: u8,
 }
 
 impl ChainGenesis {
-    pub fn new(time: DateTime<Utc>, gas_limit: GasUsage, gas_price: Balance) -> Self {
-        Self { time, gas_limit, gas_price }
+    pub fn new(
+        time: DateTime<Utc>,
+        gas_limit: GasUsage,
+        gas_price: Balance,
+        total_supply: Balance,
+        max_inflation_rate: u8,
+        gas_price_adjustment_rate: u8,
+    ) -> Self {
+        Self {
+            time,
+            gas_limit,
+            gas_price,
+            total_supply,
+            max_inflation_rate,
+            gas_price_adjustment_rate,
+        }
     }
 }
 
@@ -132,7 +149,7 @@ impl Chain {
     pub fn new(
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        chain_genesis: ChainGenesis,
+        chain_genesis: &ChainGenesis,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
@@ -144,6 +161,7 @@ impl Chain {
             runtime_adapter.num_shards(),
             chain_genesis.gas_limit,
             chain_genesis.gas_price,
+            chain_genesis.total_supply,
         );
 
         // Check if we have a head in the store, otherwise pick genesis block.
@@ -188,7 +206,6 @@ impl Chain {
                             vec![],
                             vec![],
                             0,
-                            chain_genesis.gas_price,
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update.save_block_header(genesis.header.clone());
@@ -322,7 +339,6 @@ impl Chain {
                         vec![],
                         vec![],
                         header.gas_used,
-                        header.gas_price,
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
@@ -1110,6 +1126,8 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
+                            block.header.gas_price,
+                            block.header.total_supply,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1266,7 +1284,6 @@ impl<'a> ChainUpdate<'a> {
                 vec![],
                 vec![],
                 block.header.gas_used,
-                block.header.gas_price,
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 

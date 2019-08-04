@@ -49,6 +49,7 @@ impl EpochManager {
                 &EpochInfo::default(),
                 validators,
                 HashSet::default(),
+                0,
             )?;
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
@@ -177,6 +178,7 @@ impl EpochManager {
             &current_epoch_info,
             all_proposals,
             validator_kickout,
+            total_gas_used,
         )?;
         // This epoch info is computed for the epoch after next (T+2),
         // where epoch_id of it is the hash of last block in this epoch (T).
@@ -323,6 +325,13 @@ impl EpochManager {
         self.get_epoch_id(&prev_epoch_last_hash)
     }
 
+    pub fn get_prev_epoch_id_from_epoch_id(
+        &mut self,
+        epoch_id: &EpochId,
+    ) -> Result<EpochId, EpochError> {
+        Ok(EpochId(self.get_block_info(&epoch_id.0)?.epoch_first_block))
+    }
+
     pub fn get_epoch_info_from_hash(
         &mut self,
         block_hash: &CryptoHash,
@@ -358,6 +367,18 @@ impl EpochManager {
     ) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?.clone();
         self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    pub fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
+        if !self.epochs_info.contains_key(epoch_id) {
+            let epoch_info = self
+                .store
+                .get_ser(COL_EPOCH_INFO, epoch_id.as_ref())
+                .map_err(|err| err.into())
+                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
+            self.epochs_info.insert(epoch_id.clone(), epoch_info);
+        }
+        self.epochs_info.get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
     }
 }
 
@@ -457,18 +478,6 @@ impl EpochManager {
         }
     }
 
-    fn get_epoch_info(&mut self, epoch_id: &EpochId) -> Result<&EpochInfo, EpochError> {
-        if !self.epochs_info.contains_key(epoch_id) {
-            let epoch_info = self
-                .store
-                .get_ser(COL_EPOCH_INFO, epoch_id.as_ref())
-                .map_err(|err| err.into())
-                .and_then(|value| value.ok_or_else(|| EpochError::EpochOutOfBounds))?;
-            self.epochs_info.insert(epoch_id.clone(), epoch_info);
-        }
-        self.epochs_info.get(epoch_id).ok_or(EpochError::EpochOutOfBounds)
-    }
-
     fn save_epoch_info(
         &mut self,
         store_update: &mut StoreUpdate,
@@ -491,7 +500,7 @@ impl EpochManager {
         }
     }
 
-    fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
+    pub fn get_block_info(&mut self, hash: &CryptoHash) -> Result<&BlockInfo, EpochError> {
         if !self.blocks_info.contains_key(hash) {
             let block_info = self
                 .store
@@ -562,6 +571,7 @@ mod tests {
             vec![vec![0, 0]],
             vec![],
             change_stake(vec![("test1", amount_staked)]),
+            0,
         );
         let epoch0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch0).unwrap(), &expected0);
@@ -584,6 +594,7 @@ mod tests {
             vec![vec![0, 1]],
             vec![],
             change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
+            0,
         );
         // no validator change in the last epoch
         let epoch3 = epoch_manager.get_epoch_id(&h[3]).unwrap();
@@ -615,7 +626,8 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
-                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)]),
+                0
             )
         );
     }
@@ -724,6 +736,7 @@ mod tests {
                 vec![vec![0]],
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
+                0
             )
         );
     }
@@ -751,7 +764,8 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
-                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -764,7 +778,8 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
-                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
@@ -777,7 +792,8 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
-                change_stake(vec![("test2", amount_staked)])
+                change_stake(vec![("test2", amount_staked)]),
+                0
             )
         );
     }
@@ -823,7 +839,8 @@ mod tests {
                 vec![0, 0],
                 vec![vec![0, 0]],
                 vec![],
-                change_stake(vec![("test1", 0), ("test2", amount_staked)])
+                change_stake(vec![("test1", 0), ("test2", amount_staked)]),
+                0
             )
         );
 

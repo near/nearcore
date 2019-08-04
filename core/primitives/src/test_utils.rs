@@ -109,6 +109,8 @@ impl Block {
             prev.header.epoch_id.clone(),
             vec![],
             approvals,
+            0,
+            0,
             signer,
         )
     }

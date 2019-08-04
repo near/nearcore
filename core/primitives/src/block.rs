@@ -56,6 +56,8 @@ pub struct BlockHeader {
     pub gas_limit: GasUsage,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
+    /// Total supply of tokens in the system
+    pub total_supply: Balance,
 
     /// Signature of the block producer.
     #[serde(with = "base_format")]
@@ -81,6 +83,7 @@ impl BlockHeader {
         gas_used: GasUsage,
         gas_limit: GasUsage,
         gas_price: Balance,
+        total_supply: Balance,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -100,6 +103,7 @@ impl BlockHeader {
             gas_used,
             gas_limit,
             gas_price: SingularPtrField::some(gas_price.into()),
+            total_supply: SingularPtrField::some(total_supply.into()),
             cached_size: Default::default(),
             unknown_fields: Default::default(),
         }
@@ -119,6 +123,7 @@ impl BlockHeader {
         gas_used: GasUsage,
         gas_limit: GasUsage,
         gas_price: Balance,
+        total_supply: Balance,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -135,6 +140,7 @@ impl BlockHeader {
             gas_used,
             gas_limit,
             gas_price,
+            total_supply,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -152,6 +158,7 @@ impl BlockHeader {
         timestamp: DateTime<Utc>,
         initial_gas_limit: GasUsage,
         initial_gas_price: Balance,
+        initial_total_supply: Balance,
     ) -> Self {
         let header_body = Self::header_body(
             0,
@@ -167,6 +174,7 @@ impl BlockHeader {
             0,
             initial_gas_limit,
             initial_gas_price,
+            initial_total_supply,
         );
         chain_proto::BlockHeader {
             body: SingularPtrField::some(header_body),
@@ -231,6 +239,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             gas_used: body.gas_used,
             gas_limit: body.gas_limit,
             gas_price: proto_to_type(body.gas_price)?,
+            total_supply: proto_to_type(body.total_supply)?,
             signature,
             hash,
         })
@@ -258,6 +267,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 gas_used: header.gas_used,
                 gas_limit: header.gas_limit,
                 gas_price: SingularPtrField::some(header.gas_price.into()),
+                total_supply: SingularPtrField::some(header.total_supply.into()),
                 cached_size: Default::default(),
                 unknown_fields: Default::default(),
             }),
@@ -286,6 +296,7 @@ impl Block {
         num_shards: ShardId,
         initial_gas_limit: GasUsage,
         initial_gas_price: Balance,
+        initial_total_supply: Balance,
     ) -> Self {
         let chunks = Block::genesis_chunks(state_roots, num_shards, initial_gas_limit);
         Block {
@@ -294,6 +305,7 @@ impl Block {
                 timestamp,
                 initial_gas_limit,
                 initial_gas_price,
+                initial_total_supply,
             ),
             chunks,
             transactions: vec![],
@@ -331,6 +343,8 @@ impl Block {
         epoch_id: EpochId,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
+        gas_price_adjustment_rate: u8,
+        max_inflation_rate: u8,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         // TODO: merkelize transactions.
@@ -355,8 +369,15 @@ impl Block {
                 gas_limit += chunk.gas_limit;
             }
         }
-        // TODO: fix this incorrect calculation
-        gas_limit /= chunks.len() as u64;
+
+        let new_gas_price = (2 * gas_limit as u128 + 2 * gas_price_adjustment_rate as u128
+            - gas_limit as u128 * gas_price_adjustment_rate as u128)
+            * prev.gas_price
+            / (2 * gas_limit as u128 * 100);
+        let total_tx_fee = gas_used as u128 * prev.gas_price;
+        let max_inflation = max_inflation_rate as u128 * prev.total_supply / (100 * 365);
+        let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
+        let new_total_supply = prev.total_supply + inflation;
 
         let total_weight = (prev.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
         Block {
@@ -374,7 +395,8 @@ impl Block {
                 gas_used,
                 gas_limit,
                 // TODO: calculate this correctly
-                prev.gas_price,
+                new_gas_price,
+                new_total_supply,
                 signer,
             ),
             chunks,

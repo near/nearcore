@@ -60,11 +60,13 @@ pub fn start_with_config(
         config.genesis_config.genesis_time,
         config.genesis_config.gas_limit,
         config.genesis_config.gas_price,
+        config.genesis_config.total_supply,
+        config.genesis_config.max_inflation_rate,
+        config.genesis_config.gas_price_adjustment_rate,
     );
 
-    let view_client = ViewClientActor::new(store.clone(), chain_genesis.clone(), runtime.clone())
-        .unwrap()
-        .start();
+    let view_client =
+        ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap().start();
     let view_client1 = view_client.clone();
     let node_id = config.network_config.public_key.clone().into();
     let client = ClientActor::create(move |ctx| {
