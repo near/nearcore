@@ -618,11 +618,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
-        let block_header =
-            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, block_hash.as_ref())?.ok_or(
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
-            )?;
-        Ok(block_header.height)
+        let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
+        match self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, epoch_id.as_ref())? {
+            Some(block_header) => Ok(block_header.height),
+            None => Ok(0),
+        }
     }
 }
 

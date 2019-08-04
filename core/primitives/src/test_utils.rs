@@ -1,5 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use log::LevelFilter;
@@ -10,11 +12,8 @@ use crate::block::Block;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
-use crate::hash::CryptoHash;
 use crate::transaction::{SignedTransaction, TransactionBody};
-use crate::types::{BlockIndex, ShardId};
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::types::BlockIndex;
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -84,15 +83,16 @@ impl TransactionBody {
 
 impl Block {
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn EDSigner>) -> Self {
-        Self::empty_with_apporvals(prev, height, HashMap::default(), signer)
+        Self::empty_with_approvals(prev, height, HashMap::default(), signer)
     }
 
     pub fn empty(prev: &Block, signer: Arc<dyn EDSigner>) -> Self {
         Self::empty_with_height(prev, prev.header.height + 1, signer)
     }
 
-    /// This can not be used for proper testing, because chunks are arbitrary.
-    pub fn empty_with_apporvals(
+    /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
+    /// Done because chain tests don't have a good way to store chunks right now.
+    pub fn empty_with_approvals(
         prev: &Block,
         height: BlockIndex,
         approvals: HashMap<usize, Signature>,
@@ -101,11 +101,7 @@ impl Block {
         Block::produce(
             &prev.header,
             height,
-            Block::genesis_chunks(
-                vec![CryptoHash::default()],
-                prev.chunks.len() as ShardId,
-                prev.header.gas_limit,
-            ),
+            prev.chunks.clone(),
             prev.header.epoch_id.clone(),
             vec![],
             approvals,

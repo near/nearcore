@@ -298,27 +298,8 @@ impl Block {
         initial_gas_price: Balance,
         initial_total_supply: Balance,
     ) -> Self {
-        let chunks = Block::genesis_chunks(state_roots, num_shards, initial_gas_limit);
-        Block {
-            header: BlockHeader::genesis(
-                Block::compute_state_root(&chunks),
-                timestamp,
-                initial_gas_limit,
-                initial_gas_price,
-                initial_total_supply,
-            ),
-            chunks,
-            transactions: vec![],
-        }
-    }
-
-    pub fn genesis_chunks(
-        state_roots: Vec<CryptoHash>,
-        num_shards: ShardId,
-        initial_gas_limit: GasUsage,
-    ) -> Vec<ShardChunkHeader> {
         assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
-        (0..num_shards)
+        let chunks = (0..num_shards)
             .map(|i| ShardChunkHeader {
                 prev_block_hash: CryptoHash::default(),
                 prev_state_root: state_roots[i as usize % state_roots.len()],
@@ -332,7 +313,18 @@ impl Block {
                 validator_proposal: vec![],
                 signature: DEFAULT_SIGNATURE,
             })
-            .collect()
+            .collect();
+        Block {
+            header: BlockHeader::genesis(
+                Block::compute_state_root(&chunks),
+                timestamp,
+                initial_gas_limit,
+                initial_gas_price,
+                initial_total_supply,
+            ),
+            chunks,
+            transactions: vec![],
+        }
     }
 
     /// Produces new block from header of previous block, current state root and set of transactions.
@@ -370,10 +362,15 @@ impl Block {
             }
         }
 
-        let new_gas_price = (2 * gas_limit as u128 + 2 * gas_price_adjustment_rate as u128
-            - gas_limit as u128 * gas_price_adjustment_rate as u128)
-            * prev.gas_price
-            / (2 * gas_limit as u128 * 100);
+        let new_gas_price = if gas_limit > 0 {
+            (2 * gas_limit as u128 + 2 * gas_price_adjustment_rate as u128
+                - gas_limit as u128 * gas_price_adjustment_rate as u128)
+                * prev.gas_price
+                / (2 * gas_limit as u128 * 100)
+        } else {
+            // If there are no new chunks included in this block, use previous price.
+            prev.gas_price
+        };
         let total_tx_fee = gas_used as u128 * prev.gas_price;
         let max_inflation = max_inflation_rate as u128 * prev.total_supply / (100 * 365);
         let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
