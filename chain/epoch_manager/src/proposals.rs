@@ -174,6 +174,7 @@ mod tests {
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
                 HashSet::new(),
+                0
             )
             .unwrap(),
             epoch_info(
@@ -181,7 +182,8 @@ mod tests {
                 vec![0],
                 vec![vec![0], vec![0]],
                 vec![],
-                change_stake(vec![("test1", 1_000_000)])
+                change_stake(vec![("test1", 1_000_000)]),
+                0
             )
         );
         assert_eq!(
@@ -202,6 +204,7 @@ mod tests {
                     stake("test3", 1_000_000)
                 ],
                 HashSet::new(),
+                0
             )
             .unwrap(),
             epoch_info(
@@ -220,7 +223,8 @@ mod tests {
                     ("test1", 1_000_000),
                     ("test2", 1_000_000),
                     ("test3", 1_000_000)
-                ])
+                ]),
+                0
             )
         );
     }

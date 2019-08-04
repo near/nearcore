@@ -28,9 +28,19 @@ fn runtime_hanldle_fork() {
         genesis_config.gas_limit,
     );
 
-    let mut chain =
-        Chain::new(store, runtime, ChainGenesis::new(genesis_config.genesis_time, 1_000_000, 100))
-            .unwrap();
+    let mut chain = Chain::new(
+        store,
+        runtime,
+        &ChainGenesis::new(
+            genesis_config.genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+        ),
+    )
+    .unwrap();
 
     let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
     let tx2 = TransactionBody::send_money(1, "near.0", "near.1", 500).sign(&*signer);
@@ -42,6 +52,8 @@ fn runtime_hanldle_fork() {
         EpochId::default(),
         vec![tx1],
         HashMap::default(),
+        genesis_config.gas_price_adjustment_rate,
+        genesis_config.max_inflation_rate,
         signer.clone(),
     );
     chain.process_block(&None, b1.clone(), Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
@@ -52,6 +64,8 @@ fn runtime_hanldle_fork() {
         EpochId::default(),
         vec![tx2],
         HashMap::default(),
+        genesis_config.gas_price_adjustment_rate,
+        genesis_config.max_inflation_rate,
         signer.clone(),
     );
     chain.process_block(&None, b2, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();
@@ -62,6 +76,8 @@ fn runtime_hanldle_fork() {
         EpochId::default(),
         vec![tx3],
         HashMap::default(),
+        genesis_config.gas_price_adjustment_rate,
+        genesis_config.max_inflation_rate,
         signer.clone(),
     );
     chain.process_block(&None, b3, Provenance::NONE, |_, _, _| {}, |_| {}).unwrap();

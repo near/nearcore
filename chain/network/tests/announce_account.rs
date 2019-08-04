@@ -34,7 +34,7 @@ pub fn setup_network_node(
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100);
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(

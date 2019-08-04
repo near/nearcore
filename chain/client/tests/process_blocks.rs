@@ -121,6 +121,8 @@ fn receive_network_block() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -169,6 +171,8 @@ fn receive_network_block_header() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -210,6 +214,8 @@ fn produce_block_with_approvals() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer1,
             );
             let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
@@ -265,6 +271,8 @@ fn invalid_blocks() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer.clone(),
             );
             block.header.prev_state_root = hash(&[1]);
@@ -281,6 +289,8 @@ fn invalid_blocks() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -292,6 +302,8 @@ fn invalid_blocks() {
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));

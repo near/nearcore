@@ -19,9 +19,21 @@ fn genesis_block(genesis_config: GenesisConfig) -> Block {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let mut chain =
-        Chain::new(store, runtime, ChainGenesis::new(genesis_time, 1_000_000, 100)).unwrap();
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config.clone()));
+    let mut chain = Chain::new(
+        store,
+        runtime,
+        &ChainGenesis::new(
+            genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+        ),
+    )
+    .unwrap();
     chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 

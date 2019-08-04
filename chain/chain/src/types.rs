@@ -289,8 +289,14 @@ mod tests {
     #[test]
     fn test_block_produce() {
         let num_shards = 32;
-        let genesis =
-            Block::genesis(vec![MerkleHash::default()], Utc::now(), num_shards, 1_000_000, 100);
+        let genesis = Block::genesis(
+            vec![MerkleHash::default()],
+            Utc::now(),
+            num_shards,
+            1_000_000,
+            100,
+            1_000_000_000,
+        );
         let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
