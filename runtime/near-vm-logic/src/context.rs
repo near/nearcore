@@ -9,6 +9,7 @@ pub struct VMContext {
     /// The account id of that signed the original transaction that led to this
     /// execution.
     pub signer_account_id: AccountId,
+    #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// The public key that was used to sign the original transaction that led to
     /// this execution.
     pub signer_account_pk: PublicKey,
@@ -17,6 +18,7 @@ pub struct VMContext {
     /// If this execution is the result of direct execution of transaction then it
     /// is equal to `signer_account_id`.
     pub predecessor_account_id: AccountId,
+    #[serde(with = "crate::serde_with::bytes_as_str")]
     /// The input to the contract call.
     pub input: Vec<u8>,
     /// The current block index.
@@ -30,6 +32,7 @@ pub struct VMContext {
     pub attached_deposit: Balance,
     /// The gas attached to the call that can be used to pay for the gas fees.
     pub prepaid_gas: Gas,
+    #[serde(with = "crate::serde_with::bytes_as_base58")]
     /// Initial seed for randomness
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.

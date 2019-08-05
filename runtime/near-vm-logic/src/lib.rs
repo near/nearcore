@@ -6,6 +6,7 @@ mod logic;
 #[cfg(feature = "mocks")]
 pub mod mocks;
 mod rand_iter;
+pub mod serde_with;
 
 pub mod types;
 pub use config::Config;

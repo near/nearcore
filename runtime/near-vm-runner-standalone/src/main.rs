@@ -1,5 +1,11 @@
 use clap::{App, Arg};
-use near_vm_logic::VMContext;
+use near_vm_logic::mocks::mock_external::MockedExternal;
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{Config, VMContext};
+use near_vm_runner::run;
+use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -21,6 +27,29 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("input")
+                .long("input")
+                .value_name("INPUT")
+                .help("Overrides input field of the context with the given string.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("method-name")
+                .long("method-name")
+                .value_name("METHOD_NAME")
+                .help("The name of the method to call on the smart contract.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("promise-results")
+                .long("promise-results")
+                .value_name("PROMISE-RESULTS")
+                .help("If the contract should be called by a callback or several callbacks you can pass \
+                result of executing functions that trigger the callback. For non-callback calls it can be omitted.")
+                .multiple(true)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("config")
                 .long("config")
                 .value_name("CONFIG")
@@ -34,13 +63,69 @@ fn main() {
                 .help("Reads the config from the file.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("wasm-file")
+                .long("wasm-file")
+                .value_name("WASM_FILE")
+                .help("File path that contains the Wasm code to run.")
+                .takes_value(true),
+        )
         .get_matches();
 
-    let context_str = match matches.value_of("config") {
-        Some(value) => value,
-        None => match matches.value_of("config-file") {
-            Some(filepath) => unimplemented!(),
-            None => panic!(""),
+    let mut context: VMContext = match matches.value_of("context") {
+        Some(value) => serde_json::from_str(value).unwrap(),
+        None => match matches.value_of("context-file") {
+            Some(filepath) => {
+                let f = File::open(filepath).unwrap();
+                let reader = BufReader::new(f);
+                serde_json::from_reader(reader).unwrap()
+            }
+            None => panic!("Context should be specified."),
         },
     };
+
+    if let Some(value_str) = matches.value_of("input") {
+        context.input = value_str.as_bytes().to_vec();
+    }
+
+    let method_name = matches
+        .value_of("method-name")
+        .expect("Name of the method must be specified")
+        .as_bytes()
+        .to_vec();
+
+    let promise_results: Vec<PromiseResult> = matches
+        .values_of("promise-results")
+        .unwrap_or_default()
+        .map(|res_str| serde_json::from_str(res_str).unwrap())
+        .collect();
+
+    let config: Config = match matches.value_of("config") {
+        Some(value) => serde_json::from_str(value).unwrap(),
+        None => match matches.value_of("config-file") {
+            Some(filepath) => {
+                let f = File::open(filepath).unwrap();
+                let reader = BufReader::new(f);
+                serde_json::from_reader(reader).unwrap()
+            }
+            None => panic!("Config should be specified."),
+        },
+    };
+
+    let code =
+        fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
+
+    let mut fake_external = MockedExternal::new();
+    let result =
+        run(vec![], &code, &method_name, &mut fake_external, context, &config, &promise_results);
+
+    match result {
+        Ok(outcome) => {
+            let str = serde_json::to_string(&outcome).unwrap();
+            println!("{}", str);
+        }
+        Err(err) => {
+            println!("{:?}", err);
+        }
+    }
 }

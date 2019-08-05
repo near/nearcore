@@ -515,6 +515,11 @@ dependencies = [
 
 [[package]]
 name = "bs58"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "bs58"
 version = "0.2.3"
 source = "git+https://github.com/ilblackdragon/bs58-rs?rev=46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b#46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b"
 
@@ -2241,6 +2246,7 @@ dependencies = [
 name = "near-vm-logic"
 version = "0.2.0"
 dependencies = [
+ "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "exonum_sodiumoxide 0.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -4293,6 +4299,7 @@ dependencies = [
 "checksum blockchain 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b25c0f727a410bef0ea87d7437aa403f669ec4d7de1b302f4d819f83d3b4c561"
 "checksum brotli-sys 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4445dea95f4c2b41cde57cc9fee236ae4dbae88d8fcbdb4750fc1bb5d86aaecd"
 "checksum brotli2 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0cb036c3eade309815c15ddbacec5b22c4d1f3983a774ab2eac2e3e9ea85568e"
+"checksum bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0de79cfb98e7aa9988188784d8664b4b5dad6eaaa0863b91d9a4ed871d4f7a42"
 "checksum bs58 0.2.3 (git+https://github.com/ilblackdragon/bs58-rs?rev=46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b)" = "<none>"
 "checksum build_const 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "39092a32794787acd8525ee150305ff051b0aa6cc2abaf193924f5ab05425f39"
 "checksum byte-tools 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "560c32574a12a89ecd91f5e742165893f86e3ab98d21f8ea548658eb9eef5f40"
