@@ -116,6 +116,7 @@ impl EpochManager {
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
         let first_block_info = self.get_block_info(&last_block_info.epoch_first_block)?.clone();
         let num_expected_blocks = self.get_num_expected_blocks(&epoch_info, &first_block_info)?;
+        //        println!("Num expected: {:?}, validators: {:?}", num_expected_blocks, epoch_info);
 
         // Compute kick outs for validators who are offline.
         let mut all_kicked_out = true;
@@ -128,7 +129,9 @@ impl EpochManager {
             let mut num_blocks = validator_tracker.get(&i).unwrap_or(&0).clone();
             let account_id = epoch_info.validators[i].account_id.clone();
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
-            if num_blocks * 100 < (validator_kickout_threshold as u64) * num_expected_blocks[&i] {
+            if num_blocks * 100
+                < (validator_kickout_threshold as u64) * num_expected_blocks.get(&i).unwrap_or(&0)
+            {
                 validator_kickout.insert(account_id);
             } else {
                 if !validator_kickout.contains(&account_id) {
@@ -204,6 +207,7 @@ impl EpochManager {
                 // This is genesis block, we special case as new epoch.
                 let pre_genesis_epoch_id = EpochId::default();
                 let genesis_epoch_info = self.get_epoch_info(&pre_genesis_epoch_id)?.clone();
+                self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
                 self.save_epoch_info(
                     &mut store_update,
                     &EpochId(*current_hash),
@@ -225,12 +229,6 @@ impl EpochManager {
                     block_info.epoch_first_block = current_hash.clone();
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
-                    self.finalize_epoch(
-                        &mut store_update,
-                        &prev_block_info.epoch_id,
-                        &block_info.prev_hash,
-                        rng_seed,
-                    )?;
                     block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
                     block_info.epoch_first_block = current_hash.clone();
                 } else {
@@ -238,9 +236,17 @@ impl EpochManager {
                     block_info.epoch_id = prev_block_info.epoch_id.clone();
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
+                self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
+                // If this is the last block in the epoch, finalize this epoch.
+                if self.is_next_block_in_next_epoch(&block_info)? {
+                    self.finalize_epoch(
+                        &mut store_update,
+                        &block_info.epoch_id,
+                        &current_hash,
+                        rng_seed,
+                    )?;
+                }
             }
-            //            println!("Save block info: {:?}", block_info);
-            self.save_block_info(&mut store_update, current_hash, block_info)?;
         }
         Ok(store_update)
     }
@@ -436,7 +442,7 @@ impl EpochManager {
         epoch_first_block_info: &BlockInfo,
     ) -> Result<HashMap<ValidatorId, u64>, EpochError> {
         let mut num_expected = HashMap::default();
-        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?;
+        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?.clone();
         // We iterate from next index after previous epoch's last block, for epoch_length blocks.
         for index in (prev_epoch_last_block.index + 1)
             ..=(prev_epoch_last_block.index + self.config.epoch_length)
