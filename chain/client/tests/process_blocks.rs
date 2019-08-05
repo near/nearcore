@@ -349,7 +349,7 @@ fn client_sync_headers() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo { level: _ } => NetworkResponses::Info(NetworkInfo {
+                NetworkRequests::FetchInfo => NetworkResponses::Info(NetworkInfo {
                     num_active_peers: 1,
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {
@@ -362,7 +362,7 @@ fn client_sync_headers() {
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
-                    routes: None,
+                    known_producers: vec![],
                 }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);

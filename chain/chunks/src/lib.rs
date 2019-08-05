@@ -4,7 +4,7 @@ use actix::Recipient;
 use cached::Cached;
 use cached::SizedCache;
 use log::{debug, error};
-use near_chain::{RuntimeAdapter, ValidTransaction};
+use near_chain::{ErrorKind, RuntimeAdapter, ValidTransaction};
 use near_network::types::{ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_network::NetworkRequests;
 use near_pool::{Error, TransactionPool};
@@ -481,7 +481,7 @@ impl ShardsManager {
     pub fn process_chunk_one_part(
         &mut self,
         one_part: ChunkOnePart,
-    ) -> Result<bool, Box<dyn std::error::Error>> {
+    ) -> Result<bool, near_chain::Error> {
         let chunk_hash = one_part.chunk_hash.clone();
         let prev_block_hash = one_part.header.prev_block_hash;
 
@@ -524,19 +524,25 @@ impl ShardsManager {
 
         if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             assert!(false); // TODO XXX MOO remove
-            return Err("Incorrect chunk signature when processing ChunkOnePart".into());
+            return Err(ErrorKind::Other(
+                "Incorrect chunk signature when processing ChunkOnePart".to_string(),
+            )
+            .into());
         }
 
         if one_part.shard_id != one_part.header.shard_id {
             assert!(false); // TODO XXX MOO remove
-            return Err("Invalid one part: shard_id doesn't match the header".into());
+            return Err(ErrorKind::Other(
+                "Invalid one part: shard_id doesn't match the header".to_string(),
+            )
+            .into());
         }
 
         if !verify_path(one_part.header.encoded_merkle_root, &one_part.merkle_path, &one_part.part)
         {
             // TODO: this is a slashable behavior
             assert!(false); // TODO XXX MOO remove
-            return Err("Invalid merkle proof".into());
+            return Err(ErrorKind::Other("Invalid merkle proof".to_string()).into());
         }
 
         if let Some(send_to) =

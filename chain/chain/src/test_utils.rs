@@ -231,7 +231,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(AccountId, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
@@ -240,7 +240,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
@@ -250,7 +250,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -285,11 +285,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
-    fn get_part_owner(
-        &self,
-        parent_hash: &CryptoHash,
-        part_id: u64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
@@ -367,7 +363,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
         _gas_used: GasUsage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -382,7 +378,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &Vec<SignedTransaction>,
         _gas_price: Balance,
         _total_supply: Balance,
-    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
+    ) -> Result<ApplyTransactionResult, Error> {
         let mut tx_results = vec![];
 
         let mut accounts_mapping =

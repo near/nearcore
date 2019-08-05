@@ -95,20 +95,28 @@ impl NightshadeRuntime {
         state_update: &mut TrieUpdate,
         gas_price: Balance,
         total_supply: Balance,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Error> {
+        println!("1");
         let prev_epoch_id = epoch_manager.get_prev_epoch_id(block_hash)?;
+        println!("2");
         let prev_prev_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&prev_epoch_id)?;
+        println!("3");
         let prev_prev_stake_change =
             epoch_manager.get_epoch_info(&prev_prev_epoch_id)?.stake_change.clone();
+        println!("4");
         let prev_stake_change = epoch_manager.get_epoch_info(&prev_epoch_id)?.stake_change.clone();
+        println!("5");
         let prev_block_hash = epoch_manager.get_block_info(&block_hash)?.prev_hash;
+        println!("6");
         let slashed = epoch_manager.get_slashed_validators(&prev_block_hash)?.clone();
+        println!("7");
         let (stake_change, validator_to_index, total_gas_used) = {
             let epoch_info = epoch_manager.get_epoch_info_from_hash(block_hash)?;
             (&epoch_info.stake_change, &epoch_info.validator_to_index, epoch_info.total_gas_used)
         };
         let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
         let keys: BTreeSet<_> = stake_change.keys().collect();
+        println!("8");
 
         // calculate reward for validators
         // TODO: include storage rent
@@ -191,9 +199,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let validator = epoch_manager
-            .get_block_producer_info(&header.epoch_id, header.height)
-            .map_err(|err| Error::from(err))?;
+        let validator = epoch_manager.get_block_producer_info(&header.epoch_id, header.height)?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
@@ -232,18 +238,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(AccountId, bool)>, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager
             .get_all_block_producers(epoch_id, last_known_block_hash)
-            .map_err(|err| err.into())
+            .map_err(|err| Error::from(err))
     }
 
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_block_producer_info(epoch_id, height)?.account_id)
     }
@@ -253,7 +259,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.account_id)
     }
@@ -293,16 +299,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         cursor.read_u64::<LittleEndian>().expect("Must not happened") % (self.num_shards())
     }
 
-    fn get_part_owner(
-        &self,
-        parent_hash: &CryptoHash,
-        part_id: u64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id(parent_hash).map_err(|err| Box::new(err))?;
-        let block_producers = epoch_manager
-            .get_all_block_producers(&epoch_id, parent_hash)
-            .map_err(|err| Box::new(err))?;
+        let epoch_id = epoch_manager.get_epoch_id(parent_hash)?;
+        let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
         Ok(block_producers[part_id as usize % block_producers.len()].0.clone())
     }
 
@@ -375,7 +375,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
         println!("{} {:?}", block_index, proposals);
@@ -407,11 +407,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: &Vec<SignedTransaction>,
         gas_price: Balance,
         total_supply: Balance,
-    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
+    ) -> Result<ApplyTransactionResult, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        // If we are starting to apply 2nd block in the next epoch.
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash).map_err(|err| Box::new(err))? {
+        // If we are starting to apply 1nd block in the next epoch.
+        println!(
+            "{} {:?}",
+            prev_block_hash,
+            epoch_manager.is_next_block_epoch_start(prev_block_hash)
+        );
+        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
             self.update_validator_accounts(
                 &mut epoch_manager,
                 shard_id,
@@ -430,8 +435,10 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_length: self.genesis_config.epoch_length,
         };
 
-        let apply_result =
-            self.runtime.apply(state_update, &apply_state, &receipts, &transactions)?;
+        let apply_result = self
+            .runtime
+            .apply(state_update, &apply_state, &receipts, &transactions)
+            .map_err(|err| Error::from(ErrorKind::Other(err.to_string())))?;
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
@@ -575,7 +582,6 @@ mod test {
 
     use near_chain::{RuntimeAdapter, Tip};
     use near_client::BlockProducer;
-    use near_epoch_manager::test_utils::{change_stake, epoch_info, hash_range};
     use near_primitives::block::Weight;
     use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
     use near_primitives::hash::{hash, CryptoHash};
@@ -594,7 +600,6 @@ mod test {
     use crate::config::{
         INITIAL_GAS_PRICE, INITIAL_TOKEN_SUPPLY, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
     };
-    use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {

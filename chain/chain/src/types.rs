@@ -113,14 +113,14 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<(AccountId, bool)>, Error>;
 
     /// Block producers for given height for the main block. Return error if outside of known boundaries.
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>>;
+    ) -> Result<AccountId, Error>;
 
     /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
     fn get_chunk_producer(
@@ -128,7 +128,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<AccountId, Box<dyn std::error::Error>>;
+    ) -> Result<AccountId, Error>;
 
     /// Get current number of shards.
     fn num_shards(&self) -> ShardId;
@@ -140,11 +140,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
 
-    fn get_part_owner(
-        &self,
-        parent_hash: &CryptoHash,
-        part_id: u64,
-    ) -> Result<AccountId, Box<dyn std::error::Error>>;
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
 
     fn cares_about_shard(
         &self,
@@ -183,7 +179,7 @@ pub trait RuntimeAdapter: Send + Sync {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    ) -> Result<(), Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -198,7 +194,7 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &Vec<SignedTransaction>,
         gas_price: Balance,
         total_supply: Balance,
-    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>>;
+    ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
     fn query(

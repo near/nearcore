@@ -770,9 +770,7 @@ impl ClientActor {
         epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
-        self.runtime_adapter
-            .get_block_producer(epoch_id, height)
-            .map_err(|err| Error::Other(err.to_string()))
+        self.runtime_adapter.get_block_producer(epoch_id, height).map_err(|err| err.into())
     }
 
     fn get_epoch_block_proposers(
@@ -782,7 +780,7 @@ impl ClientActor {
     ) -> Result<Vec<(AccountId, bool)>, Error> {
         self.runtime_adapter
             .get_epoch_block_producers(epoch_id, last_block_hash)
-            .map_err(|err| Error::Other(err.to_string()))
+            .map_err(|err| err.into())
     }
 
     /// Create approval for given block or return none if not a block producer.
@@ -896,11 +894,8 @@ impl ClientActor {
             Error::ChunkProducer("Called without block producer info.".to_string())
         })?;
 
-        let chunk_proposer = self
-            .runtime_adapter
-            .get_chunk_producer(epoch_id, next_height, shard_id)
-            .map_err(|err| Error::Other(err.to_string()))
-            .unwrap();
+        let chunk_proposer =
+            self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if block_producer.account_id != chunk_proposer {
             debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
             return Ok(());
@@ -1016,15 +1011,10 @@ impl ClientActor {
         }
 
         // Wait until we have all approvals or timeouts per max block production delay.
-        let validators = self
-            .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
+        let validators =
+            self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
         let total_validators = validators.len();
-        let prev_same_bp = self
-            .runtime_adapter
-            .get_block_producer(&head.epoch_id, last_height)
-            .map_err(|err| Error::Other(err.to_string()))?
+        let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, last_height)?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
@@ -1217,6 +1207,10 @@ impl ClientActor {
         let result = self.chain.process_block_header(&header);
 
         match result {
+            Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
+                // Block header is either invalid or arrived too early. We ignore it.
+                return NetworkClientResponses::NoResponse;
+            }
             Err(ref e) if e.is_bad_data() => {
                 return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
             }

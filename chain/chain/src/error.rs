@@ -66,6 +66,9 @@ pub enum ErrorKind {
     /// Validator error.
     #[fail(display = "Validator Error")]
     ValidatorError(String),
+    /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
+    #[fail(display = "Epoch Out Of Bounds")]
+    EpochOutOfBounds,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -113,6 +116,8 @@ impl Error {
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
+            // TODO: can be either way?
+            | ErrorKind::EpochOutOfBounds
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)

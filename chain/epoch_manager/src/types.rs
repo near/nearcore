@@ -177,6 +177,10 @@ impl From<std::io::Error> for EpochError {
 
 impl From<EpochError> for near_chain::Error {
     fn from(error: EpochError) -> Self {
-        near_chain::ErrorKind::ValidatorError(error.to_string()).into()
+        match error {
+            EpochError::EpochOutOfBounds => near_chain::ErrorKind::EpochOutOfBounds,
+            err => near_chain::ErrorKind::ValidatorError(err.to_string()),
+        }
+        .into()
     }
 }
