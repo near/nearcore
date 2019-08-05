@@ -45,9 +45,6 @@ pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 /// Attonear, 1/10^18 of NEAR.
 pub const ATTO_NEAR: Balance = 1;
 
-/// Initial token supply.
-pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_BASE;
-
 /// Expected block production time in secs.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 
@@ -354,6 +351,18 @@ pub struct GenesisConfig {
     pub total_supply: u128,
 }
 
+fn get_initial_supply(records: &[Vec<StateRecord>]) -> Balance {
+    let mut total_supply = 0;
+    for shard_records in records {
+        for record in shard_records {
+            if let StateRecord::Account { account, .. } = record {
+                total_supply += account.amount;
+            }
+        }
+    }
+    total_supply
+}
+
 impl GenesisConfig {
     pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
         let mut validators = vec![];
@@ -389,6 +398,7 @@ impl GenesisConfig {
                 code: encoded_test_contract.clone(),
             });
         }
+        let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
@@ -408,7 +418,7 @@ impl GenesisConfig {
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
-            total_supply: INITIAL_TOKEN_SUPPLY,
+            total_supply,
         }
     }
 
@@ -418,7 +428,7 @@ impl GenesisConfig {
     }
 
     pub fn testing_spec(num_accounts: usize, num_validators: usize) -> Self {
-        let mut records = vec![];
+        let mut records = vec![vec![]];
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
@@ -430,13 +440,14 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.push(StateRecord::account(
+            records[0].push(StateRecord::account(
                 &account_id,
                 &signer.public_key.to_readable().0,
                 TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                 if i < num_validators { TESTING_INIT_STAKE } else { 0 },
             ));
         }
+        let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
@@ -452,11 +463,11 @@ impl GenesisConfig {
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
-            records: vec![records],
+            records,
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
-            total_supply: INITIAL_TOKEN_SUPPLY,
+            total_supply,
         }
     }
 
@@ -577,6 +588,13 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::new("".to_string());
             network_signer.write_to_file(&dir.join(config.node_key_file));
+            let records = vec![vec![StateRecord::account(
+                &account_id,
+                &signer.public_key.to_readable().0,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+            )]];
+            let total_supply = get_initial_supply(&records);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -597,16 +615,11 @@ pub fn init_configs(
                     public_key: signer.public_key.to_readable(),
                     amount: TESTING_INIT_STAKE,
                 }],
-                records: vec![vec![StateRecord::account(
-                    &account_id,
-                    &signer.public_key.to_readable().0,
-                    TESTING_INIT_BALANCE,
-                    TESTING_INIT_STAKE,
-                )]],
+                records,
                 developer_reward_percentage: DEVELOPER_PERCENT,
                 protocol_reward_percentage: PROTOCOL_PERCENT,
                 max_inflation_rate: MAX_INFLATION_RATE,
-                total_supply: INITIAL_TOKEN_SUPPLY,
+                total_supply,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -643,6 +656,7 @@ pub fn create_testnet_configs_from_seeds(
             amount: TESTING_INIT_STAKE,
         })
         .collect::<Vec<_>>();
+    let total_supply = get_initial_supply(&records);
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         genesis_time: Utc::now(),
@@ -662,7 +676,7 @@ pub fn create_testnet_configs_from_seeds(
         developer_reward_percentage: DEVELOPER_PERCENT,
         protocol_reward_percentage: PROTOCOL_PERCENT,
         max_inflation_rate: MAX_INFLATION_RATE,
-        total_supply: INITIAL_TOKEN_SUPPLY,
+        total_supply,
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -779,6 +793,7 @@ mod tests {
             "developer_reward_percentage": 30,
             "protocol_reward_percentage": 10,
             "max_inflation_rate": 5,
+            "gas_price_adjustment_rate": 1,
             "total_supply": 1_000_000,
         });
         let spec = GenesisConfig::from(data.to_string().as_str());

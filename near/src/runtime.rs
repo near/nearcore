@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
@@ -31,7 +31,7 @@ use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
-use crate::config::GenesisConfig;
+use crate::config::{GenesisConfig, MIN_BLOCK_PRODUCTION_DELAY};
 use std::cmp::max;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -88,23 +88,27 @@ impl NightshadeRuntime {
     /// and allocate rewards.
     fn update_validator_accounts(
         &self,
-        epoch_manager: &mut RwLockWriteGuard<EpochManager>,
         _shard_id: ShardId,
         _state_root: &MerkleHash,
         block_hash: &CryptoHash,
         state_update: &mut TrieUpdate,
         gas_price: Balance,
         total_supply: Balance,
-    ) -> Result<(), Error> {
-        let prev_epoch_id = epoch_manager.get_prev_epoch_id(block_hash)?;
-        let prev_prev_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&prev_epoch_id)?;
+    ) -> Result<(), near_epoch_manager::EpochError> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        let epoch_id = EpochId(*block_hash);
+        let prev_epoch_id = epoch_manager.get_next_epoch_id(block_hash)?;
+        let prev_prev_epoch_id = epoch_manager.get_epoch_id(block_hash)?;
+        println!(
+            "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
+            epoch_id, prev_epoch_id, prev_prev_epoch_id
+        );
         let prev_prev_stake_change =
             epoch_manager.get_epoch_info(&prev_prev_epoch_id)?.stake_change.clone();
         let prev_stake_change = epoch_manager.get_epoch_info(&prev_epoch_id)?.stake_change.clone();
-        let prev_block_hash = epoch_manager.get_block_info(&block_hash)?.prev_hash;
-        let slashed = epoch_manager.get_slashed_validators(&prev_block_hash)?.clone();
+        let slashed = epoch_manager.get_slashed_validators(block_hash)?.clone();
         let (stake_change, validator_to_index, total_gas_used) = {
-            let epoch_info = epoch_manager.get_epoch_info_from_hash(block_hash)?;
+            let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
             (&epoch_info.stake_change, &epoch_info.validator_to_index, epoch_info.total_gas_used)
         };
         let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
@@ -113,9 +117,14 @@ impl NightshadeRuntime {
         // calculate reward for validators
         // TODO: include storage rent
         let total_tx_fee = gas_price * total_gas_used as u128;
+        println!("total_tx_fee: {}", total_tx_fee);
         // first order taylor approximation of the inflation
-        let max_inflation =
-            self.genesis_config.max_inflation_rate as u128 * total_supply / (100 * 365);
+        let max_inflation = self.genesis_config.max_inflation_rate as u128
+            * total_supply
+            * self.genesis_config.epoch_length as u128
+            * MIN_BLOCK_PRODUCTION_DELAY as u128
+            / (100 * 365 * 24 * 60 * 60);
+        println!("max inflation: {}", max_inflation);
         let total_reward = max(
             max_inflation,
             (100 - self.genesis_config.developer_reward_percentage) as u128 * total_tx_fee / 100,
@@ -125,7 +134,12 @@ impl NightshadeRuntime {
             self.genesis_config.protocol_reward_percentage as u128 * total_reward / 100;
         let validator_total_reward = total_reward - protocol_reward;
         let num_validators = validator_to_index.len() - slashed.len();
-        let reward = validator_total_reward / (100 * num_validators as u128);
+        let reward = validator_total_reward / num_validators as u128;
+        println!("reward: {}", reward);
+        println!(
+            "prev_prev_stake_change {:?} prev_stake_change: {:?} stake_change {:?}",
+            prev_prev_stake_change, prev_stake_change, stake_change
+        );
 
         for account_id in prev_keys.union(&keys) {
             let account: Option<Account> = get_account(&state_update, account_id);
@@ -138,6 +152,10 @@ impl NightshadeRuntime {
                 if account.stake < max_of_stakes {
                     error!(target: "runtime", "FATAL: staking invariance does not hold");
                 }
+                println!(
+                    "account {} stake {} max_of_stakes: {}",
+                    account_id, account.stake, max_of_stakes
+                );
                 let return_stake = account.stake - max_of_stakes;
                 account.stake -= return_stake;
                 account.amount += return_stake;
@@ -370,7 +388,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
-        println!("{} {:?}", block_index, proposals);
+        println!("add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let mut slashed = HashSet::default();
@@ -401,16 +419,15 @@ impl RuntimeAdapter for NightshadeRuntime {
         total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        // If we are starting to apply 1nd block in the next epoch.
-        println!(
-            "{} {:?}",
-            prev_block_hash,
-            epoch_manager.is_next_block_epoch_start(prev_block_hash)
-        );
-        if epoch_manager.is_next_block_epoch_start(prev_block_hash)? {
+        let should_update_account = {
+            let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            epoch_manager.is_next_block_epoch_start(prev_block_hash)?
+        };
+
+        // If we are starting to apply 1st block in the new epoch.
+        if should_update_account {
+            println!("block index: {}", block_index);
             self.update_validator_accounts(
-                &mut epoch_manager,
                 shard_id,
                 state_root,
                 prev_block_hash,
@@ -589,9 +606,7 @@ mod test {
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
 
-    use crate::config::{
-        INITIAL_GAS_PRICE, INITIAL_TOKEN_SUPPLY, TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
-    };
+    use crate::config::{MIN_BLOCK_PRODUCTION_DELAY, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
@@ -645,6 +660,7 @@ mod test {
         state_roots: Vec<MerkleHash>,
         pub last_receipts: Vec<Vec<ReceiptTransaction>>,
     }
+
     impl TestEnv {
         pub fn new(prefix: &str, validators: Vec<AccountId>, epoch_length: BlockIndex) -> Self {
             let dir = TempDir::new(prefix).unwrap();
@@ -691,8 +707,8 @@ mod test {
                 &new_hash,
                 &self.last_receipts.iter().flatten().cloned().collect::<Vec<_>>(),
                 &transactions,
-                INITIAL_GAS_PRICE,
-                INITIAL_TOKEN_SUPPLY,
+                self.runtime.genesis_config.gas_price,
+                self.runtime.genesis_config.total_supply,
             );
             self.state_roots[0] = state_root;
             self.last_receipts = receipts;
@@ -768,8 +784,8 @@ mod test {
         env.step(vec![create_account_transaction]);
         env.step(vec![staking_transaction]);
 
-        // Roll steps for 2 epochs to pass.
-        for _ in 4..9 {
+        // Roll steps for 3 epochs to pass.
+        for _ in 4..=9 {
             env.step(vec![]);
         }
 
@@ -780,19 +796,39 @@ mod test {
         );
 
         let test1_acc = env.view_account("test1");
+        // per epoch per validator reward
+        let per_epoch_total_reward = env.runtime.genesis_config.max_inflation_rate as u128
+            * env.runtime.genesis_config.total_supply
+            * env.runtime.genesis_config.epoch_length as u128
+            * MIN_BLOCK_PRODUCTION_DELAY as u128
+            / (100 * 365 * 24 * 60 * 60);
+        let per_epoch_protocol_treasury = per_epoch_total_reward
+            * env.runtime.genesis_config.protocol_reward_percentage as u128
+            / 100;
+        let per_epoch_per_validator_reward =
+            (per_epoch_total_reward - per_epoch_protocol_treasury) / num_nodes as u128;
         // Staked 2 * X, sent 3 * X to test3.
         assert_eq!(
             (test1_acc.amount, test1_acc.stake),
-            (TESTING_INIT_BALANCE - 5 * TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
+            (
+                TESTING_INIT_BALANCE - 5 * TESTING_INIT_STAKE + 3 * per_epoch_per_validator_reward,
+                2 * TESTING_INIT_STAKE + per_epoch_per_validator_reward
+            )
         );
         let test2_acc = env.view_account("test2");
         // Got money back after being kicked out.
-        assert_eq!((test2_acc.amount, test2_acc.stake), (TESTING_INIT_BALANCE, 0));
+        assert_eq!(
+            (test2_acc.amount, test2_acc.stake),
+            (TESTING_INIT_BALANCE + per_epoch_per_validator_reward, 0)
+        );
         let test3_acc = env.view_account("test3");
         // Got 3 * X, staking 2 * X of them.
         assert_eq!(
             (test3_acc.amount, test3_acc.stake),
-            (TESTING_INIT_STAKE, 2 * TESTING_INIT_STAKE)
+            (
+                TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward,
+                2 * TESTING_INIT_STAKE + per_epoch_per_validator_reward
+            )
         );
     }
 
