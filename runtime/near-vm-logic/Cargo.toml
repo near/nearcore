@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 exonum_sodiumoxide = "0.0.20"
+serde = { version = "1.0", features = ["derive"] }
 
 [[test]]
 name = "test_registers"

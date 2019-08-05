@@ -1,8 +1,9 @@
 use crate::types::Gas;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, Serialize, Deserialize)]
 pub struct Config {
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
