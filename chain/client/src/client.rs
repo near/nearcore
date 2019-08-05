@@ -1068,7 +1068,7 @@ impl ClientActor {
         let transactions = vec![];
 
         // At this point, the previous epoch hash must be available
-        let epoch_hash = self
+        let epoch_id = self
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
@@ -1078,7 +1078,7 @@ impl ClientActor {
             &prev_header,
             next_height,
             chunks,
-            epoch_hash,
+            epoch_id,
             transactions,
             self.approvals.drain().collect(),
             self.econ_config.gas_price_adjustment_rate,
@@ -1086,9 +1086,9 @@ impl ClientActor {
             block_producer.signer.clone(),
         );
 
-        let ret = self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into());
-        assert!(ret.is_ok());
-        ret
+        let ret = self.process_block(ctx, block, Provenance::PRODUCED);
+        assert!(ret.is_ok(), format!("{:?}", ret));
+        ret.map_err(|err| err.into())
     }
 
     /// Check if any block with missing chunks is ready to be processed

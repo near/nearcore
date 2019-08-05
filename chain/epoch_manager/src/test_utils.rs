@@ -1,9 +1,11 @@
 use near_primitives::test_utils::get_key_pair_from_seed;
 use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorStake};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::types::{EpochConfig, EpochInfo};
+use crate::types::{BlockInfo, EpochConfig, EpochInfo};
+use crate::EpochManager;
 use near_primitives::hash::{hash, CryptoHash};
+use near_store::test_utils::create_test_store;
 
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
@@ -68,4 +70,41 @@ pub fn epoch_config(
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     let (public_key, _) = get_key_pair_from_seed(account_id);
     ValidatorStake::new(account_id.to_string(), public_key, amount)
+}
+
+pub fn setup_epoch_manager(
+    validators: Vec<(&str, Balance)>,
+    epoch_length: BlockIndex,
+    num_shards: ShardId,
+    num_seats: usize,
+    num_fisherman: usize,
+    kickout_threshold: u8,
+) -> EpochManager {
+    let store = create_test_store();
+    let config =
+        epoch_config(epoch_length, num_shards, num_seats, num_fisherman, kickout_threshold);
+    EpochManager::new(
+        store,
+        config,
+        validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
+    )
+    .unwrap()
+}
+
+pub fn record_block(
+    epoch_manager: &mut EpochManager,
+    prev_h: CryptoHash,
+    cur_h: CryptoHash,
+    index: BlockIndex,
+    proposals: Vec<ValidatorStake>,
+) {
+    epoch_manager
+        .record_block_info(
+            &cur_h,
+            BlockInfo::new(index, prev_h, proposals, vec![], HashSet::default(), 0),
+            [0; 32],
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
 }

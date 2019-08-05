@@ -1366,7 +1366,6 @@ impl<'a> ChainUpdate<'a> {
             {
                 saw_one = true;
                 let block = self.chain_store_update.get_block(&next_block_hash).unwrap().clone();
-                println!("Block: {:?}", block);
                 self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
                 ret.push(block.header.height);
                 queue.push(next_block_hash);
@@ -1417,7 +1416,6 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .get_block_producer(&header.epoch_id, header.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
-        println!("Validator: {:?} {:?} {}", validator, header.epoch_id, header.height);
         if self.runtime_adapter.verify_validator_signature(
             &header.epoch_id,
             &validator,

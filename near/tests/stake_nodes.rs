@@ -55,6 +55,9 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
+            config.client_config.min_num_peers = 1;
+        } else {
+            config.client_config.min_num_peers = 0;
         }
         config
     });
