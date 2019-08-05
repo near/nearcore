@@ -1,3 +1,10 @@
+//! See package description.
+//! Usage example:
+//! ```
+//! cargo run --package near-vm-runner-standalone --bin near-vm-runner-standalone \
+//! -- --context-file=/tmp/context.json --config-file=/tmp/config.json --method-name=hello \
+//! --wasm-file=/tmp/main.wasm
+//! ```
 use clap::{App, Arg};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
