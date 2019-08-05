@@ -343,11 +343,7 @@ impl ShardsManager {
                         chunk.receipts,
                     ),
                 });
-            } else {
-                assert!(false); // TODO XXX MOO remove
             }
-        } else {
-            assert!(false); // TODO XXX MOO remove
         }
 
         Ok(())

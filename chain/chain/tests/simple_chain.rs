@@ -1,4 +1,4 @@
-use near_chain::test_utils::setup;
+use near_chain::test_utils::{display_chain, setup};
 use near_chain::{Block, ErrorKind, Provenance};
 use near_primitives::test_utils::init_test_logger;
 
@@ -71,7 +71,7 @@ fn build_chain_with_skips_and_forks() {
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, signer.clone());
     let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
-    let b3 = Block::empty(&b1, signer.clone());
+    let b3 = Block::empty_with_height(&b1, 3, signer.clone());
     let b4 = Block::empty_with_height(&b2, 4, signer.clone());
     let b5 = Block::empty(&b4, signer);
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());

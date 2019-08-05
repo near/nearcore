@@ -1175,12 +1175,6 @@ impl ClientActor {
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
-                    println!(
-                        "{:?} ORPHAN: {:?} {:?}",
-                        self.block_producer.as_ref().unwrap().account_id,
-                        hash,
-                        prev_hash
-                    );
                     if !self.chain.is_orphan(&prev_hash) && !self.sync_status.is_syncing() {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }

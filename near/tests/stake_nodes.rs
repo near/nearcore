@@ -344,6 +344,7 @@ fn test_validator_join() {
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
+                    println!("\n\n\nRESULT: {:?}\n\n\n", res);
                     if res.unwrap().unwrap().validators == expected {
                         actix::spawn(
                             test_node1

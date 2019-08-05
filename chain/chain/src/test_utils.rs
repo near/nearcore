@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
@@ -23,8 +24,10 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
 
 use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use std::cmp::Ordering;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -633,4 +636,62 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
+}
+
+// Displays chain from given store.
+pub fn display_chain(chain: &mut Chain) {
+    let chain_store = chain.mut_store();
+    let head = chain_store.head().unwrap();
+    println!("Chain head: {} / {}", head.height, head.last_block_hash);
+    let mut headers = vec![];
+    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+        let header = chain_store
+            .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
+            .unwrap()
+            .clone();
+        headers.push(header);
+    }
+    headers.sort_by(|h_left, h_right| {
+        if h_left.height > h_right.height {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        }
+    });
+    for header in headers {
+        if header.prev_hash == CryptoHash::default() {
+            // Genesis block.
+            println!("{} {:>44}", header.height, header.hash());
+        } else {
+            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
+            let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
+            println!(
+                "{} {:>44} | parent: {} {:>44} | {}",
+                header.height,
+                header.hash(),
+                parent_header.height,
+                parent_header.hash(),
+                if let Some(block) = &maybe_block {
+                    format!("chunks: {}", block.chunks.len())
+                } else {
+                    "-".to_string()
+                }
+            );
+            if let Some(block) = maybe_block {
+                for chunk_header in block.chunks.iter() {
+                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
+                        println!(
+                            "    {} tx = {}, receipts = {}",
+                            chunk_header.shard_id,
+                            chunk.transactions.len(),
+                            chunk.receipts.len()
+                        );
+                    } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
+                    {
+                        println!("    {} part = {}", chunk_header.shard_id, chunk_one_part.part_id);
+                    }
+                }
+            }
+        }
+    }
 }

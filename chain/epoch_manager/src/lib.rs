@@ -113,7 +113,6 @@ impl EpochManager {
         let new_proposals = proposals.clone();
         let mut all_proposals = self.get_rollover_proposals(epoch_id)?;
         all_proposals.append(&mut proposals);
-        println!("All proposals: {:?}", all_proposals);
 
         let last_block_info = self.get_block_info(&last_block_hash)?.clone();
         let first_block_info = self.get_block_info(&last_block_info.epoch_first_block)?.clone();
@@ -153,6 +152,10 @@ impl EpochManager {
                 validator_kickout.remove(&epoch_info.validators[validator_id].account_id);
             }
         }
+        println!(
+            "All proposals: {:?}, Kickouts: {:?}, Tracker: {:?}, Num expected: {:?}",
+            all_proposals, validator_kickout, validator_tracker, num_expected_blocks
+        );
 
         Ok((hash, new_proposals, all_proposals, validator_kickout, total_gas_used))
     }
