@@ -225,6 +225,9 @@ impl Actor for ClientActor {
         // Start syncing job.
         self.start_sync(ctx);
 
+        // Start catchup job.
+        self.catchup(ctx);
+
         // Start fetching information from network.
         self.fetch_network_info(ctx);
 
@@ -690,8 +693,11 @@ impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
-        // TODO: remove this
-        assert!(self.network_info.num_active_peers > 0);
+        if self.network_info.num_active_peers == 0 {
+            warn!(target: "client", "No peers: skip account announce");
+            return;
+        }
+
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(
             self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
@@ -1352,7 +1358,7 @@ impl ClientActor {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    fn catchup(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
+    fn run_catchup(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1383,7 +1389,7 @@ impl ClientActor {
 
                     self.chain.catchup_blocks(
                         me,
-                        sync_hash,
+                        &sync_hash,
                         |block, status, provenance| {
                             accepted_blocks.write().unwrap().push((
                                 block.hash(),
@@ -1409,6 +1415,22 @@ impl ClientActor {
         Ok(())
     }
 
+    /// Runs catchup on repeat, if this client is a validator.
+    fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+        if let Some(_) = self.block_producer {
+            match self.run_catchup(ctx) {
+                Ok(_) => {}
+                Err(err) => {
+                    error!("Error occurred during catchup for some future epoch: {:?}", err)
+                }
+            }
+
+            ctx.run_later(self.config.catchup_step_period, move |act, ctx| {
+                act.catchup(ctx);
+            });
+        }
+    }
+
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Macro to schedule to call this function later if error occurred.
@@ -1422,11 +1444,6 @@ impl ClientActor {
                 return;
             }
         }));
-
-        match self.catchup(ctx) {
-            Ok(_) => {}
-            Err(err) => error!("Error occurred during state sync for some future epoch: {:?}", err),
-        }
 
         let mut wait_period = self.config.sync_step_period;
 

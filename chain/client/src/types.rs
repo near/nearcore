@@ -104,6 +104,8 @@ pub struct ClientConfig {
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
     pub state_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
 }
 
 impl ClientConfig {
@@ -129,6 +131,7 @@ impl ClientConfig {
             announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            catchup_step_period: Duration::from_millis(block_prod_time / 2),
         }
     }
 }
@@ -156,6 +159,7 @@ impl ClientConfig {
             announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            catchup_step_period: Duration::from_millis(50),
         }
     }
 }

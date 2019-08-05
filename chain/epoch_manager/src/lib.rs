@@ -442,7 +442,7 @@ impl EpochManager {
         epoch_first_block_info: &BlockInfo,
     ) -> Result<HashMap<ValidatorId, u64>, EpochError> {
         let mut num_expected = HashMap::default();
-        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?.clone();
+        let prev_epoch_last_block = self.get_block_info(&epoch_first_block_info.prev_hash)?;
         // We iterate from next index after previous epoch's last block, for epoch_length blocks.
         for index in (prev_epoch_last_block.index + 1)
             ..=(prev_epoch_last_block.index + self.config.epoch_length)

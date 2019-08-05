@@ -57,6 +57,9 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid validator proposals in the block.
+    #[fail(display = "Invalid Validator Proposals")]
+    InvalidValidatorProposals,
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
@@ -123,6 +126,7 @@ impl Error {
             | ErrorKind::InvalidStatePayload(_)
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature => true,
         }
     }
