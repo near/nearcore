@@ -96,27 +96,19 @@ impl NightshadeRuntime {
         gas_price: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
-        println!("1");
         let prev_epoch_id = epoch_manager.get_prev_epoch_id(block_hash)?;
-        println!("2");
         let prev_prev_epoch_id = epoch_manager.get_prev_epoch_id_from_epoch_id(&prev_epoch_id)?;
-        println!("3");
         let prev_prev_stake_change =
             epoch_manager.get_epoch_info(&prev_prev_epoch_id)?.stake_change.clone();
-        println!("4");
         let prev_stake_change = epoch_manager.get_epoch_info(&prev_epoch_id)?.stake_change.clone();
-        println!("5");
         let prev_block_hash = epoch_manager.get_block_info(&block_hash)?.prev_hash;
-        println!("6");
         let slashed = epoch_manager.get_slashed_validators(&prev_block_hash)?.clone();
-        println!("7");
         let (stake_change, validator_to_index, total_gas_used) = {
             let epoch_info = epoch_manager.get_epoch_info_from_hash(block_hash)?;
             (&epoch_info.stake_change, &epoch_info.validator_to_index, epoch_info.total_gas_used)
         };
         let prev_keys: BTreeSet<_> = prev_stake_change.keys().collect();
         let keys: BTreeSet<_> = stake_change.keys().collect();
-        println!("8");
 
         // calculate reward for validators
         // TODO: include storage rent

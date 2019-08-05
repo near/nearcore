@@ -249,7 +249,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         Ok(valid_transaction) => {
                             debug!(
                                 "MOO recording a transaction. I'm {:?}, {}",
-                                self.block_producer.clone().unwrap().account_id,
+                                self.block_producer.as_ref().unwrap().account_id,
                                 shard_id
                             );
                             self.shards_mgr.insert_transaction(shard_id, valid_transaction);
@@ -1154,7 +1154,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} <- {} at {} from {}", hash, block.header.prev_hash, block.header.height, peer_id);
+        info!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.prev_hash, block.header.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -1175,6 +1175,12 @@ impl ClientActor {
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
+                    println!(
+                        "{:?} ORPHAN: {:?} {:?}",
+                        self.block_producer.as_ref().unwrap().account_id,
+                        hash,
+                        prev_hash
+                    );
                     if !self.chain.is_orphan(&prev_hash) && !self.sync_status.is_syncing() {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }

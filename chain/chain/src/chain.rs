@@ -576,6 +576,11 @@ impl Chain {
                     );
                     Err(ErrorKind::ChunksMissing(missing_chunks).into())
                 }
+                ErrorKind::EpochOutOfBounds => {
+                    // Possibly block arrived before we finished processing all of the blocks for epoch before last.
+                    info!(target: "chain", "Received block {}/{} ignored, as epoch is unknown", block.header.height, block.hash());
+                    Ok(Some(prev_head))
+                }
                 ErrorKind::Unfit(ref msg) => {
                     debug!(
                         target: "chain",
