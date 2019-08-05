@@ -367,7 +367,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             let header = self.get_block_header(&prev_hash)?;
             let (header_height, header_hash, header_prev_hash) =
                 (header.height, header.hash(), header.prev_hash);
-            // Clean up block indicies between blocks.
+            // Clean up block indices between blocks.
             for height in (header_height + 1)..prev_height {
                 self.block_index.insert(height, None);
             }

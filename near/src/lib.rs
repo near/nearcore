@@ -20,6 +20,8 @@ mod runtime;
 #[cfg(test)]
 mod test_utils;
 mod validator_manager;
+mod chain_rollback;
+pub use chain_rollback::chain_rollback_to;
 
 const STORE_PATH: &str = "data";
 

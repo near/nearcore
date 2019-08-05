@@ -7,7 +7,7 @@ use clap::{App, Arg, crate_version, SubCommand};
 use log::{info, LevelFilter};
 
 use git_version::git_version;
-use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
+use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config, chain_rollback_to};
 use near::config::init_testnet_configs;
 use near_primitives::types::Version;
 
@@ -58,6 +58,9 @@ fn main() {
             .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
             .arg(Arg::with_name("rpc-addr").long("rpc-addr").help("Customize RPC listening address (useful for running multiple nodes on the same machine)").takes_value(true))
+        )
+        .subcommand(SubCommand::with_name("chain-rollback").about("Rollbacks chain to a some block index")
+            .arg(Arg::with_name("block-height").long("block-height").takes_value(true).required(true).help("Block height to rollback to"))
         )
         .subcommand(SubCommand::with_name("unsafe_reset_data").about("(unsafe) Remove all the data, effectively resetting node to genesis state (keeps genesis and config)"))
         .subcommand(SubCommand::with_name("unsafe_reset_all").about("(unsafe) Remove all the config, keys, data and effectively removing all information about the network"))
@@ -128,6 +131,13 @@ fn main() {
             let system = System::new("NEAR");
             start_with_config(home_dir, near_config);
             system.run().unwrap();
+        }
+        ("chain-rollback", Some(args)) => {
+            if let Some (height) = args.value_of("block-height") {
+                let height: u64 = height.parse().expect("--block-height must be a number");
+                chain_rollback_to(height, &get_store_path(&home_dir)).expect("Chain rollback failed.");
+                println!("Chain is rolled back to height {}", height);
+            }
         }
         ("unsafe_reset_data", Some(_args)) => {
             let store_path = get_store_path(home_dir);
