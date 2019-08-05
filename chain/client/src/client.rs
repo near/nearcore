@@ -690,6 +690,8 @@ impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
+        // TODO: remove this
+        assert!(self.network_info.num_active_peers > 0);
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(
             self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
@@ -702,10 +704,11 @@ impl ClientActor {
             return;
         }
         let block_producer = self.block_producer.as_ref().unwrap();
-        debug!(target: "client", "Check announce account for {}", block_producer.account_id);
 
         let epoch_start_height =
             unwrap_or_return!(self.runtime_adapter.get_epoch_start_height(&prev_block_hash), ());
+
+        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_val_announce_height);
 
         // TODO MOO XXX: only announce if will be a validator in the next epoch.
         // TODO MOO WTF: currently, it will still resend this every epoch.

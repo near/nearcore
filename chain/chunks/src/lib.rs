@@ -81,6 +81,7 @@ impl ShardsManager {
             requests: HashMap::new(),
         }
     }
+
     pub fn prepare_transactions(
         &mut self,
         shard_id: ShardId,
@@ -92,6 +93,7 @@ impl ShardsManager {
             Ok(vec![])
         }
     }
+
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
         account_id: &AccountId,
@@ -101,6 +103,7 @@ impl ShardsManager {
         return self.runtime_adapter.cares_about_shard(account_id, &parent_hash, shard_id)
             || self.runtime_adapter.will_care_about_shard(account_id, &parent_hash, shard_id);
     }
+
     pub fn request_chunks(&mut self, chunks_to_request: Vec<ShardChunkHeader>) {
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
@@ -198,18 +201,19 @@ impl ShardsManager {
 
                 for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
                     let part_id = part_id as u64;
-                    let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPartRequest {
-                        account_id: self
-                            .runtime_adapter
-                            .get_part_owner(&parent_hash, part_id)
-                            .unwrap(),
-                        part_request: ChunkPartRequestMsg {
-                            shard_id,
-                            chunk_hash: chunk_hash.clone(),
-                            height,
-                            part_id,
-                        },
-                    });
+                    let to_whom =
+                        self.runtime_adapter.get_part_owner(&parent_hash, part_id).unwrap();
+                    if Some(&to_whom) != self.me.as_ref() {
+                        let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPartRequest {
+                            account_id: to_whom,
+                            part_request: ChunkPartRequestMsg {
+                                shard_id,
+                                chunk_hash: chunk_hash.clone(),
+                                height,
+                                part_id,
+                            },
+                        });
+                    }
                 }
             }
         }
@@ -766,15 +770,17 @@ impl ShardsManager {
             );
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage
-            if !processed_one_part && Some(&to_whom) == self.me.as_ref() {
-                processed_one_part = true;
-                self.process_chunk_one_part(one_part.clone()).unwrap();
+            if Some(&to_whom) == self.me.as_ref() {
+                if !processed_one_part {
+                    processed_one_part = true;
+                    self.process_chunk_one_part(one_part.clone()).unwrap();
+                }
+            } else {
+                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartMessage {
+                    account_id: to_whom.clone(),
+                    header_and_part: one_part,
+                });
             }
-
-            let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartMessage {
-                account_id: to_whom.clone(),
-                header_and_part: one_part,
-            });
         }
 
         // 2/2 This is a weird way to introduce the chunk to the producer's storage

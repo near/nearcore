@@ -24,6 +24,7 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
             &genesis_config,
         );
         near_config.client_config.min_num_peers = num_nodes - 1;
+        near_config.client_config.skip_sync_wait = false;
         if i > 0 {
             near_config.network_config.boot_nodes =
                 convert_boot_nodes(vec![(&validators[0], first_node)]);

@@ -73,6 +73,7 @@ impl RoutingTableUpdate {
 }
 
 // TODO: Clear routing table periodically
+#[derive(Debug)]
 struct RoutingTable {
     account_peers: HashMap<AccountId, (PeerId, usize)>,
 }
@@ -413,10 +414,23 @@ impl PeerManagerActor {
                     .and_then(|_, _, _| actix::fut::ok(()))
                     .spawn(ctx);
             } else {
-                panic!(format!("Sending message: {:?} to {}", msg, account_id));
+                // TODO WTF: remove this
+                //                println!("Self: {:?}", self.peer_id);
+                //                panic!(format!(
+                //                    "Sending message to {} / {} not a peer: {:?}\n{:?}",
+                //                    account_id,
+                //                    peer_id,
+                //                    self.active_peers.keys(),
+                //                    msg
+                //                ));
                 error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
             }
         } else {
+            // TODO WTF: remove this
+            //            panic!(format!(
+            //                "Unknown account {} in routing table: {:?}",
+            //                account_id, self.routing_table
+            //            ));
             warn!(target: "network", "Unknown account {} in routing table.", account_id);
         }
     }
