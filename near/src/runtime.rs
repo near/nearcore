@@ -323,7 +323,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
     ) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager.cares_about_shard(parent_hash, account_id, shard_id).unwrap_or(false)
+        epoch_manager
+            .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
+            .unwrap_or(false)
     }
 
     fn will_care_about_shard(
@@ -334,7 +336,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> bool {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         epoch_manager
-            .cares_about_shard_next_epoch(parent_hash, account_id, shard_id)
+            .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
             .unwrap_or(false)
     }
 

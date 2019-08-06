@@ -14,7 +14,7 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
 use near_primitives::serialize::BaseEncode;
-use near_primitives::test_utils::init_integration_logger;
+use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
 use std::path::Path;
@@ -45,7 +45,8 @@ fn init_test_staking(
     num_validators: usize,
     epoch_length: u64,
 ) -> Vec<TestNode> {
-    init_integration_logger();
+    //init_integration_logger();
+    init_test_logger();
 
     let mut genesis_config = GenesisConfig::testing_spec(num_nodes, num_validators);
     genesis_config.epoch_length = epoch_length;
@@ -61,10 +62,10 @@ fn init_test_staking(
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
-            config.client_config.min_num_peers = 1;
         } else {
-            config.client_config.min_num_peers = 0;
+            //            config.client_config.min_num_peers = 0;
         }
+        config.client_config.min_num_peers = num_nodes - 1;
         config
     });
     configs
@@ -339,8 +340,6 @@ fn test_validator_join() {
                 let (done1_copy2, done2_copy2) = (done1_copy1.clone(), done2_copy1.clone());
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected = vec![
-                        ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
-                        ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];

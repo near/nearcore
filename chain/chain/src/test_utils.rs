@@ -9,7 +9,7 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
-use near_primitives::serialize::{Decode, Encode};
+use near_primitives::serialize::{to_base, Decode, Encode};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::ReceiptBody::NewCall;
@@ -638,8 +638,13 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     (chain, runtime, signer)
 }
 
+pub fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..6].to_string()
+}
+
 // Displays chain from given store.
 pub fn display_chain(chain: &mut Chain) {
+    let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
     println!("Chain head: {} / {}", head.height, head.last_block_hash);
@@ -661,16 +666,20 @@ pub fn display_chain(chain: &mut Chain) {
     for header in headers {
         if header.prev_hash == CryptoHash::default() {
             // Genesis block.
-            println!("{} {:>44}", header.height, header.hash());
+            println!("{: >3} {}", header.height, format_hash(header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
+            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
+            let block_producer =
+                runtime_adapter.get_block_producer(&epoch_id, header.height).unwrap();
             println!(
-                "{} {:>44} | parent: {} {:>44} | {}",
+                "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height,
-                header.hash(),
+                format_hash(header.hash()),
+                block_producer,
                 parent_header.height,
-                parent_header.hash(),
+                format_hash(parent_header.hash()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks.len())
                 } else {
@@ -679,16 +688,33 @@ pub fn display_chain(chain: &mut Chain) {
             );
             if let Some(block) = maybe_block {
                 for chunk_header in block.chunks.iter() {
+                    let chunk_producer = runtime_adapter
+                        .get_chunk_producer(
+                            &epoch_id,
+                            chunk_header.height_created,
+                            chunk_header.shard_id,
+                        )
+                        .unwrap();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
                         println!(
-                            "    {} tx = {}, receipts = {}",
+                            "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
+                            chunk_header.height_created,
+                            format_hash(chunk_header.chunk_hash().0),
                             chunk_header.shard_id,
+                            chunk_producer,
                             chunk.transactions.len(),
                             chunk.receipts.len()
                         );
                     } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
                     {
-                        println!("    {} part = {}", chunk_header.shard_id, chunk_one_part.part_id);
+                        println!(
+                            "    {: >3} {} | {} | {: >10} | part = {}",
+                            chunk_header.height_created,
+                            format_hash(chunk_header.chunk_hash().0),
+                            chunk_header.shard_id,
+                            chunk_producer,
+                            chunk_one_part.part_id
+                        );
                     }
                 }
             }

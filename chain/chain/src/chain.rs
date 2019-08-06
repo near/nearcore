@@ -291,6 +291,8 @@ impl Chain {
             {
                 return Ok(Some(new_res));
             }
+        } else {
+            crate::test_utils::display_chain(self);
         }
         res
     }
@@ -615,6 +617,13 @@ impl Chain {
             None => vec![],
             Some(me) => (0..self.runtime_adapter.num_shards())
                 .filter(|shard_id| {
+                    println!(
+                        "{:?} GET SHARDS FOR DL: {:?} {:?} {:?}",
+                        me,
+                        parent_hash,
+                        self.runtime_adapter.will_care_about_shard(me, parent_hash, *shard_id),
+                        self.runtime_adapter.cares_about_shard(me, parent_hash, *shard_id)
+                    );
                     self.runtime_adapter.will_care_about_shard(me, parent_hash, *shard_id)
                         && !self.runtime_adapter.cares_about_shard(me, parent_hash, *shard_id)
                 })
@@ -953,6 +962,12 @@ impl Chain {
         &mut self.store
     }
 
+    /// Returns underlying RuntimeAdapter.
+    #[inline]
+    pub fn runtime_adapter(&self) -> Arc<RuntimeAdapter> {
+        self.runtime_adapter.clone()
+    }
+
     /// Returns genesis block header.
     #[inline]
     pub fn genesis(&self) -> &BlockHeader {
@@ -1226,7 +1241,7 @@ impl<'a> ChainUpdate<'a> {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, false)
             };
 
-        info!(target: "chain", "Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", block.hash(), is_caught_up, needs_to_start_fetching_state);
+        info!(target: "chain", "{:?} Process block {}, is_caught_up: {}, need_to_start_fetching_state: {}", me, block.hash(), is_caught_up, needs_to_start_fetching_state);
 
         // This is a fork in the context of both header and block processing
         // if this block does not immediately follow the chain head.
@@ -1240,9 +1255,6 @@ impl<'a> ChainUpdate<'a> {
         if block.header.prev_state_root != state_root {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
-
-        // Add validated block to the db, even if it's not the selected fork.
-        self.chain_store_update.save_block(block.clone());
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
@@ -1299,6 +1311,9 @@ impl<'a> ChainUpdate<'a> {
             vec![],
             block.header.gas_used,
         )?;
+
+        // Add validated block to the db, even if it's not the selected fork.
+        self.chain_store_update.save_block(block.clone());
 
         // Update the chain head if total weight has increased.
         let res = self.update_head(block)?;

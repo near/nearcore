@@ -1,4 +1,4 @@
-use near_chain::test_utils::{display_chain, setup};
+use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
 use near_primitives::test_utils::init_test_logger;
 

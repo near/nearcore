@@ -363,23 +363,23 @@ impl EpochManager {
         self.get_epoch_info(&epoch_id)
     }
 
-    pub fn cares_about_shard(
+    pub fn cares_about_shard_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let epoch_id = self.get_epoch_id(parent_hash)?;
+        let epoch_id = self.get_epoch_id_from_prev_block(parent_hash)?;
         self.cares_about_shard_in_epoch(epoch_id, account_id, shard_id)
     }
 
-    pub fn cares_about_shard_next_epoch(
+    pub fn cares_about_shard_next_epoch_from_prev_block(
         &mut self,
         parent_hash: &CryptoHash,
         account_id: &AccountId,
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
-        let next_epoch_id = self.get_next_epoch_id(parent_hash)?;
+        let next_epoch_id = self.get_next_epoch_id_from_prev_block(parent_hash)?;
         self.cares_about_shard_in_epoch(next_epoch_id, account_id, shard_id)
     }
 

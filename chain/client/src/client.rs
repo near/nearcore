@@ -856,7 +856,7 @@ impl ClientActor {
         if head.height != last_height {
             return;
         }
-        debug!(target: "client", "Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
+        debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), last_height, head.height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
         self.handle_scheduling_block_production(
@@ -1077,6 +1077,10 @@ impl ClientActor {
         );
 
         let ret = self.process_block(ctx, block, Provenance::PRODUCED);
+
+        println!("{:?} MADE block", self.block_producer.as_ref().unwrap().account_id);
+        near_chain::test_utils::display_chain(&mut self.chain);
+
         assert!(ret.is_ok(), format!("{:?}", ret));
         ret.map_err(|err| err.into())
     }
@@ -1613,40 +1617,40 @@ impl ClientActor {
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         // TODO: This header is missing, should collect for later? should have better way to verify then.
-        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
+        //        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
 
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
-            Ok(validators) => {
-                let position = validators.iter().position(|x| &(x.0) == account_id);
-                if let Some(idx) = position {
-                    if !validators[idx].1 {
-                        idx
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
-        };
-        // Check signature is correct for given validator.
-        if !self.runtime_adapter.verify_validator_signature(
-            &header.epoch_id,
-            account_id,
-            hash.as_ref(),
-            signature,
-        ) {
-            return false;
-        }
-        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
-        self.approvals.insert(position, signature.clone());
+        //        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
+        //            Ok(validators) => {
+        //                let position = validators.iter().position(|x| &(x.0) == account_id);
+        //                if let Some(idx) = position {
+        //                    if !validators[idx].1 {
+        //                        idx
+        //                    } else {
+        //                        return false;
+        //                    }
+        //                } else {
+        //                    return false;
+        //                }
+        //            }
+        //            Err(err) => {
+        //                error!(target: "client", "Error: {}", err);
+        //                return false;
+        //            }
+        //        };
+        //        // Check signature is correct for given validator.
+        //        if !self.runtime_adapter.verify_validator_signature(
+        //            &header.epoch_id,
+        //            account_id,
+        //            hash.as_ref(),
+        //            signature,
+        //        ) {
+        //            return false;
+        //        }
+        //        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
+        //        self.approvals.insert(position, signature.clone());
         true
     }
 }
