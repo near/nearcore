@@ -18,9 +18,9 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, DirectMessageBody, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo,
-    PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, RawDirectMessage, ReasonForBan, SendMessage, Unregister,
+    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 use futures::Future;
@@ -263,13 +263,13 @@ impl Peer {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
-            // All Direct messages received at this point are for us.
-            PeerMessage::Direct(direct_message) => match direct_message.body {
+            // All Routed messages received at this point are for us.
+            PeerMessage::Routed(routed_message) => match routed_message.body {
                 // TODO(MarX): If this message is invalid the banned peer should be the original author and not the current sender.
-                DirectMessageBody::BlockApproval(account_id, hash, signature) => {
+                RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
                     NetworkClientMessages::BlockApproval(account_id, hash, signature)
                 }
-                DirectMessageBody::ForwardTx(transaction) => {
+                RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)
                 }
             },
@@ -288,9 +288,9 @@ impl Peer {
                 // Ban peer if client thinks received data is bad.
                 match res {
                     Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
-                        act.peer_manager_addr.do_send(RawDirectMessage {
+                        act.peer_manager_addr.do_send(RawRoutedMessage {
                             account_id,
-                            body: DirectMessageBody::ForwardTx(tx)
+                            body: RoutedMessageBody::ForwardTx(tx)
                         })
                     }
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
@@ -438,11 +438,11 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
-            (_, PeerStatus::Ready, PeerMessage::Direct(direct_message)) => {
-                debug!(target: "network", "Received direct message from {} to {}.", self.peer_info, direct_message.account_id);
+            (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
+                debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.account_id);
 
-                // Receive invalid direct message from peer.
-                if !direct_message.verify() {
+                // Receive invalid routed message from peer.
+                if !routed_message.verify() {
                     actix::spawn(
                         self.peer_manager_addr
                             .send(NetworkRequests::BanPeer {
@@ -456,13 +456,13 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
-                        .send(direct_message.clone())
+                        .send(routed_message.clone())
                         .into_actor(self)
                         .then(move |res, act, ctx| {
                             if res.unwrap_or(false) {
                                 act.receive_client_message(
                                     ctx,
-                                    PeerMessage::Direct(direct_message),
+                                    PeerMessage::Routed(routed_message),
                                 );
                             }
                             actix::fut::ok(())

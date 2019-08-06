@@ -387,36 +387,36 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub enum DirectMessageBody {
+pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
 }
 
-impl DirectMessageBody {
+impl RoutedMessageBody {
     pub fn hash(&self) -> CryptoHash {
         match &self {
-            DirectMessageBody::BlockApproval(_, hash, _) => hash.clone(),
-            DirectMessageBody::ForwardTx(tx) => tx.get_hash(),
+            RoutedMessageBody::BlockApproval(_, hash, _) => hash.clone(),
+            RoutedMessageBody::ForwardTx(tx) => tx.get_hash(),
         }
     }
 }
 
 #[derive(Message)]
-pub struct RawDirectMessage {
+pub struct RawRoutedMessage {
     pub account_id: AccountId,
-    pub body: DirectMessageBody,
+    pub body: RoutedMessageBody,
 }
 
-impl RawDirectMessage {}
+impl RawRoutedMessage {}
 
-/// DirectMessage represent a package that will travel the network towards a specific account id.
+/// RoutedMessage represent a package that will travel the network towards a specific account id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
 /// be banned. If the final receiver of this package finds that the body is invalid the original
 /// sender of the package should be banned instead. (Notice that this peer might not be connected
 /// to us)
 #[derive(PartialEq, Eq, Clone, Debug)]
-pub struct DirectMessage {
+pub struct RoutedMessage {
     /// Account id which is directed this message
     pub account_id: AccountId,
     /// Original sender of this message
@@ -425,33 +425,33 @@ pub struct DirectMessage {
     /// last sender of this message. If the message is invalid we should ben author of the message.
     pub signature: Signature,
     /// Message
-    pub body: DirectMessageBody,
+    pub body: RoutedMessageBody,
 }
 
-impl DirectMessage {
+impl RoutedMessage {
     pub fn verify(&self) -> bool {
         verify(self.body.hash().as_ref(), &self.signature, &self.author.public_key())
     }
 }
 
-impl Message for DirectMessage {
+impl Message for RoutedMessage {
     type Result = bool;
 }
 
-impl TryFrom<network_proto::DirectMessage> for DirectMessage {
+impl TryFrom<network_proto::RoutedMessage> for RoutedMessage {
     type Error = Box<dyn std::error::Error>;
 
-    fn try_from(proto: network_proto::DirectMessage) -> Result<Self, Self::Error> {
+    fn try_from(proto: network_proto::RoutedMessage) -> Result<Self, Self::Error> {
         let body = match proto.body {
-            Some(network_proto::DirectMessage_oneof_body::block_approval(block_approval)) => {
-                DirectMessageBody::BlockApproval(
+            Some(network_proto::RoutedMessage_oneof_body::block_approval(block_approval)) => {
+                RoutedMessageBody::BlockApproval(
                     block_approval.account_id,
                     block_approval.hash.try_into()?,
                     block_approval.signature.try_into()?,
                 )
             }
-            Some(network_proto::DirectMessage_oneof_body::transaction(transaction)) => {
-                DirectMessageBody::ForwardTx(transaction.try_into()?)
+            Some(network_proto::RoutedMessage_oneof_body::transaction(transaction)) => {
+                RoutedMessageBody::ForwardTx(transaction.try_into()?)
             }
             None => return Err(format!("Unexpected empty message body").into()),
         };
@@ -459,15 +459,15 @@ impl TryFrom<network_proto::DirectMessage> for DirectMessage {
         let account_id = proto.account_id.try_into()?;
         let author = proto.author.try_into().map_err(|e| format!("{}", e))?;
         let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
-        Ok(DirectMessage { account_id, author, signature, body })
+        Ok(RoutedMessage { account_id, author, signature, body })
     }
 }
 
-impl From<DirectMessage> for network_proto::DirectMessage {
-    fn from(direct_message: DirectMessage) -> Self {
-        let body = match direct_message.body {
-            DirectMessageBody::BlockApproval(account_id, hash, signature) => {
-                Some(network_proto::DirectMessage_oneof_body::block_approval(
+impl From<RoutedMessage> for network_proto::RoutedMessage {
+    fn from(routed_message: RoutedMessage) -> Self {
+        let body = match routed_message.body {
+            RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
+                Some(network_proto::RoutedMessage_oneof_body::block_approval(
                     network_proto::BlockApproval {
                         account_id,
                         hash: hash.into(),
@@ -477,15 +477,15 @@ impl From<DirectMessage> for network_proto::DirectMessage {
                     },
                 ))
             }
-            DirectMessageBody::ForwardTx(transaction) => {
-                Some(network_proto::DirectMessage_oneof_body::transaction(transaction.into()))
+            RoutedMessageBody::ForwardTx(transaction) => {
+                Some(network_proto::RoutedMessage_oneof_body::transaction(transaction.into()))
             }
         };
 
-        network_proto::DirectMessage {
-            account_id: direct_message.account_id,
-            author: direct_message.author.into(),
-            signature: direct_message.signature.into(),
+        network_proto::RoutedMessage {
+            account_id: routed_message.account_id,
+            author: routed_message.author.into(),
+            signature: routed_message.signature.into(),
             body,
             ..Default::default()
         }
@@ -512,7 +512,7 @@ pub enum PeerMessage {
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
 
     AnnounceAccount(AnnounceAccount),
-    Direct(DirectMessage),
+    Routed(RoutedMessage),
 }
 
 impl fmt::Display for PeerMessage {
@@ -530,9 +530,9 @@ impl fmt::Display for PeerMessage {
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
-            PeerMessage::Direct(direct_message) => match direct_message.body {
-                DirectMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
-                DirectMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
+            PeerMessage::Routed(routed_message) => match routed_message.body {
+                RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
             },
         }
     }
@@ -608,8 +608,8 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
                 announce_account,
             )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
-            Some(network_proto::PeerMessage_oneof_message_type::direct_message(direct_message)) => {
-                direct_message.try_into().map(PeerMessage::Direct)
+            Some(network_proto::PeerMessage_oneof_message_type::routed_message(routed_message)) => {
+                routed_message.try_into().map(PeerMessage::Routed)
             }
             None => Err(format!("Unexpected empty message body").into()),
         }
@@ -694,9 +694,9 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     announce_account.into(),
                 ))
             }
-            PeerMessage::Direct(direct_message) => {
-                Some(network_proto::PeerMessage_oneof_message_type::direct_message(
-                    direct_message.into(),
+            PeerMessage::Routed(routed_message) => {
+                Some(network_proto::PeerMessage_oneof_message_type::routed_message(
+                    routed_message.into(),
                 ))
             }
         };

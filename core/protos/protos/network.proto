@@ -68,7 +68,7 @@ message AnnounceAccount {
     repeated AnnounceAccountRoute route = 3;
 }
 
-message DirectMessage {
+message RoutedMessage {
     string account_id = 1;
     bytes author = 2;
     bytes signature = 3;
@@ -92,7 +92,7 @@ message PeerMessage {
         StateRequest state_request = 10;
         StateResponse state_response = 11;
         AnnounceAccount announce_account = 12;
-        DirectMessage direct_message = 13;
+        RoutedMessage routed_message = 13;
     }
 }
 

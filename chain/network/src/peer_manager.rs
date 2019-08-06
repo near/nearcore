@@ -26,10 +26,10 @@ use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::types::{
-    AnnounceAccount, Ban, Consolidate, DirectMessage, DirectMessageBody, FullPeerInfo,
-    InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
-    PeerMessage, PeerType, PeersRequest, PeersResponse, QueryPeerStats, RawDirectMessage,
-    ReasonForBan, SendMessage, Unregister,
+    AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus,
+    NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    RoutedMessageBody, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -532,13 +532,13 @@ impl PeerManagerActor {
     }
 
     /// Send message to specific account.
-    fn send_message_to_account(&mut self, ctx: &mut Context<Self>, msg: DirectMessage) {
+    fn send_message_to_account(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
         let account_id = &msg.account_id;
         if let Some(peer_id) = self.routing_table.get_route(account_id) {
             if let Some(active_peer) = self.active_peers.get(&peer_id) {
                 active_peer
                     .addr
-                    .send(SendMessage { message: PeerMessage::Direct(msg) })
+                    .send(SendMessage { message: PeerMessage::Routed(msg) })
                     .into_actor(self)
                     .map_err(|e, _, _| error!("Failed sending message: {}", e))
                     .and_then(|_, _, _| actix::fut::ok(()))
@@ -551,10 +551,16 @@ impl PeerManagerActor {
         }
     }
 
-    fn sign_direct_message(&self, msg: RawDirectMessage) -> DirectMessage {
+    // TODO(MarX): Protos order
+    // TODO(MarX): Avoid messaging to itself in client
+    // TODO(MarX): Don't store route to itself in Routing Table
+    // TODO(MarX): Accept routes from shorter suffix.
+    // TODO(MarX): Don't send route if it contains the peer we are sending it.
+    // TODO(MarX): For debugging Routing Table use PeerManager StatusInfoMessage
+    fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
         let hash = msg.body.hash();
         let signature = sign(hash.as_ref(), &self.config.secret_key);
-        DirectMessage {
+        RoutedMessage {
             account_id: msg.account_id,
             author: self.peer_id,
             signature,
@@ -611,9 +617,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     if let Some(account_id) = self.config.account_id.clone() {
                         self.send_message_to_account(
                             ctx,
-                            self.sign_direct_message(RawDirectMessage {
+                            self.sign_routed_message(RawRoutedMessage {
                                 account_id: approval.target,
-                                body: DirectMessageBody::BlockApproval(
+                                body: RoutedMessageBody::BlockApproval(
                                     account_id,
                                     approval.hash,
                                     approval.signature,
@@ -775,10 +781,10 @@ impl Handler<PeersResponse> for PeerManagerActor {
 
 /// "Return" true if this message is for this peer and should be sent to the client.
 /// Otherwise try to route this message to the final receiver and return false.
-impl Handler<DirectMessage> for PeerManagerActor {
+impl Handler<RoutedMessage> for PeerManagerActor {
     type Result = bool;
 
-    fn handle(&mut self, msg: DirectMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: RoutedMessage, ctx: &mut Self::Context) -> Self::Result {
         if self.config.account_id.as_ref().map_or(false, |me| me == &msg.account_id) {
             true
         } else {
@@ -789,10 +795,10 @@ impl Handler<DirectMessage> for PeerManagerActor {
     }
 }
 
-impl Handler<RawDirectMessage> for PeerManagerActor {
+impl Handler<RawRoutedMessage> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, msg: RawDirectMessage, ctx: &mut Self::Context) {
-        self.send_message_to_account(ctx, self.sign_direct_message(msg));
+    fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
+        self.send_message_to_account(ctx, self.sign_routed_message(msg));
     }
 }

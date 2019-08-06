@@ -77,7 +77,7 @@ mod test {
     use near_primitives::hash::CryptoHash;
 
     use crate::types::{
-        AnnounceAccount, DirectMessage, DirectMessageBody, Handshake, PeerChainInfo, PeerInfo,
+        AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
     };
 
     use super::*;
@@ -130,15 +130,15 @@ mod test {
     }
 
     #[test]
-    fn test_peer_message_announce_direct_block_approval() {
+    fn test_peer_message_announce_routed_block_approval() {
         let (pk, sk) = get_key_pair();
         let hash = CryptoHash::default();
         let signature = sign(hash.as_ref(), &sk);
-        let msg = PeerMessage::Direct(DirectMessage {
+        let msg = PeerMessage::Routed(RoutedMessage {
             account_id: "test1".to_string(),
             author: pk.into(),
             signature: signature.clone(),
-            body: DirectMessageBody::BlockApproval(
+            body: RoutedMessageBody::BlockApproval(
                 "test2".to_string(),
                 CryptoHash::default(),
                 signature,
