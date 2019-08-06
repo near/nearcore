@@ -110,7 +110,7 @@ impl ClientActor {
         node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
-        telemtetry_actor: Addr<TelemetryActor>,
+        telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
@@ -128,7 +128,7 @@ impl ClientActor {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
 
-        let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
+        let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
 
         Ok(ClientActor {
             config,
