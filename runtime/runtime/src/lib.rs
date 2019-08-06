@@ -31,29 +31,28 @@ use near_store::{
     total_account_storage, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
-use wasm::executor;
-use wasm::types::{ReturnData, RuntimeContext};
 
 use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
-use crate::ext::RuntimeExt;
+use crate::ext2::RuntimeExt;
 pub use crate::store::StateRecord;
 use crate::system::{
     system_create_account, system_delete_account, SYSTEM_METHOD_CREATE_ACCOUNT,
     SYSTEM_METHOD_DELETE_ACCOUNT,
 };
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::{Config, ReturnData, VMContext};
 
 pub mod adapter;
+pub mod cache;
 pub mod config;
 pub mod ethereum;
-pub mod ext;
 pub mod ext2;
 pub mod state_viewer;
 mod store;
 mod system;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
-pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
@@ -352,36 +351,46 @@ impl Runtime {
                 let res = CallbackResult::new(callback_info.clone(), Some(vec![]));
                 Some(res)
             }
-            ReturnData::Promise(PromiseId::Callback(id)) => {
-                let callback = runtime_ext.callbacks.get_mut(&id).expect("callback must exist");
-                if callback.callback.is_some() {
-                    unreachable!("callback already has a callback");
-                } else {
-                    callback.callback = Some(callback_info.clone());
-                }
-                None
-            }
-            ReturnData::Promise(PromiseId::Receipt(id)) => {
-                let receipt = runtime_ext.receipts.get_mut(&id).expect("receipt must exist");
-                match receipt.body {
-                    ReceiptBody::NewCall(ref mut call) => {
-                        if call.callback.is_some() {
-                            return Err(
-                                "don't return original promise that already has a callback"
-                                    .to_string(),
-                            );
+            ReturnData::ReceiptIndex(receipt_idx) => {
+                match runtime_ext
+                    .receipt_idx_to_promise_id
+                    .get(&receipt_idx)
+                    .expect("Expected receipt index to correspond to something")
+                {
+                    PromiseId::Callback(id) => {
+                        let callback =
+                            runtime_ext.callbacks.get_mut(id).expect("callback must exist");
+                        if callback.callback.is_some() {
+                            unreachable!("callback already has a callback");
                         } else {
-                            call.callback = Some(callback_info.clone());
+                            callback.callback = Some(callback_info.clone());
                         }
+                        None
                     }
-                    _ => unreachable!("receipt body is not a new call"),
+                    PromiseId::Receipt(id) => {
+                        let receipt = runtime_ext.receipts.get_mut(id).expect("receipt must exist");
+                        match receipt.body {
+                            ReceiptBody::NewCall(ref mut call) => {
+                                if call.callback.is_some() {
+                                    return Err(
+                                        "don't return original promise that already has a callback"
+                                            .to_string(),
+                                    );
+                                } else {
+                                    call.callback = Some(callback_info.clone());
+                                }
+                            }
+                            _ => unreachable!("receipt body is not a new call"),
+                        }
+                        None
+                    }
+                    PromiseId::Joiner(_) => {
+                        return Err(
+                            "don't return a joined promise (using promise_and or Promise.all)"
+                                .to_string(),
+                        )
+                    }
                 }
-                None
-            }
-            ReturnData::Promise(PromiseId::Joiner(_)) => {
-                return Err(
-                    "don't return a joined promise (using promise_and or Promise.all)".to_string()
-                )
             }
         };
         let mut receipts = runtime_ext.get_receipts();
@@ -411,7 +420,7 @@ impl Runtime {
                 format!("cannot find contract code for account {}", receiver_id.clone())
             })
         };
-        wasm::cache::get_code_with_cache(code_hash, code)
+        crate::cache::get_code_with_cache(code_hash, code)
     }
 
     fn apply_async_call(
@@ -438,44 +447,47 @@ impl Runtime {
                 &async_call.originator_id,
                 &async_call.public_key,
             );
-            let mut wasm_res = executor::execute(
-                &code,
+
+            let context = VMContext {
+                current_account_id: receiver_id.clone(),
+                signer_account_id: sender_id.clone(),
+                signer_account_pk: vec![],
+                predecessor_account_id: sender_id.clone(),
+                input: async_call.args.clone(),
+                block_index,
+                account_balance: receiver.amount,
+                attached_deposit: async_call.amount,
+                prepaid_gas: 10u64.pow(12), // Just use a large value for now.
+                random_seed: nonce.as_ref().to_vec(),
+                free_of_charge: false,
+            };
+
+            let result = near_vm_runner::run(
+                code.hash.as_ref().to_vec(),
+                &code.code,
                 &async_call.method_name,
-                &async_call.args,
-                &[],
                 &mut runtime_ext,
-                &wasm::types::Config::default(),
-                &RuntimeContext::new(
-                    receiver.amount,
-                    async_call.amount,
-                    sender_id,
-                    receiver_id,
-                    receiver.storage_usage,
-                    block_index,
-                    nonce.as_ref().to_vec(),
-                    false,
-                    &async_call.originator_id,
-                    &async_call.public_key,
-                ),
+                context,
+                &Config::default(),
+                &[],
             )
-            .map_err(|e| format!("wasm async call preparation failed with error: {:?}", e))?;
-            transaction_result.logs.append(&mut wasm_res.logs);
-            let balance = wasm_res.frozen_balance;
-            *leftover_balance = wasm_res.liquid_balance;
-            let storage_usage = wasm_res.storage_usage;
-            let return_data = wasm_res
-                .return_data
-                .map_err(|e| format!("wasm async call execution failed with error: {:?}", e))?;
-            transaction_result.result = return_data.to_result();
+            .map_err(|err| format!("Wasm failed with error: {:?}", err))?;
+            transaction_result.logs.extend(result.logs.clone());
+            let balance = result.balance;
+            let return_value = match &result.return_data {
+                ReturnData::Value(v) => v.clone(),
+                _ => vec![],
+            };
+            transaction_result.result = Some(return_value);
             Self::return_data_to_receipts(
                 &mut runtime_ext,
-                return_data,
+                result.return_data,
                 &async_call.callback,
                 receiver_id,
             )
             .and_then(|receipts| {
                 receiver.amount = balance;
-                receiver.storage_usage = storage_usage;
+                receiver.storage_usage = 0; // Put actual storage usage here.
                 Ok(receipts)
             })
         };
@@ -516,52 +528,61 @@ impl Runtime {
                         &callback.public_key,
                     );
 
+                    let callback_results: Vec<_> = callback
+                        .results
+                        .iter()
+                        .map(|res| match res {
+                            Some(res) => PromiseResult::Successful(res.clone()),
+                            None => PromiseResult::Failed,
+                        })
+                        .collect();
+
                     *refund_account = callback.refund_account.clone();
                     needs_removal = true;
-                    executor::execute(
-                        &code,
+
+                    let context = VMContext {
+                        current_account_id: receiver_id.clone(),
+                        signer_account_id: sender_id.clone(),
+                        signer_account_pk: vec![],
+                        predecessor_account_id: sender_id.clone(),
+                        input: callback.args.clone(),
+                        block_index,
+                        account_balance: receiver.amount,
+                        attached_deposit: callback.amount,
+                        prepaid_gas: 10u64.pow(12), // Just use a large value for now.
+                        random_seed: nonce.as_ref().to_vec(),
+                        free_of_charge: false,
+                    };
+
+                    near_vm_runner::run(
+                        code.hash.as_ref().to_vec(),
+                        &code.code,
                         &callback.method_name,
-                        &callback.args,
-                        &callback.results,
                         &mut runtime_ext,
-                        &wasm::types::Config::default(),
-                        &RuntimeContext::new(
-                            receiver.amount,
-                            callback.amount,
-                            sender_id,
-                            receiver_id,
-                            receiver.storage_usage,
-                            block_index,
-                            nonce.as_ref().to_vec(),
-                            false,
-                            &callback.originator_id,
-                            &callback.public_key,
-                        ),
+                        context,
+                        &Config::default(),
+                        &callback_results,
                     )
                     .map_err(|e| format!("wasm callback execution failed with error: {:?}", e))
-                    .and_then(|mut res| {
-                        transaction_result.logs.append(&mut res.logs);
-                        let balance = res.frozen_balance;
-                        *leftover_balance = res.liquid_balance;
-                        let storage_usage = res.storage_usage;
-                        res.return_data
-                            .map_err(|e| {
-                                format!("wasm callback execution failed with error: {:?}", e)
-                            })
-                            .and_then(|data| {
-                                transaction_result.result = data.to_result();
-                                Self::return_data_to_receipts(
-                                    &mut runtime_ext,
-                                    data,
-                                    &callback.callback,
-                                    receiver_id,
-                                )
-                            })
-                            .and_then(|receipts| {
-                                receiver.amount = balance;
-                                receiver.storage_usage = storage_usage;
-                                Ok(receipts)
-                            })
+                    .and_then(|mut result| {
+                        transaction_result.logs.append(&mut result.logs);
+                        let balance = result.balance;
+                        let return_value = match &result.return_data {
+                            ReturnData::Value(v) => v.clone(),
+                            _ => vec![],
+                        };
+                        transaction_result.result = Some(return_value);
+                        Self::return_data_to_receipts(
+                            &mut runtime_ext,
+                            result.return_data,
+                            &callback.callback,
+                            receiver_id,
+                        )
+                        .and_then(|receipts| {
+                            receiver.amount = balance;
+                            receiver.storage_usage = 0; // Put actual storage usage here.
+                            Ok(receipts)
+                        })
                     })
                 } else {
                     // otherwise no receipt is generated

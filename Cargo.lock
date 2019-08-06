@@ -1895,11 +1895,6 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "memory_units"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "mime"
 version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2294,7 +2289,6 @@ dependencies = [
  "reqwest 0.9.18 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "testlib 0.1.0",
- "wasm 0.0.2",
 ]
 
 [[package]]
@@ -2326,6 +2320,7 @@ dependencies = [
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 1.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cached 0.8.0 (git+https://github.com/nearprotocol/cached?rev=7e472eddef68607e344d5a106a0e6705d92e55be)",
  "ethash 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-bigint 0.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-block 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2338,6 +2333,7 @@ dependencies = [
  "near-store 0.1.0",
  "near-verifier 0.1.0",
  "near-vm-logic 0.2.0",
+ "near-vm-runner 0.2.0",
  "protobuf 2.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2346,7 +2342,6 @@ dependencies = [
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "testlib 0.1.0",
- "wasm 0.0.2",
 ]
 
 [[package]]
@@ -3086,17 +3081,6 @@ dependencies = [
  "spin 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "untrusted 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "runtest"
-version = "0.0.1"
-dependencies = [
- "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-primitives 0.1.0",
- "testlib 0.1.0",
- "wabt 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasm 0.0.2",
 ]
 
 [[package]]
@@ -3958,25 +3942,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm"
-version = "0.0.2"
-dependencies = [
- "assert_matches 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "byteorder 1.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "cached 0.8.0 (git+https://github.com/nearprotocol/cached?rev=7e472eddef68607e344d5a106a0e6705d92e55be)",
- "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-primitives 0.1.0",
- "parity-wasm 0.31.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "pwasm-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
- "wabt 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmer-runtime 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmi 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "wasmer-clif-backend"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4096,24 +4061,6 @@ dependencies = [
  "regex 1.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "wasmer-runtime-core 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "wasmi"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "memory_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "parity-wasm 0.31.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "wasmi-validation 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "wasmi-validation"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "parity-wasm 0.31.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -4453,7 +4400,6 @@ dependencies = [
 "checksum memmap 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e2ffa2c986de11a9df78620c01eeaaf27d94d3ff02bf81bfcca953102dd0c6ff"
 "checksum memmap 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6585fd95e7bb50d6cc31e20d4cf9afb4e2ba16c5846fc76793f11218da9c475b"
 "checksum memoffset 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0f9dc261e2b62d7a622bf416ea3c5245cdd5d9a7fcc428c0d06804dfce1775b3"
-"checksum memory_units 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "71d96e3f3c0b6325d8ccd83c33b28acb183edcb6c67938ba104ec546854b0882"
 "checksum mime 0.3.13 (registry+https://github.com/rust-lang/crates.io-index)" = "3e27ca21f40a310bd06d9031785f4801710d566c184a6e15bad4f1d9b65f9425"
 "checksum mime_guess 2.0.0-alpha.6 (registry+https://github.com/rust-lang/crates.io-index)" = "30de2e4613efcba1ec63d8133f344076952090c122992a903359be5a4f99c3ed"
 "checksum miniz-sys 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "1e9e3ae51cea1576ceba0dde3d484d30e6e5b86dee0b2d412fe3a16a15c98202"
@@ -4642,8 +4588,6 @@ dependencies = [
 "checksum wasmer-runtime-core 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)" = "d30c14f40307c9d3ae3463d5ec032f2b2a91a201765214230cf2dfe69dcc51b6"
 "checksum wasmer-singlepass-backend 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)" = "50e0b35ebe30f48211ff7838d601703a925047bdd9059699b25b8b13696689af"
 "checksum wasmer-win-exception-handler 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)" = "1a3d203dd73423e9b7fd16b02f24b6e57894329fe3c9d8e28701b66bfadb56a8"
-"checksum wasmi 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "aebbaef470840d157a5c47c8c49f024da7b1b80e90ff729ca982b2b80447e78b"
-"checksum wasmi-validation 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ab380192444b3e8522ae79c0a1976e42a82920916ccdfbce3def89f456ea33f3"
 "checksum wasmparser 0.32.1 (registry+https://github.com/rust-lang/crates.io-index)" = "22d1801de30f112ddaf665291097694ee33a36d1cb414b53a921d05b3519674a"
 "checksum webpki 0.19.1 (registry+https://github.com/rust-lang/crates.io-index)" = "4f7e1cd7900a3a6b65a3e8780c51a3e6b59c0e2c55c6dc69578c288d69f7d082"
 "checksum webpki-roots 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c10fa4212003ba19a564f25cd8ab572c6791f99a03cc219c13ed35ccab00de0e"

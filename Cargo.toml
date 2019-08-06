@@ -13,8 +13,6 @@ members = [
     "core/primitives",
     "core/store",
     "runtime/runtime",
-    "runtime/wasm",
-    "runtime/wasm/runtest",
     "runtime/near-vm-logic",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
@@ -48,7 +46,6 @@ near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 
 node-runtime = { path = "./runtime/runtime" }
-wasm = { path = "./runtime/wasm" }
 
 near-jsonrpc = { path = "./chain/jsonrpc" }
 near-network = { path = "./chain/network" }

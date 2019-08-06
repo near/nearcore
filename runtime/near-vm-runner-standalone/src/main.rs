@@ -11,8 +11,6 @@ use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{Config, VMContext};
 use near_vm_runner::run;
 use std::fs;
-use std::fs::File;
-use std::io::BufReader;
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -83,9 +81,8 @@ fn main() {
         Some(value) => serde_json::from_str(value).unwrap(),
         None => match matches.value_of("context-file") {
             Some(filepath) => {
-                let f = File::open(filepath).unwrap();
-                let reader = BufReader::new(f);
-                serde_json::from_reader(reader).unwrap()
+                let data = fs::read(&filepath).unwrap();
+                serde_json::from_slice(&data).unwrap()
             }
             None => panic!("Context should be specified."),
         },
@@ -111,9 +108,8 @@ fn main() {
         Some(value) => serde_json::from_str(value).unwrap(),
         None => match matches.value_of("config-file") {
             Some(filepath) => {
-                let f = File::open(filepath).unwrap();
-                let reader = BufReader::new(f);
-                serde_json::from_reader(reader).unwrap()
+                let data = fs::read(&filepath).unwrap();
+                serde_json::from_slice(&data).unwrap()
             }
             None => panic!("Config should be specified."),
         },

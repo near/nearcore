@@ -1004,6 +1004,7 @@ impl<'a> VMLogic<'a> {
     /// Computes the outcome of execution.
     pub fn outcome(self) -> VMOutcome {
         VMOutcome {
+            balance: self.current_account_balance,
             return_data: self.return_data,
             burnt_gas: self.burnt_gas,
             used_gas: self.used_gas,
@@ -1014,6 +1015,7 @@ impl<'a> VMLogic<'a> {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct VMOutcome {
+    pub balance: Balance,
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,

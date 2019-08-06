@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
 use std::sync::{Arc, Mutex};
 
-use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{Callback, ReceiptTransaction};
-use near_primitives::types::{AccountId, CallbackId, Nonce, ReceiptId};
+use near_primitives::transaction::{
+    AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
+};
+use near_primitives::types::{AccountId, CallbackId, Nonce, PromiseId, ReceiptId};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
 use near_vm_logic::{External, ExternalError};
@@ -29,6 +30,9 @@ pub struct RuntimeExt<'a> {
     ethash_provider: Arc<Mutex<EthashProvider>>,
     originator_id: &'a AccountId,
     public_key: &'a PublicKey,
+
+    // A temporary hack to make new bindings work with old `runtime` crate.
+    pub receipt_idx_to_promise_id: HashMap<u64, PromiseId>,
 }
 
 impl<'a> RuntimeExt<'a> {
@@ -55,6 +59,7 @@ impl<'a> RuntimeExt<'a> {
             ethash_provider,
             originator_id,
             public_key,
+            receipt_idx_to_promise_id: HashMap::new(),
         }
     }
 
@@ -102,7 +107,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool, ExternalError> {
-        unimplemented!()
+        Ok(self.storage_get(key)?.is_some())
     }
 
     fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64, ExternalError> {
@@ -164,9 +169,83 @@ impl<'a> External for RuntimeExt<'a> {
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         amount: u128,
-        gas: u64,
+        _gas: u64,
     ) -> Result<u64, ExternalError> {
-        unimplemented!()
+        // TODO: This code should be replaced according to https://github.com/nearprotocol/NEPs/pull/8
+        // Currently we only make this code compatible with the old runtime crate.
+        if receipt_indices.is_empty() {
+            // The case of old `promise_create`.
+            let nonce = self.create_nonce();
+            let receipt = ReceiptTransaction::new(
+                self.account_id.clone(),
+                account_id,
+                nonce,
+                ReceiptBody::NewCall(AsyncCall::new(
+                    method_name,
+                    arguments,
+                    amount,
+                    self.refund_account_id.clone(),
+                    self.originator_id.clone(),
+                    self.public_key.clone(),
+                )),
+            );
+            let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
+            self.receipts.insert(nonce.as_ref().to_vec(), receipt);
+            let new_receipt_idx = self.receipt_idx_to_promise_id.len() as u64;
+            self.receipt_idx_to_promise_id.insert(new_receipt_idx, promise_id);
+            Ok(new_receipt_idx)
+        } else {
+            // The case of old `promise_then`, i.e. callback.
+            let callback_id = self.create_nonce();
+            let receipt_ids: Vec<_> = receipt_indices
+                .iter()
+                .map(|idx| {
+                    if let PromiseId::Receipt(r) = &self.receipt_idx_to_promise_id[idx] {
+                        r.clone()
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .collect();
+            let mut callback = Callback::new(
+                method_name,
+                arguments,
+                amount,
+                self.refund_account_id.clone(),
+                self.originator_id.clone(),
+                self.public_key.clone(),
+            );
+            callback.results.resize(receipt_ids.len(), None);
+            for (index, receipt_id) in receipt_ids.iter().enumerate() {
+                let receipt = match self.receipts.get_mut(receipt_id) {
+                    Some(r) => r,
+                    _ => return Err(ExternalError::InvalidReceiptIndex),
+                };
+                match receipt.body {
+                    ReceiptBody::NewCall(ref mut async_call) => {
+                        let callback_info = CallbackInfo::new(
+                            callback_id.as_ref().to_vec(),
+                            index,
+                            self.account_id.clone(),
+                        );
+                        match async_call.callback {
+                            Some(_) => return Err(ExternalError::InvalidReceiptIndex),
+                            None => {
+                                async_call.callback = Some(callback_info);
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(ExternalError::InvalidReceiptIndex);
+                    }
+                }
+            }
+            self.callbacks.insert(callback_id.as_ref().to_vec(), callback);
+            let new_receipt_idx = self.receipt_idx_to_promise_id.len() as u64;
+            self.receipt_idx_to_promise_id
+                .insert(new_receipt_idx, PromiseId::Callback(callback_id.as_ref().to_vec()));
+            Ok(new_receipt_idx)
+        }
     }
 
     fn storage_usage(&self) -> u64 {

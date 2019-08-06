@@ -3,6 +3,7 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::ext2::RuntimeExt;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
@@ -10,13 +11,10 @@ use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_store::{get_access_key, get_account, TrieUpdate};
-use wasm::executor;
-use wasm::types::{ReturnData, RuntimeContext};
+use near_vm_logic::{Config, ReturnData, VMContext};
 
 use crate::ethereum::EthashProvider;
 use crate::Runtime;
-
-use super::RuntimeExt;
 
 pub struct TrieViewer {
     ethash_provider: Arc<Mutex<EthashProvider>>,
@@ -118,25 +116,29 @@ impl TrieViewer {
                     originator_id,
                     &public_key,
                 );
-                executor::execute(
-                    &code,
+
+                let context = VMContext {
+                    current_account_id: contract_id.clone(),
+                    signer_account_id: originator_id.clone(),
+                    signer_account_pk: public_key.as_ref().to_vec(),
+                    predecessor_account_id: originator_id.clone(),
+                    input: args.to_owned(),
+                    block_index,
+                    account_balance: account.amount,
+                    attached_deposit: 0,
+                    prepaid_gas: 0,
+                    random_seed: root.as_ref().into(),
+                    free_of_charge: true,
+                };
+
+                near_vm_runner::run(
+                    code.hash.as_ref().to_vec(),
+                    &code.code,
                     method_name.as_bytes(),
-                    &args.to_owned(),
-                    &[],
                     &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                    &RuntimeContext::new(
-                        account.amount,
-                        0,
-                        originator_id,
-                        contract_id,
-                        0,
-                        block_index,
-                        root.as_ref().into(),
-                        true,
-                        originator_id,
-                        &public_key,
-                    ),
+                    context,
+                    &Config::default(),
+                    &[],
                 )
             }
             None => return Err(format!("contract {} does not exist", contract_id).into()),
@@ -149,25 +151,15 @@ impl TrieViewer {
             Ok(res) => {
                 debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, res);
                 logs.extend(res.logs);
-                match res.return_data {
-                    Ok(return_data) => {
-                        let trie_update = state_update.finalize()?;
-                        if trie_update.new_root != root {
-                            return Err("function call for viewing tried to change storage".into());
-                        }
-                        let mut result = vec![];
-                        if let ReturnData::Value(buf) = return_data {
-                            result.extend(&buf);
-                        }
-                        Ok(result)
-                    }
-                    Err(e) => {
-                        let message =
-                            format!("wasm view call execution failed with error: {:?}", e);
-                        debug!(target: "runtime", "{}", message);
-                        Err(message.into())
-                    }
+                let trie_update = state_update.finalize()?;
+                if trie_update.new_root != root {
+                    return Err("function call for viewing tried to change storage".into());
                 }
+                let mut result = vec![];
+                if let ReturnData::Value(buf) = &res.return_data {
+                    result = buf.clone();
+                }
+                Ok(result)
             }
             Err(e) => {
                 let message = format!("wasm execution failed with error: {:?}", e);
