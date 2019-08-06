@@ -88,11 +88,11 @@ message PeerMessage {
         BlockHeader block_header_announce = 6;
         bytes block_request = 7;
         Block block = 8;
-        SignedTransaction transaction = 9;
-        StateRequest state_request = 10;
-        StateResponse state_response = 11;
-        AnnounceAccount announce_account = 12;
-        RoutedMessage routed_message = 13;
+        SignedTransaction transaction = 10;
+        StateRequest state_request = 11;
+        StateResponse state_response = 12;
+        AnnounceAccount announce_account = 13;
+        RoutedMessage routed_message = 14;
     }
 }
 

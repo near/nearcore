@@ -551,12 +551,16 @@ impl PeerManagerActor {
         }
     }
 
-    // TODO(MarX): Protos order
     // TODO(MarX): Avoid messaging to itself in client
     // TODO(MarX): Don't store route to itself in Routing Table
     // TODO(MarX): Accept routes from shorter suffix.
     // TODO(MarX): Don't send route if it contains the peer we are sending it.
     // TODO(MarX): For debugging Routing Table use PeerManager StatusInfoMessage
+    // TODO(MarX): Add tests for routing.
+    // Handle number of direct connections to make tests more reliable. Count number of routed messages
+    // and track them.
+    // Send tx to one node which is not currently a validator and to another node which is currently
+    // a validator.
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
         let hash = msg.body.hash();
         let signature = sign(hash.as_ref(), &self.config.secret_key);
