@@ -34,6 +34,14 @@ def local_init(home_dir, is_release, init_flags):
         '--home=%s' % home_dir, 'init'] + init_flags)
 
 
+"""Retrieve requested chain id from the flags."""
+def get_chain_id_from_flags(flags):
+    chain_id_flags = [flag for flag in flags if flag.startswith('--chain-id=')]
+    if len(chain_id_flags) == 1:
+        return chain_id_flags[0][len('--chain-id='):]
+    return ''
+
+
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
 def check_and_setup(is_local, is_release, image, home_dir, init_flags):
     if is_local:
@@ -48,12 +56,24 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
             print("Compilation failed, aborting")
             exit(code)
 
+    chain_id = get_chain_id_from_flags(init_flags)
     if os.path.exists(os.path.join(home_dir, 'config.json')):
+        print("")
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
-        if genesis_config['chain_id'] != 'testnet':
-            print("Folder %s already has network configuration for %s, which is not the official TestNet." % (home_dir, genesis_config['chain_id']))
+        print(chain_id)
+        if chain_id !='' and genesis_config['chain_id'] != chain_id:
+            if chain_id == 'testnet':
+                print("Folder %s already has network configuration for %s, which is not the official TestNet.\n"
+                      "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
+                      "If you want to run a different network, either specify different --home or remove %s to start from scratch." % (home_dir, genesis_config['chain_id'], home_dir))
+            elif genesis_config['chain_id'] == 'testnet':
+                print("Folder %s already has network configuration for the official TestNet.\n"
+                      "Use ./scripts/start_testnet.py instead to keep running it.\n"
+                      "If you want to run a different network, either specify different --home or remove %s to start from scratch" % (home_dir, home_dir))
+            elif chain_id != '':
+                print("Folder %s already has network configuration for %s. Use ./scripts/start_localnet.py to continue running it." % (home_dir, genesis_config['chain_id']))
             exit(1)
-        print("Using existing node configuration: %s" % home_dir)
+        print("Using existing node configuration from %s for %s" % (home_dir, genesis_config['chain_id']))
         return
 
     print("Setting up network configuration.")
@@ -82,7 +102,7 @@ def print_staking_key(home_dir):
 def docker_stop_if_exists(name):
     try:
         result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
-        if name in result:
+        if name.encode('utf-8') in result:
             subprocess.check_output(['docker', 'stop', name])
             subprocess.check_output(['docker', 'rm', name])
     except subprocess.CalledProcessError:
@@ -126,7 +146,10 @@ def run_local(home_dir, is_release, boot_nodes, verbose):
         cmd.append('--verbose')
     cmd.append('run')
     cmd.extend(['--boot-nodes=%s' % boot_nodes])
-    subprocess.call(cmd)
+    try:
+        subprocess.call(cmd)
+    except KeyboardInterrupt:
+        print("\nStopping NEARCore.")
 
 
 def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
