@@ -199,8 +199,7 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result =
-            viewer.call_function(root, 1, &alice_account(), "run_test", &vec![], &mut logs);
+        let result = viewer.call_function(root, 1, &alice_account(), "run_test", &[], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -210,14 +209,8 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(
-            root,
-            1,
-            &"bad!contract".to_string(),
-            "run_test",
-            &vec![],
-            &mut logs,
-        );
+        let result =
+            viewer.call_function(root, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
 
         assert!(result.is_err());
     }
@@ -232,7 +225,7 @@ mod tests {
             1,
             &alice_account(),
             "run_test_with_storage_change",
-            &vec![],
+            &[],
             &mut logs,
         );
         // run_test tries to change storage, so it should fail

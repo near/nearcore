@@ -32,8 +32,8 @@ pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
 
 pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
     let mut bytes = key_for_account(account_id);
-    bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
-    bytes.append(&mut data.clone().to_vec());
+    bytes.extend(ACCOUNT_DATA_SEPARATOR);
+    bytes.extend(data);
     bytes
 }
 

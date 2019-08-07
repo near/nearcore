@@ -41,7 +41,7 @@ impl RpcUser {
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        self.query(format!("account/{}", account_id), &vec![])?.try_into()
+        self.query(format!("account/{}", account_id), &[])?.try_into()
     }
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
@@ -104,7 +104,6 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &vec![])?
-            .try_into()
+        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
     }
 }
