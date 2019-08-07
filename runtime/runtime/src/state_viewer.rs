@@ -7,11 +7,8 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
-use near_primitives::serialize::to_str_or_base;
 use near_primitives::types::AccountId;
-use near_primitives::utils::{
-    is_valid_account_id, key_for_account, key_for_data, ACCOUNT_DATA_SEPARATOR,
-};
+use near_primitives::utils::{is_valid_account_id, key_for_account, ACCOUNT_DATA_SEPARATOR};
 use near_store::{get_access_key, get_account, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
@@ -93,26 +90,6 @@ impl TrieViewer {
             }
         });
         Ok(ViewStateResult { values })
-    }
-
-    pub fn view_state_record(
-        &self,
-        state_update: &TrieUpdate,
-        account_id: &AccountId,
-        key: &[u8],
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
-        }
-        match state_update.get(&key_for_data(account_id, key)) {
-            Some(value) => Ok(value.to_vec()),
-            None => Err(format!(
-                "Account '{}' does not have value for '{:?}'",
-                account_id,
-                to_str_or_base(key)
-            )
-            .into()),
-        }
     }
 
     pub fn call_function(
@@ -210,6 +187,7 @@ mod tests {
     use kvdb::DBValue;
     use tempdir::TempDir;
 
+    use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
