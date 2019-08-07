@@ -210,6 +210,11 @@ impl Peer {
             .spawn(ctx);
     }
 
+    fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
+        self.peer_status = PeerStatus::Banned(ban_reason);
+        ctx.stop();
+    }
+
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
@@ -256,8 +261,7 @@ impl Peer {
             }
             PeerMessage::AnnounceAccount(announce_account) => {
                 if announce_account.peer_id() != peer_id {
-                    // Ban peer if tries to impersonate another peer.
-                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidPeerId);
+                    self.ban_peer(ctx, ReasonForBan::InvalidPeerId);
                     return;
                 } else {
                     NetworkClientMessages::AnnounceAccount(announce_account)
@@ -265,7 +269,6 @@ impl Peer {
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => match routed_message.body {
-                // TODO(MarX): If this message is invalid the banned peer should be the original author and not the current sender.
                 RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
                     NetworkClientMessages::BlockApproval(account_id, hash, signature)
                 }
@@ -298,8 +301,7 @@ impl Peer {
                         // TODO: count as malicious behaviour?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
-                        act.peer_status = PeerStatus::Banned(ban_reason);
-                        ctx.stop();
+                        self.ban_peer(ctx, ban_reason);
                     }
                     Ok(NetworkClientResponses::Block(block)) => {
                         act.send_message(PeerMessage::Block(block))

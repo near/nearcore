@@ -899,6 +899,7 @@ pub struct NetworkInfo {
     pub most_weight_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
+    // TODO(MarX): For debugging Routing Table use PeerManager StatusInfoMessage
     // Only send full routes to accounts on demand
     pub routes: Option<RoutingTable>,
 }

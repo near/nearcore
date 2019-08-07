@@ -310,7 +310,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::NoResponse
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
-                    NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
+                    NetworkClientResponses::NoResponse
+
+                    // TODO: The originator of this message is not the immediate sender so we should not ban him.
+                    // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {

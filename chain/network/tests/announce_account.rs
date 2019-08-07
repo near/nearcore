@@ -106,7 +106,7 @@ fn check_account_id_propagation(
                                 if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
                                     res.unwrap()
                                 {
-                                    if routes.unwrap().account_peers.len() == total_nodes {
+                                    if routes.unwrap().account_peers.len() == total_nodes - 1 {
                                         count.fetch_add(1, Ordering::Relaxed);
 
                                         if counters

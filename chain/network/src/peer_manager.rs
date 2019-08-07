@@ -161,7 +161,6 @@ impl RoutingTableEntry {
     }
 }
 
-// TODO(MarX): When we disconnect from a peer (or ban) we should drop its entries in the Routing Table (if any) unregister
 #[derive(Debug, Clone)]
 pub struct RoutingTable {
     pub account_peers: HashMap<AccountId, RoutingTableEntry>,
@@ -209,6 +208,14 @@ impl RoutingTable {
                 );
                 RoutingTableUpdate::NewAccount
             }
+        }
+    }
+
+    /// Remove all routes that contains this peer as the first hop.
+    fn remove(&mut self, peer_id: &PeerId) {
+        for (_, mut value) in self.account_peers.iter_mut() {
+            value.routes =
+                value.routes.drain(..).filter(|route| &route.peer_id() != peer_id).collect();
         }
     }
 
@@ -310,13 +317,15 @@ impl PeerManagerActor {
             return;
         }
         self.active_peers.remove(&peer_id);
+        self.routing_table.remove(&peer_id);
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
-    // TODO(MarX): Should broadcast this with evidence in case of *intentional* misbehaviour.
+    // TODO: Should broadcast this with evidence in case of *intentional* misbehaviour.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {:?}", peer_id);
+        warn!(target: "network", "Banning peer {:?}", peer_id);
         self.active_peers.remove(&peer_id);
+        self.routing_table.remove(&peer_id);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -509,25 +518,61 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
-        // Check that we don't belong to this route. There is a chance that we remove from our routing table
-        // some account id, and after that receive a route to that account id that pass through us.
-        // This avoid accepting such route. Take care of the case when the number of hops is 0, it could
-        // be possible that we are the owner of such account id.
-        if announce_account.num_hops() > 0
-            && announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id)
-        {
-            return;
-        }
-
-        // If this is a new account send an announcement to random set of peers.
-        if self.routing_table.update(announce_account.clone()).is_new() {
-            if announce_account.header().peer_id != self.peer_id {
-                // If this announcement was not sent by this peer, add peer information
-                announce_account.extend(self.peer_id, &self.config.secret_key);
-            }
-
+        // If this is an announcement of our account id.
+        if announce_account.peer_id() == self.peer_id {
+            assert_eq!(announce_account.num_hops(), 0);
             let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
             self.broadcast_message(ctx, msg);
+        } else {
+            // Check that we don't belong to this route. There is a chance that we remove from our routing table
+            // some account id, and after that receive a route to that account id that pass through us.
+            // This avoid accepting such route. Take care of the case when the number of hops is 0, it could
+            // be possible that we are the owner of such account id.
+            if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
+                return;
+            }
+
+            // Use shorter suffix such that we know peer in that suffix.
+            let mut found = false;
+            announce_account.route = announce_account
+                .route
+                .into_iter()
+                .take_while(|x| {
+                    if found {
+                        return false;
+                    } else {
+                        if self.active_peers.contains_key(&x.peer_id) {
+                            found = true;
+                        }
+                        true
+                    }
+                })
+                .collect();
+
+            assert!(self.active_peers.contains_key(&announce_account.peer_id()));
+
+            // If this is a new account send an announcement to random set of peers.
+            if self.routing_table.update(announce_account.clone()).is_new() {
+                let routes: Vec<_> = announce_account.route.iter().map(|hop| hop.peer_id).collect();
+                announce_account.extend(self.peer_id, &self.config.secret_key);
+                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
+
+                // Broadcast announcements to peer that don't belong to this route.
+                let requests: Vec<_> = self
+                    .active_peers
+                    .values()
+                    .filter(|&peer| {
+                        routes.iter().all(|peer_id| peer_id != &peer.full_peer_info.peer_info.id)
+                    })
+                    .map(|peer| peer.addr.send(msg.clone()))
+                    .collect();
+
+                future::join_all(requests)
+                    .into_actor(self)
+                    .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+                    .and_then(|_, _, _| actix::fut::ok(()))
+                    .spawn(ctx);
+            }
         }
     }
 
@@ -551,16 +596,6 @@ impl PeerManagerActor {
         }
     }
 
-    // TODO(MarX): Avoid messaging to itself in client
-    // TODO(MarX): Don't store route to itself in Routing Table
-    // TODO(MarX): Accept routes from shorter suffix.
-    // TODO(MarX): Don't send route if it contains the peer we are sending it.
-    // TODO(MarX): For debugging Routing Table use PeerManager StatusInfoMessage
-    // TODO(MarX): Add tests for routing.
-    // Handle number of direct connections to make tests more reliable. Count number of routed messages
-    // and track them.
-    // Send tx to one node which is not currently a validator and to another node which is currently
-    // a validator.
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
         let hash = msg.body.hash();
         let signature = sign(hash.as_ref(), &self.config.secret_key);
