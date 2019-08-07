@@ -41,6 +41,7 @@ pub trait ViewRuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
+        prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>>;
 }
 
@@ -76,7 +77,7 @@ pub fn query_client(
                 Err(err) => Ok(QueryResponse::Error(QueryError { error: err.to_string(), logs })),
             }
         }
-        "contract" => match adapter.view_state(state_root, &AccountId::from(path_parts[1])) {
+        "contract" => match adapter.view_state(state_root, &AccountId::from(path_parts[1]), data) {
             Ok(result) => Ok(QueryResponse::ViewState(result)),
             Err(err) => {
                 Ok(QueryResponse::Error(QueryError { error: err.to_string(), logs: vec![] }))

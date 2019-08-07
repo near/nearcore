@@ -11,6 +11,8 @@ use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
 
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
     pub const CALLBACK: &[u8] = &[1];
@@ -26,6 +28,13 @@ fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> 
 
 pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::ACCOUNT, account_key)
+}
+
+pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
+    let mut bytes = key_for_account(account_id);
+    bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    bytes.append(&mut data.clone().to_vec());
+    bytes
 }
 
 pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {

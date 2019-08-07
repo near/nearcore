@@ -25,7 +25,7 @@ pub trait User {
         Ok(self.view_account(account_id)?.amount)
     }
 
-    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String>;
+    fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
 

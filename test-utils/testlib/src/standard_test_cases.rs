@@ -428,7 +428,7 @@ pub fn test_callback(node: RuntimeNode) {
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Completed);
     let callback: Option<Callback> = node_user
-        .view_state(account_id)
+        .view_state(account_id, b"")
         .unwrap()
         .values
         .get(&key_for_callback(&callback_id))
@@ -477,7 +477,7 @@ pub fn test_callback_failure(node: RuntimeNode) {
     let transaction_result = node_user.get_transaction_result(&hash);
     assert_eq!(transaction_result.status, TransactionStatus::Failed);
     let callback: Option<Callback> = node_user
-        .view_state(account_id)
+        .view_state(account_id, b"")
         .unwrap()
         .values
         .get(&key_for_callback(&callback_id))
