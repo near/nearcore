@@ -518,12 +518,12 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage {
-                        message: PeerMessage::StateRequest(shard_id, hash),
-                    });
-                }
+            NetworkRequests::StateRequest { shard_id, hash, account_id } => {
+                self.send_message_to_account(
+                    ctx,
+                    account_id,
+                    SendMessage { message: PeerMessage::StateRequest(shard_id, hash) },
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {

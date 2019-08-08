@@ -324,15 +324,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        // figure out if this block is the first block of an epoch
-        let first_block_of_the_epoch = self.is_next_block_epoch_start(parent_hash).unwrap();
-
-        // If it is the first block of the epoch, Nightshade runtime can't infer the next validator set
-        //    emulate that behavior
-        if first_block_of_the_epoch {
-            return false;
-        }
-
         let validators = &self.validators
             [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
@@ -584,10 +575,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             self.amounts.write().unwrap().insert(state_root, amt);
         }
         if let Some(txn) = txn {
-            self.amounts.write().unwrap().insert(state_root, txn);
+            self.tx_nonces.write().unwrap().insert(state_root, txn);
         }
         if let Some(rcn) = rcn {
-            self.amounts.write().unwrap().insert(state_root, rcn);
+            self.receipt_nonces.write().unwrap().insert(state_root, rcn);
         }
         Ok(())
     }

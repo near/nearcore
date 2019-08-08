@@ -166,7 +166,6 @@ impl ClientActor {
         &self,
         announce_account: &AnnounceAccount,
     ) -> Result<(), ReasonForBan> {
-        debug!(target: "client", "Received account announce: {:?}", announce_account);
         // Check header is correct.
         let header_hash = announce_account.header_hash();
         let header = announce_account.header();
@@ -1376,7 +1375,7 @@ impl ClientActor {
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,
-                &self.network_info.most_weight_peers,
+                &self.runtime_adapter,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}
@@ -1499,7 +1498,7 @@ impl ClientActor {
                         sync_hash,
                         &mut new_shard_sync,
                         &mut self.chain,
-                        &self.network_info.most_weight_peers,
+                        &self.runtime_adapter,
                         // TODO: add tracking shards here.
                         vec![0],
                     )) {
