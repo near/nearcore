@@ -2098,6 +2098,7 @@ dependencies = [
 name = "near-epoch-manager"
 version = "0.0.1"
 dependencies = [
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-chain 0.1.0",
  "near-primitives 0.1.0",
  "near-store 0.1.0",

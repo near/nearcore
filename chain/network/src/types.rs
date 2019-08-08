@@ -955,7 +955,7 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
-    StateRequest { shard_id: ShardId, hash: CryptoHash, peer_id: PeerId },
+    StateRequest { shard_id: ShardId, hash: CryptoHash, account_id: AccountId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account

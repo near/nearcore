@@ -20,6 +20,7 @@ use near_chain::ChainGenesis;
 use futures::future;
 use futures::future::Future;
 use near_network::types::{NetworkInfo, PeerChainInfo};
+use std::collections::HashSet;
 use std::ops::DerefMut;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
@@ -110,6 +111,8 @@ pub fn setup_mock_all_validators(
     //    them at the end of this function
     let mut locked_connectors = connectors.write().unwrap();
 
+    let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
+
     for account_id in validators.iter().flatten().cloned() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
@@ -118,6 +121,7 @@ pub fn setup_mock_all_validators(
         let key_pairs = key_pairs.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = network_mock.clone();
+        let announced_accounts1 = announced_accounts.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let _client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -180,13 +184,12 @@ pub fn setup_mock_all_validators(
                             account_id: their_account_id,
                             part_request,
                         } => {
-                            let peer_id = key_pairs.iter().filter_map(|peer_info| if peer_info.account_id == Some(account_id.to_string()) { Some(peer_info.id) } else { None }).last().unwrap();
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkOnePartRequest(
                                             part_request.clone(),
-                                            peer_id,
+                                            my_key_pair.id,
                                         ),
                                     );
                                 }
@@ -223,9 +226,9 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
-                            for (i, peer_info) in key_pairs.iter().enumerate() {
-                                if peer_info.id == *peer_id {
+                        NetworkRequests::StateRequest { shard_id, hash, account_id: target_account_id } => {
+                            for (i, name) in validators_clone2.iter().flatten().enumerate() {
+                                if name == target_account_id {
                                     let connectors2 = connectors1.clone();
                                     let validators_clone3 = validators_clone2.clone();
                                     actix::spawn(
@@ -257,7 +260,16 @@ pub fn setup_mock_all_validators(
                             }
                         }
                         NetworkRequests::AnnounceAccount(announce_account) => {
-                            println!("LOL {:?}", announce_account);
+                            let mut aa = announced_accounts1.write().unwrap();
+                            let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
+                            if aa.get(&key).is_none() {
+                                aa.insert(key);
+                                for (client, _) in connectors1.write().unwrap().iter() {
+                                    client.do_send(NetworkClientMessages::AnnounceAccount(
+                                        announce_account.clone()
+                                    ))
+                                }
+                            }
                         }
                         _ => {}
                     };

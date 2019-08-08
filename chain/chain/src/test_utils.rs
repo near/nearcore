@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
@@ -8,7 +9,7 @@ use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
-use near_primitives::serialize::{Decode, Encode};
+use near_primitives::serialize::{to_base, Decode, Encode};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::ReceiptBody::NewCall;
@@ -23,8 +24,10 @@ use near_store::test_utils::create_test_store;
 use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
 
 use crate::error::{Error, ErrorKind};
+use crate::store::ChainStoreAccess;
 use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use std::cmp::Ordering;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -231,7 +234,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(AccountId, bool)>, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
@@ -240,7 +243,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         epoch_id: &EpochId,
         height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
@@ -250,7 +253,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_id: &EpochId,
         height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<AccountId, Box<dyn std::error::Error>> {
+    ) -> Result<AccountId, Error> {
         let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -285,11 +288,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         account_id_to_shard_id(account_id, self.num_shards())
     }
 
-    fn get_part_owner(
-        &self,
-        parent_hash: &CryptoHash,
-        part_id: u64,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash)?.1];
         // if we don't use data_parts and total_parts as part of the formula here, the part owner
         //     would not depend on height, and tests wouldn't catch passing wrong height here
@@ -325,15 +324,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         parent_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> bool {
-        // figure out if this block is the first block of an epoch
-        let first_block_of_the_epoch = self.is_next_block_epoch_start(parent_hash).unwrap();
-
-        // If it is the first block of the epoch, Nightshade runtime can't infer the next validator set
-        //    emulate that behavior
-        if first_block_of_the_epoch {
-            return false;
-        }
-
         let validators = &self.validators
             [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
@@ -369,7 +359,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_used: GasUsage,
         _gas_price: Balance,
         _total_supply: Balance,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Error> {
         Ok(())
     }
 
@@ -382,7 +372,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
+    ) -> Result<ApplyTransactionResult, Error> {
         let mut tx_results = vec![];
 
         let mut accounts_mapping =
@@ -585,10 +575,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             self.amounts.write().unwrap().insert(state_root, amt);
         }
         if let Some(txn) = txn {
-            self.amounts.write().unwrap().insert(state_root, txn);
+            self.tx_nonces.write().unwrap().insert(state_root, txn);
         }
         if let Some(rcn) = rcn {
-            self.amounts.write().unwrap().insert(state_root, rcn);
+            self.receipt_nonces.write().unwrap().insert(state_root, rcn);
         }
         Ok(())
     }
@@ -637,4 +627,88 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
     (chain, runtime, signer)
+}
+
+pub fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..6].to_string()
+}
+
+// Displays chain from given store.
+pub fn display_chain(chain: &mut Chain) {
+    let runtime_adapter = chain.runtime_adapter();
+    let chain_store = chain.mut_store();
+    let head = chain_store.head().unwrap();
+    println!("Chain head: {} / {}", head.height, head.last_block_hash);
+    let mut headers = vec![];
+    for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
+        let header = chain_store
+            .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
+            .unwrap()
+            .clone();
+        headers.push(header);
+    }
+    headers.sort_by(|h_left, h_right| {
+        if h_left.height > h_right.height {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        }
+    });
+    for header in headers {
+        if header.prev_hash == CryptoHash::default() {
+            // Genesis block.
+            println!("{: >3} {}", header.height, format_hash(header.hash()));
+        } else {
+            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
+            let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
+            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
+            let block_producer =
+                runtime_adapter.get_block_producer(&epoch_id, header.height).unwrap();
+            println!(
+                "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
+                header.height,
+                format_hash(header.hash()),
+                block_producer,
+                parent_header.height,
+                format_hash(parent_header.hash()),
+                if let Some(block) = &maybe_block {
+                    format!("chunks: {}", block.chunks.len())
+                } else {
+                    "-".to_string()
+                }
+            );
+            if let Some(block) = maybe_block {
+                for chunk_header in block.chunks.iter() {
+                    let chunk_producer = runtime_adapter
+                        .get_chunk_producer(
+                            &epoch_id,
+                            chunk_header.height_created,
+                            chunk_header.shard_id,
+                        )
+                        .unwrap();
+                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
+                        println!(
+                            "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
+                            chunk_header.height_created,
+                            format_hash(chunk_header.chunk_hash().0),
+                            chunk_header.shard_id,
+                            chunk_producer,
+                            chunk.transactions.len(),
+                            chunk.receipts.len()
+                        );
+                    } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
+                    {
+                        println!(
+                            "    {: >3} {} | {} | {: >10} | part = {}",
+                            chunk_header.height_created,
+                            format_hash(chunk_header.chunk_hash().0),
+                            chunk_header.shard_id,
+                            chunk_producer,
+                            chunk_one_part.part_id
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

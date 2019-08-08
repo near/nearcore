@@ -166,7 +166,6 @@ impl ClientActor {
         &self,
         announce_account: &AnnounceAccount,
     ) -> Result<(), ReasonForBan> {
-        debug!(target: "client", "Received account announce: {:?}", announce_account);
         // Check header is correct.
         let header_hash = announce_account.header_hash();
         let header = announce_account.header();
@@ -225,6 +224,9 @@ impl Actor for ClientActor {
         // Start syncing job.
         self.start_sync(ctx);
 
+        // Start catchup job.
+        self.catchup(ctx);
+
         // Start fetching information from network.
         self.fetch_network_info(ctx);
 
@@ -246,7 +248,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         Ok(valid_transaction) => {
                             debug!(
                                 "MOO recording a transaction. I'm {:?}, {}",
-                                self.block_producer.clone().unwrap().account_id,
+                                self.block_producer.as_ref().unwrap().account_id,
                                 shard_id
                             );
                             self.shards_mgr.insert_transaction(shard_id, valid_transaction);
@@ -690,8 +692,11 @@ impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
-        // TODO: remove this
-        assert!(self.network_info.num_active_peers > 0);
+        if self.network_info.num_active_peers == 0 {
+            warn!(target: "client", "No peers: skip account announce");
+            return;
+        }
+
         // Announce AccountId if client is becoming a validator soon.
         let next_epoch_id = unwrap_or_return!(
             self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
@@ -764,9 +769,7 @@ impl ClientActor {
         epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
-        self.runtime_adapter
-            .get_block_producer(epoch_id, height)
-            .map_err(|err| Error::Other(err.to_string()))
+        self.runtime_adapter.get_block_producer(epoch_id, height).map_err(|err| err.into())
     }
 
     fn get_epoch_block_proposers(
@@ -776,7 +779,7 @@ impl ClientActor {
     ) -> Result<Vec<(AccountId, bool)>, Error> {
         self.runtime_adapter
             .get_epoch_block_producers(epoch_id, last_block_hash)
-            .map_err(|err| Error::Other(err.to_string()))
+            .map_err(|err| err.into())
     }
 
     /// Create approval for given block or return none if not a block producer.
@@ -852,7 +855,7 @@ impl ClientActor {
         if head.height != last_height {
             return;
         }
-        debug!(target: "client", "Timeout for {}, current head {}, suggesting to skip", last_height, head.height);
+        debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), last_height, head.height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
         self.handle_scheduling_block_production(
@@ -890,11 +893,8 @@ impl ClientActor {
             Error::ChunkProducer("Called without block producer info.".to_string())
         })?;
 
-        let chunk_proposer = self
-            .runtime_adapter
-            .get_chunk_producer(epoch_id, next_height, shard_id)
-            .map_err(|err| Error::Other(err.to_string()))
-            .unwrap();
+        let chunk_proposer =
+            self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if block_producer.account_id != chunk_proposer {
             debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
             return Ok(());
@@ -1010,15 +1010,10 @@ impl ClientActor {
         }
 
         // Wait until we have all approvals or timeouts per max block production delay.
-        let validators = self
-            .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &prev_hash)
-            .map_err(|err| Error::Other(err.to_string()))?;
+        let validators =
+            self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
         let total_validators = validators.len();
-        let prev_same_bp = self
-            .runtime_adapter
-            .get_block_producer(&head.epoch_id, last_height)
-            .map_err(|err| Error::Other(err.to_string()))?
+        let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, last_height)?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
@@ -1062,7 +1057,7 @@ impl ClientActor {
         let transactions = vec![];
 
         // At this point, the previous epoch hash must be available
-        let epoch_hash = self
+        let epoch_id = self
             .runtime_adapter
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
@@ -1072,7 +1067,7 @@ impl ClientActor {
             &prev_header,
             next_height,
             chunks,
-            epoch_hash,
+            epoch_id,
             transactions,
             self.approvals.drain().collect(),
             self.econ_config.gas_price_adjustment_rate,
@@ -1080,9 +1075,13 @@ impl ClientActor {
             block_producer.signer.clone(),
         );
 
-        let ret = self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into());
-        assert!(ret.is_ok());
-        ret
+        let ret = self.process_block(ctx, block, Provenance::PRODUCED);
+
+        println!("{:?} MADE block", self.block_producer.as_ref().unwrap().account_id);
+        near_chain::test_utils::display_chain(&mut self.chain);
+
+        assert!(ret.is_ok(), format!("{:?}", ret));
+        ret.map_err(|err| err.into())
     }
 
     /// Check if any block with missing chunks is ready to be processed
@@ -1158,7 +1157,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} <- {} at {} from {}", hash, block.header.prev_hash, block.header.height, peer_id);
+        info!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.prev_hash, block.header.height, peer_id);
         let prev_hash = block.header.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -1211,6 +1210,10 @@ impl ClientActor {
         let result = self.chain.process_block_header(&header);
 
         match result {
+            Err(ref e) if e.kind() == near_chain::ErrorKind::EpochOutOfBounds => {
+                // Block header is either invalid or arrived too early. We ignore it.
+                return NetworkClientResponses::NoResponse;
+            }
             Err(ref e) if e.is_bad_data() => {
                 return NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
             }
@@ -1352,7 +1355,7 @@ impl ClientActor {
     }
 
     /// Walks through all the ongoing state syncs for future epochs and processes them
-    fn catchup(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
+    fn run_catchup(&mut self, ctx: &mut Context<ClientActor>) -> Result<(), Error> {
         let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
@@ -1372,7 +1375,7 @@ impl ClientActor {
                 sync_hash,
                 new_shard_sync,
                 &mut self.chain,
-                &self.network_info.most_weight_peers,
+                &self.runtime_adapter,
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
             )? {
                 StateSyncResult::Unchanged => {}
@@ -1383,7 +1386,7 @@ impl ClientActor {
 
                     self.chain.catchup_blocks(
                         me,
-                        sync_hash,
+                        &sync_hash,
                         |block, status, provenance| {
                             accepted_blocks.write().unwrap().push((
                                 block.hash(),
@@ -1409,6 +1412,22 @@ impl ClientActor {
         Ok(())
     }
 
+    /// Runs catchup on repeat, if this client is a validator.
+    fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+        if let Some(_) = self.block_producer {
+            match self.run_catchup(ctx) {
+                Ok(_) => {}
+                Err(err) => {
+                    error!("Error occurred during catchup for some future epoch: {:?}", err)
+                }
+            }
+
+            ctx.run_later(self.config.catchup_step_period, move |act, ctx| {
+                act.catchup(ctx);
+            });
+        }
+    }
+
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
         // Macro to schedule to call this function later if error occurred.
@@ -1422,11 +1441,6 @@ impl ClientActor {
                 return;
             }
         }));
-
-        match self.catchup(ctx) {
-            Ok(_) => {}
-            Err(err) => error!("Error occurred during state sync for some future epoch: {:?}", err),
-        }
 
         let mut wait_period = self.config.sync_step_period;
 
@@ -1484,7 +1498,7 @@ impl ClientActor {
                         sync_hash,
                         &mut new_shard_sync,
                         &mut self.chain,
-                        &self.network_info.most_weight_peers,
+                        &self.runtime_adapter,
                         // TODO: add tracking shards here.
                         vec![0],
                     )) {
@@ -1602,40 +1616,40 @@ impl ClientActor {
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         // TODO: This header is missing, should collect for later? should have better way to verify then.
-        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
+        //        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
 
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
-            Ok(validators) => {
-                let position = validators.iter().position(|x| &(x.0) == account_id);
-                if let Some(idx) = position {
-                    if !validators[idx].1 {
-                        idx
-                    } else {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            Err(err) => {
-                error!(target: "client", "Error: {}", err);
-                return false;
-            }
-        };
-        // Check signature is correct for given validator.
-        if !self.runtime_adapter.verify_validator_signature(
-            &header.epoch_id,
-            account_id,
-            hash.as_ref(),
-            signature,
-        ) {
-            return false;
-        }
-        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
-        self.approvals.insert(position, signature.clone());
+        //        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
+        //            Ok(validators) => {
+        //                let position = validators.iter().position(|x| &(x.0) == account_id);
+        //                if let Some(idx) = position {
+        //                    if !validators[idx].1 {
+        //                        idx
+        //                    } else {
+        //                        return false;
+        //                    }
+        //                } else {
+        //                    return false;
+        //                }
+        //            }
+        //            Err(err) => {
+        //                error!(target: "client", "Error: {}", err);
+        //                return false;
+        //            }
+        //        };
+        //        // Check signature is correct for given validator.
+        //        if !self.runtime_adapter.verify_validator_signature(
+        //            &header.epoch_id,
+        //            account_id,
+        //            hash.as_ref(),
+        //            signature,
+        //        ) {
+        //            return false;
+        //        }
+        //        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
+        //        self.approvals.insert(position, signature.clone());
         true
     }
 }

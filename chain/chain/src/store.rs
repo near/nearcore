@@ -59,6 +59,8 @@ pub trait ChainStoreAccess {
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
     /// Get full chunk.
     fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error>;
+    /// Get chunk one part.
+    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
     /// Get a collection of chunks and chunk_one_parts for a given height
     fn get_chunks_or_one_parts(
         &mut self,
@@ -139,6 +141,10 @@ impl ChainStore {
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
         }
+    }
+
+    pub fn store(&self) -> Arc<Store> {
+        self.store.clone()
     }
 
     pub fn store_update(&mut self) -> ChainStoreUpdate<Self> {
@@ -231,6 +237,24 @@ impl ChainStoreAccess for ChainStore {
             Entry::Vacant(s) => {
                 if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, chunk_hash.as_ref()) {
                     Ok(s.insert(chunk))
+                } else {
+                    Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
+                }
+            }
+        }
+    }
+
+    /// Get Chunk one part.
+    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
+        let chunk_hash = header.chunk_hash();
+        let entry = self.chunk_one_parts.entry(chunk_hash.clone());
+        match entry {
+            Entry::Occupied(s) => Ok(s.into_mut()),
+            Entry::Vacant(s) => {
+                if let Ok(Some(chunk_one_part)) =
+                    self.store.get_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref())
+                {
+                    Ok(s.insert(chunk_one_part))
                 } else {
                     Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
                 }
@@ -626,6 +650,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
     fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
         self.chain_store.get_chunk(header)
+    }
+
+    fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
+        self.chain_store.get_chunk_one_part(header)
     }
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {

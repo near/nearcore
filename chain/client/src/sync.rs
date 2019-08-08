@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
-use near_chain::{Chain, Tip};
+use near_chain::{Chain, RuntimeAdapter, Tip};
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
@@ -14,6 +14,7 @@ use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{ShardSyncStatus, SyncStatus};
+use std::sync::Arc;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 256;
@@ -404,17 +405,12 @@ pub enum StateSyncResult {
 pub struct StateSync {
     network_recipient: Recipient<NetworkRequests>,
 
-    syncing_peers: HashMap<ShardId, FullPeerInfo>,
     prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
 }
 
 impl StateSync {
     pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
-        StateSync {
-            network_recipient,
-            syncing_peers: Default::default(),
-            prev_state_sync: Default::default(),
-        }
+        StateSync { network_recipient, prev_state_sync: Default::default() }
     }
 
     pub fn run(
@@ -422,7 +418,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         new_shard_sync: &mut HashMap<u64, ShardSyncStatus>,
         chain: &mut Chain,
-        most_weight_peers: &Vec<FullPeerInfo>,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
         tracking_shards: Vec<ShardId>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let mut sync_need_restart = HashSet::new();
@@ -436,7 +432,7 @@ impl StateSync {
             return Ok(StateSyncResult::Completed);
         }
 
-        // Check syncing peer connection status.
+        // Check for errors
         let mut all_done = false;
         if !new_shard_sync.is_empty() {
             all_done = true;
@@ -445,20 +441,12 @@ impl StateSync {
                 if let ShardSyncStatus::Error(error) = shard_status {
                     error!(target: "sync", "State sync: shard {} sync failed: {}", shard_id, error);
                     sync_need_restart.insert(*shard_id);
-                } else if let Some(ref peer) = self.syncing_peers.get(shard_id) {
-                    if let ShardSyncStatus::StateDownload { .. } = shard_status {
-                        if !most_weight_peers.contains(peer) {
-                            sync_need_restart.insert(*shard_id);
-                            info!(target: "sync", "State sync: peer connection lost: {:?}, restart shard {}", peer.peer_info.id, shard_id);
-                        }
-                    }
                 }
             }
         }
 
         if all_done {
             self.prev_state_sync.clear();
-            self.syncing_peers.clear();
             debug!("MOO omg it's completed");
             return Ok(StateSyncResult::Completed);
         }
@@ -483,9 +471,8 @@ impl StateSync {
 
             if go || download_timeout {
                 debug!("MOO dling for shard {:?}", shard_id);
-                match self.request_state(shard_id, chain, sync_hash, most_weight_peers) {
-                    Some(peer) => {
-                        self.syncing_peers.insert(shard_id, peer);
+                match self.request_state(shard_id, chain, runtime_adapter, sync_hash) {
+                    Some(_) => {
                         new_shard_sync.insert(
                             shard_id,
                             ShardSyncStatus::StateDownload {
@@ -516,22 +503,36 @@ impl StateSync {
     fn request_state(
         &mut self,
         shard_id: ShardId,
-        _chain: &Chain,
+        chain: &mut Chain,
+        runtime_adapter: &Arc<dyn RuntimeAdapter>,
         hash: CryptoHash,
-        most_weight_peers: &Vec<FullPeerInfo>,
-    ) -> Option<FullPeerInfo> {
-        if let Some(peer) = most_weight_peer(most_weight_peers) {
-            unwrap_or_return!(
-                self.network_recipient.do_send(NetworkRequests::StateRequest {
-                    shard_id,
-                    hash,
-                    peer_id: peer.peer_info.id,
-                }),
-                None
-            );
-            return Some(peer);
+    ) -> Option<()> {
+        let prev_block_hash = unwrap_or_return!(chain.get_block_header(&hash), None).prev_hash;
+        let epoch_hash =
+            unwrap_or_return!(runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash), None);
+        let shard_bps =
+            unwrap_or_return!(runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash), None)
+                .iter()
+                .filter_map(|(account_id, _slashed)| {
+                    if runtime_adapter.cares_about_shard(account_id, &prev_block_hash, shard_id) {
+                        Some(account_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+        if shard_bps.len() == 0 {
+            return None;
         }
-        None
+        unwrap_or_return!(
+            self.network_recipient.do_send(NetworkRequests::StateRequest {
+                shard_id,
+                hash,
+                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+            }),
+            None
+        );
+        Some(())
     }
 }
 

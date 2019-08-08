@@ -57,12 +57,18 @@ pub enum ErrorKind {
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid validator proposals in the block.
+    #[fail(display = "Invalid Validator Proposals")]
+    InvalidValidatorProposals,
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
     /// Validator error.
     #[fail(display = "Validator Error")]
     ValidatorError(String),
+    /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
+    #[fail(display = "Epoch Out Of Bounds")]
+    EpochOutOfBounds,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -110,6 +116,8 @@ impl Error {
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
+            // TODO: can be either way?
+            | ErrorKind::EpochOutOfBounds
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -123,6 +131,7 @@ impl Error {
             | ErrorKind::InvalidStatePayload(_)
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature => true,
         }
     }

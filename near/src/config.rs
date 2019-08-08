@@ -58,8 +58,8 @@ pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DE
 pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
-pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
-pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
 /// Expected number of blocks per year
@@ -244,6 +244,7 @@ impl NearConfig {
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
+                catchup_step_period: Duration::from_millis(100),
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -787,7 +788,6 @@ pub fn load_config(dir: &Path) -> NearConfig {
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
     let mut config = Config::default();
-    config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
     config.consensus.min_block_production_delay =
