@@ -3,8 +3,8 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::types::{EpochConfig, EpochInfo};
-use crate::EpochManager;
 use crate::RewardCalculator;
+use crate::{BlockInfo, EpochManager};
 use near_primitives::hash::{hash, CryptoHash};
 use near_store::test_utils::create_test_store;
 
@@ -116,6 +116,7 @@ pub fn setup_epoch_manager(
     num_seats: usize,
     num_fisherman: usize,
     kickout_threshold: u8,
+    reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
     let config =
@@ -123,9 +124,29 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
+        reward_calculator,
         validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
     )
     .unwrap()
+}
+
+pub fn setup_default_epoch_manager(
+    validators: Vec<(&str, Balance)>,
+    epoch_length: BlockIndex,
+    num_shards: ShardId,
+    num_seats: usize,
+    num_fisherman: usize,
+    kickout_threshold: u8,
+) -> EpochManager {
+    setup_epoch_manager(
+        validators,
+        epoch_length,
+        num_shards,
+        num_seats,
+        num_fisherman,
+        kickout_threshold,
+        default_reward_calculator(),
+    )
 }
 
 pub fn record_block(
@@ -134,11 +155,22 @@ pub fn record_block(
     cur_h: CryptoHash,
     index: BlockIndex,
     proposals: Vec<ValidatorStake>,
+    gas_price: Balance,
+    total_supply: Balance,
 ) {
     epoch_manager
         .record_block_info(
             &cur_h,
-            BlockInfo::new(index, prev_h, proposals, vec![], HashSet::default(), 0),
+            BlockInfo::new(
+                index,
+                prev_h,
+                proposals,
+                vec![],
+                HashSet::default(),
+                0,
+                gas_price,
+                total_supply,
+            ),
             [0; 32],
         )
         .unwrap()

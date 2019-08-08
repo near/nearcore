@@ -108,6 +108,10 @@ impl NightshadeRuntime {
             let account: Option<Account> = get_account(state_update, &account_id);
             if let Some(mut account) = account {
                 if let Some(reward) = validator_reward.get(&account_id) {
+                    println!(
+                        "account {} adding reward {} to stake {}",
+                        account_id, reward, account.stake
+                    );
                     account.stake += *reward;
                 }
 
@@ -401,6 +405,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         let should_update_account = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+            println!(
+                "block index: {}, is next_block_epoch_start {}",
+                block_index,
+                epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+            );
             epoch_manager.is_next_block_epoch_start(prev_block_hash)?
         };
 
@@ -412,7 +421,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 state_root,
                 prev_block_hash,
                 &mut state_update,
-            )?;
+            )
+            .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
         }
         let apply_state = ApplyState {
             root: *state_root,
