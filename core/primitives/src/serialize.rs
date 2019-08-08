@@ -56,13 +56,6 @@ pub fn from_base_buf(s: &str, buffer: &mut Vec<u8>) -> Result<(), Box<dyn std::e
     }
 }
 
-pub fn to_str_or_base(v: &[u8]) -> String {
-    match std::str::from_utf8(v) {
-        Ok(res) => res.to_string(),
-        _ => to_base(v),
-    }
-}
-
 pub trait BaseEncode {
     fn to_base(&self) -> String;
 }
