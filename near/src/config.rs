@@ -25,8 +25,8 @@ use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
-use node_runtime::StateRecord;
 use node_runtime::config::RuntimeConfig;
+use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
-            "protocol_version": 1,
+            "protocol_version": PROTOCOL_VERSION,
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
             "num_block_producers": 1,

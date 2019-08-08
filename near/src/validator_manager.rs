@@ -679,15 +679,6 @@ impl ValidatorManager {
         let validator_idx = validator_assignment.block_producers[block_producer_idx as usize];
         Ok(validator_assignment.validators[validator_idx].clone())
     }
-
-    /// For a given block and a given validator, query whether they are slashed
-    pub fn is_slashed(&mut self, block_hash: &CryptoHash, validator: &AccountId) -> bool {
-        if let Ok(slashed) = self.get_slashed_validators(block_hash) {
-            slashed.contains(validator)
-        } else {
-            false
-        }
-    }
 }
 
 #[cfg(test)]
