@@ -5,7 +5,7 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-actix-web = "1.0.0-rc"
+actix-web = { version = "1.0", features = [ "ssl" ] }
 actix = "0.8.1"
 serde = "1.0"
 serde_derive = "1.0"
