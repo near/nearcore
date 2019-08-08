@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::convert::TryFrom;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -139,15 +139,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let slashed = vm.get_slashed_validators(block_hash)?.clone();
         let validator_assignment = vm.get_validators(*epoch_hash)?;
-        Ok(validator_assignment
-            .block_producers
-            .iter()
-            .map(|index| {
-                let account_id = validator_assignment.validators[*index].account_id.clone();
+        let mut included: HashSet<AccountId> = HashSet::default();
+        let mut result = vec![];
+        for index in validator_assignment.block_producers.iter() {
+            let account_id = validator_assignment.validators[*index].account_id.clone();
+            if !included.contains(&account_id) {
                 let is_slashed = slashed.contains(&account_id);
-                (account_id, is_slashed)
-            })
-            .collect())
+                included.insert(account_id.clone());
+                result.push((account_id, is_slashed));
+            }
+        }
+        Ok(result)
     }
 
     fn get_block_proposer(

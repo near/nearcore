@@ -307,8 +307,6 @@ fn test_validator_join() {
                     let expected = vec![
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
-                        ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
-                        ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
                     if res.unwrap().unwrap().validators == expected {
                         actix::spawn(
