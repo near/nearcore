@@ -367,6 +367,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
         _gas_used: GasUsage,
+        _gas_price: Balance,
+        _total_supply: Balance,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }
@@ -380,8 +382,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-        _gas_price: Balance,
-        _total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>> {
         let mut tx_results = vec![];
 

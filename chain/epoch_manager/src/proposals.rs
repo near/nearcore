@@ -40,6 +40,7 @@ pub fn proposals_to_epoch_info(
     epoch_info: &EpochInfo,
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashSet<AccountId>,
+    validator_reward: HashMap<AccountId, Balance>,
     total_gas_used: GasUsage,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
@@ -49,8 +50,6 @@ pub fn proposals_to_epoch_info(
         if validator_kickout.contains(&p.account_id) {
             stake_change.insert(p.account_id, (0, p.amount));
         } else {
-            // since proposals is ordered by nonce, we always overwrite the
-            // entry with the latest proposal within the epoch
             ordered_proposals.insert(p.account_id.clone(), p);
         }
     }
@@ -63,7 +62,9 @@ pub fn proposals_to_epoch_info(
             }
             Entry::Vacant(e) => {
                 if !validator_kickout.contains(&r.account_id) {
-                    e.insert(r.clone());
+                    let mut proposal = r.clone();
+                    proposal.amount += *validator_reward.get(&r.account_id).unwrap_or(&0);
+                    e.insert(proposal);
                 } else {
                     stake_change.insert(r.account_id.clone(), (0, r.amount));
                 }
@@ -77,16 +78,16 @@ pub fn proposals_to_epoch_info(
     let stakes = ordered_proposals.iter().map(|(_, p)| p.amount).collect::<Vec<_>>();
     let threshold = find_threshold(&stakes, num_seats as u64)?;
     // Remove proposals under threshold.
-    let mut final_proposals = BTreeMap::new();
+    let mut final_proposals = vec![];
     for (account_id, p) in ordered_proposals {
         if p.amount >= threshold {
-            if !stake_change.contains_key(&p.account_id) {
-                stake_change.insert(p.account_id.clone(), (p.amount, 0));
+            if !stake_change.contains_key(&account_id) {
+                stake_change.insert(account_id, (p.amount, 0));
             }
-            final_proposals.insert(account_id, p);
+            final_proposals.push(p);
         } else {
             stake_change
-                .entry(p.account_id)
+                .entry(account_id)
                 .and_modify(|(new_stake, return_stake)| {
                     if *new_stake != 0 {
                         *return_stake += *new_stake;
@@ -99,8 +100,8 @@ pub fn proposals_to_epoch_info(
 
     let (final_proposals, validator_to_index) = final_proposals.into_iter().enumerate().fold(
         (vec![], HashMap::new()),
-        |(mut proposals, mut validator_to_index), (i, (account_id, p))| {
-            validator_to_index.insert(account_id, i);
+        |(mut proposals, mut validator_to_index), (i, p)| {
+            validator_to_index.insert(p.account_id.clone(), i);
             proposals.push(p);
             (proposals, validator_to_index)
         },
@@ -148,6 +149,7 @@ pub fn proposals_to_epoch_info(
         fishermen: vec![],
         stake_change: final_stake_change,
         total_gas_used,
+        validator_reward,
     })
 }
 
@@ -174,7 +176,8 @@ mod tests {
                 &EpochInfo::default(),
                 vec![stake("test1", 1_000_000)],
                 HashSet::new(),
-                0
+                HashMap::default(),
+                0,
             )
             .unwrap(),
             epoch_info(
@@ -183,7 +186,8 @@ mod tests {
                 vec![vec![0], vec![0]],
                 vec![],
                 change_stake(vec![("test1", 1_000_000)]),
-                0
+                0,
+                HashMap::default(),
             )
         );
         assert_eq!(
@@ -204,7 +208,8 @@ mod tests {
                     stake("test3", 1_000_000)
                 ],
                 HashSet::new(),
-                0
+                HashMap::default(),
+                0,
             )
             .unwrap(),
             epoch_info(
@@ -224,7 +229,8 @@ mod tests {
                     ("test2", 1_000_000),
                     ("test3", 1_000_000)
                 ]),
-                0
+                0,
+                HashMap::default(),
             )
         );
     }

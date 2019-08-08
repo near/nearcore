@@ -44,6 +44,8 @@ pub struct EpochInfo {
     pub stake_change: BTreeMap<AccountId, Balance>,
     /// Total gas used in epoch (T-2)
     pub total_gas_used: GasUsage,
+    /// Validator reward for the epoch
+    pub validator_reward: HashMap<AccountId, Balance>,
 }
 
 impl PartialEq for EpochInfo {
@@ -91,6 +93,8 @@ pub struct BlockInfo {
     pub validator_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
     pub gas_used: GasUsage,
+    pub gas_price: Balance,
+    pub total_supply: Balance,
 }
 
 impl BlockInfo {
@@ -101,6 +105,8 @@ impl BlockInfo {
         validator_mask: Vec<bool>,
         slashed: HashSet<AccountId>,
         gas_used: GasUsage,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Self {
         Self {
             index,
@@ -109,7 +115,9 @@ impl BlockInfo {
             validator_mask,
             slashed,
             gas_used,
-            // This values are not set.
+            gas_price,
+            total_supply,
+            // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
         }
@@ -179,4 +187,12 @@ impl From<EpochError> for near_chain::Error {
     fn from(error: EpochError) -> Self {
         near_chain::ErrorKind::ValidatorError(error.to_string()).into()
     }
+}
+
+pub struct EpochSummary {
+    pub last_block_hash: CryptoHash,
+    pub all_proposals: Vec<ValidatorStake>,
+    pub validator_kickout: HashSet<AccountId>,
+    pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
+    pub total_gas_used: GasUsage,
 }

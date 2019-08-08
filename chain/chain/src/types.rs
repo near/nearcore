@@ -183,6 +183,8 @@ pub trait RuntimeAdapter: Send + Sync {
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
         gas_used: GasUsage,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Apply transactions to given state root and return store update and new state root.
@@ -196,8 +198,6 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-        gas_price: Balance,
-        total_supply: Balance,
     ) -> Result<ApplyTransactionResult, Box<dyn std::error::Error>>;
 
     /// Query runtime with given `path` and `data`.

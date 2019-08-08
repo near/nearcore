@@ -206,6 +206,8 @@ impl Chain {
                             vec![],
                             vec![],
                             0,
+                            chain_genesis.gas_price,
+                            chain_genesis.total_supply,
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update.save_block_header(genesis.header.clone());
@@ -339,6 +341,8 @@ impl Chain {
                         vec![],
                         vec![],
                         header.gas_used,
+                        header.gas_price,
+                        header.total_supply,
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
@@ -1126,8 +1130,6 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
-                            block.header.gas_price,
-                            block.header.total_supply,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1284,6 +1286,8 @@ impl<'a> ChainUpdate<'a> {
                 vec![],
                 vec![],
                 block.header.gas_used,
+                block.header.gas_price,
+                block.header.total_supply,
             )
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 

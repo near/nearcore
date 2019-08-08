@@ -3,6 +3,7 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, 
 use std::collections::{BTreeMap, HashMap};
 
 use crate::types::{EpochConfig, EpochInfo};
+use crate::RewardCalculator;
 use near_primitives::hash::{hash, CryptoHash};
 
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
@@ -24,6 +25,7 @@ pub fn epoch_info(
     fishermen: Vec<(usize, u64)>,
     stake_change: BTreeMap<AccountId, Balance>,
     total_gas_used: GasUsage,
+    validator_reward: HashMap<AccountId, Balance>,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -45,6 +47,7 @@ pub fn epoch_info(
         fishermen,
         stake_change,
         total_gas_used,
+        validator_reward,
     }
 }
 
@@ -68,4 +71,38 @@ pub fn epoch_config(
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     let (public_key, _) = get_key_pair_from_seed(account_id);
     ValidatorStake::new(account_id.to_string(), public_key, amount)
+}
+
+pub fn reward_calculator(
+    max_inflation_rate: u8,
+    num_blocks_per_year: u64,
+    epoch_length: u64,
+    validator_reward_percentage: u8,
+    protocol_reward_percentage: u8,
+    protocol_treasury_account: AccountId,
+) -> RewardCalculator {
+    RewardCalculator {
+        max_inflation_rate,
+        num_blocks_per_year,
+        epoch_length,
+        validator_reward_percentage,
+        protocol_reward_percentage,
+        protocol_treasury_account,
+    }
+}
+
+/// No-op reward calculator. Will produce no reward
+pub fn default_reward_calculator() -> RewardCalculator {
+    RewardCalculator {
+        max_inflation_rate: 0,
+        num_blocks_per_year: 1,
+        epoch_length: 1,
+        validator_reward_percentage: 0,
+        protocol_reward_percentage: 0,
+        protocol_treasury_account: "near".to_string(),
+    }
+}
+
+pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
+    info.into_iter().map(|(account_id, r)| (account_id.to_string(), r)).collect()
 }
