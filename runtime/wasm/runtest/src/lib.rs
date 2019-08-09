@@ -1,16 +1,12 @@
 use std::collections::BTreeMap;
 
-use near_primitives::types::{AccountId, Balance, PromiseId, ReceiptId};
+use near_primitives::types::{AccountId, Balance, PromiseId};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 #[derive(Default)]
 struct MyExt {
     storage: BTreeMap<Vec<u8>, Vec<u8>>,
     num_receipts: u32,
-}
-
-fn generate_promise_id(index: u32) -> ReceiptId {
-    [index as u8; 32].to_vec()
 }
 
 impl External for MyExt {
@@ -78,7 +74,7 @@ impl External for MyExt {
             _ => (),
         };
         self.num_receipts += 1;
-        Ok(PromiseId::Receipt(generate_promise_id(self.num_receipts - 1)))
+        Ok(vec![(self.num_receipts - 1) as usize])
     }
 
     fn promise_then(
@@ -88,15 +84,9 @@ impl External for MyExt {
         _arguments: Vec<u8>,
         _amount: Balance,
     ) -> ExtResult<PromiseId> {
-        match promise_id {
-            PromiseId::Receipt(_) => Err(ExtError::WrongPromise),
-            PromiseId::Joiner(v) => {
-                assert_eq!(v[0], generate_promise_id(0));
-                assert_eq!(v[1], generate_promise_id(1));
-                Ok(PromiseId::Callback(b"call_it_please".to_vec()))
-            }
-            _ => Err(ExtError::WrongPromise),
-        }
+        assert_eq!(promise_id, vec![0 as usize, 1 as usize]);
+        self.num_receipts += 1;
+        Ok(vec![(self.num_receipts - 1) as usize])
     }
 
     fn check_ethash(
@@ -313,7 +303,7 @@ mod tests {
 
         match outcome.return_data {
             Ok(ReturnData::Promise(promise_id)) => {
-                assert_eq!(&promise_id, &PromiseId::Callback(b"call_it_please".to_vec()))
+                assert_eq!(promise_id, vec![2 as usize]);
             }
             _ => assert!(false, "Expected returned promise"),
         };
@@ -465,7 +455,9 @@ mod tests {
         let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
         println!("{:?}", outcome);
         match outcome.return_data {
-            Err(Error::Wasmer(msg)) => assert_eq!(msg, "WebAssembly trap occured during runtime: unknown"),
+            Err(Error::Wasmer(msg)) => {
+                assert_eq!(msg, "WebAssembly trap occured during runtime: unknown")
+            }
             _ => panic!("unexpected outcome"),
         }
     }

@@ -1,13 +1,11 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 
 use byteorder::{ByteOrder, LittleEndian};
 use wasmer_runtime::{memory::Memory, units::Bytes};
 
 use near_primitives::hash::hash;
 use near_primitives::logging::pretty_utf8;
-use near_primitives::types::{
-    AccountId, Balance, PromiseId, ReceiptId, StorageUsage, StorageUsageChange,
-};
+use near_primitives::types::{AccountId, Balance, PromiseId, StorageUsage, StorageUsageChange};
 use near_primitives::utils::is_valid_account_id;
 
 use crate::ext::External;
@@ -78,7 +76,7 @@ impl<'a> Runtime<'a> {
             random_buffer_offset: 0,
             logs: Vec::new(),
             memory,
-            registers: Default::default()
+            registers: Default::default(),
         }
     }
 
@@ -327,11 +325,7 @@ impl<'a> Runtime<'a> {
         }
         let arguments = self.memory_get(arguments_ptr as usize, arguments_len as usize)?;
 
-        let num_promises = match &promise_id {
-            PromiseId::Receipt(_) => 1,
-            PromiseId::Callback(_) => return Err(Error::PromiseError),
-            PromiseId::Joiner(v) => v.len() as u64,
-        } as u128;
+        let num_promises = promise_id.len() as u128;
         self.charge_balance((num_promises * self.config.contract_call_cost + amount).into())?;
 
         let promise_id = self
@@ -346,34 +340,12 @@ impl<'a> Runtime<'a> {
     }
 
     fn promise_and(&mut self, promise_index1: u32, promise_index2: u32) -> Result<u32> {
-        let promise_ids =
-            [self.promise_index_to_id(promise_index1)?, self.promise_index_to_id(promise_index2)?];
+        let promise_id = self
+            .promise_index_to_id(promise_index1)?
+            .into_iter()
+            .chain(self.promise_index_to_id(promise_index2)?.into_iter())
+            .collect::<Vec<_>>();
 
-        let mut receipt_ids = vec![];
-        let mut unique_receipt_ids = HashSet::new();
-        {
-            let mut add_receipt_id = |receipt_id: ReceiptId| -> Result<()> {
-                if !unique_receipt_ids.insert(receipt_id.clone()) {
-                    return Err(Error::PromiseError);
-                }
-                receipt_ids.push(receipt_id);
-                Ok(())
-            };
-
-            for promise_id in promise_ids.iter() {
-                match promise_id {
-                    PromiseId::Receipt(receipt_id) => add_receipt_id(receipt_id.clone())?,
-                    PromiseId::Callback(_) => return Err(Error::PromiseError),
-                    PromiseId::Joiner(v) => {
-                        for receipt_id in v {
-                            add_receipt_id(receipt_id.clone())?
-                        }
-                    }
-                };
-            }
-        }
-
-        let promise_id = PromiseId::Joiner(receipt_ids);
         let promise_index = self.promise_ids.len();
         self.promise_ids.push(promise_id);
 
@@ -631,11 +603,12 @@ impl<'a> Runtime<'a> {
     /// If the content of register extends outside the preallocated memory on the host side, or the pointer points to a
     /// wrong location this function will overwrite memory that it is not supposed to overwrite causing an undefined behavior.
     fn read_register(&mut self, register_id: u64, ptr: u64) -> Result<()> {
-        let register = self.registers.get(&register_id).ok_or(Error::InvalidRegisterId)? as *const Vec<u8>;
+        let register =
+            self.registers.get(&register_id).ok_or(Error::InvalidRegisterId)? as *const Vec<u8>;
         // `memory_set` does not manipulate with register so it is safe to use. Later once we switch
         // entirely to registers we can move the body of `memory_set` inside `read_register` and
         // remove `unsafe`.
-        self.memory_set(ptr as _, unsafe {&*register})
+        self.memory_set(ptr as _, unsafe { &*register })
     }
 
     /// Returns the size of the blob stored in the given register.

@@ -14,15 +14,12 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::serialize::{to_base, Decode, Encode};
-use near_primitives::transaction::Callback;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    key_for_access_key, key_for_account, key_for_callback, key_for_code, prefix_for_access_key,
-    prefix_for_data,
+    key_for_access_key, key_for_account, key_for_code, prefix_for_access_key, prefix_for_data,
 };
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
-use near_protos::receipt as receipt_proto;
 
 pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
@@ -266,16 +263,6 @@ pub fn get_access_key(
 pub fn get_access_key_raw(state_update: &TrieUpdate, key: &[u8]) -> Option<AccessKey> {
     get_proto(state_update, key)
         .and_then(|value: access_key_proto::AccessKey| value.try_into().ok())
-}
-
-pub fn set_callback(state_update: &mut TrieUpdate, id: &[u8], callback: &Callback) {
-    let proto: receipt_proto::Callback = callback.clone().into();
-    set_proto(state_update, key_for_callback(id), &proto);
-}
-
-pub fn get_callback(state_update: &TrieUpdate, id: &[u8]) -> Option<Callback> {
-    get_proto(state_update, &key_for_callback(id))
-        .and_then(|value: receipt_proto::Callback| value.try_into().ok())
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {

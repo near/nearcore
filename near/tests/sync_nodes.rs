@@ -15,7 +15,7 @@ use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
-use near_primitives::transaction::{StakeTransaction, TransactionBody};
+use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
 use std::time::Duration;
 
@@ -174,14 +174,16 @@ fn sync_state_stake_change() {
 
     let system = System::new("NEAR");
 
-    let unstake_transaction = TransactionBody::Stake(StakeTransaction {
-        nonce: 1,
-        originator: "test1".to_string(),
-        amount: TESTING_INIT_STAKE / 2,
-        public_key: near1.block_producer.as_ref().unwrap().signer.public_key().to_base(),
-    })
-    .sign(&*near1.block_producer.as_ref().unwrap().signer);
-
+    let unstake_transaction = SignedTransaction::from_actions(
+        1,
+        "test1".to_string(),
+        "test1".to_string(),
+        near1.block_producer.as_ref().unwrap().signer.clone(),
+        vec![Action::Stake(StakeAction {
+            stake: TESTING_INIT_STAKE / 2,
+            public_key: near1.block_producer.as_ref().unwrap().signer.public_key(),
+        })],
+    );
     let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
     let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
     let (client1, view_client1) = start_with_config(dir1.path(), near1);

@@ -14,8 +14,9 @@ use near_chain::{
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::Receipt;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{
@@ -267,16 +268,10 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Vec<ReceiptTransaction>>,
+        receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     > {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
@@ -465,11 +460,10 @@ mod test {
     use near_client::BlockProducer;
     use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
     use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::receipt::Receipt;
     use near_primitives::rpc::AccountViewCallResult;
-    use near_primitives::serialize::BaseEncode;
     use near_primitives::transaction::{
-        CreateAccountTransaction, ReceiptTransaction, SignedTransaction, StakeTransaction,
-        TransactionBody,
+        Action, AddKeyAction, CreateAccountAction, SignedTransaction, StakeAction, TransferAction,
     };
     use near_primitives::types::{Balance, BlockIndex, Nonce, ValidatorStake};
     use near_store::create_store;
@@ -478,16 +472,21 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::test_utils::*;
+
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use near_primitives::account::AccessKey;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
-        TransactionBody::Stake(StakeTransaction {
+        SignedTransaction::from_actions(
             nonce,
-            originator: sender.account_id.clone(),
-            amount,
-            public_key: sender.signer.public_key().to_base(),
-        })
-        .sign(&*sender.signer.clone())
+            sender.account_id.clone(),
+            sender.account_id.clone(),
+            sender.signer.clone(),
+            vec![Action::Stake(StakeAction {
+                stake: amount,
+                public_key: sender.signer.public_key(),
+            })],
+        )
     }
 
     impl NightshadeRuntime {
@@ -497,9 +496,9 @@ mod test {
             block_index: BlockIndex,
             prev_block_hash: &CryptoHash,
             block_hash: &CryptoHash,
-            receipts: &Vec<Vec<ReceiptTransaction>>,
+            receipts: &Vec<Vec<Receipt>>,
             transactions: &Vec<SignedTransaction>,
-        ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Vec<ReceiptTransaction>>) {
+        ) -> (CryptoHash, Vec<ValidatorStake>, Vec<Vec<Receipt>>) {
             let mut root = *state_root;
             let (wrapped_trie_changes, new_root, _tx_results, receipt_results, stakes) = self
                 .apply_transactions(
@@ -596,14 +595,25 @@ mod test {
         let new_account = format!("test{}", num_nodes + 1);
         let new_validator: BlockProducer =
             InMemorySigner::from_seed(&new_account, &new_account).into();
-        let create_account_transaction = TransactionBody::CreateAccount(CreateAccountTransaction {
-            nonce: 2,
-            originator: block_producers[0].account_id.clone(),
-            new_account_id: new_account,
-            amount: TESTING_INIT_STAKE * 3,
-            public_key: new_validator.signer.public_key().0[..].to_vec(),
-        })
-        .sign(&*block_producers[0].signer.clone());
+        let create_account_transaction = SignedTransaction::from_actions(
+            2,
+            block_producers[0].account_id.clone(),
+            new_account,
+            block_producers[0].signer.clone(),
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: TESTING_INIT_STAKE * 3 }),
+                Action::AddKey(AddKeyAction {
+                    public_key: new_validator.signer.public_key(),
+                    access_key: AccessKey {
+                        amount: 0,
+                        balance_owner: None,
+                        contract_id: None,
+                        method_name: None,
+                    },
+                }),
+            ],
+        );
         let staking_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
 
         let (new_root, _, receipts) =

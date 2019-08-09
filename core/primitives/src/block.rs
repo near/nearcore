@@ -12,7 +12,7 @@ use near_protos::chain as chain_proto;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
-use crate::serialize::{base_format, vec_base_format};
+use crate::serialize::vec_base_format;
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
 use crate::utils::proto_to_type;
@@ -25,13 +25,10 @@ pub struct BlockHeader {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
     /// Hash of the block previous to this in the chain.
-    #[serde(with = "base_format")]
     pub prev_hash: CryptoHash,
     /// Root hash of the state at the previous block.
-    #[serde(with = "base_format")]
     pub prev_state_root: MerkleHash,
     /// Root hash of the transactions in the given block.
-    #[serde(with = "base_format")]
     pub tx_root: MerkleHash,
     /// Timestamp at which the block was built.
     #[serde(with = "ts_nanoseconds")]
@@ -50,11 +47,9 @@ pub struct BlockHeader {
     pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
-    #[serde(with = "base_format")]
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[serde(with = "base_format")]
     hash: CryptoHash,
 }
 

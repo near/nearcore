@@ -28,8 +28,9 @@ use near_network::{
 use near_pool::TransactionPool;
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::Receipt;
 use near_primitives::rpc::ValidatorInfo;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 use near_store::Store;
@@ -1103,7 +1104,7 @@ impl ClientActor {
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
-    ) -> Result<(Vec<u8>, Vec<ReceiptTransaction>), near_chain::Error> {
+    ) -> Result<(Vec<u8>, Vec<Receipt>), near_chain::Error> {
         let header = self.chain.get_block_header(&hash)?;
         let prev_hash = header.prev_hash;
         let payload = self

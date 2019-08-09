@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
-use crate::serialize::{base_format, u128_dec_format, vec_base_format};
+use crate::serialize::{u128_dec_format, vec_base_format};
 use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, Version};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -20,7 +20,6 @@ pub struct AccountViewCallResult {
     pub stake: Balance,
     #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
-    #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
 }
 
@@ -54,10 +53,8 @@ pub enum QueryResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
-    #[serde(with = "base_format")]
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockIndex,
-    #[serde(with = "base_format")]
     pub latest_state_root: MerkleHash,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
