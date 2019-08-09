@@ -608,8 +608,8 @@ mod tests {
 
     use crate::test_utils::{
         change_stake, default_reward_calculator, epoch_config, epoch_info, hash_range,
-        record_block, reward, setup_default_epoch_manager, stake, DEFAULT_GAS_PRICE,
-        DEFAULT_TOTAL_SUPPLY,
+        record_block, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
+        DEFAULT_GAS_PRICE, DEFAULT_TOTAL_SUPPLY,
     };
 
     use super::*;
@@ -964,6 +964,104 @@ mod tests {
                 stake("test2", stake_amount),
                 stake("test3", stake_amount)
             ],
+        );
+    }
+
+    #[test]
+    fn test_validator_reward() {
+        let stake_amount = 1_000_000;
+        let validators = vec![("test1", stake_amount), ("test2", stake_amount)];
+        let epoch_length = 2;
+        let total_supply = stake_amount * validators.len() as u128;
+        let reward_calculator = RewardCalculator {
+            max_inflation_rate: 5,
+            num_blocks_per_year: 1_000_000,
+            epoch_length,
+            validator_reward_percentage: 60,
+            protocol_reward_percentage: 10,
+            protocol_treasury_account: "near".to_string(),
+        };
+        let mut epoch_manager =
+            setup_epoch_manager(validators, epoch_length, 1, 1, 0, 90, reward_calculator.clone());
+        let rng_seed = [0; 32];
+        let h = hash_range(5);
+        epoch_manager
+            .record_block_info(
+                &h[0],
+                BlockInfo {
+                    index: 0,
+                    prev_hash: Default::default(),
+                    epoch_first_block: h[0],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    validator_mask: vec![],
+                    slashed: Default::default(),
+                    gas_used: 0,
+                    gas_price: DEFAULT_GAS_PRICE,
+                    total_supply,
+                },
+                rng_seed,
+            )
+            .unwrap();
+        epoch_manager
+            .record_block_info(
+                &h[1],
+                BlockInfo {
+                    index: 1,
+                    prev_hash: h[0],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    validator_mask: vec![],
+                    slashed: Default::default(),
+                    gas_used: 10,
+                    gas_price: DEFAULT_GAS_PRICE,
+                    total_supply,
+                },
+                rng_seed,
+            )
+            .unwrap();
+        epoch_manager
+            .record_block_info(
+                &h[2],
+                BlockInfo {
+                    index: 2,
+                    prev_hash: h[1],
+                    epoch_first_block: h[1],
+                    epoch_id: Default::default(),
+                    proposals: vec![],
+                    validator_mask: vec![],
+                    slashed: Default::default(),
+                    gas_used: 10,
+                    gas_price: DEFAULT_GAS_PRICE,
+                    total_supply,
+                },
+                rng_seed,
+            )
+            .unwrap();
+        let mut validator_online_ratio = HashMap::new();
+        validator_online_ratio.insert("test1".to_string(), (0, 0));
+        validator_online_ratio.insert("test2".to_string(), (1, 1));
+        let validator_reward = reward_calculator.calculate_reward(
+            validator_online_ratio,
+            20,
+            DEFAULT_GAS_PRICE,
+            total_supply,
+        );
+        let test2_reward = *validator_reward.get("test2").unwrap();
+        let protocol_reward = *validator_reward.get("near").unwrap();
+
+        assert_eq!(
+            epoch_manager.get_epoch_info(&EpochId(h[2])).unwrap(),
+            &epoch_info(
+                vec![("test2", stake_amount + test2_reward)],
+                vec![0],
+                vec![vec![0]],
+                vec![],
+                change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
+                20,
+                reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)])
+            )
         );
     }
 }

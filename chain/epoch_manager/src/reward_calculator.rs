@@ -2,6 +2,7 @@ use near_primitives::types::{AccountId, Balance, GasUsage};
 use std::cmp::max;
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct RewardCalculator {
     pub max_inflation_rate: u8,
     pub num_blocks_per_year: u64,
