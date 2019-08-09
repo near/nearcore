@@ -53,7 +53,7 @@ pub(crate) fn apply_rent(
     let charge = ((block_index - account.storage_paid_at) as u128)
         * (total_account_storage(account_id, account) as u128)
         * config.storage_cost_byte_per_block;
-    account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
+    account.amount = account.amount.saturating_sub(charge);
     account.storage_paid_at = block_index;
 }
 
