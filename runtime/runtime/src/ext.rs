@@ -10,15 +10,13 @@ use near_primitives::transaction::{
     AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
 };
 use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
-use near_primitives::utils::{create_nonce_with_nonce, key_for_account};
+use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
 use crate::POISONED_LOCK_ERR;
 use near_primitives::crypto::signature::PublicKey;
-
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
@@ -46,11 +44,9 @@ impl<'a> RuntimeExt<'a> {
         originator_id: &'a AccountId,
         public_key: &'a PublicKey,
     ) -> Self {
-        let mut prefix = key_for_account(account_id);
-        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
         RuntimeExt {
             trie_update,
-            storage_prefix: prefix,
+            storage_prefix: prefix_for_data(account_id),
             receipts: HashMap::new(),
             callbacks: HashMap::new(),
             account_id,

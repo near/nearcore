@@ -36,8 +36,9 @@ fn test_evil_deep_trie() {
     (0..50).for_each(|i| {
         println!("insertStrings #{}", i);
         let input_data = format!("{{\"from\": {}, \"to\": {}}}", i * 10, (i + 1) * 10);
-        node.call_function(
-            "test_contract",
+        node.user().function_call(
+            "alice.near".to_string(),
+            "test_contract".to_string(),
             "insertStrings",
             input_data.as_bytes().to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -46,8 +47,9 @@ fn test_evil_deep_trie() {
     (0..50).rev().for_each(|i| {
         println!("deleteStrings #{}", i);
         let input_data = format!("{{\"from\": {}, \"to\": {}}}", i * 10, (i + 1) * 10);
-        node.call_function(
-            "test_contract",
+        node.user().function_call(
+            "alice.near".to_string(),
+            "test_contract".to_string(),
             "deleteStrings",
             input_data.as_bytes().to_vec(),
             FUNCTION_CALL_AMOUNT,
@@ -61,8 +63,9 @@ fn test_evil_deep_recursion() {
     [100, 1000, 10000, 100000, 1000000].iter().for_each(|n| {
         println!("{}", n);
         let input_data = format!("{{\"n\": {}}}", n);
-        node.call_function(
-            "test_contract",
+        node.user().function_call(
+            "alice.near".to_string(),
+            "test_contract".to_string(),
             "recurse",
             input_data.as_bytes().to_vec(),
             FUNCTION_CALL_AMOUNT,

@@ -9,10 +9,10 @@ use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, PeerChainInfo};
+use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::MerkleHash;
@@ -91,6 +91,7 @@ fn receive_network_block() {
                 &last_block.header,
                 last_block.header.height + 1,
                 MerkleHash::default(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -139,6 +140,7 @@ fn receive_network_block_header() {
                 &last_block.header,
                 last_block.header.height + 1,
                 MerkleHash::default(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -180,6 +182,7 @@ fn produce_block_with_approvals() {
                 &last_block.header,
                 last_block.header.height + 1,
                 MerkleHash::default(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -228,6 +231,7 @@ fn invalid_blocks() {
                 &last_block.header,
                 last_block.header.height + 1,
                 hash(&[0]),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -243,6 +247,7 @@ fn invalid_blocks() {
                 &block.header,
                 block.header.height + 1,
                 hash(&[1]),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -254,6 +259,7 @@ fn invalid_blocks() {
                 &last_block.header,
                 last_block.header.height + 1,
                 MerkleHash::default(),
+                CryptoHash::default(),
                 vec![],
                 HashMap::default(),
                 vec![],
@@ -305,7 +311,7 @@ fn client_sync_headers() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo => NetworkResponses::Info {
+                NetworkRequests::FetchInfo { level: _ } => NetworkResponses::Info(NetworkInfo {
                     num_active_peers: 1,
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {
@@ -318,7 +324,8 @@ fn client_sync_headers() {
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
-                },
+                    routes: None,
+                }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);
                     assert_eq!(hashes.len(), 1);

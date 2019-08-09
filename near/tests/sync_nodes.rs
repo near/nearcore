@@ -1,15 +1,15 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{GenesisConfig, load_test_config, NightshadeRuntime, start_with_config};
+use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::{ClientActor, GetBlock};
-use near_network::{NetworkClientMessages, PeerInfo};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
@@ -24,6 +24,7 @@ fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
     chain.genesis().clone()
 }
 
+// This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
     start: &BlockHeader,
     client: Addr<ClientActor>,

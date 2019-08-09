@@ -22,5 +22,7 @@ near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 
 [dev-dependencies]
-near-client = { path = "../client" }
 tempdir = "0.3.7"
+
+near-client = { path = "../client" }
+near-telemetry = { path = "../telemetry" }

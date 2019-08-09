@@ -15,8 +15,8 @@ use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_primitives::crypto::signature::{PublicKey, SecretKey, Signature};
-use near_primitives::hash::CryptoHash;
+use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
 use near_primitives::serialize::{BaseEncode, Decode};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
@@ -25,13 +25,20 @@ use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
 
 use crate::peer::Peer;
+use std::collections::HashMap;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Peer id is the public key.
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
+
+impl PeerId {
+    pub fn public_key(&self) -> PublicKey {
+        self.0
+    }
+}
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
@@ -208,8 +215,6 @@ pub struct Handshake {
     pub version: u32,
     /// Sender's peer id.
     pub peer_id: PeerId,
-    /// Sender's account id, if present.
-    pub account_id: Option<AccountId>,
     /// Sender's listening addr.
     pub listen_port: Option<u16>,
     /// Peer's chain information.
@@ -217,13 +222,8 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub fn new(
-        peer_id: PeerId,
-        account_id: Option<AccountId>,
-        listen_port: Option<u16>,
-        chain_info: PeerChainInfo,
-    ) -> Self {
-        Handshake { version: PROTOCOL_VERSION, peer_id, account_id, listen_port, chain_info }
+    pub fn new(peer_id: PeerId, listen_port: Option<u16>, chain_info: PeerChainInfo) -> Self {
+        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info }
     }
 }
 
@@ -231,23 +231,15 @@ impl TryFrom<network_proto::Handshake> for Handshake {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
-        let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
         let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
         let chain_info = proto_to_type(proto.chain_info)?;
-        Ok(Handshake {
-            version: proto.version,
-            peer_id: peer_id.into(),
-            account_id,
-            listen_port,
-            chain_info,
-        })
+        Ok(Handshake { version: proto.version, peer_id: peer_id.into(), listen_port, chain_info })
     }
 }
 
 impl From<Handshake> for network_proto::Handshake {
     fn from(handshake: Handshake) -> network_proto::Handshake {
-        let account_id = SingularPtrField::from_option(handshake.account_id.map(to_string_value));
         let listen_port = SingularPtrField::from_option(handshake.listen_port.map(|v| {
             let mut res = UInt32Value::new();
             res.set_value(u32::from(v));
@@ -256,9 +248,138 @@ impl From<Handshake> for network_proto::Handshake {
         network_proto::Handshake {
             version: handshake.version,
             peer_id: handshake.peer_id.into(),
-            account_id,
             listen_port,
             chain_info: SingularPtrField::some(handshake.chain_info.into()),
+            ..Default::default()
+        }
+    }
+}
+
+/// Account route description
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AnnounceAccountRoute {
+    pub peer_id: PeerId,
+    pub hash: CryptoHash,
+    pub signature: Signature,
+}
+
+impl TryFrom<network_proto::AnnounceAccountRoute> for AnnounceAccountRoute {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: network_proto::AnnounceAccountRoute) -> Result<Self, Self::Error> {
+        let peer_id: PeerId = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
+        let hash: CryptoHash = proto.hash.try_into().map_err(|e| format!("{}", e))?;
+        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
+        Ok(AnnounceAccountRoute { peer_id, hash, signature })
+    }
+}
+
+impl From<AnnounceAccountRoute> for network_proto::AnnounceAccountRoute {
+    fn from(announce_account_route: AnnounceAccountRoute) -> network_proto::AnnounceAccountRoute {
+        network_proto::AnnounceAccountRoute {
+            peer_id: announce_account_route.peer_id.into(),
+            hash: announce_account_route.hash.into(),
+            signature: announce_account_route.signature.into(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Account announcement information
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AnnounceAccount {
+    /// AccountId to be announced
+    pub account_id: AccountId,
+    /// This announcement is only valid for this `epoch`
+    pub epoch: CryptoHash,
+    /// Complete route description to account id
+    /// First element of the route (header) contains:
+    ///     peer_id owner of the account_id
+    ///     hash of the announcement
+    ///     signature with account id secret key
+    /// Subsequent elements of the route contain:
+    ///     peer_id of intermediates hop in the route
+    ///     hash built using previous hash and peer_id
+    ///     signature with peer id secret key
+    pub route: Vec<AnnounceAccountRoute>,
+}
+
+impl AnnounceAccount {
+    pub fn new(
+        account_id: AccountId,
+        epoch_hash: CryptoHash,
+        peer_id: PeerId,
+        hash: CryptoHash,
+        signature: Signature,
+    ) -> Self {
+        let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
+        Self { account_id, epoch: epoch_hash, route }
+    }
+
+    pub fn build_header_hash(
+        account_id: &AccountId,
+        peer_id: &PeerId,
+        epoch: CryptoHash,
+    ) -> CryptoHash {
+        hash([account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat().as_slice())
+    }
+
+    pub fn header_hash(&self) -> CryptoHash {
+        AnnounceAccount::build_header_hash(
+            &self.account_id,
+            &self.route.first().unwrap().peer_id,
+            self.epoch,
+        )
+    }
+
+    pub fn header(&self) -> &AnnounceAccountRoute {
+        self.route.first().unwrap()
+    }
+
+    pub fn peer_id_sender(&self) -> PeerId {
+        self.route.last().unwrap().peer_id
+    }
+
+    pub fn num_hops(&self) -> usize {
+        self.route.len() - 1
+    }
+
+    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
+        let last_hash = self.route.last().unwrap().hash;
+        let new_hash = hash([last_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+        let signature = sign(new_hash.as_ref(), secret_key);
+        self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
+    }
+}
+
+impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(proto: network_proto::AnnounceAccount) -> Result<Self, Self::Error> {
+        let epoch: CryptoHash = proto.epoch.try_into().map_err(|e| format!("{}", e))?;
+        Ok(AnnounceAccount {
+            account_id: proto.account_id,
+            epoch,
+            route: proto
+                .route
+                .into_iter()
+                .filter_map(|hop| match hop.try_into() {
+                    Ok(hop) => Some(hop),
+                    Err(_) => None,
+                })
+                .collect(),
+        })
+    }
+}
+
+impl From<AnnounceAccount> for network_proto::AnnounceAccount {
+    fn from(announce_account: AnnounceAccount) -> network_proto::AnnounceAccount {
+        network_proto::AnnounceAccount {
+            account_id: announce_account.account_id,
+            epoch: announce_account.epoch.into(),
+            route: RepeatedField::from_iter(
+                announce_account.route.into_iter().map(|hop| hop.into()),
+            ),
             ..Default::default()
         }
     }
@@ -283,6 +404,8 @@ pub enum PeerMessage {
 
     StateRequest(ShardId, CryptoHash),
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+
+    AnnounceAccount(AnnounceAccount),
 }
 
 impl fmt::Display for PeerMessage {
@@ -300,6 +423,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
+            PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
         }
     }
 }
@@ -378,6 +502,9 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         .collect::<Result<Vec<_>, _>>()?,
                 ))
             }
+            Some(network_proto::PeerMessage_oneof_message_type::announce_account(
+                announce_account,
+            )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
             None => Err(format!("Unexpected empty message body").into()),
         }
     }
@@ -465,6 +592,11 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
+            }
+            PeerMessage::AnnounceAccount(announce_account) => {
+                Some(network_proto::PeerMessage_oneof_message_type::announce_account(
+                    announce_account.into(),
+                ))
             }
         };
         network_proto::PeerMessage { message_type, ..Default::default() }
@@ -614,6 +746,9 @@ pub enum ReasonForBan {
     BadHandshake = 4,
     BadBlockApproval = 5,
     Abusive = 6,
+    InvalidSignature = 7,
+    InvalidPeerId = 8,
+    InvalidHash = 9,
 }
 
 #[derive(Message)]
@@ -624,38 +759,25 @@ pub struct Ban {
 
 #[derive(Debug)]
 pub enum NetworkRequests {
-    FetchInfo,
+    /// Fetch information from the network.
+    /// Level denote how much information is going to be delivered.
+    /// Higher level implies more information. (This is useful for testing)
+    FetchInfo { level: usize },
     /// Sends block, either when block was just produced or when requested.
-    Block {
-        block: Block,
-    },
+    Block { block: Block },
     /// Sends block header announcement, with possibly attaching approval for this block if
     /// participating in this epoch.
-    BlockHeaderAnnounce {
-        header: BlockHeader,
-        approval: Option<BlockApproval>,
-    },
+    BlockHeaderAnnounce { header: BlockHeader, approval: Option<BlockApproval> },
     /// Request block with given hash from given peer.
-    BlockRequest {
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    BlockRequest { hash: CryptoHash, peer_id: PeerId },
     /// Request given block headers.
-    BlockHeadersRequest {
-        hashes: Vec<CryptoHash>,
-        peer_id: PeerId,
-    },
+    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
-    StateRequest {
-        shard_id: ShardId,
-        hash: CryptoHash,
-        peer_id: PeerId,
-    },
+    StateRequest { shard_id: ShardId, hash: CryptoHash, peer_id: PeerId },
     /// Ban given peer.
-    BanPeer {
-        peer_id: PeerId,
-        ban_reason: ReasonForBan,
-    },
+    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    /// Announce account
+    AnnounceAccount(AnnounceAccount),
 }
 
 /// Combines peer address info and chain information.
@@ -665,15 +787,21 @@ pub struct FullPeerInfo {
     pub chain_info: PeerChainInfo,
 }
 
+#[derive(Debug)]
+pub struct NetworkInfo {
+    pub num_active_peers: usize,
+    pub peer_max_count: u32,
+    pub most_weight_peers: Vec<FullPeerInfo>,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    // Only send full routes to accounts on demand
+    pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
+}
+
+#[derive(Debug)]
 pub enum NetworkResponses {
     NoResponse,
-    Info {
-        num_active_peers: usize,
-        peer_max_count: u32,
-        most_weight_peers: Vec<FullPeerInfo>,
-        sent_bytes_per_sec: u64,
-        received_bytes_per_sec: u64,
-    },
+    Info(NetworkInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses
@@ -714,6 +842,8 @@ pub enum NetworkClientMessages {
     StateRequest(ShardId, CryptoHash),
     /// State response.
     StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    /// Account announcement that needs to be validated before being processed
+    AnnounceAccount(AnnounceAccount),
 }
 
 pub enum NetworkClientResponses {

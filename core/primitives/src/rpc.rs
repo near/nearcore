@@ -63,6 +63,13 @@ pub struct StatusSyncInfo {
     pub syncing: bool,
 }
 
+// TODO: add more information to ValidatorInfo
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ValidatorInfo {
+    pub account_id: AccountId,
+    pub is_slashed: bool,
+}
+
 // TODO: add more information to status.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
@@ -73,7 +80,7 @@ pub struct StatusResponse {
     /// Address for RPC server.
     pub rpc_addr: String,
     /// Current epoch validators.
-    pub validators: Vec<AccountId>,
+    pub validators: Vec<ValidatorInfo>,
     /// Sync status of the node.
     pub sync_info: StatusSyncInfo,
 }

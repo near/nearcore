@@ -8,7 +8,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::types::AccountId;
-use near_primitives::utils::{is_valid_account_id, key_for_account, ACCOUNT_DATA_SEPARATOR};
+use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_store::{get_access_key, get_account, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
@@ -80,11 +80,10 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = HashMap::default();
-        let mut query = key_for_account(account_id);
-        query.extend_from_slice(ACCOUNT_DATA_SEPARATOR);
+        let prefix = prefix_for_data(account_id);
         let acc_sep_len = query.len();
         query.extend_from_slice(prefix);
-        state_update.for_keys_with_prefix(&query, |key| {
+        state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
@@ -187,7 +186,6 @@ mod tests {
     use kvdb::DBValue;
     use tempdir::TempDir;
 
-    use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -246,7 +244,7 @@ mod tests {
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(key_for_data(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
+        state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 

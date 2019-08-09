@@ -5,9 +5,12 @@ use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use chrono::Utc;
 
 use near_chain::test_utils::KeyValueRuntime;
+use near_network::types::NetworkInfo;
 use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_store::test_utils::create_test_store;
+use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 
@@ -27,6 +30,7 @@ pub fn setup(
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let genesis_time = Utc::now();
+    let telemetry = TelemetryActor::default().start();
     let view_client =
         ViewClientActor::new(store.clone(), genesis_time.clone(), runtime.clone()).unwrap();
     let client = ClientActor::new(
@@ -34,8 +38,10 @@ pub fn setup(
         store,
         genesis_time,
         runtime,
+        PublicKey::empty().into(),
         recipient,
         Some(signer.into()),
+        telemetry,
     )
     .unwrap();
     (client, view_client)
@@ -82,13 +88,14 @@ pub fn setup_no_network(
         account_id,
         skip_sync_wait,
         Box::new(|req, _, _| match req {
-            NetworkRequests::FetchInfo => NetworkResponses::Info {
+            NetworkRequests::FetchInfo { .. } => NetworkResponses::Info(NetworkInfo {
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
                 received_bytes_per_sec: 0,
                 sent_bytes_per_sec: 0,
-            },
+                routes: None,
+            }),
             _ => NetworkResponses::NoResponse,
         }),
     )
