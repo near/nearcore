@@ -170,6 +170,7 @@ fn sync_state_stake_change() {
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
     near2.client_config.min_block_production_delay = Duration::from_millis(100);
     near2.client_config.min_num_peers = 1;
+    near2.client_config.skip_sync_wait = false;
 
     let system = System::new("NEAR");
 
