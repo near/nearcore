@@ -35,3 +35,4 @@ near-telemetry = { path = "../chain/telemetry" }
 
 [dev-dependencies]
 tempdir = "0.3"
+tokio = "0.1"
