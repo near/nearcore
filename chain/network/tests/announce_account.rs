@@ -1,35 +1,43 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
 use futures::{future, Future};
+
 use near_chain::test_utils::KeyValueRuntime;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
+use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
-    account_id: &'static str,
+    account_id: String,
     port: u16,
-    boot_nodes: Vec<(&str, u16)>,
-    validators: Vec<&'static str>,
+    boot_nodes: Vec<(String, u16)>,
+    validators: Vec<String>,
     genesis_time: DateTime<Utc>,
+    peer_max_count: u32,
 ) -> Addr<PeerManagerActor> {
     let store = create_test_store();
-    let mut config = NetworkConfig::from_seed(account_id, port);
+
+    // Network config
+    let mut config = NetworkConfig::from_seed(account_id.as_str(), port);
+    config.peer_max_count = peer_max_count;
+
+    let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(Into::into).collect(),
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
@@ -56,8 +64,9 @@ pub fn setup_network_node(
 /// Check that Accounts Id are propagated properly through the network, even when all peers aren't
 /// directly connected to each other. Though it is necessary that the network is connected.
 fn check_account_id_propagation(
-    accounts_id: Vec<&'static str>,
+    accounts_id: Vec<String>,
     adjacency_list: Vec<Vec<usize>>,
+    peer_max_count: u32,
     max_wait_ms: u64,
 ) {
     init_test_logger();
@@ -80,11 +89,12 @@ fn check_account_id_propagation(
             .map(|(ix, (account_id, boot_nodes))| {
                 (
                     setup_network_node(
-                        account_id,
+                        account_id.clone(),
                         ports[ix],
                         boot_nodes,
                         accounts_id.clone(),
                         genesis_time,
+                        peer_max_count,
                     ),
                     Arc::new(AtomicUsize::new(0)),
                 )
@@ -133,14 +143,20 @@ fn check_account_id_propagation(
 
 #[test]
 fn two_nodes() {
-    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 3000);
+    check_account_id_propagation(
+        vec_ref_to_str(vec!["test1", "test2"]),
+        vec![vec![1], vec![0]],
+        10,
+        3000,
+    );
 }
 
 #[test]
 fn three_nodes_clique() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
+        vec_ref_to_str(vec!["test1", "test2", "test3"]),
         vec![vec![1, 2], vec![0, 2], vec![0, 1]],
+        10,
         3000,
     );
 }
@@ -148,8 +164,9 @@ fn three_nodes_clique() {
 #[test]
 fn three_nodes_path() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
+        vec_ref_to_str(vec!["test1", "test2", "test3"]),
         vec![vec![1], vec![0, 2], vec![1]],
+        10,
         3000,
     );
 }
@@ -157,8 +174,9 @@ fn three_nodes_path() {
 #[test]
 fn four_nodes_star() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
+        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
         vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
+        10,
         3000,
     );
 }
@@ -166,8 +184,9 @@ fn four_nodes_star() {
 #[test]
 fn four_nodes_path() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
+        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
         vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+        10,
         3000,
     );
 }
@@ -176,8 +195,9 @@ fn four_nodes_path() {
 #[should_panic]
 fn four_nodes_disconnected() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
+        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
         vec![vec![1], vec![0], vec![3], vec![2]],
+        10,
         3000,
     );
 }
@@ -185,8 +205,51 @@ fn four_nodes_disconnected() {
 #[test]
 fn four_nodes_directed() {
     check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
+        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
         vec![vec![1], vec![], vec![1], vec![2]],
+        10,
         3000,
     );
+}
+
+#[test]
+fn circle() {
+    let num_peers = 7;
+    let max_peer_connections = 2;
+
+    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+    let adjacency_list = (0..num_peers)
+        .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
+        .collect();
+
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
+}
+
+#[test]
+fn star_2_connections() {
+    let num_peers = 7;
+    let max_peer_connections = 2;
+
+    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+    let adjacency_list = (0..num_peers)
+        .map(|ix| {
+            let size = if ix > 0 { 1 } else { 0 };
+            vec![0; size]
+        })
+        .collect();
+
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
+}
+
+#[test]
+fn circle_extra_connection() {
+    let num_peers = 7;
+    let max_peer_connections = 3;
+
+    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+    let adjacency_list = (0..num_peers)
+        .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
+        .collect();
+
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
 }

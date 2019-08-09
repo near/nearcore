@@ -177,7 +177,7 @@ impl ClientActor {
                     }
 
                     if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
-                        Ok(previous_hash)
+                        Ok(*current_hash)
                     } else {
                         Err(ReasonForBan::InvalidSignature)
                     }

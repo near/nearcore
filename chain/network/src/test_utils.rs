@@ -130,3 +130,7 @@ impl Actor for WaitOrTimeout {
         self.wait_or_timeout(ctx);
     }
 }
+
+pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
+    values.iter().map(|x| x.to_string()).collect()
+}

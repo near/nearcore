@@ -78,7 +78,7 @@ impl RoutingTableUpdate {
 #[derive(Debug, Clone)]
 pub struct RoutingTableEntry {
     /// Keep track of several routes for the same account id.
-    routes: Vec<AnnounceAccount>,
+    pub routes: Vec<AnnounceAccount>,
     /// Last time a route was used.
     last_update: Instant,
     /// Index of the last route reported to the Peer Manager to send message.
@@ -213,9 +213,18 @@ impl RoutingTable {
 
     /// Remove all routes that contains this peer as the first hop.
     fn remove(&mut self, peer_id: &PeerId) {
-        for (_, mut value) in self.account_peers.iter_mut() {
+        let mut to_delete = vec![];
+        for (account_id, mut value) in self.account_peers.iter_mut() {
             value.routes =
                 value.routes.drain(..).filter(|route| &route.peer_id() != peer_id).collect();
+
+            if value.routes.is_empty() {
+                to_delete.push(account_id.clone());
+            }
+        }
+
+        for account_id in to_delete.into_iter() {
+            self.account_peers.remove(&account_id);
         }
     }
 
@@ -524,10 +533,7 @@ impl PeerManagerActor {
             let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
             self.broadcast_message(ctx, msg);
         } else {
-            // Check that we don't belong to this route. There is a chance that we remove from our routing table
-            // some account id, and after that receive a route to that account id that pass through us.
-            // This avoid accepting such route. Take care of the case when the number of hops is 0, it could
-            // be possible that we are the owner of such account id.
+            // Check that we don't belong to this route.
             if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
                 return;
             }

@@ -301,7 +301,7 @@ impl Peer {
                         // TODO: count as malicious behaviour?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
-                        self.ban_peer(ctx, ban_reason);
+                        act.ban_peer(ctx, ban_reason);
                     }
                     Ok(NetworkClientResponses::Block(block)) => {
                         act.send_message(PeerMessage::Block(block))
