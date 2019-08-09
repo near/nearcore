@@ -177,11 +177,16 @@ impl KeyValueRuntime {
         Ok((epoch, valset as usize % self.validators.len(), next_epoch.clone()))
     }
 
-    fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> usize {
+    fn get_valset_for_epoch(&self, epoch_id: &EpochId) -> Result<usize, Error> {
         // conveniently here if the prev_hash is passed mistakenly instead of the epoch_hash,
         // the `unwrap` will trigger
-        return *self.hash_to_valset.read().unwrap().get(epoch_id).unwrap() as usize
-            % self.validators.len();
+        Ok(*self
+            .hash_to_valset
+            .read()
+            .unwrap()
+            .get(epoch_id)
+            .ok_or(Error::from(ErrorKind::EpochOutOfBounds))? as usize
+            % self.validators.len())
     }
 }
 
@@ -235,7 +240,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_id: &EpochId,
         _last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators.iter().map(|x| (x.account_id.clone(), false)).collect())
     }
 
@@ -244,7 +249,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         epoch_id: &EpochId,
         height: BlockIndex,
     ) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         Ok(validators[(height as usize) % validators.len()].account_id.clone())
     }
 
@@ -254,7 +259,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<AccountId, Error> {
-        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)];
+        let validators = &self.validators[self.get_valset_for_epoch(epoch_id)?];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;

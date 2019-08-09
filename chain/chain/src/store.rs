@@ -170,11 +170,6 @@ impl ChainStore {
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
-            assert!(
-                block_header.height < last_included_height
-                    || block_header.height >= last_included_height
-            );
-
             if block_header.height == last_included_height {
                 let receipts = if let Ok(cur_receipts) =
                     self.get_outgoing_receipts(&receipts_block_hash, shard_id)
