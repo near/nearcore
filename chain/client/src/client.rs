@@ -12,6 +12,7 @@ use actix::{
     WrapFuture,
 };
 use chrono::{DateTime, Utc};
+use futures::Future;
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -27,6 +28,7 @@ use near_network::{
 use near_pool::TransactionPool;
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::rpc::ValidatorInfo;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
@@ -39,8 +41,6 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use futures::Future;
-use near_primitives::rpc::ValidatorInfo;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -675,6 +675,10 @@ impl ClientActor {
             return Ok(());
         }
 
+        // Get validator proposals.
+        let validator_proposals =
+            self.chain.get_post_validator_proposals(&head.last_block_hash)?.clone();
+
         let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Take transactions from the pool.
@@ -693,7 +697,7 @@ impl ClientActor {
             epoch_hash,
             transactions,
             self.approvals.drain().collect(),
-            vec![],
+            validator_proposals,
             block_producer.signer.clone(),
         );
 
@@ -744,9 +748,9 @@ impl ClientActor {
                 if self.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    info!(target: "client", "Error on receival of block: {}", err);
+                    // info!(target: "client", "Error on receival of block: {}", err);
                 } else {
-                    error!(target: "client", "Error on receival of block: {}", err);
+                    // error!(target: "client", "Error on receival of block: {}", err);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -778,7 +782,7 @@ impl ClientActor {
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of header: {}", e);
+                // error!(target: "client", "Error on receival of header: {}", e);
                 return NetworkClientResponses::NoResponse;
             }
             // Got an error when trying to process the block header, but it's not due to
@@ -958,9 +962,11 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header height is latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            if header_head.height == highest_height {
+            if highest_height <= self.config.block_header_fetch_horizon
+                || header_head.height >= highest_height - self.config.block_header_fetch_horizon
+            {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
                     SyncStatus::StateSync(_, _) => true,

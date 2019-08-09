@@ -100,6 +100,8 @@ pub struct ClientConfig {
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
     pub state_fetch_horizon: BlockIndex,
+    /// Behind this horizon header fetch kicks in.
+    pub block_header_fetch_horizon: BlockIndex,
 }
 
 impl ClientConfig {
@@ -124,6 +126,7 @@ impl ClientConfig {
             announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            block_header_fetch_horizon: 50,
         }
     }
 }
@@ -150,6 +153,7 @@ impl ClientConfig {
             announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            block_header_fetch_horizon: 50,
         }
     }
 }

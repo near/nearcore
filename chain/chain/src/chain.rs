@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
-use near_primitives::types::{BlockIndex, MerkleHash, ShardId};
+use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -157,6 +157,7 @@ impl Chain {
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
                     store_update
                         .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
+                    store_update.save_post_validator_proposals(&genesis.hash(), vec![]);
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
                     store_update.save_receipt(&genesis.header.hash(), vec![]);
@@ -532,6 +533,14 @@ impl Chain {
         self.store.get_transaction_result(hash)
     }
 
+    #[inline]
+    pub fn get_post_validator_proposals(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&Vec<ValidatorStake>, Error> {
+        self.store.get_post_validator_proposals(hash)
+    }
+
     /// Returns underlying ChainStore.
     #[inline]
     pub fn store(&self) -> &ChainStore {
@@ -671,6 +680,11 @@ impl<'a> ChainUpdate<'a> {
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
+        // Save state root after applying transactions.
+        self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
+        self.chain_store_update
+            .save_post_validator_proposals(&block.hash(), validator_proposals.clone());
+
         // If block checks out, record validator proposals for given block.
         self.runtime_adapter
             .add_validator_proposals(
@@ -684,8 +698,7 @@ impl<'a> ChainUpdate<'a> {
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         self.chain_store_update.save_trie_changes(trie_changes);
-        // Save state root after applying transactions.
-        self.chain_store_update.save_post_state_root(&block.hash(), &state_root);
+
         // Save resulting receipts.
         // TODO: currently only taking into account one shard.
         self.chain_store_update

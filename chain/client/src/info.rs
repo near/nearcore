@@ -12,6 +12,7 @@ use near_primitives::serialize::to_base;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::types::{BlockProducer, ShardSyncStatus, SyncStatus};
+use std::cmp::min;
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
@@ -134,8 +135,11 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
         SyncStatus::AwaitingPeers => format!("#{:>8} Waiting for peers", head.height),
         SyncStatus::NoSync => format!("#{:>8} {}", head.height, head.last_block_hash),
         SyncStatus::HeaderSync { current_height, highest_height } => {
-            let percent =
-                if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
+            let percent = if *highest_height == 0 {
+                0
+            } else {
+                min(current_height, highest_height) * 100 / highest_height
+            };
             format!("#{:>8} Downloading headers {}%", head.height, percent)
         }
         SyncStatus::BodySync { current_height, highest_height } => {
