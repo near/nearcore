@@ -1412,7 +1412,7 @@ impl ClientActor {
             match self.run_catchup(ctx) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!("Error occurred during catchup for some future epoch: {:?}", err)
+                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().unwrap().account_id, err)
                 }
             }
 

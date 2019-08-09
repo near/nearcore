@@ -1206,6 +1206,17 @@ impl<'a> ChainUpdate<'a> {
                     ),
                 };
                 if care_about_shard {
+                    // Validate state root.
+                    let prev_chunk_extra = self
+                        .chain_store_update
+                        .get_chunk_extra(&prev_chunk_header.chunk_hash())?
+                        .clone();
+                    if prev_chunk_extra.state_root != chunk_header.prev_state_root {
+                        // TODO: MOO
+                        assert!(false);
+                        return Err(ErrorKind::InvalidStateRoot.into());
+                    }
+
                     let receipts: Vec<ReceiptTransaction> = self
                         .chain_store_update
                         .get_incoming_receipts_for_shard(shard_id, block.hash(), prev_chunk_header)?
@@ -1220,6 +1231,13 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
+                    println!(
+                        "[APPLY CHUNK] {:?} PREV BLOCK HASH: {:?}, BLOCK HASH: {:?} ROOT: {:?}",
+                        chunk_header.height_included,
+                        chunk_header.prev_block_hash,
+                        block.hash(),
+                        chunk.header.prev_state_root
+                    );
                     let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
