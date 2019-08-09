@@ -150,7 +150,7 @@ pub(crate) fn action_stake(
     stake: &StakeAction,
 ) {
     let mut account = account.as_mut().unwrap();
-    let increment = if stake.stake > account.staked { stake.stake - account.staked } else { 0 };
+    let increment = stake.stake.saturating_sub(account.staked);
     if account.amount >= increment {
         if account.staked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
