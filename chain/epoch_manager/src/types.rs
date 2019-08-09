@@ -6,7 +6,6 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, GasUsage, ShardId, ValidatorId, ValidatorStake,
 };
 use serde_derive::{Deserialize, Serialize};
-use std::hash::Hash;
 
 pub type RngSeed = [u8; 32];
 
@@ -29,7 +28,7 @@ pub struct EpochConfig {
 }
 
 /// Information per epoch.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -48,45 +47,6 @@ pub struct EpochInfo {
     /// Validator reward for the epoch
     pub validator_reward: HashMap<AccountId, Balance>,
 }
-
-fn check_hashmap_equality<K: Hash + Eq + std::fmt::Debug, V: Eq>(
-    hashmap1: &HashMap<K, V>,
-    hashmap2: &HashMap<K, V>,
-) -> bool {
-    for (k, v) in hashmap1.iter() {
-        if let Some(v1) = hashmap2.get(k) {
-            if v1 != v {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    for (k, v) in hashmap2.iter() {
-        if let Some(v1) = hashmap1.get(k) {
-            if v1 != v {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-    true
-}
-
-impl PartialEq for EpochInfo {
-    fn eq(&self, other: &EpochInfo) -> bool {
-        self.validators == other.validators
-            && self.block_producers == other.block_producers
-            && self.chunk_producers == other.chunk_producers
-            && self.stake_change == other.stake_change
-            && check_hashmap_equality(&self.validator_to_index, &other.validator_to_index)
-            && check_hashmap_equality(&self.validator_reward, &other.validator_reward)
-    }
-}
-
-impl Eq for EpochInfo {}
 
 /// Information per each block.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]

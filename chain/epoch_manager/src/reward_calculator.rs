@@ -12,7 +12,7 @@ pub struct RewardCalculator {
 }
 
 impl RewardCalculator {
-    /// Calculate
+    /// Calculate validator reward for an epoch based on their online ratio
     pub fn calculate_reward(
         &self,
         validator_online_ratio: HashMap<AccountId, (u64, u64)>,

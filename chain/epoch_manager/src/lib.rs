@@ -294,7 +294,6 @@ impl EpochManager {
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        //        println!("{:?} Epoch info: {:?}", epoch_id, epoch_info);
         let slashed = self.get_slashed_validators(last_known_block_hash)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
@@ -431,18 +430,20 @@ impl EpochManager {
         &mut self,
         last_block_hash: &CryptoHash,
     ) -> Result<(HashMap<AccountId, Balance>, HashMap<AccountId, Balance>), EpochError> {
-        let epoch_id = EpochId(*last_block_hash);
-        let validator_reward = self.get_epoch_info(&epoch_id)?.validator_reward.clone();
+        let next_next_epoch_id = EpochId(*last_block_hash);
+        let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward.clone();
 
-        let prev_epoch_id = self.get_next_epoch_id(last_block_hash)?;
-        let prev_prev_epoch_id = self.get_epoch_id(last_block_hash)?;
+        let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
+        let epoch_id = self.get_epoch_id(last_block_hash)?;
         println!(
             "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
-            epoch_id, prev_epoch_id, prev_prev_epoch_id
+            next_next_epoch_id, next_epoch_id, epoch_id
         );
-        let prev_prev_stake_change = self.get_epoch_info(&prev_prev_epoch_id)?.stake_change.clone();
-        let prev_stake_change = self.get_epoch_info(&prev_epoch_id)?.stake_change.clone();
-        let stake_change = &self.get_epoch_info(&epoch_id)?.stake_change;
+        // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
+        // is the prev_prev_stake_change.
+        let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
+        let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
+        let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
         println!(
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change
@@ -607,13 +608,11 @@ mod tests {
 
     use crate::test_utils::{
         change_stake, default_reward_calculator, epoch_config, epoch_info, hash_range,
-        record_block, reward, setup_default_epoch_manager, stake,
+        record_block, reward, setup_default_epoch_manager, stake, DEFAULT_GAS_PRICE,
+        DEFAULT_TOTAL_SUPPLY,
     };
 
     use super::*;
-
-    const DEFAULT_GAS_PRICE: u128 = 100;
-    const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
     #[test]
     fn test_stake_validator() {
@@ -622,15 +621,7 @@ mod tests {
         let mut epoch_manager = setup_default_epoch_manager(validators.clone(), 1, 1, 2, 2, 90);
 
         let h = hash_range(4);
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
 
         let expected0 = epoch_info(
             vec![("test1", amount_staked)],
@@ -644,41 +635,17 @@ mod tests {
         let epoch0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch0).unwrap(), &expected0);
 
-        record_block(
-            &mut epoch_manager,
-            h[0],
-            h[1],
-            1,
-            vec![stake("test2", amount_staked)],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test2", amount_staked)]);
         let epoch1 = epoch_manager.get_epoch_id(&h[1]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch1).unwrap(), &expected0);
         assert_eq!(epoch_manager.get_epoch_id(&h[2]), Err(EpochError::MissingBlock(h[2])));
 
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         // test2 staked in epoch 1 and therefore should be included in epoch 3.
         let epoch2 = epoch_manager.get_epoch_id(&h[2]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch2).unwrap(), &expected0);
 
-        record_block(
-            &mut epoch_manager,
-            h[2],
-            h[3],
-            3,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
 
         let expected3 = epoch_info(
             vec![("test1", amount_staked), ("test2", amount_staked)],
@@ -712,43 +679,11 @@ mod tests {
         let mut epoch_manager = setup_default_epoch_manager(validators, 2, 1, 2, 0, 90);
 
         let h = hash_range(4);
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[0],
-            h[1],
-            1,
-            vec![stake("test1", 10)],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 10)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         // New epoch starts here.
-        record_block(
-            &mut epoch_manager,
-            h[2],
-            h[3],
-            3,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch_id).unwrap(),
@@ -780,136 +715,24 @@ mod tests {
 
         let h = hash_range(14);
 
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
 
-        record_block(
-            &mut epoch_manager,
-            h[0],
-            h[1],
-            1,
-            vec![stake("test4", amount_staked)],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[4],
-            4,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[4],
-            h[7],
-            7,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[7],
-            h[10],
-            10,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[10],
-            h[13],
-            13,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test4", amount_staked)]);
+        record_block(&mut epoch_manager, h[1], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[7], 7, vec![]);
+        record_block(&mut epoch_manager, h[7], h[10], 10, vec![]);
+        record_block(&mut epoch_manager, h[10], h[13], 13, vec![]);
 
         // Builds alternative fork in the network.
         let build_branch2 = |epoch_manager: &mut EpochManager| {
-            record_block(
-                epoch_manager,
-                h[0],
-                h[2],
-                2,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[2],
-                h[3],
-                3,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[3],
-                h[5],
-                5,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[5],
-                h[6],
-                6,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[6],
-                h[8],
-                8,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[8],
-                h[9],
-                9,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[9],
-                h[11],
-                11,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
-            record_block(
-                epoch_manager,
-                h[11],
-                h[12],
-                12,
-                vec![],
-                DEFAULT_GAS_PRICE,
-                DEFAULT_TOTAL_SUPPLY,
-            );
+            record_block(epoch_manager, h[0], h[2], 2, vec![]);
+            record_block(epoch_manager, h[2], h[3], 3, vec![]);
+            record_block(epoch_manager, h[3], h[5], 5, vec![]);
+            record_block(epoch_manager, h[5], h[6], 6, vec![]);
+            record_block(epoch_manager, h[6], h[8], 8, vec![]);
+            record_block(epoch_manager, h[8], h[9], 9, vec![]);
+            record_block(epoch_manager, h[9], h[11], 11, vec![]);
+            record_block(epoch_manager, h[11], h[12], 12, vec![]);
         };
         build_branch2(&mut epoch_manager);
 
@@ -937,15 +760,7 @@ mod tests {
 
         // Check that if we have a different epoch manager and apply only second branch we get the same results.
         let mut epoch_manager2 = setup_default_epoch_manager(validators, 3, 1, 3, 0, 90);
-        record_block(
-            &mut epoch_manager2,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager2, CryptoHash::default(), h[0], 0, vec![]);
         build_branch2(&mut epoch_manager2);
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch2_2),
@@ -966,42 +781,10 @@ mod tests {
         let h = hash_range(6);
         // this validator only produces one block every epoch whereas they should have produced 2. However, since
         // this is the only validator left, we still keep them as validator.
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[0],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[2],
-            h[4],
-            4,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[4],
-            h[5],
-            5,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+        record_block(&mut epoch_manager, h[0], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[5]).unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch_id).unwrap(),
@@ -1031,43 +814,11 @@ mod tests {
         )
         .unwrap();
         let h = hash_range(8);
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         // test1 unstakes in epoch 1, and should be kicked out in epoch 3 (validators stored at h2).
-        record_block(
-            &mut epoch_manager,
-            h[0],
-            h[1],
-            1,
-            vec![stake("test1", 0)],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[2],
-            h[3],
-            3,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[0], h[1], 1, vec![stake("test1", 0)]);
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
 
         let epoch_id = epoch_manager.get_next_epoch_id(&h[3]).unwrap();
         assert_eq!(
@@ -1082,24 +833,8 @@ mod tests {
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
             )
         );
-        record_block(
-            &mut epoch_manager,
-            h[3],
-            h[4],
-            4,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[4],
-            h[5],
-            5,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
+        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[5]).unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch_id).unwrap(),
@@ -1113,24 +848,8 @@ mod tests {
                 reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
             )
         );
-        record_block(
-            &mut epoch_manager,
-            h[5],
-            h[6],
-            6,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[6],
-            h[7],
-            7,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
+        record_block(&mut epoch_manager, h[6], h[7], 7, vec![]);
         let epoch_id = epoch_manager.get_next_epoch_id(&h[7]).unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch_id).unwrap(),
@@ -1161,15 +880,7 @@ mod tests {
         .unwrap();
 
         let h = hash_range(10);
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
 
         // Slash test1
         let mut slashed = HashSet::new();
@@ -1199,43 +910,11 @@ mod tests {
             vec![("test2".to_string(), false), ("test1".to_string(), true)]
         );
 
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[2],
-            h[3],
-            3,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
-        record_block(
-            &mut epoch_manager,
-            h[3],
-            h[4],
-            4,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
+        record_block(&mut epoch_manager, h[2], h[3], 3, vec![]);
+        record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
         // Epoch 3 -> defined by proposals/slashes in h[1].
-        record_block(
-            &mut epoch_manager,
-            h[4],
-            h[5],
-            5,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
 
         let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
         assert_eq!(
@@ -1267,15 +946,7 @@ mod tests {
             vec![("test1", stake_amount), ("test2", stake_amount), ("test3", stake_amount)];
         let mut epoch_manager = setup_default_epoch_manager(validators, 1, 1, 2, 0, 90);
         let h = hash_range(5);
-        record_block(
-            &mut epoch_manager,
-            CryptoHash::default(),
-            h[0],
-            0,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
         // all validators are trying to unstake.
         record_block(
             &mut epoch_manager,
@@ -1283,18 +954,8 @@ mod tests {
             h[1],
             1,
             vec![stake("test1", 0), stake("test2", 0), stake("test3", 0)],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
         );
-        record_block(
-            &mut epoch_manager,
-            h[1],
-            h[2],
-            2,
-            vec![],
-            DEFAULT_GAS_PRICE,
-            DEFAULT_TOTAL_SUPPLY,
-        );
+        record_block(&mut epoch_manager, h[1], h[2], 2, vec![]);
         let next_epoch = epoch_manager.get_next_epoch_id(&h[2]).unwrap();
         assert_eq!(
             epoch_manager.get_epoch_info(&next_epoch).unwrap().validators,

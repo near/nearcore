@@ -8,6 +8,9 @@ use crate::{BlockInfo, EpochManager};
 use near_primitives::hash::{hash, CryptoHash};
 use near_store::test_utils::create_test_store;
 
+pub const DEFAULT_GAS_PRICE: u128 = 100;
+pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
+
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
     for i in 0..num {
@@ -155,8 +158,6 @@ pub fn record_block(
     cur_h: CryptoHash,
     index: BlockIndex,
     proposals: Vec<ValidatorStake>,
-    gas_price: Balance,
-    total_supply: Balance,
 ) {
     epoch_manager
         .record_block_info(
@@ -168,8 +169,8 @@ pub fn record_block(
                 vec![],
                 HashSet::default(),
                 0,
-                gas_price,
-                total_supply,
+                DEFAULT_GAS_PRICE,
+                DEFAULT_TOTAL_SUPPLY,
             ),
             [0; 32],
         )
