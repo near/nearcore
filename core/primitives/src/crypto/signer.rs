@@ -11,7 +11,6 @@ use rand::Rng;
 
 use crate::crypto::aggregate_signature::BlsPublicKey;
 use crate::crypto::signature::{get_key_pair, sign, verify, PublicKey, SecretKey, Signature};
-use crate::serialize::base_format;
 use crate::types::{AccountId, PartialSignature};
 
 /// Trait to abstract the signer account.
@@ -40,9 +39,7 @@ pub trait BLSSigner: Sync + Send {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
-    #[serde(with = "base_format")]
     pub public_key: PublicKey,
-    #[serde(with = "base_format")]
     pub secret_key: SecretKey,
 }
 
@@ -90,9 +87,7 @@ pub fn get_key_file(key_store_path: &Path, public_key: Option<String>) -> KeyFil
 
 #[derive(Serialize, Deserialize)]
 pub struct BlockProducerKeyFile {
-    #[serde(with = "base_format")]
     pub public_key: PublicKey,
-    #[serde(with = "base_format")]
     pub secret_key: SecretKey,
 }
 
@@ -172,9 +167,7 @@ pub fn get_or_create_key_file(
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InMemorySigner {
     pub account_id: AccountId,
-    #[serde(with = "base_format")]
     pub public_key: PublicKey,
-    #[serde(with = "base_format")]
     pub secret_key: SecretKey,
 }
 

@@ -237,9 +237,9 @@ pub enum ReturnData {
 }
 
 impl ReturnData {
-    pub fn to_result(&self) -> Option<Vec<u8>> {
+    pub fn to_result(self) -> Option<Vec<u8>> {
         match self {
-            ReturnData::Value(v) => Some(v.clone()),
+            ReturnData::Value(v) => Some(v),
             _ => Some(vec![]),
         }
     }

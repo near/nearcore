@@ -1,6 +1,6 @@
 //! Settings of the parameters of the runtime.
-use near_primitives::transaction::TransactionBody;
-use near_primitives::types::{Balance, BlockIndex};
+use near_primitives::transaction::Action;
+use near_primitives::types::{Balance, BlockIndex, Gas};
 use wasm::types::Config;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -12,46 +12,104 @@ pub struct RuntimeConfig {
     /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
     pub poke_threshold: BlockIndex,
     /// Costs for different types of transactions.
-    pub transactions_costs: TransactionsCosts,
+    pub transaction_costs: TransactionCosts,
     /// Config of wasm operations.
     pub wasm_config: Config,
 }
 
 /// The costs of the transactions.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct TransactionsCosts {
-    pub create_account: Balance,
-    pub deploy_contract: Balance,
-    pub function_call: Balance,
-    pub self_function_call: Balance,
-    pub send_money: Balance,
-    pub stake: Balance,
-    pub swap_key: Balance,
-    pub add_key: Balance,
-    pub delete_key: Balance,
-    pub delete_account: Balance,
+pub struct TransactionCosts {
+    pub create_account: Gas,
+    pub deploy_contract: Gas,
+    pub function_call: Gas,
+    pub transfer: Gas,
+    pub stake: Gas,
+    pub add_key: Gas,
+    pub delete_key: Gas,
+    pub delete_account: Gas,
 }
 
-impl TransactionsCosts {
-    /// Get the cost of the given transaction.
-    pub fn cost(&self, transaction_body: &TransactionBody) -> Balance {
-        use TransactionBody::*;
-        match transaction_body {
+fn safe_gas_to_balance(
+    gas_price: Balance,
+    gas: Gas,
+) -> Result<Balance, Box<dyn std::error::Error>> {
+    gas_price.checked_mul(gas as Balance).ok_or_else(|| "gas to balance overflow".into())
+}
+
+fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, Box<dyn std::error::Error>> {
+    val.checked_add(rhs).ok_or_else(|| "gas add overflow".into())
+}
+
+fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, Box<dyn std::error::Error>> {
+    val.checked_add(rhs).ok_or_else(|| "balance add overflow".into())
+}
+
+impl TransactionCosts {
+    pub fn action_gas_cost(&self, action: &Action) -> Gas {
+        use Action::*;
+        match action {
             CreateAccount(_) => self.create_account,
             DeployContract(_) => self.deploy_contract,
-            FunctionCall(_)
-                if Some(transaction_body.get_originator())
-                    == transaction_body.get_contract_id() =>
-            {
-                self.self_function_call
-            }
             FunctionCall(_) => self.function_call,
-            SendMoney(_) => self.send_money,
+            Transfer(_) => self.transfer,
             Stake(_) => self.stake,
-            SwapKey(_) => self.swap_key,
             AddKey(_) => self.add_key,
             DeleteKey(_) => self.delete_key,
             DeleteAccount(_) => self.delete_account,
         }
+    }
+
+    /// Get the total sum of basic gas cost for given actions
+    pub fn total_basic_gas(
+        &self,
+        actions: &Vec<Action>,
+    ) -> Result<Gas, Box<dyn std::error::Error>> {
+        let mut total_gas: Gas = 0;
+        for action in actions {
+            total_gas = safe_add_gas(total_gas, self.action_gas_cost(action))?;
+        }
+        Ok(total_gas)
+    }
+
+    /// Get the total sum of deposits for given actions
+    pub fn total_deposit(
+        &self,
+        actions: &Vec<Action>,
+    ) -> Result<Balance, Box<dyn std::error::Error>> {
+        let mut total_balance: Balance = 0;
+        for action in actions {
+            total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
+        }
+        Ok(total_balance)
+    }
+
+    /// Get the total sum of prepaid gas for given actions
+    pub fn total_prepaid_gas(
+        &self,
+        actions: &Vec<Action>,
+    ) -> Result<Gas, Box<dyn std::error::Error>> {
+        let mut total_gas: Gas = 0;
+        for action in actions {
+            total_gas = safe_add_gas(total_gas, action.get_prepaid_gas())?;
+        }
+        Ok(total_gas)
+    }
+
+    /// Get the total sum of prepaid gas and basic actions gas for given actions
+    pub fn total_gas(&self, actions: &Vec<Action>) -> Result<Gas, Box<dyn std::error::Error>> {
+        safe_add_gas(self.total_basic_gas(actions)?, self.total_prepaid_gas(actions)?)
+    }
+
+    /// Get the cost of the given list of actions
+    pub fn total_cost(
+        &self,
+        gas_price: Balance,
+        actions: &Vec<Action>,
+    ) -> Result<Balance, Box<dyn std::error::Error>> {
+        safe_add_balance(
+            self.total_deposit(actions)?,
+            safe_gas_to_balance(gas_price, self.total_gas(actions)?)?,
+        )
     }
 }

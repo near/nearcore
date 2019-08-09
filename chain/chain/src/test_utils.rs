@@ -6,10 +6,11 @@ use chrono::Utc;
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
-    ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
+    SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
@@ -158,25 +159,22 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        _receipts: &Vec<Vec<ReceiptTransaction>>,
+        _receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     > {
         let mut tx_results = vec![];
-        for _ in transactions {
-            tx_results.push(TransactionResult {
-                status: TransactionStatus::Completed,
-                logs: vec![],
-                receipts: vec![],
-                result: None,
+        for tx in transactions {
+            tx_results.push(TransactionLog {
+                hash: tx.get_hash(),
+                result: TransactionResult {
+                    status: TransactionStatus::Completed,
+                    logs: vec![],
+                    receipts: vec![],
+                    result: None,
+                },
             });
         }
         Ok((

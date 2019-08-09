@@ -40,17 +40,11 @@ pub type BlockIndex = u64;
 pub type ShardId = u64;
 /// Balance is type for storing amounts of tokens.
 pub type Balance = u128;
-/// Identifier for receipts, used to refer in callbacks.
-pub type ReceiptId = Vec<u8>;
-/// Identifier for callbacks, used to store storage and refer in receipts.
-pub type CallbackId = Vec<u8>;
+/// Gas is a type for storing amount of gas.
+pub type Gas = u64;
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
-pub enum PromiseId {
-    Receipt(ReceiptId),
-    Callback(CallbackId),
-    Joiner(Vec<ReceiptId>),
-}
+pub type ReceiptIndex = usize;
+pub type PromiseId = Vec<ReceiptIndex>;
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
 pub enum BlockId {

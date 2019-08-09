@@ -6,58 +6,55 @@ use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
-};
-use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
+use near_primitives::types::{AccountId, Balance, PromiseId};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
+use near_store::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
 use crate::POISONED_LOCK_ERR;
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::transaction::{Action, FunctionCallAction};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     storage_prefix: Vec<u8>,
-    pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
-    pub callbacks: HashMap<CallbackId, Callback>,
+    action_receipts: Vec<(AccountId, ActionReceipt)>,
     account_id: &'a AccountId,
-    refund_account_id: &'a AccountId,
-    nonce: Nonce,
-    transaction_hash: &'a CryptoHash,
     iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
     last_iter_id: u32,
     ethash_provider: Arc<Mutex<EthashProvider>>,
-    originator_id: &'a AccountId,
-    public_key: &'a PublicKey,
+    signer_id: &'a AccountId,
+    signer_public_key: &'a PublicKey,
+    gas_price: Balance,
+    base_data_id: &'a CryptoHash,
+    data_count: u64,
 }
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
-        refund_account_id: &'a AccountId,
-        transaction_hash: &'a CryptoHash,
         ethash_provider: Arc<Mutex<EthashProvider>>,
-        originator_id: &'a AccountId,
-        public_key: &'a PublicKey,
+        signer_id: &'a AccountId,
+        signer_public_key: &'a PublicKey,
+        gas_price: Balance,
+        base_data_id: &'a CryptoHash,
     ) -> Self {
         RuntimeExt {
             trie_update,
             storage_prefix: prefix_for_data(account_id),
-            receipts: HashMap::new(),
-            callbacks: HashMap::new(),
+            action_receipts: vec![],
             account_id,
-            refund_account_id,
-            nonce: 0,
-            transaction_hash,
             iters: HashMap::new(),
             last_iter_id: 0,
             ethash_provider,
-            originator_id,
-            public_key,
+            signer_id,
+            signer_public_key,
+            gas_price,
+            base_data_id,
+            data_count: 0,
         }
     }
 
@@ -67,23 +64,44 @@ impl<'a> RuntimeExt<'a> {
         storage_key
     }
 
-    pub fn create_nonce(&mut self) -> CryptoHash {
-        let nonce = create_nonce_with_nonce(self.transaction_hash, self.nonce);
-        self.nonce += 1;
-        nonce
+    fn new_data_id(&mut self) -> CryptoHash {
+        let data_id = create_nonce_with_nonce(&self.base_data_id, self.data_count);
+        self.data_count += 1;
+        data_id
     }
 
-    pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
-        let mut vec: Vec<ReceiptTransaction> = self.receipts.drain().map(|(_, v)| v).collect();
-        vec.sort_by_key(|a| a.nonce);
-        vec
+    fn new_function_call_action_receipt(
+        &self,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        amount: u128,
+        input_data_ids: Vec<CryptoHash>,
+    ) -> ExtResult<ActionReceipt> {
+        Ok(ActionReceipt {
+            signer_id: self.signer_id.clone(),
+            signer_public_key: self.signer_public_key.clone(),
+            gas_price: self.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids,
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: String::from_utf8(method_name).map_err(|_| ExtError::BadUtf8)?,
+                args,
+                gas: 10000,
+                deposit: amount,
+            })],
+        })
     }
 
-    /// write callbacks to stateUpdate
-    pub fn flush_callbacks(&mut self) {
-        for (id, callback) in self.callbacks.drain() {
-            set_callback(self.trie_update, &id, &callback);
-        }
+    pub fn into_receipts(self, predecessor_id: &AccountId) -> Vec<Receipt> {
+        self.action_receipts
+            .into_iter()
+            .map(|(receiver_id, action_receipt)| Receipt {
+                predecessor_id: predecessor_id.clone(),
+                receiver_id,
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(action_receipt),
+            })
+            .collect()
     }
 }
 
@@ -154,6 +172,33 @@ impl<'a> External for RuntimeExt<'a> {
         self.iters.remove(&id);
     }
 
+    /*
+        New promise APIs for reference
+
+
+        fn promise_create(
+        &mut self,
+        account_id: AccountId,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        amount: Balance,
+        gas: Gas,
+    ) -> Result<PromiseIndex>;
+
+    fn promise_then(
+        &mut self,
+        promise_id: PromiseIndex,
+        account_id: AccountId,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        amount: Balance,
+        gas: Gas,
+    ) -> Result<PromiseIndex>;
+
+    fn promise_and(&mut self, promise_indices: &[PromiseIndex]) -> Result<PromiseIndex>;
+
+    */
+
     fn promise_create(
         &mut self,
         account_id: AccountId,
@@ -161,23 +206,12 @@ impl<'a> External for RuntimeExt<'a> {
         arguments: Vec<u8>,
         amount: Balance,
     ) -> ExtResult<PromiseId> {
-        let nonce = self.create_nonce();
-        let receipt = ReceiptTransaction::new(
-            self.account_id.clone(),
-            account_id,
-            nonce,
-            ReceiptBody::NewCall(AsyncCall::new(
-                method_name,
-                arguments,
-                amount,
-                self.refund_account_id.clone(),
-                self.originator_id.clone(),
-                self.public_key.clone(),
-            )),
-        );
-        let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
-        self.receipts.insert(nonce.as_ref().to_vec(), receipt);
-        Ok(promise_id)
+        let new_receipt =
+            self.new_function_call_action_receipt(method_name, arguments, amount, vec![])?;
+        let new_promise_id = vec![self.action_receipts.len()];
+        self.action_receipts.push((account_id, new_receipt));
+        // self.promises.push(new_promise_id);
+        Ok(new_promise_id)
     }
 
     fn promise_then(
@@ -187,47 +221,26 @@ impl<'a> External for RuntimeExt<'a> {
         arguments: Vec<u8>,
         amount: Balance,
     ) -> ExtResult<PromiseId> {
-        let callback_id = self.create_nonce();
-        let receipt_ids = match promise_id {
-            PromiseId::Receipt(r) => vec![r],
-            PromiseId::Joiner(rs) => rs,
-            PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
-        };
-        let mut callback = Callback::new(
-            method_name,
-            arguments,
-            amount,
-            self.refund_account_id.clone(),
-            self.originator_id.clone(),
-            self.public_key.clone(),
-        );
-        callback.results.resize(receipt_ids.len(), None);
-        for (index, receipt_id) in receipt_ids.iter().enumerate() {
-            let receipt = match self.receipts.get_mut(receipt_id) {
-                Some(r) => r,
-                _ => return Err(ExtError::PromiseIdNotFound),
-            };
-            match receipt.body {
-                ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(
-                        callback_id.as_ref().to_vec(),
-                        index,
-                        self.account_id.clone(),
-                    );
-                    match async_call.callback {
-                        Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
-                        None => {
-                            async_call.callback = Some(callback_info);
-                        }
-                    }
-                }
-                _ => {
-                    return Err(ExtError::WrongPromise);
-                }
-            }
+        let receiver_id = self.account_id.clone();
+
+        let mut input_data_ids = vec![];
+        for receipt_index in promise_id {
+            let data_id = self.new_data_id();
+            self.action_receipts
+                .get_mut(receipt_index)
+                .expect("receipt index should be present")
+                .1
+                .output_data_receivers
+                .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
+            input_data_ids.push(data_id);
         }
-        self.callbacks.insert(callback_id.as_ref().to_vec(), callback);
-        Ok(PromiseId::Callback(callback_id.as_ref().to_vec()))
+
+        let new_receipt =
+            self.new_function_call_action_receipt(method_name, arguments, amount, input_data_ids)?;
+        let new_promise_id = vec![self.action_receipts.len()];
+        self.action_receipts.push((self.account_id.clone(), new_receipt));
+        // self.promises.push(new_promise_id);
+        Ok(new_promise_id)
     }
 
     fn check_ethash(

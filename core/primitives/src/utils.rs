@@ -2,7 +2,7 @@ use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use protobuf::{well_known_types::StringValue, SingularPtrField};
+use protobuf::{well_known_types::StringValue, RepeatedField, SingularPtrField};
 use regex::Regex;
 
 use lazy_static::lazy_static;
@@ -16,6 +16,10 @@ pub mod col {
     pub const CALLBACK: &[u8] = &[1];
     pub const CODE: &[u8] = &[2];
     pub const ACCESS_KEY: &[u8] = &[3];
+    pub const RECEIVED_DATA: &[u8] = &[4];
+    pub const POSTPONED_RECEIPT_ID: &[u8] = &[5];
+    pub const PENDING_DATA_COUNT: &[u8] = &[6];
+    pub const POSTPONED_RECEIPT: &[u8] = &[7];
 }
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
@@ -59,9 +63,31 @@ pub fn key_for_data(account_id: &AccountId, key: &[u8]) -> Vec<u8> {
     prefix
 }
 
-pub fn key_for_callback(id: &[u8]) -> Vec<u8> {
-    let mut key = col::CALLBACK.to_vec();
-    key.extend_from_slice(id);
+pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::RECEIVED_DATA, account_id);
+    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    key.extend_from_slice(data_id.as_ref());
+    key
+}
+
+pub fn key_for_postponed_receipt_id(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT_ID, account_id);
+    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    key.extend_from_slice(data_id.as_ref());
+    key
+}
+
+pub fn key_for_pending_data_count(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::PENDING_DATA_COUNT, account_id);
+    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    key.extend_from_slice(receipt_id.as_ref());
+    key
+}
+
+pub fn key_for_postponed_receipt(account_id: &AccountId, receipt_id: &CryptoHash) -> Vec<u8> {
+    let mut key = key_for_column_account_id(col::POSTPONED_RECEIPT, account_id);
+    key.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+    key.extend_from_slice(receipt_id.as_ref());
     key
 }
 
@@ -114,6 +140,13 @@ where
     U: TryFrom<T, Error = Box<dyn std::error::Error>>,
 {
     proto_to_result(proto).and_then(TryInto::try_into)
+}
+
+pub fn proto_to_vec<T, U>(proto: RepeatedField<T>) -> Result<Vec<U>, Box<dyn std::error::Error>>
+where
+    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
+{
+    proto.into_iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()
 }
 
 /// A wrapper around Option<T> that provides native Display trait.

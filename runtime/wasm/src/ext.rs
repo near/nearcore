@@ -5,9 +5,9 @@ pub enum Error {
     NotImplemented,
     PromiseIdNotFound,
     WrongPromise,
-    PromiseAlreadyHasCallback,
     TrieIteratorError,
     TrieIteratorMissing,
+    BadUtf8,
 }
 
 pub type Result<T> = ::std::result::Result<T, Error>;

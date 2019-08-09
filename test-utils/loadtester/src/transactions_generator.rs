@@ -3,7 +3,7 @@
 use std::sync::{Arc, RwLock};
 
 use near_primitives::transaction::{
-    DeployContractTransaction, FunctionCallTransaction, SignedTransaction, TransactionBody,
+    Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 
 use crate::remote_node::RemoteNode;
@@ -38,8 +38,7 @@ impl Generator {
             }
         };
 
-        TransactionBody::send_money(nonce, acc_from.as_str(), acc_to.as_str(), 1)
-            .sign(&*signer_from)
+        SignedTransaction::send_money(nonce, acc_from, acc_to, signer_from.clone(), 1)
     }
 
     /// Returns transactions that deploy test contract to an every account used by the node.
@@ -52,12 +51,14 @@ impl Generator {
             let nonce = node.nonces[ind];
             let signer = node.signers[ind].clone();
             let contract_id = signer.account_id.clone();
-            let t = DeployContractTransaction {
+
+            res.push(SignedTransaction::from_actions(
                 nonce,
+                contract_id.clone(),
                 contract_id,
-                wasm_byte_array: wasm_binary.to_vec(),
-            };
-            res.push(TransactionBody::DeployContract(t).sign(&*signer));
+                signer.clone(),
+                vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
+            ));
         }
         res
     }
@@ -73,15 +74,20 @@ impl Generator {
 
         let key = rand::random::<usize>() % 1_000;
         let value = rand::random::<usize>() % 1_000;
-        let t = FunctionCallTransaction {
+        SignedTransaction::from_actions(
             nonce,
-            originator: acc_from.clone(),
-            contract_id: acc_from,
-            method_name: b"setKeyValue".to_vec(),
-            args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_bytes().to_vec(),
-            amount: 1,
-        };
-        TransactionBody::FunctionCall(t).sign(&*signer_from)
+            acc_from.clone(),
+            acc_from,
+            signer_from.clone(),
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "setKeyValue".to_string(),
+                args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value)
+                    .as_bytes()
+                    .to_vec(),
+                gas: 100000,
+                deposit: 1,
+            })],
+        )
     }
 
     /// Returns a transaction that calls `heavy_storage_blocks` on a contract.
@@ -96,14 +102,17 @@ impl Generator {
         };
         let acc_from = signer_from.account_id.clone();
 
-        let t = FunctionCallTransaction {
+        SignedTransaction::from_actions(
             nonce,
-            originator: acc_from.clone(),
-            contract_id: acc_from,
-            method_name: b"heavy_storage_blocks".to_vec(),
-            args: "{\"n\":1000}".as_bytes().to_vec(),
-            amount: 1,
-        };
-        TransactionBody::FunctionCall(t).sign(&*signer_from)
+            acc_from.clone(),
+            acc_from,
+            signer_from.clone(),
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: "heavy_storage_blocks".to_string(),
+                args: "{\"n\":1000}".as_bytes().to_vec(),
+                gas: 100000,
+                deposit: 1,
+            })],
+        )
     }
 }

@@ -11,13 +11,13 @@ use near_protos::account as account_proto;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::serialize::{base_format, u128_dec_format, vec_base_format};
+use crate::serialize::{u128_dec_format, vec_base_format};
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-     #[serde(with = "vec_base_format")]
+    #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     pub nonce: Nonce,
     // amount + staked is the total value of the account
@@ -25,7 +25,6 @@ pub struct Account {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub staked: Balance,
-    #[serde(with = "base_format")]
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
     pub storage_usage: StorageUsage,
@@ -34,7 +33,12 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(public_keys: Vec<PublicKey>, amount: Balance, code_hash: CryptoHash) -> Self {
+    pub fn new(
+        public_keys: Vec<PublicKey>,
+        amount: Balance,
+        code_hash: CryptoHash,
+        storage_paid_at: BlockIndex,
+    ) -> Self {
         Account {
             public_keys,
             nonce: 0,
@@ -42,22 +46,18 @@ impl Account {
             staked: 0,
             code_hash,
             storage_usage: 0,
-            storage_paid_at: 0,
+            storage_paid_at,
         }
     }
 
     /// Try debiting the balance by the given amount.
     pub fn checked_sub(&mut self, amount: Balance) -> Result<(), String> {
-        self.amount = self
-            .amount
-            .checked_sub(amount)
-            .ok_or_else(|| {
-                format!(
-                    "Sender does not have enough balance {} for operation costing {}",
-                    self.amount, amount
-                )
-            })?
-            .into();
+        self.amount = self.amount.checked_sub(amount).ok_or_else(|| {
+            format!(
+                "Sender does not have enough balance {} for operation costing {}",
+                self.amount, amount
+            )
+        })?;
         Ok(())
     }
 }
