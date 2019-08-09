@@ -126,6 +126,10 @@ fn main() {
         Ok(outcome) => {
             let str = serde_json::to_string(&outcome).unwrap();
             println!("{}", str);
+            for call in fake_external.get_receipt_create_calls() {
+                let str = serde_json::to_string(&call).unwrap();
+                println!("{}", str);
+            }
         }
         Err(err) => {
             println!("{:?}", err);

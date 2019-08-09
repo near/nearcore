@@ -1,5 +1,6 @@
 use crate::dependencies::ExternalError;
 use crate::External;
+use serde::{Deserialize, Serialize};
 use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::intrinsics::transmute;
@@ -10,11 +11,18 @@ pub struct MockedExternal {
     pub fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
     iterators: HashMap<u64, Range<'static, Vec<u8>, Vec<u8>>>,
     next_iterator_index: u64,
+    receipt_create_calls: Vec<ReceiptCreateCall>,
+    next_receipt_index: u64,
 }
 
 impl MockedExternal {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Get calls to receipt create that were performed during contract call.
+    pub fn get_receipt_create_calls(&self) -> &Vec<ReceiptCreateCall> {
+        &self.receipt_create_calls
     }
 }
 
@@ -77,17 +85,42 @@ impl External for MockedExternal {
 
     fn receipt_create(
         &mut self,
-        _receipt_indices: HashSet<u64>,
-        _account_id: String,
-        _method_name: Vec<u8>,
-        _arguments: Vec<u8>,
-        _amount: u128,
-        _gas: u64,
+        receipt_indices: HashSet<u64>,
+        account_id: String,
+        method_name: Vec<u8>,
+        arguments: Vec<u8>,
+        amount: u128,
+        gas: u64,
     ) -> Result<u64, ExternalError> {
-        unimplemented!()
+        if receipt_indices.iter().any(|el| *el >= self.next_receipt_index) {
+            return Err(ExternalError::InvalidReceiptIndex);
+        }
+        self.receipt_create_calls.push(ReceiptCreateCall {
+            receipt_indices,
+            account_id,
+            method_name,
+            arguments,
+            amount,
+            gas,
+        });
+        let res = self.next_receipt_index;
+        self.next_receipt_index += 1;
+        Ok(res)
     }
 
     fn storage_usage(&self) -> u64 {
         unimplemented!()
     }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ReceiptCreateCall {
+    receipt_indices: HashSet<u64>,
+    account_id: String,
+    #[serde(with = "crate::serde_with::bytes_as_str")]
+    method_name: Vec<u8>,
+    #[serde(with = "crate::serde_with::bytes_as_str")]
+    arguments: Vec<u8>,
+    amount: u128,
+    gas: u64,
 }
