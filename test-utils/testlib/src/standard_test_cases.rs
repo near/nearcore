@@ -137,7 +137,7 @@ pub fn test_async_call_with_logs(node: impl Node) {
 
 pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let account_id = &node.account_id().unwrap();
-    let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
+    let wasm_binary = b"test_binary";
     let node_user = node.user();
     let root = node_user.get_state_root();
     let transaction_result = node_user.deploy_contract(account_id.clone(), wasm_binary.to_vec());
@@ -172,7 +172,7 @@ pub fn test_upload_contract(node: impl Node) {
 
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
-    let wasm_binary = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
+    let wasm_binary = b"test_binary";
     let transaction_result = node_user.deploy_contract(eve_account(), wasm_binary.to_vec());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);

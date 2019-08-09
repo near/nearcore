@@ -1,0 +1,10 @@
+[package]
+name = "test-contract"
+version = "0.0.1"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+members = []

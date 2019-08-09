@@ -1,7 +1,7 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::transaction::Action;
 use near_primitives::types::{Balance, BlockIndex, Gas};
-use wasm::types::Config;
+use near_vm_logic::Config;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
