@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -834,6 +833,7 @@ impl Chain {
         Ok(())
     }
 
+    /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
     pub fn catchup_blocks<F, F2>(
         &mut self,
         me: &Option<AccountId>,
@@ -846,16 +846,90 @@ impl Chain {
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         debug!("Catching up blocks after syncing pre {:?}, me: {:?}", epoch_first_block, me);
+
+        let mut affected_blocks: HashSet<CryptoHash> = HashSet::new();
+
+        // Apply the epoch start block separately, since it doesn't follow the pattern
+        let block = self.store.get_block(&epoch_first_block)?.clone();
+        let prev_block = self.store.get_block(&block.header.prev_hash)?.clone();
+
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
             self.runtime_adapter.clone(),
             &self.orphans,
             &self.blocks_with_missing_chunks,
         );
-        let affected_blocks = chain_update.catchup_blocks(me, epoch_first_block)?;
+        chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
         chain_update.commit()?;
 
-        let affected_blocks: HashSet<CryptoHash> = HashSet::from_iter(affected_blocks);
+        affected_blocks.insert(block.header.hash());
+
+        let first_epoch = block.header.epoch_id.clone();
+
+        debug!(
+            "MOO first_epoch: {:?}, prev_block: {:?}, block_hash: {:?}, is_epoch_start: {:?}",
+            first_epoch,
+            block.header.prev_hash,
+            block.hash(),
+            self.runtime_adapter.is_next_block_epoch_start(&block.header.prev_hash),
+        );
+
+        // Skip processing the prev of epoch_start (thus cur=1), but keep it in the queue so that
+        //    we later properly remove epoch_start itself from the permanent storage, since it is
+        //    indexed by the prev block.
+        let mut queue = vec![block.header.prev_hash, *epoch_first_block];
+        let mut cur = 1;
+
+        while cur < queue.len() {
+            let block_hash = queue[cur];
+
+            // TODO: cloning these blocks is extremely wasteful, figure out how to not to clone them
+            //    without summoning mutable references tomfoolery
+            let prev_block = self.store.get_block(&block_hash).unwrap().clone();
+
+            let mut saw_one = false;
+            for next_block_hash in self.store.get_blocks_to_catchup(&block_hash)?.clone() {
+                saw_one = true;
+                let block = self.store.get_block(&next_block_hash).unwrap().clone();
+
+                let mut chain_update = ChainUpdate::new(
+                    &mut self.store,
+                    self.runtime_adapter.clone(),
+                    &self.orphans,
+                    &self.blocks_with_missing_chunks,
+                );
+
+                chain_update.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
+
+                chain_update.commit()?;
+
+                affected_blocks.insert(block.header.hash());
+                queue.push(next_block_hash);
+            }
+            if saw_one {
+                debug!(
+                    "MOO new epoch: {:?}, is_epoch_start: {:?}",
+                    self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)?,
+                    self.runtime_adapter.is_next_block_epoch_start(&block_hash),
+                );
+                assert_eq!(
+                    self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)?,
+                    first_epoch
+                );
+            }
+
+            cur += 1;
+        }
+
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
+
+        for block_hash in queue {
+            debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
+            chain_store_update.remove_block_to_catchup(block_hash);
+        }
+        chain_store_update.remove_state_dl_info(*epoch_first_block);
+
+        chain_store_update.commit()?;
 
         for hash in affected_blocks.iter() {
             self.check_orphans(me, hash.clone(), block_accepted, block_misses_chunks);
@@ -1346,77 +1420,6 @@ impl<'a> ChainUpdate<'a> {
         // returns true if the block is ready to have state applied for the current epoch (and
         // otherwise should be orphaned)
         Ok(!self.chain_store_update.get_blocks_to_catchup(prev_prev_hash)?.contains(&prev_hash))
-    }
-
-    /// Apply transactions in chunks for the next epoch in blocks that were blocked on the state sync
-    fn catchup_blocks(
-        &mut self,
-        me: &Option<AccountId>,
-        epoch_first_block: &CryptoHash,
-    ) -> Result<Vec<CryptoHash>, Error> {
-        // Apply the epoch start block separately, since it doesn't follow the pattern
-        let mut ret = vec![];
-
-        let block = self.chain_store_update.get_block(&epoch_first_block)?.clone();
-        let prev_block = self.chain_store_update.get_block(&block.header.prev_hash)?.clone();
-        self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
-        ret.push(block.header.hash());
-
-        let first_epoch = block.header.epoch_id.clone();
-
-        debug!(
-            "MOO first_epoch: {:?}, prev_block: {:?}, block_hash: {:?}, is_epoch_start: {:?}",
-            first_epoch,
-            block.header.prev_hash,
-            block.hash(),
-            self.runtime_adapter.is_next_block_epoch_start(&block.header.prev_hash),
-        );
-
-        // Skip processing the prev of epoch_start (thus cur=1), but keep it in the queue so that
-        //    we later properly remove epoch_start itself from the permanent storage, since it is
-        //    indexed by the prev block.
-        let mut queue = vec![block.header.prev_hash, *epoch_first_block];
-        let mut cur = 1;
-
-        while cur < queue.len() {
-            let block_hash = queue[cur];
-
-            // TODO: cloning these blocks is extremely wasteful, figure out how to not to clone them
-            //    without summoning mutable references tomfoolery
-            let prev_block = self.chain_store_update.get_block(&block_hash).unwrap().clone();
-
-            let mut saw_one = false;
-            for next_block_hash in
-                self.chain_store_update.get_blocks_to_catchup(&block_hash)?.clone()
-            {
-                saw_one = true;
-                let block = self.chain_store_update.get_block(&next_block_hash).unwrap().clone();
-                self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
-                ret.push(block.header.hash());
-                queue.push(next_block_hash);
-            }
-            if saw_one {
-                debug!(
-                    "MOO new epoch: {:?}, is_epoch_start: {:?}",
-                    self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)?,
-                    self.runtime_adapter.is_next_block_epoch_start(&block_hash),
-                );
-                assert_eq!(
-                    self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash)?,
-                    first_epoch
-                );
-            }
-
-            cur += 1;
-        }
-
-        for block_hash in queue {
-            debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
-            self.chain_store_update.remove_block_to_catchup(block_hash);
-        }
-        self.chain_store_update.remove_state_dl_info(*epoch_first_block);
-
-        Ok(ret)
     }
 
     /// Process a block header as part of processing a full block.
