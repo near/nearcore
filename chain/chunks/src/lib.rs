@@ -174,18 +174,20 @@ impl ShardsManager {
                             .unwrap(),
                         self.me.clone().unwrap()
                     );
-                    let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
-                        account_id: self
-                            .runtime_adapter
-                            .get_chunk_producer(&epoch_id, height, shard_id)
-                            .unwrap(),
-                        part_request: ChunkPartRequestMsg {
-                            shard_id,
-                            chunk_hash: chunk_hash.clone(),
-                            height,
-                            part_id,
-                        },
-                    });
+                    self.peer_mgr
+                        .do_send(NetworkRequests::ChunkOnePartRequest {
+                            account_id: self
+                                .runtime_adapter
+                                .get_chunk_producer(&epoch_id, height, shard_id)
+                                .unwrap(),
+                            part_request: ChunkPartRequestMsg {
+                                shard_id,
+                                chunk_hash: chunk_hash.clone(),
+                                height,
+                                part_id,
+                            },
+                        })
+                        .unwrap(); // TODO XXX MOO no unwrap here!
                 }
             } else {
                 if self.requested_chunks.contains(&chunk_hash) {
@@ -243,7 +245,10 @@ impl ShardsManager {
         shard_id: ShardId,
         transactions: &Vec<SignedTransaction>,
     ) {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.reintroduce_transactions(transactions));
+        self.tx_pools
+            .entry(shard_id)
+            .or_insert_with(|| TransactionPool::new())
+            .reintroduce_transactions(transactions);
     }
     pub fn process_chunk_part_request(
         &mut self,
@@ -367,13 +372,13 @@ impl ShardsManager {
             ChunkStatus::Incomplete
         }
     }
-    // Returns the height of the enclosing block if a chunk part was not known previously, and the chunk is complete after receiving it
+    // Returns the hash of the enclosing block if a chunk part was not known previously, and the chunk is complete after receiving it
     // Once it receives the last part necessary to reconstruct, the chunk gets reconstructed and fills in all the remaining parts,
-    //     thus once the remaining parts arrive, they do not trigger returning true again.
+    //     thus once the remaining parts arrive, they do not trigger returning the hash again.
     pub fn process_chunk_part(
         &mut self,
         part: ChunkPartMsg,
-    ) -> Result<Option<u64>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<CryptoHash>, Box<dyn std::error::Error>> {
         let cares_about_shard = if let Some(chunk) = self.encoded_chunks.get(&part.chunk_hash) {
             let prev_block_hash = chunk.header.prev_block_hash;
             let shard_id = part.shard_id;
@@ -440,7 +445,7 @@ impl ShardsManager {
                                     );
                                 }
 
-                                return Ok(Some(chunk.header.height_created));
+                                return Ok(Some(chunk.header.prev_block_hash));
                             } else {
                                 error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk.header.chunk_hash().0);
                                 // Can't decode chunk, ignore it

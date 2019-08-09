@@ -388,7 +388,10 @@ impl BlockSync {
 
     /// Total number of received blocks by the chain.
     fn blocks_received(&self, chain: &Chain) -> Result<u64, near_chain::Error> {
-        Ok((chain.head()?).height + chain.orphans_len() as u64 + chain.orphans_evicted_len() as u64)
+        Ok((chain.head()?).height
+            + chain.orphans_len() as u64
+            + chain.blocks_with_missing_chunks_len() as u64
+            + chain.orphans_evicted_len() as u64)
     }
 }
 
@@ -461,7 +464,7 @@ impl StateSync {
                 }
                 Some(prev) => (
                     sync_need_restart.contains(&shard_id),
-                    now - *prev > Duration::minutes(STATE_SYNC_TIMEOUT),
+                    now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT), // TODO XXX MOO: this needs to be in config, and properly configured for the production (i.e. not 10 minutes)
                 ),
             };
 

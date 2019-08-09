@@ -423,7 +423,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::ChunkOnePart(one_part_msg) => {
                 let prev_block_hash = one_part_msg.header.prev_block_hash;
-                let height = one_part_msg.header.height_created;
                 if let Ok(ret) = self.shards_mgr.process_chunk_one_part(one_part_msg.clone()) {
                     if ret {
                         // If the chunk builds on top of the current head, get all the remaining parts
@@ -451,7 +450,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             //    because we see the one part before we see the block.
                             // In the latter case we will request parts once the block is received
                         }
-                        self.process_blocks_with_missing_chunks(ctx, height);
+                        self.process_blocks_with_missing_chunks(ctx, prev_block_hash);
                     }
                 }
                 NetworkClientResponses::NoResponse
@@ -537,7 +536,8 @@ impl ClientActor {
             //    depend on those one parts would have been an orphan, not a block with missing chunks,
             //    so no need to process anything here
             error!("MOO unlocked some orphaned one parts");
-            self.process_blocks_with_missing_chunks(ctx, block.header.height + 1);
+            // TODO XXX MOO: the comment above suggests this line is not needed, and yet here it is? O.o
+            self.process_blocks_with_missing_chunks(ctx, block_hash);
         }
 
         if provenance != Provenance::SYNC {
@@ -855,7 +855,7 @@ impl ClientActor {
         if head.height != last_height {
             return;
         }
-        debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), last_height, head.height);
+        debug!(target: "client", "{:?} Timeout for {}, current head {}, next head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), last_height, head.height, check_height);
         // Update how long ago last block arrived to reset block production timer.
         self.last_block_processed = Instant::now();
         self.handle_scheduling_block_production(
@@ -1085,30 +1085,24 @@ impl ClientActor {
     }
 
     /// Check if any block with missing chunks is ready to be processed
-    fn process_blocks_with_missing_chunks(&mut self, ctx: &mut Context<ClientActor>, height: u64) {
-        // We need to process all heights after and including the height, since the
-        //    chunk could have been included in a later block
-        for height_key in self.chain.all_heights_with_missing_chunks() {
-            if height_key >= height {
-                let height = height_key;
-
-                let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-                let me = self
-                    .block_producer
-                    .as_ref()
-                    .map(|block_producer| block_producer.account_id.clone());
-                self.chain.check_blocks_with_missing_chunks(&me, height, |block, status, provenance| {
+    fn process_blocks_with_missing_chunks(
+        &mut self,
+        ctx: &mut Context<ClientActor>,
+        last_accepted_block_hash: CryptoHash,
+    ) {
+        let accepted_blocks = Arc::new(RwLock::new(vec![]));
+        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+        let me =
+            self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
+        self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |block, status, provenance| {
                     debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
                     accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
                 }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
-                for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
-                    self.on_block_accepted(ctx, hash, status, provenance);
-                }
-                for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                    self.shards_mgr.request_chunks(missing_chunks);
-                }
-            }
+        for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
+            self.on_block_accepted(ctx, hash, status, provenance);
+        }
+        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+            self.shards_mgr.request_chunks(missing_chunks);
         }
     }
 

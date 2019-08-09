@@ -41,13 +41,19 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<u64, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
+    prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
 
 impl OrphanBlockPool {
     fn new() -> OrphanBlockPool {
-        OrphanBlockPool { orphans: HashMap::default(), height_idx: HashMap::default(), evicted: 0 }
+        OrphanBlockPool {
+            orphans: HashMap::default(),
+            height_idx: HashMap::default(),
+            prev_hash_idx: HashMap::default(),
+            evicted: 0,
+        }
     }
 
     fn len(&self) -> usize {
@@ -61,6 +67,9 @@ impl OrphanBlockPool {
     fn add(&mut self, orphan: Orphan) {
         let height_hashes = self.height_idx.entry(orphan.block.header.height).or_insert(vec![]);
         height_hashes.push(orphan.block.hash());
+        let prev_hash_entries =
+            self.prev_hash_idx.entry(orphan.block.header.prev_hash).or_insert(vec![]);
+        prev_hash_entries.push(orphan.block.hash());
         self.orphans.insert(orphan.block.hash(), orphan);
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
@@ -84,6 +93,8 @@ impl OrphanBlockPool {
                 }
             }
             self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+            self.prev_hash_idx
+                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
 
             self.evicted += old_len - self.orphans.len();
         }
@@ -93,14 +104,20 @@ impl OrphanBlockPool {
         self.orphans.contains_key(hash)
     }
 
-    pub fn remove_by_height(&mut self, height: BlockIndex) -> Option<Vec<Orphan>> {
-        self.height_idx
-            .remove(&height)
-            .map(|hs| hs.iter().filter_map(|h| self.orphans.remove(h)).collect())
-    }
+    pub fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
+        let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
+        let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
+            hs.iter()
+                .filter_map(|h| {
+                    removed_hashes.insert(h.clone());
+                    self.orphans.remove(h)
+                })
+                .collect()
+        });
 
-    pub fn all_heights(&self) -> Vec<u64> {
-        self.height_idx.keys().cloned().collect()
+        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+
+        ret
     }
 }
 
@@ -241,10 +258,6 @@ impl Chain {
         })
     }
 
-    pub fn all_heights_with_missing_chunks(&self) -> Vec<u64> {
-        self.blocks_with_missing_chunks.all_heights()
-    }
-
     /// Reset "sync" head to current header head.
     /// Do this when first transition to header syncing.
     pub fn reset_sync_head(&mut self) -> Result<Tip, Error> {
@@ -282,12 +295,12 @@ impl Chain {
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
-        let height = block.header.height;
+        let block_hash = block.hash();
         let res =
             self.process_block_single(me, block, provenance, block_accepted, block_misses_chunks);
         if res.is_ok() {
             if let Some(new_res) =
-                self.check_orphans(me, height + 1, block_accepted, block_misses_chunks)
+                self.check_orphans(me, block_hash, block_accepted, block_misses_chunks)
             {
                 return Ok(Some(new_res));
             }
@@ -455,7 +468,6 @@ impl Chain {
         let header = self.get_block_header(&sync_hash)?;
         let hash = header.prev_hash;
         let prev_header = self.get_block_header(&hash)?;
-        let height = prev_header.height;
         let tip = Tip::from_header(prev_header);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
@@ -466,7 +478,8 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, height + 1, block_accepted, block_misses_chunks);
+        self.check_orphans(me, hash, block_accepted, block_misses_chunks);
+        self.check_orphans(me, sync_hash, block_accepted, block_misses_chunks);
         Ok(())
     }
 
@@ -635,16 +648,17 @@ impl Chain {
     pub fn check_blocks_with_missing_chunks<F, F2>(
         &mut self,
         me: &Option<AccountId>,
-        height: BlockIndex,
+        prev_hash: CryptoHash,
         block_accepted: F,
         block_misses_chunks: F2,
     ) where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
-        let mut new_blocks_accepted = false;
-        if let Some(orphans) = self.blocks_with_missing_chunks.remove_by_height(height) {
+        let mut new_blocks_accepted = vec![];
+        if let Some(orphans) = self.blocks_with_missing_chunks.remove_by_prev_hash(prev_hash) {
             for orphan in orphans.into_iter() {
+                let block_hash = orphan.block.header.hash();
                 let res = self.process_block_single(
                     me,
                     orphan.block,
@@ -655,7 +669,7 @@ impl Chain {
                 match res {
                     Ok(_) => {
                         debug!(target: "chain", "Block with missing chunks is accepted; me: {:?}", me);
-                        new_blocks_accepted = true;
+                        new_blocks_accepted.push(block_hash);
                     }
                     Err(_) => {
                         debug!(target: "chain", "Block with missing chunks is declined; me: {:?}", me);
@@ -664,8 +678,8 @@ impl Chain {
             }
         };
 
-        if new_blocks_accepted {
-            self.check_orphans(me, height + 1, block_accepted, block_misses_chunks);
+        for accepted_block in new_blocks_accepted {
+            self.check_orphans(me, accepted_block, block_accepted, block_misses_chunks);
         }
     }
 
@@ -673,7 +687,7 @@ impl Chain {
     pub fn check_orphans<F, F2>(
         &mut self,
         me: &Option<AccountId>,
-        mut height: BlockIndex,
+        prev_hash: CryptoHash,
         block_accepted: F,
         block_misses_chunks: F2,
     ) -> Option<Tip>
@@ -681,17 +695,18 @@ impl Chain {
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
-        let initial_height = height;
+        let mut queue = vec![prev_hash];
+        let mut queue_idx = 0;
 
-        let mut orphan_accepted = false;
         let mut maybe_new_head = None;
 
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: at {}, # orphans {}", height, self.orphans.len());
-        loop {
-            if let Some(orphans) = self.orphans.remove_by_height(height) {
+        debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
+        while queue_idx < queue.len() {
+            if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
+                    let block_hash = orphan.block.hash();
                     let res = self.process_block_single(
                         me,
                         orphan.block,
@@ -702,29 +717,22 @@ impl Chain {
                     match res {
                         Ok(maybe_tip) => {
                             maybe_new_head = maybe_tip;
-                            orphan_accepted = true;
+                            queue.push(block_hash);
                         }
                         Err(_) => {
                             debug!(target: "chain", "Orphan declined");
                         }
                     }
                 }
-
-                if orphan_accepted {
-                    // Accepted a block, so should check if there are now new orphans unlocked.
-                    height += 1;
-                    continue;
-                }
             }
-            break;
+            queue_idx += 1;
         }
 
-        if initial_height != height {
+        if queue.len() > 1 {
             debug!(
                 target: "chain",
-                "Check orphans: {} blocks accepted since height {}, remaining # orphans {}",
-                height - initial_height,
-                initial_height,
+                "Check orphans: {} blocks accepted, remaining # orphans {}",
+                queue.len() - 1,
                 self.orphans.len(),
             );
         }
@@ -844,13 +852,13 @@ impl Chain {
             &self.orphans,
             &self.blocks_with_missing_chunks,
         );
-        let affected_heights = chain_update.catchup_blocks(me, epoch_first_block)?;
+        let affected_blocks = chain_update.catchup_blocks(me, epoch_first_block)?;
         chain_update.commit()?;
 
-        let affected_heights: HashSet<u64> = HashSet::from_iter(affected_heights);
+        let affected_blocks: HashSet<CryptoHash> = HashSet::from_iter(affected_blocks);
 
-        for height in affected_heights.iter() {
-            self.check_orphans(me, height + 1, block_accepted, block_misses_chunks);
+        for hash in affected_blocks.iter() {
+            self.check_orphans(me, hash.clone(), block_accepted, block_misses_chunks);
         }
 
         Ok(())
@@ -978,6 +986,12 @@ impl Chain {
     #[inline]
     pub fn orphans_len(&self) -> usize {
         self.orphans.len()
+    }
+
+    /// Returns number of orphans currently in the orphan pool.
+    #[inline]
+    pub fn blocks_with_missing_chunks_len(&self) -> usize {
+        self.blocks_with_missing_chunks.len()
     }
 
     /// Returns number of evicted orphans.
@@ -1339,14 +1353,14 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         me: &Option<AccountId>,
         epoch_first_block: &CryptoHash,
-    ) -> Result<Vec<BlockIndex>, Error> {
+    ) -> Result<Vec<CryptoHash>, Error> {
         // Apply the epoch start block separately, since it doesn't follow the pattern
         let mut ret = vec![];
 
         let block = self.chain_store_update.get_block(&epoch_first_block)?.clone();
         let prev_block = self.chain_store_update.get_block(&block.header.prev_hash)?.clone();
         self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
-        ret.push(block.header.height);
+        ret.push(block.header.hash());
 
         let first_epoch = block.header.epoch_id.clone();
 
@@ -1378,7 +1392,7 @@ impl<'a> ChainUpdate<'a> {
                 saw_one = true;
                 let block = self.chain_store_update.get_block(&next_block_hash).unwrap().clone();
                 self.apply_chunks(me, &block, &prev_block, ApplyChunksMode::NextEpoch)?;
-                ret.push(block.header.height);
+                ret.push(block.header.hash());
                 queue.push(next_block_hash);
             }
             if saw_one {

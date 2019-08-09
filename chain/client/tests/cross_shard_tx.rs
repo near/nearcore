@@ -72,40 +72,137 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
-    use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+    use near_network::{
+        NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    };
     use near_primitives::rpc::QueryResponse;
     use near_primitives::rpc::QueryResponse::ViewAccount;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
+    use near_primitives::types::AccountId;
+    use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, RwLock};
 
+    fn send_tx(
+        num_validators: usize,
+        connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
+        connector_ordinal: usize,
+        from: AccountId,
+        to: AccountId,
+        amount: u128,
+        nonce: u64,
+    ) {
+        let connectors1 = connectors.clone();
+        actix::spawn(
+            connectors.write().unwrap()[connector_ordinal]
+                .0
+                .send(NetworkClientMessages::Transaction(SignedTransaction::create_payment_tx(
+                    from.clone(),
+                    to.clone(),
+                    amount,
+                    nonce,
+                )))
+                .then(move |x| {
+                    match x.unwrap() {
+                        NetworkClientResponses::NoResponse => {
+                            assert_eq!(num_validators, 24);
+                            send_tx(
+                                num_validators,
+                                connectors1,
+                                (connector_ordinal + 8) % num_validators,
+                                from,
+                                to,
+                                amount,
+                                nonce,
+                            );
+                        }
+                        NetworkClientResponses::ValidTx => {
+                            println!(
+                                "Transaction was received by validator {:?}",
+                                connector_ordinal
+                            );
+                        }
+                        _ => assert!(false),
+                    }
+                    future::result(Ok(()))
+                }),
+        );
+    }
+
     fn test_cross_shard_tx_callback(
         res: Result<Result<QueryResponse, String>, MailboxError>,
+        account_id: AccountId,
         connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>>,
         iteration: Arc<AtomicUsize>,
         nonce: Arc<AtomicUsize>,
         validators: Vec<&'static str>,
-        successful_queries: Arc<AtomicUsize>,
+        successful_queries: Arc<RwLock<HashSet<AccountId>>>,
         unsuccessful_queries: Arc<AtomicUsize>,
         balances: Arc<RwLock<Vec<u128>>>,
         observed_balances: Arc<RwLock<Vec<u128>>>,
+        presumable_epoch: Arc<RwLock<usize>>,
         num_iters: usize,
     ) {
-        let query_responce = res.unwrap().unwrap();
-        if let ViewAccount(view_account_result) = query_responce {
+        let res = res.unwrap();
+
+        let query_response = match res {
+            Ok(query_response) => query_response,
+            Err(_) => {
+                *presumable_epoch.write().unwrap() += 1;
+                let connectors_ = connectors.write().unwrap();
+                let connectors1 = connectors.clone();
+                let iteration1 = iteration.clone();
+                let nonce1 = nonce.clone();
+                let validators1 = validators.clone();
+                let successful_queries1 = successful_queries.clone();
+                let unsuccessful_queries1 = unsuccessful_queries.clone();
+                let balances1 = balances.clone();
+                let observed_balances1 = observed_balances.clone();
+                let presumable_epoch1 = presumable_epoch.clone();
+                actix::spawn(
+                    connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                        + (*presumable_epoch.read().unwrap() * 8) % 24]
+                        .1
+                        .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
+                        .then(move |x| {
+                            test_cross_shard_tx_callback(
+                                x,
+                                account_id,
+                                connectors1,
+                                iteration1,
+                                nonce1,
+                                validators1,
+                                successful_queries1,
+                                unsuccessful_queries1,
+                                balances1,
+                                observed_balances1,
+                                presumable_epoch1,
+                                num_iters,
+                            );
+                            future::result(Ok(()))
+                        }),
+                );
+                return;
+            }
+        };
+
+        if let ViewAccount(view_account_result) = query_response {
             let mut expected = 0;
-            let mut account_id = "".to_owned();
             for i in 0..8 {
                 if validators[i] == view_account_result.account_id {
                     expected = balances.read().unwrap()[i];
-                    account_id = view_account_result.account_id.clone();
                     observed_balances.write().unwrap()[i] = view_account_result.amount;
                 }
             }
+
+            assert_eq!(account_id, view_account_result.account_id);
+
             if view_account_result.amount == expected {
-                successful_queries.fetch_add(1, Ordering::Relaxed);
-                if successful_queries.load(Ordering::Relaxed) >= 8 {
+                let mut successful_queries_local = successful_queries.write().unwrap();
+                assert!(!successful_queries_local.contains(&account_id));
+                successful_queries_local.insert(account_id.clone());
+                if successful_queries_local.len() == 8 {
                     println!("Finished iteration {}", iteration.load(Ordering::Relaxed));
 
                     iteration.fetch_add(1, Ordering::Relaxed);
@@ -114,27 +211,28 @@ mod tests {
                         System::current().stop();
                     }
 
-                    let connectors_ = connectors.write().unwrap();
-
                     let from = iteration_local % 8;
                     let to = (iteration_local / 8) % 8;
                     let amount = (5 + iteration_local) as u128;
                     let next_nonce = nonce.fetch_add(1, Ordering::Relaxed);
-                    connectors_[account_id_to_shard_id(&validators[from].to_string(), 8) as usize]
-                        .0
-                        .do_send(NetworkClientMessages::Transaction(
-                            SignedTransaction::create_payment_tx(
-                                validators[from].to_string(),
-                                validators[to].to_string(),
-                                amount,
-                                next_nonce as u64,
-                            ),
-                        ));
+
+                    send_tx(
+                        validators.len(),
+                        connectors.clone(),
+                        account_id_to_shard_id(&validators[from].to_string(), 8) as usize,
+                        validators[from].to_string(),
+                        validators[to].to_string(),
+                        amount,
+                        next_nonce as u64,
+                    );
+
+                    let connectors_ = connectors.write().unwrap();
+
                     let mut balances_local = balances.write().unwrap();
                     balances_local[from] -= amount;
                     balances_local[to] += amount;
 
-                    successful_queries.store(0, Ordering::Relaxed);
+                    successful_queries_local.clear();
                     unsuccessful_queries.store(0, Ordering::Relaxed);
 
                     // Send the initial balance queries for the iteration
@@ -147,9 +245,12 @@ mod tests {
                         let unsuccessful_queries1 = unsuccessful_queries.clone();
                         let balances1 = balances.clone();
                         let observed_balances1 = observed_balances.clone();
+                        let presumable_epoch1 = presumable_epoch.clone();
+                        let account_id1 = validators[i].to_string();
                         actix::spawn(
-                            connectors_
-                                [account_id_to_shard_id(&validators[i].to_string(), 8) as usize]
+                            connectors_[account_id_to_shard_id(&validators[i].to_string(), 8)
+                                as usize
+                                + (*presumable_epoch.read().unwrap() * 8) % 24]
                                 .1
                                 .send(Query {
                                     path: "account/".to_owned() + validators[i].clone(),
@@ -158,6 +259,7 @@ mod tests {
                                 .then(move |x| {
                                     test_cross_shard_tx_callback(
                                         x,
+                                        account_id1,
                                         connectors1,
                                         iteration1,
                                         nonce1,
@@ -166,6 +268,7 @@ mod tests {
                                         unsuccessful_queries1,
                                         balances1,
                                         observed_balances1,
+                                        presumable_epoch1,
                                         num_iters,
                                     );
                                     future::result(Ok(()))
@@ -192,13 +295,16 @@ mod tests {
 
                 let connectors_ = connectors.write().unwrap();
                 let connectors1 = connectors.clone();
+                let presumable_epoch1 = presumable_epoch.clone();
                 actix::spawn(
-                    connectors_[account_id_to_shard_id(&account_id, 8) as usize]
+                    connectors_[account_id_to_shard_id(&account_id, 8) as usize
+                        + (*presumable_epoch.read().unwrap() * 8) % 24]
                         .1
                         .send(Query { path: "account/".to_owned() + &account_id, data: vec![] })
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
+                                account_id,
                                 connectors1,
                                 iteration,
                                 nonce,
@@ -207,6 +313,7 @@ mod tests {
                                 unsuccessful_queries,
                                 balances,
                                 observed_balances,
+                                presumable_epoch1,
                                 num_iters,
                             );
                             future::result(Ok(()))
@@ -235,10 +342,8 @@ mod tests {
                         "test2.7", "test2.8",
                     ],
                     vec![
-                        // Test different number of validators
-                        "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6", "test3.7",
-                        "test3.8", "test3.9", "test3.10", "test3.11", "test3.12", "test3.13",
-                        "test3.14", "test3.15", "test3.16",
+                        "test3.1", "test3.2", "test3.3", "test3.4", "test3.5", "test3.6",
+                        "test3.7", "test3.8",
                     ],
                 ]
             } else {
@@ -250,6 +355,7 @@ mod tests {
             let key_pairs = (0..32).map(|_| PeerInfo::random()).collect::<Vec<_>>();
             let balances = Arc::new(RwLock::new(vec![]));
             let observed_balances = Arc::new(RwLock::new(vec![]));
+            let presumable_epoch = Arc::new(RwLock::new(0usize));
 
             let mut balances_local = balances.write().unwrap();
             let mut observed_balances_local = observed_balances.write().unwrap();
@@ -272,7 +378,7 @@ mod tests {
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));
             let nonce = Arc::new(AtomicUsize::new(1));
-            let successful_queries = Arc::new(AtomicUsize::new(0));
+            let successful_queries = Arc::new(RwLock::new(HashSet::new()));
             let unsuccessful_queries = Arc::new(AtomicUsize::new(0));
             let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
 
@@ -285,8 +391,10 @@ mod tests {
                 let unsuccessful_queries1 = unsuccessful_queries.clone();
                 let balances1 = balances.clone();
                 let observed_balances1 = observed_balances.clone();
+                let presumable_epoch1 = presumable_epoch.clone();
+                let account_id1 = flat_validators[i].clone();
                 actix::spawn(
-                    connectors_[i]
+                    connectors_[i + *presumable_epoch.read().unwrap() * 8]
                         .1
                         .send(Query {
                             path: "account/".to_owned() + flat_validators[i].clone(),
@@ -295,6 +403,7 @@ mod tests {
                         .then(move |x| {
                             test_cross_shard_tx_callback(
                                 x,
+                                account_id1.to_string(),
                                 connectors1,
                                 iteration1,
                                 nonce1,
@@ -303,6 +412,7 @@ mod tests {
                                 unsuccessful_queries1,
                                 balances1,
                                 observed_balances1,
+                                presumable_epoch1,
                                 num_iters,
                             );
                             future::result(Ok(()))
