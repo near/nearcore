@@ -44,14 +44,13 @@ pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
 pub const COL_PEERS: Option<u32> = Some(9);
 pub const COL_EPOCH_INFO: Option<u32> = Some(10);
 pub const COL_BLOCK_INFO: Option<u32> = Some(11);
-pub const COL_EPOCH_PROPOSALS: Option<u32> = Some(12);
-pub const COL_CHUNKS: Option<u32> = Some(13);
-pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(14);
+pub const COL_CHUNKS: Option<u32> = Some(12);
+pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
 /// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
-pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(15);
+pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded
-pub const COL_STATE_DL_INFOS: Option<u32> = Some(16);
-const NUM_COLS: u32 = 17;
+pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
+const NUM_COLS: u32 = 16;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,

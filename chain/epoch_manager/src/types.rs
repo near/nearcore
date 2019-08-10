@@ -28,7 +28,7 @@ pub struct EpochConfig {
 }
 
 /// Information per epoch.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -44,40 +44,9 @@ pub struct EpochInfo {
     pub stake_change: BTreeMap<AccountId, Balance>,
     /// Total gas used in epoch (T-2)
     pub total_gas_used: GasUsage,
+    /// Validator reward for the epoch
+    pub validator_reward: HashMap<AccountId, Balance>,
 }
-
-impl PartialEq for EpochInfo {
-    fn eq(&self, other: &EpochInfo) -> bool {
-        let normal_eq = self.validators == other.validators
-            && self.block_producers == other.block_producers
-            && self.chunk_producers == other.chunk_producers
-            && self.stake_change == other.stake_change;
-        if !normal_eq {
-            return false;
-        }
-        for (k, v) in self.validator_to_index.iter() {
-            if let Some(v1) = other.validator_to_index.get(k) {
-                if *v1 != *v {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        for (k, v) in other.validator_to_index.iter() {
-            if let Some(v1) = self.validator_to_index.get(k) {
-                if *v1 != *v {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl Eq for EpochInfo {}
 
 /// Information per each block.
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
@@ -91,6 +60,8 @@ pub struct BlockInfo {
     pub validator_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
     pub gas_used: GasUsage,
+    pub gas_price: Balance,
+    pub total_supply: Balance,
 }
 
 impl BlockInfo {
@@ -101,6 +72,8 @@ impl BlockInfo {
         validator_mask: Vec<bool>,
         slashed: HashSet<AccountId>,
         gas_used: GasUsage,
+        gas_price: Balance,
+        total_supply: Balance,
     ) -> Self {
         Self {
             index,
@@ -109,7 +82,9 @@ impl BlockInfo {
             validator_mask,
             slashed,
             gas_used,
-            // This values are not set.
+            gas_price,
+            total_supply,
+            // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
             epoch_id: EpochId::default(),
         }
@@ -183,4 +158,12 @@ impl From<EpochError> for near_chain::Error {
         }
         .into()
     }
+}
+
+pub struct EpochSummary {
+    pub last_block_hash: CryptoHash,
+    pub all_proposals: Vec<ValidatorStake>,
+    pub validator_kickout: HashSet<AccountId>,
+    pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
+    pub total_gas_used: GasUsage,
 }

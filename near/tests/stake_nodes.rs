@@ -1,12 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use actix::{Actor, Addr, System};
 use futures::future::Future;
 use rand::Rng;
 use tempdir::TempDir;
 
-use lazy_static::lazy_static;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
@@ -14,22 +13,10 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
 use near_primitives::serialize::BaseEncode;
-use near_primitives::test_utils::{init_integration_logger, init_test_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger, init_test_logger};
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
 use std::path::Path;
-
-lazy_static! {
-    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
-}
-
-fn heavy_test<F>(f: F)
-where
-    F: FnOnce() -> (),
-{
-    let _guard = HEAVY_TESTS_LOCK.lock();
-    f();
-}
 
 #[derive(Clone)]
 struct TestNode {
@@ -44,14 +31,19 @@ fn init_test_staking(
     num_nodes: usize,
     num_validators: usize,
     epoch_length: u64,
+    enable_rewards: bool,
 ) -> Vec<TestNode> {
-    //init_integration_logger();
-    init_test_logger();
+    init_integration_logger();
+    //    init_test_logger();
 
     let mut genesis_config = GenesisConfig::testing_spec(num_nodes, num_validators);
     genesis_config.epoch_length = epoch_length;
     genesis_config.num_block_producers = num_nodes;
     genesis_config.validator_kickout_threshold = 20;
+    if !enable_rewards {
+        genesis_config.max_inflation_rate = 0;
+        genesis_config.gas_price = 0;
+    }
     let first_node = open_port();
 
     let configs = (0..num_nodes).map(|i| {
@@ -92,6 +84,7 @@ fn test_stake_nodes() {
             num_nodes,
             1,
             10,
+            false,
         );
 
         let tx = TransactionBody::Stake(StakeTransaction {
@@ -141,7 +134,6 @@ fn test_stake_nodes() {
 
 /// TODO(1094): Enable kickout test after figuring
 #[test]
-#[ignore]
 fn test_validator_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
@@ -153,7 +145,8 @@ fn test_validator_kickout() {
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
             num_nodes,
             4,
-            24,
+            8,
+            false,
         );
         let mut rng = rand::thread_rng();
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
@@ -192,13 +185,11 @@ fn test_validator_kickout() {
         WaitOrTimeout::new(
             Box::new(move |_ctx| {
                 let test_nodes = test_nodes.clone();
-                let test_node1 = test_nodes[0].clone();
+                let test_node1 = test_nodes[num_nodes / 2].clone();
                 let finalized_mark1 = finalized_mark.clone();
 
                 actix::spawn(test_node1.client.send(Status {}).then(move |res| {
                     let expected: Vec<_> = (num_nodes / 2..num_nodes)
-                        .cycle()
-                        .take(num_nodes)
                         .map(|i| ValidatorInfo {
                             account_id: format!("near.{}", i),
                             is_slashed: false,
@@ -265,7 +256,7 @@ fn test_validator_kickout() {
                     futures::future::ok(())
                 }));
             }),
-            1000,
+            100,
             10000,
         )
         .start();
@@ -287,6 +278,7 @@ fn test_validator_join() {
             num_nodes,
             2,
             16,
+            false,
         );
         let unstake_transaction = TransactionBody::Stake(StakeTransaction {
             nonce: 1,
@@ -343,7 +335,6 @@ fn test_validator_join() {
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
-                    println!("\n\n\nRESULT: {:?}\n\n\n", res);
                     if res.unwrap().unwrap().validators == expected {
                         actix::spawn(
                             test_node1

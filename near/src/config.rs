@@ -62,6 +62,9 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 100;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
+/// Expected number of blocks per year
+pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
+
 /// Initial gas limit.
 pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
 
@@ -77,6 +80,9 @@ pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
 /// Rewards
 pub const PROTOCOL_PERCENT: u8 = 10;
 pub const DEVELOPER_PERCENT: u8 = 30;
+
+/// Protocol treasury account
+pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
@@ -349,6 +355,10 @@ pub struct GenesisConfig {
     pub max_inflation_rate: u8,
     /// Total supply of tokens at genesis.
     pub total_supply: u128,
+    /// Expected number of blocks per year
+    pub num_blocks_per_year: u64,
+    /// Protocol treasury account
+    pub protocol_treasury_account: AccountId,
 }
 
 fn get_initial_supply(records: &[Vec<StateRecord>]) -> Balance {
@@ -398,6 +408,14 @@ impl GenesisConfig {
                 code: encoded_test_contract.clone(),
             });
         }
+        let signer =
+            InMemorySigner::from_seed(PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_TREASURY_ACCOUNT);
+        records[0].push(StateRecord::account(
+            PROTOCOL_TREASURY_ACCOUNT,
+            &signer.public_key.to_readable().0,
+            TESTING_INIT_BALANCE,
+            0,
+        ));
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -419,6 +437,8 @@ impl GenesisConfig {
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
             total_supply,
+            num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
+            protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
         }
     }
 
@@ -447,6 +467,14 @@ impl GenesisConfig {
                 if i < num_validators { TESTING_INIT_STAKE } else { 0 },
             ));
         }
+        let signer =
+            InMemorySigner::from_seed(PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_TREASURY_ACCOUNT);
+        records[0].push(StateRecord::account(
+            PROTOCOL_TREASURY_ACCOUNT,
+            &signer.public_key.to_readable().0,
+            TESTING_INIT_BALANCE,
+            0,
+        ));
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -468,6 +496,8 @@ impl GenesisConfig {
             protocol_reward_percentage: PROTOCOL_PERCENT,
             max_inflation_rate: MAX_INFLATION_RATE,
             total_supply,
+            num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
+            protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
         }
     }
 
@@ -620,6 +650,8 @@ pub fn init_configs(
                 protocol_reward_percentage: PROTOCOL_PERCENT,
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply,
+                num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
+                protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -677,6 +709,8 @@ pub fn create_testnet_configs_from_seeds(
         protocol_reward_percentage: PROTOCOL_PERCENT,
         max_inflation_rate: MAX_INFLATION_RATE,
         total_supply,
+        num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
+        protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -763,49 +797,4 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
     let block_producer = BlockProducer::from(signer.clone());
     NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use near_primitives::types::ReadablePublicKey;
-
-    use super::*;
-
-    #[test]
-    fn test_deserialize() {
-        let data = json!({
-            "protocol_version": 2,
-            "genesis_time": "2019-05-07T00:10:14.434719Z",
-            "chain_id": "test-chain-XYQAS",
-            "num_block_producers": 1,
-            "block_producers_per_shard": [1],
-            "avg_fisherman_per_shard": [1],
-            "dynamic_resharding": false,
-            "epoch_length": 100,
-            "gas_limit": 1_000_000,
-            "gas_price": 100,
-            "runtime_config": {},
-            "validator_kickout_threshold": 90,
-            "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
-            "records": [[]],
-            "developer_reward_percentage": 30,
-            "protocol_reward_percentage": 10,
-            "max_inflation_rate": 5,
-            "gas_price_adjustment_rate": 1,
-            "total_supply": 1_000_000,
-        });
-        let spec = GenesisConfig::from(data.to_string().as_str());
-        assert_eq!(
-            spec.validators[0],
-            AccountInfo {
-                account_id: "alice.near".to_string(),
-                public_key: ReadablePublicKey(
-                    "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()
-                ),
-                amount: 50
-            }
-        );
-    }
 }

@@ -32,9 +32,11 @@ impl TrieViewer {
         state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
-        if !is_valid_account_id(account_id) {
-            return Err(format!("Account ID '{}' is not valid", account_id).into());
-        }
+        // TODO: figure out the right way to check input
+
+        //        if !is_valid_account_id(account_id) {
+        //            return Err(format!("Account ID '{}' is not valid", account_id).into());
+        //        }
 
         match get_account(state_update, &account_id) {
             Some(account) => Ok(AccountViewCallResult {

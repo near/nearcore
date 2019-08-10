@@ -221,6 +221,8 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
+                        chain_genesis.gas_price,
+                        chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
@@ -350,6 +352,8 @@ impl Chain {
                     vec![],
                     vec![],
                     header.gas_used,
+                    header.gas_price,
+                    header.total_supply,
                 )?;
             }
         }
@@ -1248,8 +1252,6 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
-                            block.header.gas_price,
-                            block.header.total_supply,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1416,6 +1418,8 @@ impl<'a> ChainUpdate<'a> {
             vec![],
             vec![],
             block.header.gas_used,
+            block.header.gas_price,
+            block.header.total_supply,
         )?;
 
         // Add validated block to the db, even if it's not the selected fork.

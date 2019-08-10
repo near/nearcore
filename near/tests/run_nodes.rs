@@ -5,7 +5,7 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::{heavy_test, init_test_logger};
 use near_primitives::types::BlockIndex;
 
 fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex) {
@@ -68,11 +68,15 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
 /// Runs two nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_2() {
-    run_nodes(2, 10, 30);
+    heavy_test(|| {
+        run_nodes(2, 10, 30);
+    });
 }
 
 /// Runs 4 nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_4() {
-    run_nodes(4, 8, 32);
+    heavy_test(|| {
+        run_nodes(4, 8, 32);
+    });
 }
