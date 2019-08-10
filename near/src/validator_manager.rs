@@ -240,11 +240,11 @@ fn get_epoch_block_proposer_info(
     let mut block_index_to_validator = HashMap::new();
     let mut validator_to_num_blocks = HashMap::new();
     let num_seats = validator_assignment.block_producers.len() as u64;
-    for block_index in 0..=epoch_end_index {
+    for block_index in epoch_start_index..=epoch_end_index {
         let validator_idx =
             validator_assignment.block_producers[(block_index % num_seats) as usize];
         validator_to_num_blocks.entry(validator_idx).and_modify(|e| *e += 1).or_insert(1);
-        block_index_to_validator.insert(block_index + epoch_start_index, validator_idx);
+        block_index_to_validator.insert(block_index, validator_idx);
     }
     (block_index_to_validator, validator_to_num_blocks)
 }
@@ -499,6 +499,7 @@ impl ValidatorManager {
         let mut hash = *last_hash;
         let last_block_info = self.get_index_info(&last_hash)?.clone();
         let prev_epoch_hash = self.get_prev_epoch_hash(&epoch_hash)?;
+        let epoch_length = self.config.epoch_length;
         let (block_index_to_validator, validator_to_num_blocks) = {
             let validator_assignment = self.get_validators(prev_epoch_hash)?;
             get_epoch_block_proposer_info(
@@ -673,9 +674,8 @@ impl ValidatorManager {
         if height < validator_assignment.expected_epoch_start {
             return Err(Box::new(ValidatorError::EpochOutOfBounds));
         }
-        let idx = height - validator_assignment.expected_epoch_start;
         let total_seats = validator_assignment.block_producers.len() as u64;
-        let block_producer_idx = idx % total_seats;
+        let block_producer_idx = height % total_seats;
         let validator_idx = validator_assignment.block_producers[block_producer_idx as usize];
         Ok(validator_assignment.validators[validator_idx].clone())
     }
