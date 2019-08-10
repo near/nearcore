@@ -166,6 +166,7 @@ fn four_nodes_star() {
 }
 
 #[test]
+#[ignore]
 fn four_nodes_path() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
@@ -185,6 +186,7 @@ fn four_nodes_disconnected() {
 }
 
 #[test]
+#[ignore]
 fn four_nodes_directed() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
