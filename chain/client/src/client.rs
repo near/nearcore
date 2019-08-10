@@ -41,6 +41,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -433,10 +434,7 @@ impl ClientActor {
             let epoch_height = epoch_block.header.height;
 
             if let Some(last_val_announce_height) = self.last_val_announce_height {
-                if last_val_announce_height >= epoch_height
-                    && last_val_announce_height
-                        < epoch_height + self.config.announce_account_horizon
-                {
+                if last_val_announce_height == epoch_height {
                     // This announcement was already done!
                     return;
                 }
@@ -653,7 +651,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
