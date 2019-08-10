@@ -93,9 +93,10 @@ fn check_account_id_propagation(
 
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for (pm, count) in peer_managers.iter() {
+                for (i, (pm, count)) in peer_managers.iter().enumerate() {
                     let pm = pm.clone();
                     let count = count.clone();
+                    let account_ids_copy = accounts_id.clone();
 
                     let counters: Vec<_> =
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
@@ -106,6 +107,7 @@ fn check_account_id_propagation(
                                 if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
                                     res.unwrap()
                                 {
+                                    println!("Routes of {}: {:?}", account_ids_copy[i], routes);
                                     if routes.unwrap().len() == total_nodes {
                                         count.fetch_add(1, Ordering::Relaxed);
 
