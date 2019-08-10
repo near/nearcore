@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::MerkleHash;
 
@@ -34,6 +35,20 @@ fn build_chain_with_orhpans() {
         let block = Block::empty(&blocks[i - 1].header, signer.clone());
         blocks.push(block);
     }
+    let block = Block::produce(
+        &blocks[blocks.len() - 1].header,
+        10,
+        blocks[blocks.len() - 1].header.prev_state_root,
+        blocks[blocks.len() - 1].header.epoch_hash,
+        vec![],
+        HashMap::default(),
+        vec![],
+        signer.clone(),
+    );
+    assert_eq!(
+        chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap_err().kind(),
+        ErrorKind::Orphan
+    );
     assert_eq!(
         chain
             .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
@@ -49,7 +64,7 @@ fn build_chain_with_orhpans() {
         ErrorKind::Orphan
     );
     let res = chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {});
-    assert_eq!(res.unwrap().unwrap().height, 3);
+    assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain
             .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
@@ -68,6 +83,7 @@ fn build_chain_with_skips_and_forks() {
         chain.genesis(),
         2,
         MerkleHash::default(),
+        CryptoHash::default(),
         vec![],
         HashMap::default(),
         vec![],
@@ -78,6 +94,7 @@ fn build_chain_with_skips_and_forks() {
         &b2.header,
         4,
         MerkleHash::default(),
+        CryptoHash::default(),
         vec![],
         HashMap::default(),
         vec![],

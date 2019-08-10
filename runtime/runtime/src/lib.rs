@@ -19,30 +19,32 @@ use near_primitives::transaction::{
     ReceiptBody, ReceiptTransaction, SignedTransaction, TransactionBody, TransactionResult,
     TransactionStatus,
 };
-use near_primitives::types::StorageUsage;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, MerkleHash, PromiseId, ReadablePublicKey, ShardId,
     ValidatorStake,
 };
 use near_primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, key_for_account, key_for_callback, system_account,
+    account_to_shard_id, create_nonce_with_nonce, key_for_callback, system_account,
 };
 use near_store::{
-    account_storage_size, get_access_key, get_account, get_callback, get_code, set_access_key,
-    set_account, set_callback, set_code, StoreUpdate, TrieChanges, TrieUpdate,
+    get_account, get_callback, get_code, set_access_key, set_account, set_callback, set_code,
+    total_account_storage, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
-use crate::economics_config::EconomicsConfig;
+use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 pub use crate::store::StateRecord;
-use crate::system::{system_create_account, SYSTEM_METHOD_CREATE_ACCOUNT};
+use crate::system::{
+    system_create_account, system_delete_account, SYSTEM_METHOD_CREATE_ACCOUNT,
+    SYSTEM_METHOD_DELETE_ACCOUNT,
+};
 
 pub mod adapter;
-pub mod economics_config;
+pub mod config;
 pub mod ethereum;
 pub mod ext;
 pub mod state_viewer;
@@ -52,12 +54,41 @@ mod system;
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+/// Number of epochs it takes to unstake.
+const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+
+/// Returns true if the account has enough balance to pay storage rent for at least required number of blocks.
+/// Validators must have at least enought for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
+/// regular users - `poke_threshold` blocks.
+fn check_rent(
+    account_id: &AccountId,
+    account: &mut Account,
+    runtime_config: &RuntimeConfig,
+    epoch_length: BlockIndex,
+) -> bool {
+    let buffer_length = if account.staked > 0 {
+        epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
+    } else {
+        runtime_config.poke_threshold
+    };
+    let buffer_amount = (buffer_length as u128)
+        * (total_account_storage(account_id, account) as u128)
+        * runtime_config.storage_cost_byte_per_block;
+    account.amount >= buffer_amount
+}
+
 #[derive(Debug)]
 pub struct ApplyState {
+    /// Previous Merkle root of the state.
     pub root: MerkleHash,
+    /// Shard index.
     pub shard_id: ShardId,
-    pub block_index: u64,
+    /// Currently building block index.
+    pub block_index: BlockIndex,
+    /// Hash of previous committed block.
     pub parent_block_hash: CryptoHash,
+    /// Current epoch length.
+    pub epoch_length: BlockIndex,
 }
 
 pub struct ApplyResult {
@@ -71,13 +102,13 @@ pub struct ApplyResult {
 }
 
 pub struct Runtime {
+    config: RuntimeConfig,
     ethash_provider: Arc<Mutex<EthashProvider>>,
-    economics_config: EconomicsConfig,
 }
 
 impl Runtime {
-    pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
-        Runtime { ethash_provider, economics_config: Default::default() }
+    pub fn new(config: RuntimeConfig, ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
+        Runtime { config, ethash_provider }
     }
 
     fn call_function(
@@ -206,13 +237,9 @@ impl Runtime {
 
     /// Subtracts the storage rent from the given account balance.
     fn apply_rent(&self, account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
-        // The number of bytes the account occupies in the Trie.
-        let meta_storage =
-            key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
-        let total_storage = (account.storage_usage + meta_storage) as u128;
         let charge = ((block_index - account.storage_paid_at) as u128)
-            * total_storage
-            * self.economics_config.storage_cost_byte_per_block;
+            * (total_account_storage(account_id, account) as u128)
+            * self.config.storage_cost_byte_per_block;
         account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
         account.storage_paid_at = block_index;
     }
@@ -223,6 +250,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction: &SignedTransaction,
         validator_proposals: &mut Vec<ValidatorStake>,
         transaction_result: &mut TransactionResult,
@@ -232,14 +260,14 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
-        let transaction_cost = self.economics_config.transactions_costs.cost(&transaction.body);
+        let transaction_cost = self.config.transactions_costs.cost(&transaction.body);
         originator.checked_sub(transaction_cost)?;
         self.apply_rent(&originator_id, &mut originator, block_index);
         set_account(state_update, &originator_id, &originator);
         state_update.commit();
 
         let refund_account_id = &originator_id;
-        match transaction.body {
+        let result = match transaction.body {
             TransactionBody::SendMoney(ref t) => system::send_money(
                 state_update,
                 &t,
@@ -290,7 +318,14 @@ impl Runtime {
             TransactionBody::DeleteKey(ref t) => {
                 system::delete_key(state_update, t, &mut originator, transaction.get_hash())
             }
+            TransactionBody::DeleteAccount(ref t) => {
+                system::delete_account(t, transaction.get_hash(), public_key)
+            }
+        };
+        if !check_rent(&originator_id, &mut originator, &self.config, epoch_length) {
+            return Err(format!("Failed to execute, because result will leave less then required rent on the account {}", originator_id).into());
         }
+        result
     }
 
     fn return_data_to_receipts(
@@ -561,6 +596,7 @@ impl Runtime {
         receipt: &ReceiptTransaction,
         new_receipts: &mut Vec<ReceiptTransaction>,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<(), String> {
         let receiver: Option<Account> = get_account(state_update, &receipt.receiver);
@@ -588,6 +624,16 @@ impl Runtime {
                         )
                     } else if async_call.method_name == SYSTEM_METHOD_CREATE_ACCOUNT {
                         Err(format!("Account {} already exists", receipt.receiver))
+                    } else if async_call.method_name == SYSTEM_METHOD_DELETE_ACCOUNT {
+                        system_delete_account(
+                            state_update,
+                            &async_call,
+                            &receipt.nonce,
+                            &receipt.receiver,
+                            &mut receiver,
+                            &self.config,
+                            epoch_length,
+                        )
                     } else {
                         self.apply_async_call(
                             state_update,
@@ -693,6 +739,7 @@ impl Runtime {
         &self,
         state_update: &mut TrieUpdate,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         transaction: &SignedTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
         validator_proposals: &mut Vec<ValidatorStake>,
@@ -701,6 +748,7 @@ impl Runtime {
         match self.apply_signed_transaction(
             state_update,
             block_index,
+            epoch_length,
             transaction,
             validator_proposals,
             &mut result,
@@ -729,6 +777,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         shard_id: ShardId,
         block_index: BlockIndex,
+        epoch_length: BlockIndex,
         receipt: &ReceiptTransaction,
         new_receipts: &mut HashMap<ShardId, Vec<ReceiptTransaction>>,
     ) -> TransactionResult {
@@ -740,6 +789,7 @@ impl Runtime {
                 receipt,
                 &mut tmp_new_receipts,
                 block_index,
+                epoch_length,
                 &mut result,
             );
             for receipt in tmp_new_receipts {
@@ -747,6 +797,8 @@ impl Runtime {
                 let shard_id = receipt.shard_id();
                 new_receipts.entry(shard_id).or_insert_with(|| vec![]).push(receipt);
             }
+            // TODO(1111): Receipt receiver after applying state transition should call `check_rent` to
+            // make sure there is still enough rent to pay after this state transition.
             match apply_result {
                 Ok(()) => {
                     state_update.commit();
@@ -784,6 +836,7 @@ impl Runtime {
                 &mut state_update,
                 shard_id,
                 block_index,
+                apply_state.epoch_length,
                 receipt,
                 &mut new_receipts,
             ));
@@ -806,6 +859,7 @@ impl Runtime {
             tx_result.push(self.process_transaction(
                 &mut state_update,
                 block_index,
+                apply_state.epoch_length,
                 transaction,
                 &mut new_receipts,
                 &mut validator_proposals,

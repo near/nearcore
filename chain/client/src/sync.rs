@@ -16,7 +16,7 @@ use near_primitives::unwrap_or_return;
 use crate::types::{ShardSyncStatus, SyncStatus};
 
 /// Maximum number of block headers send over the network.
-pub const MAX_BLOCK_HEADERS: u64 = 256;
+pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 
@@ -378,7 +378,7 @@ impl BlockSync {
 
         // Account for broadcast adding few blocks to orphans during.
         if self.blocks_requested < BLOCK_REQUEST_BROADCAST_OFFSET {
-            // debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
+            debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
             return Ok(true);
         }
 
@@ -467,7 +467,6 @@ impl StateSync {
             let header = chain.get_block_header(&sync_hash)?;
             let hash = header.prev_hash;
             let prev_header = chain.get_block_header(&hash)?;
-            let height = prev_header.height;
             let tip = Tip::from_header(prev_header);
             // Update related heads now.
             let mut chain_store_update = chain.mut_store().store_update();
@@ -476,7 +475,7 @@ impl StateSync {
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.
-            chain.check_orphans(height + 1, |_, _, _| {});
+            chain.check_orphans(hash, |_, _, _| {});
 
             *sync_status = SyncStatus::BodySync { current_height: 0, highest_height: 0 };
             self.prev_state_sync.clear();

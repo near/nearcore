@@ -1,6 +1,6 @@
 [package]
 name = "near"
-version = "0.2.6"
+version = "0.2.7"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -31,6 +31,8 @@ near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
 near-verifier = { path = "../runtime/verifier" }
+near-telemetry = { path = "../chain/telemetry" }
 
 [dev-dependencies]
 tempdir = "0.3"
+tokio = "0.1"

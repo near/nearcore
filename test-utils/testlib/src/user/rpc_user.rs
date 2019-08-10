@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use actix::System;
 use protobuf::Message;
@@ -9,6 +9,7 @@ use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::ReceiptInfo;
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
@@ -22,12 +23,13 @@ use near_protos::signed_transaction as transaction_proto;
 use crate::user::User;
 
 pub struct RpcUser {
+    signer: Arc<dyn EDSigner>,
     client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {
-    pub fn new(addr: &str) -> RpcUser {
-        RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))) }
+    pub fn new(addr: &str, signer: Arc<dyn EDSigner>) -> RpcUser {
+        RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
     }
 
     pub fn get_status(&self) -> Option<StatusResponse> {
@@ -106,5 +108,9 @@ impl User for RpcUser {
     ) -> Result<Option<AccessKey>, String> {
         self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?
             .try_into()
+    }
+
+    fn signer(&self) -> Arc<dyn EDSigner> {
+        self.signer.clone()
     }
 }

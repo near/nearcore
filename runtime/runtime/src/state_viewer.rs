@@ -8,7 +8,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::types::AccountId;
-use near_primitives::utils::{is_valid_account_id, key_for_account};
+use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_store::{get_access_key, get_account, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
@@ -16,7 +16,6 @@ use wasm::types::{ReturnData, RuntimeContext};
 use crate::ethereum::EthashProvider;
 use crate::Runtime;
 
-use super::ext::ACCOUNT_DATA_SEPARATOR;
 use super::RuntimeExt;
 
 pub struct TrieViewer {
@@ -80,8 +79,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = HashMap::default();
-        let mut prefix = key_for_account(account_id);
-        prefix.extend_from_slice(ACCOUNT_DATA_SEPARATOR);
+        let prefix = prefix_for_data(account_id);
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
                 values.insert(key[prefix.len()..].to_vec(), value.to_vec());
@@ -248,8 +246,7 @@ mod tests {
     }
 
     fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {
-        let mut bytes = key_for_account(account_id);
-        bytes.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        let mut bytes = prefix_for_data(account_id);
         bytes.append(&mut suffix.clone().to_vec());
         bytes
     }

@@ -24,6 +24,8 @@ use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use near_telemetry::TelemetryConfig;
+use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
@@ -65,6 +67,8 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+
+const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Network {
@@ -126,11 +130,13 @@ impl Default for Consensus {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct Config {
     pub genesis_file: String,
     pub validator_key_file: String,
     pub node_key_file: String,
     pub rpc: RpcConfig,
+    pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
 }
@@ -142,6 +148,7 @@ impl Default for Config {
             validator_key_file: VALIDATOR_KEY_FILE.to_string(),
             node_key_file: NODE_KEY_FILE.to_string(),
             rpc: RpcConfig::default(),
+            telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
         }
@@ -177,6 +184,7 @@ pub struct NearConfig {
     pub client_config: ClientConfig,
     pub network_config: NetworkConfig,
     pub rpc_config: RpcConfig,
+    pub telemetry_config: TelemetryConfig,
     pub block_producer: Option<BlockProducer>,
     pub genesis_config: GenesisConfig,
 }
@@ -207,9 +215,11 @@ impl NearConfig {
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
+                announce_account_horizon: genesis_config.epoch_length / 2,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
+                block_header_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -239,6 +249,7 @@ impl NearConfig {
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
             },
+            telemetry_config: config.telemetry,
             rpc_config: config.rpc,
             genesis_config: genesis_config.clone(),
             block_producer,
@@ -299,6 +310,8 @@ pub struct GenesisConfig {
     pub epoch_length: BlockIndex,
     /// Criterion for kicking out validators
     pub validator_kickout_threshold: f64,
+    /// Runtime configuration (mostly economics constants).
+    pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
@@ -350,6 +363,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            runtime_config: Default::default(),
             validators,
             records,
         }
@@ -390,6 +404,7 @@ impl GenesisConfig {
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+            runtime_config: Default::default(),
             validators,
             records: vec![records],
         }
@@ -467,7 +482,8 @@ pub fn init_configs(
             if test_seed.is_some() {
                 panic!("Test seed is not supported for official TestNet");
             }
-            let config = Config::default();
+            let mut config = Config::default();
+            config.telemetry.endpoints.push(DEFAULT_TELEMETRY_URL.to_string());
             config.write_to_file(&dir.join(CONFIG_FILENAME));
 
             // If account id was given, create new key pair for this validator.
@@ -522,6 +538,7 @@ pub fn init_configs(
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+                runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
                     public_key: signer.public_key.to_readable(),
@@ -579,6 +596,7 @@ pub fn create_testnet_configs_from_seeds(
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
+        runtime_config: Default::default(),
         validators,
         records,
     };
@@ -681,7 +699,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
-            "protocol_version": 1,
+            "protocol_version": PROTOCOL_VERSION,
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
             "num_block_producers": 1,
@@ -689,6 +707,7 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
+            "runtime_config": {},
             "validator_kickout_threshold": 0.9,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],

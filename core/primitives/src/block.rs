@@ -45,11 +45,16 @@ pub struct BlockHeader {
     pub total_weight: Weight,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
+    /// Epoch start hash of the previous epoch.
+    /// Used for retrieving validator information
+    pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
+    #[serde(with = "base_format")]
     pub signature: Signature,
 
     /// Cached value of hash for this block.
+    #[serde(with = "base_format")]
     hash: CryptoHash,
 }
 
@@ -64,6 +69,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
+        epoch_hash: CryptoHash,
     ) -> chain_proto::BlockHeaderBody {
         chain_proto::BlockHeaderBody {
             height,
@@ -79,6 +85,7 @@ impl BlockHeader {
             validator_proposal: RepeatedField::from_iter(
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
+            epoch_hash: epoch_hash.into(),
             ..Default::default()
         }
     }
@@ -93,6 +100,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
+        epoch_hash: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
         let hb = Self::header_body(
@@ -105,6 +113,7 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            epoch_hash,
         );
         let bytes = hb.write_to_bytes().expect("Failed to serialize");
         let hash = hash(&bytes);
@@ -117,18 +126,20 @@ impl BlockHeader {
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
+        let header_body = Self::header_body(
+            0,
+            CryptoHash::default(),
+            state_root,
+            MerkleHash::default(),
+            timestamp,
+            vec![],
+            vec![],
+            0.into(),
+            vec![],
+            CryptoHash::default(),
+        );
         chain_proto::BlockHeader {
-            body: SingularPtrField::some(Self::header_body(
-                0,
-                CryptoHash::default(),
-                state_root,
-                MerkleHash::default(),
-                timestamp,
-                vec![],
-                vec![],
-                0.into(),
-                vec![],
-            )),
+            body: SingularPtrField::some(header_body),
             signature: DEFAULT_SIGNATURE.into(),
             ..Default::default()
         }
@@ -174,6 +185,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
+        let epoch_hash = body.epoch_hash.try_into()?;
         Ok(BlockHeader {
             height,
             prev_hash,
@@ -184,6 +196,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            epoch_hash,
             signature,
             hash,
         })
@@ -207,6 +220,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 validator_proposal: RepeatedField::from_iter(
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
+                epoch_hash: header.epoch_hash.into(),
                 ..Default::default()
             }),
             signature: header.signature.into(),
@@ -235,6 +249,7 @@ impl Block {
         prev: &BlockHeader,
         height: BlockIndex,
         state_root: MerkleHash,
+        epoch_hash: CryptoHash,
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
@@ -262,6 +277,7 @@ impl Block {
                 approval_sigs,
                 total_weight,
                 validator_proposal,
+                epoch_hash,
                 signer,
             ),
             transactions,
@@ -278,6 +294,7 @@ impl Block {
             prev,
             prev.height + 1,
             prev.prev_state_root,
+            prev.epoch_hash,
             vec![],
             HashMap::default(),
             vec![],
