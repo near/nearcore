@@ -293,8 +293,8 @@ impl EpochManager {
         epoch_id: &EpochId,
         last_known_block_hash: &CryptoHash,
     ) -> Result<Vec<(AccountId, bool)>, EpochError> {
-        let epoch_info = self.get_epoch_info(epoch_id)?.clone();
-        let slashed = self.get_slashed_validators(last_known_block_hash)?;
+        let slashed = self.get_slashed_validators(last_known_block_hash)?.clone();
+        let epoch_info = self.get_epoch_info(epoch_id)?;
         let mut result = vec![];
         let mut validators: HashSet<AccountId> = HashSet::default();
         for validator_id in epoch_info.block_producers.iter() {

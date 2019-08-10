@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use log::LevelFilter;
@@ -14,6 +14,19 @@ use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
 use crate::transaction::{SignedTransaction, TransactionBody};
 use crate::types::BlockIndex;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
+}
+
+pub fn heavy_test<F>(f: F)
+where
+    F: FnOnce() -> (),
+{
+    let _guard = HEAVY_TESTS_LOCK.lock();
+    f();
+}
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
