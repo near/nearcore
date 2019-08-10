@@ -499,7 +499,6 @@ impl ValidatorManager {
         let mut hash = *last_hash;
         let last_block_info = self.get_index_info(&last_hash)?.clone();
         let prev_epoch_hash = self.get_prev_epoch_hash(&epoch_hash)?;
-        let epoch_length = self.config.epoch_length;
         let (block_index_to_validator, validator_to_num_blocks) = {
             let validator_assignment = self.get_validators(prev_epoch_hash)?;
             get_epoch_block_proposer_info(

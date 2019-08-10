@@ -378,7 +378,7 @@ impl BlockSync {
 
         // Account for broadcast adding few blocks to orphans during.
         if self.blocks_requested < BLOCK_REQUEST_BROADCAST_OFFSET {
-            // debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
+            debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
             return Ok(true);
         }
 
@@ -467,7 +467,6 @@ impl StateSync {
             let header = chain.get_block_header(&sync_hash)?;
             let hash = header.prev_hash;
             let prev_header = chain.get_block_header(&hash)?;
-            let height = prev_header.height;
             let tip = Tip::from_header(prev_header);
             // Update related heads now.
             let mut chain_store_update = chain.mut_store().store_update();
