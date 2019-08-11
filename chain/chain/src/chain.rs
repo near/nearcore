@@ -32,13 +32,19 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<u64, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
+    prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
 
 impl OrphanBlockPool {
     fn new() -> OrphanBlockPool {
-        OrphanBlockPool { orphans: HashMap::default(), height_idx: HashMap::default(), evicted: 0 }
+        OrphanBlockPool {
+            orphans: HashMap::default(),
+            height_idx: HashMap::default(),
+            prev_hash_idx: HashMap::default(),
+            evicted: 0,
+        }
     }
 
     fn len(&self) -> usize {
@@ -52,6 +58,9 @@ impl OrphanBlockPool {
     fn add(&mut self, orphan: Orphan) {
         let height_hashes = self.height_idx.entry(orphan.block.header.height).or_insert(vec![]);
         height_hashes.push(orphan.block.hash());
+        let prev_hash_entries =
+            self.prev_hash_idx.entry(orphan.block.header.prev_hash).or_insert(vec![]);
+        prev_hash_entries.push(orphan.block.hash());
         self.orphans.insert(orphan.block.hash(), orphan);
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
@@ -75,6 +84,8 @@ impl OrphanBlockPool {
                 }
             }
             self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+            self.prev_hash_idx
+                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
 
             self.evicted += old_len - self.orphans.len();
         }
@@ -84,10 +95,19 @@ impl OrphanBlockPool {
         self.orphans.contains_key(hash)
     }
 
-    pub fn remove_by_height(&mut self, height: BlockIndex) -> Option<Vec<Orphan>> {
-        self.height_idx
-            .remove(&height)
-            .map(|hs| hs.iter().filter_map(|h| self.orphans.remove(h)).collect())
+    pub fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
+        let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
+        let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
+            hs.iter()
+                .filter_map(|h| {
+                    removed_hashes.insert(h.clone());
+                    self.orphans.remove(h)
+                })
+                .collect()
+        });
+        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+
+        ret
     }
 }
 
@@ -215,10 +235,10 @@ impl Chain {
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
-        let height = block.header.height;
+        let hash = block.hash();
         let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
-            if let Some(new_res) = self.check_orphans(height + 1, block_accepted) {
+            if let Some(new_res) = self.check_orphans(hash, block_accepted) {
                 return Ok(Some(new_res));
             }
         }
@@ -372,50 +392,44 @@ impl Chain {
     }
 
     /// Check for orphans, once a block is successfully added.
-    pub fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
+    pub fn check_orphans<F>(&mut self, prev_hash: CryptoHash, block_accepted: F) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
-        let initial_height = height;
+        let mut queue = vec![prev_hash];
+        let mut queue_idx = 0;
 
-        let mut orphan_accepted = false;
         let mut maybe_new_head = None;
 
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: at {}, # orphans {}", height, self.orphans.len());
-        loop {
-            if let Some(orphans) = self.orphans.remove_by_height(height) {
+        debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
+        while queue_idx < queue.len() {
+            if let Some(orphans) = self.orphans.remove_by_prev_hash(queue[queue_idx]) {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
+                    let block_hash = orphan.block.hash();
                     let res =
                         self.process_block_single(orphan.block, orphan.provenance, block_accepted);
                     match res {
                         Ok(maybe_tip) => {
                             maybe_new_head = maybe_tip;
-                            orphan_accepted = true;
+                            queue.push(block_hash);
                         }
-                        Err(err) => {
-                            debug!(target: "chain", "Orphan declined: {}", err);
+                        Err(_) => {
+                            debug!(target: "chain", "Orphan declined");
                         }
                     }
                 }
-
-                if orphan_accepted {
-                    // Accepted a block, so should check if there are now new orphans unlocked.
-                    height += 1;
-                    continue;
-                }
             }
-            break;
+            queue_idx += 1;
         }
 
-        if initial_height != height {
+        if queue.len() > 1 {
             debug!(
-                target: "chain",
-                "Check orphans: {} blocks accepted since height {}, remaining # orphans {}",
-                height - initial_height,
-                initial_height,
-                self.orphans.len(),
+            target: "chain",
+            "Check orphans: {} blocks accepted, remaining # orphans {}",
+            queue.len() - 1,
+            self.orphans.len(),
             );
         }
 
