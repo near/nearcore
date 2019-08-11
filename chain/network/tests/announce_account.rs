@@ -96,9 +96,10 @@ fn check_account_id_propagation(
 
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for (pm, count) in peer_managers.iter() {
+                for (i, (pm, count)) in peer_managers.iter().enumerate() {
                     let pm = pm.clone();
                     let count = count.clone();
+                    let account_ids_copy = accounts_id.clone();
 
                     let counters: Vec<_> =
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
@@ -109,6 +110,10 @@ fn check_account_id_propagation(
                                 res.unwrap()
                             {
                                 // TODO: XXX fix the fact that this node is in routing table as well.
+                                println!(
+                                    "Known producers of {}: {:?}",
+                                    account_ids_copy[i], known_producers
+                                );
                                 if known_producers.len() > total_nodes - 1 {
                                     count.fetch_add(1, Ordering::Relaxed);
 
@@ -135,7 +140,7 @@ fn check_account_id_propagation(
 
 #[test]
 fn two_nodes() {
-    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 2000);
+    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 5000);
 }
 
 #[test]
@@ -143,7 +148,7 @@ fn three_nodes_clique() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3"],
         vec![vec![1, 2], vec![0, 2], vec![0, 1]],
-        2000,
+        5000,
     );
 }
 
@@ -152,7 +157,7 @@ fn three_nodes_path() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3"],
         vec![vec![1], vec![0, 2], vec![1]],
-        2000,
+        5000,
     );
 }
 
@@ -161,7 +166,7 @@ fn four_nodes_star() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
         vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
-        2000,
+        5000,
     );
 }
 
@@ -170,7 +175,7 @@ fn four_nodes_path() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
         vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
-        2000,
+        5000,
     );
 }
 
@@ -180,7 +185,7 @@ fn four_nodes_disconnected() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
         vec![vec![1], vec![0], vec![3], vec![2]],
-        2000,
+        5000,
     );
 }
 
@@ -189,6 +194,6 @@ fn four_nodes_directed() {
     check_account_id_propagation(
         vec!["test1", "test2", "test3", "test4"],
         vec![vec![1], vec![], vec![1], vec![2]],
-        2000,
+        5000,
     );
 }

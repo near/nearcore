@@ -46,6 +46,7 @@ struct EconConfig {
     gas_price_adjustment_rate: u8,
     max_inflation_rate: u8,
 }
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -1008,7 +1009,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         let elapsed = self.last_block_processed.elapsed();
         if self.approvals.len() < total_approvals
             && elapsed < self.config.max_block_production_delay
@@ -1597,9 +1598,9 @@ impl ClientActor {
     /// Collects block approvals. Returns false if block approval is invalid.
     fn collect_block_approval(
         &mut self,
-        account_id: &AccountId,
-        hash: &CryptoHash,
-        signature: &Signature,
+        _account_id: &AccountId,
+        _hash: &CryptoHash,
+        _signature: &Signature,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         // TODO: This header is missing, should collect for later? should have better way to verify then.
