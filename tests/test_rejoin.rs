@@ -38,8 +38,8 @@ mod test {
             .unwrap()
             .add_transaction(SignedTransaction::send_money(
                 nonces[from],
-                account_names[from].as_str(),
-                account_names[to].as_str(),
+                account_names[from].clone(),
+                account_names[to].clone(),
                 nodes[from].read().unwrap().signer(),
                 1000,
             ))

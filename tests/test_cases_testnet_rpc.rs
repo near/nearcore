@@ -193,11 +193,6 @@ mod test {
     }
 
     #[test]
-    fn test_delete_access_key_with_bob_refund_testnet() {
-        run_testnet_test!(test_delete_access_key_with_bob_refund);
-    }
-
-    #[test]
     fn test_access_key_smart_contract_testnet() {
         run_testnet_test!(test_access_key_smart_contract);
     }
