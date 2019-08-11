@@ -8,7 +8,7 @@ use near::config::{
 use near::NearConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::rpc::AccountViewCallResult;
-use near_primitives::serialize::to_base;
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::StateRecord;
@@ -138,8 +138,9 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code =
-        to_base(include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
+    let code = to_base64(
+        include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
+    );
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 0, true);
     for seed in seeds {
