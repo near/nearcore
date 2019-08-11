@@ -211,7 +211,6 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => return,

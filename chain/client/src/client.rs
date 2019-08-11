@@ -41,20 +41,12 @@ use crate::types::{
 use crate::{sync, StatusResponse};
 use near_primitives::rpc::ValidatorInfo;
 
-/// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
-        return $ret;
-    }
-}));
-
 /// Economics config taken from genesis config
 struct EconConfig {
     gas_price_adjustment_rate: u8,
     max_inflation_rate: u8,
 }
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -110,7 +102,7 @@ impl ClientActor {
         node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
-        telemtetry_actor: Addr<TelemetryActor>,
+        telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
@@ -128,7 +120,7 @@ impl ClientActor {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
 
-        let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
+        let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
 
         Ok(ClientActor {
             config,
@@ -1017,7 +1009,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         let elapsed = self.last_block_processed.elapsed();
         if self.approvals.len() < total_approvals
             && elapsed < self.config.max_block_production_delay
@@ -1466,9 +1458,11 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header height is latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            if header_head.height == highest_height {
+            if highest_height <= self.config.block_header_fetch_horizon
+                || header_head.height >= highest_height - self.config.block_header_fetch_horizon
+            {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
                     SyncStatus::StateSync(_, _) => true,
@@ -1604,9 +1598,9 @@ impl ClientActor {
     /// Collects block approvals. Returns false if block approval is invalid.
     fn collect_block_approval(
         &mut self,
-        account_id: &AccountId,
-        hash: &CryptoHash,
-        signature: &Signature,
+        _account_id: &AccountId,
+        _hash: &CryptoHash,
+        _signature: &Signature,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         // TODO: This header is missing, should collect for later? should have better way to verify then.

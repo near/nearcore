@@ -778,4 +778,20 @@ mod tests {
             _ => panic!("unexpected outcome"),
         }
     }
+
+    #[test]
+    fn test_singlepass_bug() {
+        let input_data = b"";
+
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/singlepass_crash.wasm");
+        let _outcome = run_with_filename(
+            b"hello",
+            input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 0, &alice_account(), &bob_account()),
+            path.to_str().unwrap(),
+        )
+        .expect("ok");
+    }
 }

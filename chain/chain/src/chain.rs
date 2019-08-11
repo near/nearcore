@@ -706,7 +706,7 @@ impl Chain {
         // Check if there are orphans we can process.
         debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
         while queue_idx < queue.len() {
-            if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
+            if let Some(orphans) = self.orphans.remove_by_prev_hash(queue[queue_idx]) {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.block.hash();
