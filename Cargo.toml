@@ -28,9 +28,6 @@ members = [
     "test-utils/state-viewer",
     "near/",
 ]
-exclude = [
-    "runtime/wasm/runtest/generate-wasm/to-wasm",
-]
 
 [dev-dependencies]
 actix = "0.8.2"

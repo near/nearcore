@@ -54,7 +54,7 @@ fn create_context(input: &[u64]) -> VMContext {
 #[test]
 pub fn test_read_write() {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("tests/res/test_contract.wasm");
+    path.push("tests/res/test_contract_rs.wasm");
     let code = fs::read(path).unwrap();
     let mut fake_external = MockedExternal::new();
 

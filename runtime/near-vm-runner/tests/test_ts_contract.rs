@@ -43,7 +43,7 @@ pub fn test_ts_contract() {
         run(vec![], &code, b"try_panic", &mut fake_external, context, &config, &promise_results);
     assert_eq!(
         result,
-        Err(VMError::WasmerCallError("Call error: unknown error".to_string()))
+        Err(VMError::WasmerCallError("Smart contract has explicitly invoked `panic`.".to_string()))
             as Result<VMOutcome, VMError>
     );
 
