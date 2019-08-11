@@ -17,7 +17,7 @@ use crate::types::{ShardSyncStatus, SyncStatus};
 use std::sync::Arc;
 
 /// Maximum number of block headers send over the network.
-pub const MAX_BLOCK_HEADERS: u64 = 256;
+pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 

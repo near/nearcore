@@ -41,15 +41,6 @@ use crate::types::{
 use crate::{sync, StatusResponse};
 use near_primitives::rpc::ValidatorInfo;
 
-/// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
-        return $ret;
-    }
-}));
-
 /// Economics config taken from genesis config
 struct EconConfig {
     gas_price_adjustment_rate: u8,
@@ -110,7 +101,7 @@ impl ClientActor {
         node_id: PeerId,
         network_actor: Recipient<NetworkRequests>,
         block_producer: Option<BlockProducer>,
-        telemtetry_actor: Addr<TelemetryActor>,
+        telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
@@ -128,7 +119,7 @@ impl ClientActor {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
 
-        let info_helper = InfoHelper::new(telemtetry_actor, block_producer.clone());
+        let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
 
         Ok(ClientActor {
             config,
@@ -1466,9 +1457,11 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header height is latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            if header_head.height == highest_height {
+            if highest_height <= self.config.block_header_fetch_horizon
+                || header_head.height >= highest_height - self.config.block_header_fetch_horizon
+            {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
                     SyncStatus::StateSync(_, _) => true,

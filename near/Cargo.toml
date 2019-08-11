@@ -35,3 +35,4 @@ near-epoch-manager = { path = "../chain/epoch_manager" }
 
 [dev-dependencies]
 tempdir = "0.3"
+tokio = "0.1"

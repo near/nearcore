@@ -244,6 +244,7 @@ impl NearConfig {
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
+                block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
             },
             network_config: NetworkConfig {
