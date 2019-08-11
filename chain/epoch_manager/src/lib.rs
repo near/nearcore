@@ -13,6 +13,7 @@ use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochSummary;
 pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
+use near_primitives::rpc::EpochValidatorInfo;
 
 mod proposals;
 mod reward_calculator;
@@ -464,6 +465,17 @@ impl EpochManager {
             stake_info.insert(account_id.to_string(), max_of_stakes);
         }
         Ok((stake_info, validator_reward))
+    }
+
+    /// Get validators for current epoch and next epoch.
+    pub fn get_validator_info(
+        &mut self,
+        block_hash: &CryptoHash,
+    ) -> Result<EpochValidatorInfo, EpochError> {
+        let current_validators = self.get_epoch_info_from_hash(block_hash)?.validators.clone();
+        let next_epoch_id = self.get_next_epoch_id(block_hash)?;
+        let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
+        Ok(EpochValidatorInfo { current_validators, next_validators })
     }
 }
 

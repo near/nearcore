@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
-use log::{debug, error, info};
+use log::{debug, info};
 
 use near_chain::types::ApplyTransactionResult;
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
@@ -14,7 +14,9 @@ use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator}
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
+use near_primitives::rpc::{
+    AccountViewCallResult, CallResult, QueryError, QueryResponse, ViewStateResult,
+};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
 use near_primitives::types::{
@@ -26,12 +28,13 @@ use near_store::{
     WrappedTrieChanges,
 };
 use near_verifier::TransactionVerifier;
-use node_runtime::adapter::query_client;
+use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
+use near_primitives::serialize::BaseDecode;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -451,10 +454,71 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        query_client(self, state_root, height, path_parts, data)
+        if path_parts.is_empty() {
+            return Err("Path must contain at least single token".into());
+        }
+        match path_parts[0] {
+            "account" => match self.view_account(state_root, &AccountId::from(path_parts[1])) {
+                Ok(r) => Ok(QueryResponse::ViewAccount(r)),
+                Err(e) => Err(e),
+            },
+            "call" => {
+                let mut logs = vec![];
+                match self.call_function(
+                    state_root,
+                    height,
+                    &AccountId::from(path_parts[1]),
+                    path_parts[2],
+                    &data,
+                    &mut logs,
+                ) {
+                    Ok(result) => Ok(QueryResponse::CallResult(CallResult { result, logs })),
+                    Err(err) => {
+                        Ok(QueryResponse::Error(QueryError { error: err.to_string(), logs }))
+                    }
+                }
+            }
+            "contract" => match self.view_state(state_root, &AccountId::from(path_parts[1])) {
+                Ok(result) => Ok(QueryResponse::ViewState(result)),
+                Err(err) => {
+                    Ok(QueryResponse::Error(QueryError { error: err.to_string(), logs: vec![] }))
+                }
+            },
+            "access_key" => {
+                let result = if path_parts.len() == 2 {
+                    self.view_access_keys(state_root, &AccountId::from(path_parts[1]))
+                        .map(|r| QueryResponse::AccessKeyList(r))
+                } else {
+                    self.view_access_key(
+                        state_root,
+                        &AccountId::from(path_parts[1]),
+                        &PublicKey::from_base(path_parts[2])?,
+                    )
+                    .map(|r| QueryResponse::AccessKey(r))
+                };
+                match result {
+                    Ok(result) => Ok(result),
+                    Err(err) => Ok(QueryResponse::Error(QueryError {
+                        error: err.to_string(),
+                        logs: vec![],
+                    })),
+                }
+            }
+            "validators" => {
+                let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+                match epoch_manager.get_validator_info(block_hash) {
+                    Ok(info) => Ok(QueryResponse::Validators(info)),
+                    Err(e) => {
+                        Ok(QueryResponse::Error(QueryError { error: e.to_string(), logs: vec![] }))
+                    }
+                }
+            }
+            _ => Err(format!("Unknown path {}", path_parts[0]).into()),
+        }
     }
 
     fn dump_state(
@@ -580,7 +644,7 @@ mod test {
     use near_primitives::block::Weight;
     use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::rpc::AccountViewCallResult;
+    use near_primitives::rpc::{AccountViewCallResult, EpochValidatorInfo, QueryResponse};
     use near_primitives::serialize::BaseEncode;
     use near_primitives::transaction::{
         CreateAccountTransaction, ReceiptTransaction, SignedTransaction, StakeTransaction,
@@ -593,6 +657,7 @@ mod test {
     use node_runtime::adapter::ViewRuntimeAdapter;
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+    use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
@@ -1215,5 +1280,63 @@ mod test {
                 code_hash: account.code_hash
             }
         );
+    }
+
+    #[test]
+    fn test_get_validator_info() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new("test_validator_get_validator_info", validators.clone(), 2);
+        let block_producers: Vec<_> =
+            validators.iter().map(|id| InMemorySigner::from_seed(id, id).into()).collect();
+        let (per_epoch_per_validator_reward, _) = env.compute_reward(num_nodes);
+        let staking_transaction = stake(1, &block_producers[0], 0);
+        env.step(vec![staking_transaction]);
+        env.step(vec![]);
+        let mut current_validators = env
+            .runtime
+            .epoch_manager
+            .write()
+            .expect(POISONED_LOCK_ERR)
+            .get_epoch_info_from_hash(&env.head.last_block_hash)
+            .unwrap()
+            .validators
+            .clone();
+        let response = env
+            .runtime
+            .query(env.state_roots[0], 2, &env.head.last_block_hash, vec!["validators"], &[])
+            .unwrap();
+        match response {
+            QueryResponse::Validators(info) => assert_eq!(
+                info,
+                EpochValidatorInfo {
+                    current_validators: current_validators.clone(),
+                    next_validators: current_validators.clone(),
+                }
+            ),
+            _ => panic!("wrong response"),
+        }
+        env.step(vec![]);
+        let response = env
+            .runtime
+            .query(env.state_roots[0], 3, &env.head.last_block_hash, vec!["validators"], &[])
+            .unwrap();
+        match response {
+            QueryResponse::Validators(info) => {
+                for p in current_validators.iter_mut() {
+                    p.amount += per_epoch_per_validator_reward;
+                }
+                assert_eq!(info.current_validators, current_validators);
+                assert_eq!(
+                    info.next_validators,
+                    vec![ValidatorStake {
+                        account_id: "test2".to_string(),
+                        public_key: block_producers[1].signer.public_key(),
+                        amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
+                    }]
+                );
+            }
+            _ => panic!("wrong response"),
+        }
     }
 }

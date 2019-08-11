@@ -104,7 +104,7 @@ impl Handler<Query> for ViewClientActor {
             .state_root;
 
         self.runtime_adapter
-            .query(state_root, head.height, path_parts, &msg.data)
+            .query(state_root, head.height, &head.last_block_hash, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }
