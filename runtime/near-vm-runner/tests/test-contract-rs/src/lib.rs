@@ -166,8 +166,8 @@ pub fn sum_with_input() {
         let mut value = [0u8; size_of::<u64>()];
         key.copy_from_slice(&data[..size_of::<u64>()]);
         value.copy_from_slice(&data[size_of::<u64>()..]);
-        let key = core::u64::from_le_bytes(key);
-        let value = core::u64::from_le_bytes(value);
+        let key = u64::from_le_bytes(key);
+        let value = u64::from_le_bytes(value);
         let result = key + value;
         value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
     }

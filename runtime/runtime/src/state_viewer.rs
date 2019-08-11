@@ -231,11 +231,11 @@ mod tests {
     #[test]
     fn test_view_call_with_args() {
         let (viewer, root) = get_test_trie_viewer();
-        let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect::<Vec<_>>();
+        let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
         let view_call_result =
             viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
-        assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
+        assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
     fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {

@@ -757,7 +757,10 @@ impl<'a> VMLogic<'a> {
             self.burnt_gas.checked_add(gas_amount as _).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             self.used_gas.checked_add(gas_amount as _).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas < self.config.max_gas_burnt && new_used_gas < self.context.prepaid_gas {
+        if self.context.free_of_charge
+            || (new_burnt_gas < self.config.max_gas_burnt
+                && new_used_gas < self.context.prepaid_gas)
+        {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
             Ok(())
@@ -785,7 +788,7 @@ impl<'a> VMLogic<'a> {
     pub fn attach_gas_to_promise(&mut self, gas_amount: u64) -> Result<()> {
         let new_used_gas =
             self.used_gas.checked_add(gas_amount).ok_or(HostError::IntegerOverflow)?;
-        if new_used_gas < self.context.prepaid_gas {
+        if self.context.free_of_charge || new_used_gas < self.context.prepaid_gas {
             self.used_gas = new_used_gas;
             Ok(())
         } else {
