@@ -6,7 +6,8 @@ use cached::SizedCache;
 use log::debug;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
+use near_primitives::receipt::Receipt;
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{BlockIndex, MerkleHash, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -58,7 +59,7 @@ pub trait ChainStoreAccess {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
     /// Returns resulting receipt for given block.
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error>;
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<Receipt>, Error>;
     /// Returns transaction result for given tx hash.
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error>;
 }
@@ -77,7 +78,7 @@ pub struct ChainStore {
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with receipts.
-    receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
+    receipts: SizedCache<Vec<u8>, Vec<Receipt>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, TransactionResult>,
 }
@@ -205,7 +206,7 @@ impl ChainStoreAccess for ChainStore {
         //        )
     }
 
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<Receipt>, Error> {
         option_to_not_found(
             read_with_cache(&*self.store, COL_RECEIPTS, &mut self.receipts, hash.as_ref()),
             &format!("RECEIPT: {}", hash),
@@ -237,7 +238,7 @@ pub struct ChainStoreUpdate<'a, T> {
     post_state_roots: HashMap<CryptoHash, MerkleHash>,
     post_validator_proposals: HashMap<CryptoHash, Vec<ValidatorStake>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
-    receipts: HashMap<CryptoHash, Vec<ReceiptTransaction>>,
+    receipts: HashMap<CryptoHash, Vec<Receipt>>,
     transaction_results: HashMap<CryptoHash, TransactionResult>,
     head: Option<Tip>,
     tail: Option<Tip>,
@@ -367,7 +368,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get receipts produced for block with givien hash.
-    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+    fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<Receipt>, Error> {
         if let Some(receipts) = self.receipts.get(hash) {
             Ok(receipts)
         } else {
@@ -463,7 +464,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.headers.insert(header.hash(), header);
     }
 
-    pub fn save_receipt(&mut self, hash: &CryptoHash, receipt: Vec<ReceiptTransaction>) {
+    pub fn save_receipt(&mut self, hash: &CryptoHash, receipt: Vec<Receipt>) {
         self.receipts.insert(*hash, receipt);
     }
 

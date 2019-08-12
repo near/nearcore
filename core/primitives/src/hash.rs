@@ -6,9 +6,10 @@ use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, Encode};
+use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Encode};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
@@ -103,6 +104,25 @@ impl PartialEq for CryptoHash {
     }
 }
 
+impl Serialize for CryptoHash {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_base())
+    }
+}
+
+impl<'de> Deserialize<'de> for CryptoHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
 impl Eq for CryptoHash {}
 
 /// Calculates a hash of a bytes slice.
@@ -125,13 +145,10 @@ pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
 
 #[cfg(test)]
 mod tests {
-    use crate::serialize::base_format;
-
     use super::*;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        #[serde(with = "base_format")]
         hash: CryptoHash,
     }
 

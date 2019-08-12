@@ -7,7 +7,8 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
+use near_primitives::receipt::Receipt;
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
@@ -427,7 +428,7 @@ impl Chain {
         shard_id: ShardId,
         hash: CryptoHash,
         payload: Vec<u8>,
-        receipts: Vec<ReceiptTransaction>,
+        receipts: Vec<Receipt>,
     ) -> Result<(), Error> {
         // TODO(1046): update this with any required changes for chunks support.
         let header = self.get_block_header(&hash)?;
@@ -520,7 +521,7 @@ impl Chain {
 
     /// Get receipts stored for the given hash.
     #[inline]
-    pub fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+    pub fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<Receipt>, Error> {
         self.store.get_receipts(hash)
     }
 
@@ -664,10 +665,9 @@ impl<'a> ChainUpdate<'a> {
 
         // Retrieve receipts from the previous block.
         let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
-        let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
 
         // Apply block to runtime.
-        let (trie_changes, state_root, mut tx_results, new_receipts, validator_proposals) = self
+        let (trie_changes, state_root, tx_results, new_receipts, validator_proposals) = self
             .runtime_adapter
             .apply_transactions(
                 0,
@@ -704,15 +704,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update
             .save_receipt(&block.hash(), new_receipts.get(&0).unwrap_or(&vec![]).to_vec());
         // Save receipt and transaction results.
-        for (i, tx_result) in tx_results.drain(..).enumerate() {
-            if i < receipt_hashes.len() {
-                self.chain_store_update.save_transaction_result(&receipt_hashes[i], tx_result);
-            } else {
-                self.chain_store_update.save_transaction_result(
-                    &block.transactions[i - receipt_hashes.len()].get_hash(),
-                    tx_result,
-                );
-            }
+        for tx_result in tx_results.into_iter() {
+            self.chain_store_update.save_transaction_result(&tx_result.hash, tx_result.result);
         }
 
         // Add validated block to the db, even if it's not the selected fork.

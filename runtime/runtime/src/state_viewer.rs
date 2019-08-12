@@ -14,9 +14,9 @@ use wasm::executor;
 use wasm::types::{ReturnData, RuntimeContext};
 
 use crate::ethereum::EthashProvider;
-use crate::Runtime;
 
 use super::RuntimeExt;
+use crate::actions::get_code_with_cache;
 
 pub struct TrieViewer {
     ethash_provider: Arc<Mutex<EthashProvider>>,
@@ -99,10 +99,12 @@ impl TrieViewer {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let now = Instant::now();
         if !is_valid_account_id(contract_id) {
-            return Err(format!("Contract ID '{}' is not valid", contract_id).into());
+            return Err(format!("Contract ID {:?} is not valid", contract_id).into());
         }
         let root = state_update.get_root();
-        let code = Runtime::get_code(&state_update, contract_id)?;
+        let account = get_account(&state_update, contract_id)
+            .ok_or_else(|| format!("Account {:?} doesn't exists", contract_id))?;
+        let code = get_code_with_cache(&state_update, contract_id, &account)?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty();
@@ -112,11 +114,11 @@ impl TrieViewer {
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    originator_id,
-                    &empty_hash,
                     self.ethash_provider.clone(),
                     originator_id,
                     &public_key,
+                    0,
+                    &empty_hash,
                 );
                 executor::execute(
                     &code,

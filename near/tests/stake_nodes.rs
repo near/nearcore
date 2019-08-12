@@ -12,11 +12,12 @@ use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
+use near_primitives::crypto::signer::EDSigner;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
 use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::transaction::{StakeTransaction, TransactionBody};
-use near_primitives::types::AccountId;
+use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
+use near_primitives::types::{AccountId, Balance, Nonce};
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -36,6 +37,21 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
+}
+
+fn stake_transaction(
+    nonce: Nonce,
+    signer_id: AccountId,
+    stake: Balance,
+    signer: Arc<dyn EDSigner>,
+) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        nonce,
+        signer_id.clone(),
+        signer_id,
+        signer.clone(),
+        vec![Action::Stake(StakeAction { stake, public_key: signer.public_key() })],
+    )
 }
 
 fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -> Vec<TestNode> {
@@ -76,20 +92,12 @@ fn test_stake_nodes() {
         let system = System::new("NEAR");
         let test_nodes = init_test_staking(2, 1, 10);
 
-        let tx = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[1].account_id.clone(),
-            amount: TESTING_INIT_STAKE,
-            public_key: test_nodes[1]
-                .config
-                .block_producer
-                .clone()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[1].config.block_producer.clone().unwrap().signer);
+        let tx = stake_transaction(
+            1,
+            test_nodes[1].account_id.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+        );
         actix::spawn(
             test_nodes[0]
                 .client
@@ -133,20 +141,12 @@ fn test_validator_kickout() {
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
-            TransactionBody::Stake(StakeTransaction {
-                nonce: 1,
-                originator: test_node.account_id.clone(),
-                amount: stake,
-                public_key: test_node
-                    .config
-                    .block_producer
-                    .as_ref()
-                    .unwrap()
-                    .signer
-                    .public_key()
-                    .to_base(),
-            })
-            .sign(&*test_node.config.block_producer.as_ref().unwrap().signer)
+            stake_transaction(
+                1,
+                test_node.account_id.clone(),
+                stake,
+                test_node.config.block_producer.as_ref().unwrap().signer.clone(),
+            )
         });
 
         for (i, stake_transaction) in stake_transactions.enumerate() {
@@ -253,34 +253,19 @@ fn test_validator_join() {
     heavy_test(|| {
         let system = System::new("NEAR");
         let test_nodes = init_test_staking(4, 2, 16);
-        let unstake_transaction = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[1].account_id.clone(),
-            amount: 0,
-            public_key: test_nodes[1]
-                .config
-                .block_producer
-                .as_ref()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[1].config.block_producer.as_ref().unwrap().signer);
-        let stake_transaction = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[2].account_id.clone(),
-            amount: TESTING_INIT_STAKE,
-            public_key: test_nodes[2]
-                .config
-                .block_producer
-                .as_ref()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[2].config.block_producer.as_ref().unwrap().signer);
+        let unstake_transaction = stake_transaction(
+            1,
+            test_nodes[1].account_id.clone(),
+            0,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+        );
+
+        let stake_transaction = stake_transaction(
+            1,
+            test_nodes[2].account_id.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
+        );
         actix::spawn(
             test_nodes[1]
                 .client

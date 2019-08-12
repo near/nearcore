@@ -1,59 +1,45 @@
 syntax = "proto3";
 
-import "wrappers.proto";
+import "public_key.proto";
+import "signed_transaction.proto";
 import "uint128.proto";
+import "wrappers.proto";
 
-message CallbackInfo {
-    bytes id = 1;
-    uint64 result_index = 2;
-    string receiver = 3;
+message DataReceipt {
+    bytes data_id = 1;
+    google.protobuf.BytesValue data = 2;
 }
 
-message AsyncCall {
-    Uint128 amount = 1;
-    bytes method_name = 3;
-    bytes args = 4;
-    CallbackInfo callback = 5;
-    string refund_account = 7;
-    // Account ID of the account who signed the initial transaction.
-    string originator_id = 8;
-    // The public key used to sign the initial transaction.
-    bytes public_key = 9;
-
-
-    // Removed fields.
-    reserved 2, 6;
-    reserved "mana", "accounting_info";
-}
-
-message CallbackResult {
-    CallbackInfo info = 1;
-    google.protobuf.BytesValue result = 2;
-}
-
-message ReceiptTransaction {
-    string originator = 1;
-    string receiver = 2;
-    bytes nonce = 3;
-    oneof body {
-        AsyncCall new_call = 4;
-        CallbackResult callback = 5;
-        Uint128 refund = 6;
+message ActionReceipt {
+    message DataReceiver {
+        bytes data_id = 1;
+        string receiver_id = 2;
     }
 
-    reserved 7;
-    reserved "mana_accounting";
+    string signer_id = 1;
+    PublicKey signer_public_key = 2;
+
+    // The price of gas is determined when the original SignedTransaction is
+    // converted into the Receipt. It's used for refunds.
+    Uint128 gas_price = 3;
+
+    // List of data receivers where to route the output data
+    // (e.g. result of execution)
+    repeated DataReceiver output_data_receivers = 4;
+
+    // Ordered list of data ID to provide as input results.
+    repeated bytes input_data_ids = 5;
+
+    repeated Action actions = 6;
 }
 
-// Used in state storage to maintain information about callbacks.
-message Callback {
-    bytes method_name = 1;
-    bytes args = 2;
-    repeated bytes results = 3;
-    Uint128 amount = 4;
-    CallbackInfo callback = 5;
-    uint32 result_counter = 6;
-    string refund_account = 7;
-    string originator_id = 8;
-    bytes public_key = 9;
+message Receipt {
+    string predecessor_id = 1;
+    string receiver_id = 2;
+    bytes receipt_id = 3;
+
+    oneof receipt {
+        ActionReceipt action = 4;
+        DataReceipt data = 5;
+    }
 }

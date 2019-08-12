@@ -11,7 +11,7 @@ mod test {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use near_primitives::transaction::TransactionBody;
+    use near_primitives::transaction::SignedTransaction;
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node};
     use testlib::test_helpers::heavy_test;
 
@@ -34,9 +34,13 @@ mod test {
 
         let sender_acc = nodes[money_sender].read().unwrap().account_id().unwrap();
         let receiver_acc = nodes[money_receiver].read().unwrap().account_id().unwrap();
-        let transaction =
-            TransactionBody::send_money(nonce, sender_acc.as_str(), receiver_acc.as_str(), 1)
-                .sign(&*nodes[money_sender].read().unwrap().signer());
+        let transaction = SignedTransaction::send_money(
+            nonce,
+            sender_acc,
+            receiver_acc,
+            nodes[money_sender].read().unwrap().signer(),
+            1,
+        );
         nodes[tx_receiver].read().unwrap().add_transaction(transaction).unwrap();
         submitted_transactions.write().unwrap().push((1, Instant::now()));
     }

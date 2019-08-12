@@ -14,7 +14,6 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{from_base64, to_base64, Decode};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::transaction::Callback;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_protos::access_key as access_key_proto;
@@ -50,10 +49,12 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
                 StateRecord::Account { account_id: to_printable(&key[1..]), account }
             }
         }
+        /*
         col::CALLBACK => {
             let callback: Callback = Decode::decode(&value).unwrap();
             StateRecord::Callback { id: key[1..].to_vec(), callback }
         }
+        */
         col::CODE => {
             StateRecord::Contract { account_id: to_printable(&key[1..]), code: to_base64(&value) }
         }
@@ -86,9 +87,11 @@ fn print_state_entry(key: Vec<u8>, value: DBValue) {
                 to_printable(&from_base64(&value).unwrap())
             );
         }
+        /*
         StateRecord::Callback { id, callback } => {
             println!("Callback {}: {:?}", to_printable(&id), callback)
         }
+        */
         StateRecord::Contract { account_id, code: _ } => println!("Code for {:?}: ...", account_id),
         StateRecord::AccessKey { account_id, public_key, access_key } => {
             println!("Access key {:?},{:?}: {:?}", account_id, public_key, access_key)

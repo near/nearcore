@@ -11,12 +11,10 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptInfo;
+use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
 use near_primitives::serialize::{to_base, to_base64, BaseEncode};
-use near_primitives::transaction::{
-    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
-};
+use near_primitives::transaction::{FinalTransactionResult, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, MerkleHash};
 use near_protos::signed_transaction as transaction_proto;
 
@@ -67,7 +65,7 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
     }
 
-    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
+    fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
     }
@@ -112,5 +110,9 @@ impl User for RpcUser {
 
     fn signer(&self) -> Arc<dyn EDSigner> {
         self.signer.clone()
+    }
+
+    fn set_signer(&mut self, signer: Arc<EDSigner>) {
+        self.signer = signer;
     }
 }

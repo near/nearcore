@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::transaction::Callback;
 use near_primitives::types::{AccountId, ReadablePublicKey};
 
 /// Record in the state storage.
@@ -16,8 +15,7 @@ pub enum StateRecord {
     Contract { account_id: AccountId, code: String },
     /// Access key associated with some account.
     AccessKey { account_id: AccountId, public_key: ReadablePublicKey, access_key: AccessKey },
-    /// Callback.
-    Callback { id: Vec<u8>, callback: Callback },
+    // TODO: DATA
 }
 
 impl StateRecord {

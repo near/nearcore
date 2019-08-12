@@ -340,7 +340,7 @@ impl BlockSync {
                     if self
                         .network_recipient
                         .do_send(NetworkRequests::BlockRequest {
-                            hash: hash.clone(),
+                            hash: *hash,
                             peer_id: peer.peer_info.id.clone(),
                         })
                         .is_ok()

@@ -7,15 +7,14 @@ use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptInfo;
+use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
-use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::{
-    CreateAccountTransaction, DeleteAccountTransaction, FinalTransactionResult,
-    FunctionCallTransaction, ReceiptTransaction, SendMoneyTransaction, SignedTransaction,
-    StakeTransaction, TransactionBody, TransactionResult,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FinalTransactionResult, FunctionCallAction, SignedTransaction,
+    StakeAction, TransactionResult, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, MerkleHash};
+use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
 
 pub use crate::user::runtime_user::RuntimeUser;
 
@@ -33,14 +32,14 @@ pub trait User {
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String>;
 
-    fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String>;
+    fn add_transaction(&self, signed_transaction: SignedTransaction) -> Result<(), String>;
 
     fn commit_transaction(
         &self,
-        transaction: SignedTransaction,
+        signed_transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String>;
 
-    fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String>;
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
 
@@ -64,84 +63,152 @@ pub trait User {
 
     fn signer(&self) -> Arc<dyn EDSigner>;
 
-    fn sign_and_commit_transaction(&self, body: TransactionBody) -> FinalTransactionResult {
-        let tx = body.sign(&*self.signer());
-        self.commit_transaction(tx).unwrap()
+    fn set_signer(&mut self, signer: Arc<dyn EDSigner>);
+
+    fn sign_and_commit_actions(
+        &self,
+        signer_id: AccountId,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> FinalTransactionResult {
+        let signed_transaction = SignedTransaction::from_actions(
+            self.get_account_nonce(&signer_id).unwrap_or_default() + 1,
+            signer_id,
+            receiver_id,
+            self.signer(),
+            actions,
+        );
+        self.commit_transaction(signed_transaction).unwrap()
     }
 
     fn send_money(
         &self,
-        originator_id: AccountId,
+        signer_id: AccountId,
         receiver_id: AccountId,
         amount: Balance,
     ) -> FinalTransactionResult {
-        self.sign_and_commit_transaction(TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator: originator_id,
-            receiver: receiver_id,
-            amount,
-        }))
+        self.sign_and_commit_actions(
+            signer_id,
+            receiver_id,
+            vec![Action::Transfer(TransferAction { deposit: amount })],
+        )
+    }
+
+    fn deploy_contract(&self, signer_id: AccountId, code: Vec<u8>) -> FinalTransactionResult {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            signer_id,
+            vec![Action::DeployContract(DeployContractAction { code })],
+        )
     }
 
     fn function_call(
         &self,
-        originator_id: AccountId,
+        signer_id: AccountId,
         contract_id: AccountId,
         method_name: &str,
         args: Vec<u8>,
-        amount: Balance,
+        gas: Gas,
+        deposit: Balance,
     ) -> FinalTransactionResult {
-        self.sign_and_commit_transaction(TransactionBody::FunctionCall(FunctionCallTransaction {
-            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator: originator_id,
+        self.sign_and_commit_actions(
+            signer_id,
             contract_id,
-            method_name: method_name.as_bytes().to_vec(),
-            args,
-            amount,
-        }))
+            vec![Action::FunctionCall(FunctionCallAction {
+                method_name: method_name.to_string(),
+                args,
+                gas,
+                deposit,
+            })],
+        )
     }
 
     fn create_account(
         &self,
-        originator_id: AccountId,
+        signer_id: AccountId,
         new_account_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
     ) -> FinalTransactionResult {
-        self.sign_and_commit_transaction(TransactionBody::CreateAccount(CreateAccountTransaction {
-            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator: originator_id,
+        self.sign_and_commit_actions(
+            signer_id,
             new_account_id,
-            public_key: public_key.0[..].to_vec(),
-            amount,
-        }))
+            vec![
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::Transfer(TransferAction { deposit: amount }),
+                Action::AddKey(AddKeyAction {
+                    public_key,
+                    access_key: AccessKey {
+                        amount: 0,
+                        balance_owner: None,
+                        contract_id: None,
+                        method_name: None,
+                    },
+                }),
+            ],
+        )
+    }
+
+    fn add_key(
+        &self,
+        signer_id: AccountId,
+        public_key: PublicKey,
+        access_key: AccessKey,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            signer_id,
+            vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+        )
+    }
+
+    fn delete_key(&self, signer_id: AccountId, public_key: PublicKey) -> FinalTransactionResult {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            signer_id,
+            vec![Action::DeleteKey(DeleteKeyAction { public_key })],
+        )
+    }
+
+    fn swap_key(
+        &self,
+        signer_id: AccountId,
+        old_public_key: PublicKey,
+        new_public_key: PublicKey,
+        access_key: AccessKey,
+    ) -> FinalTransactionResult {
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            signer_id,
+            vec![
+                Action::DeleteKey(DeleteKeyAction { public_key: old_public_key }),
+                Action::AddKey(AddKeyAction { public_key: new_public_key, access_key }),
+            ],
+        )
     }
 
     fn delete_account(
         &self,
-        originator_id: AccountId,
+        signer_id: AccountId,
         receiver_id: AccountId,
     ) -> FinalTransactionResult {
-        self.sign_and_commit_transaction(TransactionBody::DeleteAccount(DeleteAccountTransaction {
-            nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-            originator_id,
+        self.sign_and_commit_actions(
+            signer_id.clone(),
             receiver_id,
-        }))
+            vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: signer_id })],
+        )
     }
 
     fn stake(
         &self,
-        originator_id: AccountId,
+        signer_id: AccountId,
         public_key: PublicKey,
         amount: Balance,
     ) -> FinalTransactionResult {
-        self.sign_and_commit_transaction(
-            TransactionBody::Stake(StakeTransaction {
-                nonce: self.get_account_nonce(&originator_id).unwrap_or_default() + 1,
-                originator: originator_id,
-                amount,
-                public_key: public_key.to_base(),
-            }),
+        self.sign_and_commit_actions(
+            signer_id.clone(),
+            signer_id,
+            vec![Action::Stake(StakeAction { stake: amount, public_key })],
         )
     }
 }
@@ -170,10 +237,7 @@ pub trait AsyncUser: Send + Sync {
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
-    fn add_receipt(
-        &self,
-        receipt: ReceiptTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String>>;
+    fn add_receipt(&self, receipt: Receipt) -> Box<dyn Future<Item = (), Error = String>>;
 
     fn get_account_nonce(
         &self,

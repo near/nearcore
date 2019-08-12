@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod test {
     use near::GenesisConfig;
+    use near_primitives::serialize::to_base64;
+    use near_primitives::utils::key_for_data;
+    use node_runtime::StateRecord;
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
-    use node_runtime::StateRecord;
-    use near_primitives::utils::key_for_data;
-    use near_primitives::serialize::to_base64;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
@@ -19,10 +19,13 @@ mod test {
         genesis_config.runtime_config.storage_cost_byte_per_block = 100_000_000_000_000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0][0] {
-            StateRecord::Account { account, .. } => { account.amount = 10_000_000_000_000_000_000 },
+            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
             _ => {}
         }
-        genesis_config.records[0].push(StateRecord::Data { key: to_base64(&key_for_data(&bob_account(), b"test")), value: to_base64(b"123") });
+        genesis_config.records[0].push(StateRecord::Data {
+            key: to_base64(&key_for_data(&bob_account(), b"test")),
+            value: to_base64(b"123"),
+        });
         RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
     }
 
@@ -63,39 +66,9 @@ mod test {
     }
 
     #[test]
-    fn test_async_call_with_no_callback_runtime() {
-        let node = create_runtime_node();
-        test_async_call_with_no_callback(node);
-    }
-
-    #[test]
-    fn test_async_call_with_callback_runtime() {
-        let node = create_runtime_node();
-        test_async_call_with_callback(node);
-    }
-
-    #[test]
     fn test_async_call_with_logs_runtime() {
         let node = create_runtime_node();
         test_async_call_with_logs(node);
-    }
-
-    #[test]
-    fn test_callback_runtime() {
-        let node = create_runtime_node();
-        test_callback(node);
-    }
-
-    #[test]
-    fn test_callback_failure_runtime() {
-        let node = create_runtime_node();
-        test_callback_failure(node);
-    }
-
-    #[test]
-    fn test_deposit_with_callback_runtime() {
-        let node = create_runtime_node();
-        test_deposit_with_callback(node);
     }
 
     #[test]
@@ -222,12 +195,6 @@ mod test {
     fn test_delete_access_key_with_owner_refund_runtime() {
         let node = create_runtime_node();
         test_delete_access_key_with_owner_refund(node);
-    }
-
-    #[test]
-    fn test_delete_access_key_with_bob_refund_runtime() {
-        let node = create_runtime_node();
-        test_delete_access_key_with_bob_refund(node);
     }
 
     #[test]

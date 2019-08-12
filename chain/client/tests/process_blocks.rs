@@ -11,10 +11,11 @@ use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::MerkleHash;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -61,7 +62,16 @@ fn produce_blocks_with_tx() {
                 NetworkResponses::NoResponse
             }),
         );
-        client.do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+        client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
+            DEFAULT_SIGNATURE,
+            Transaction {
+                signer_id: "".to_string(),
+                public_key: PublicKey::empty(),
+                nonce: 0,
+                receiver_id: "".to_string(),
+                actions: vec![],
+            },
+        )));
     })
     .unwrap();
 }
@@ -118,7 +128,7 @@ fn receive_network_block_header() {
             Box::new(move |msg, _ctx, client_addr| match msg {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
                     let block = block_holder1.read().unwrap().clone().unwrap();
-                    assert_eq!(hash.clone(), block.hash());
+                    assert_eq!(hash, &block.hash());
                     actix::spawn(
                         client_addr
                             .send(NetworkClientMessages::Block(block, peer_id.clone(), false))
