@@ -172,3 +172,121 @@ pub fn sum_with_input() {
         value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
     }
 }
+
+/// Writes and reads some data into/from storage. Uses 8-bit key/values.
+#[no_mangle]
+pub fn benchmark_storage_8b() {
+    unsafe {
+        input(0);
+        if register_len(0) != size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+        let n: u64 = u64::from_le_bytes(data);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            let el = i.to_le_bytes();
+            storage_write(
+                el.len() as u64,
+                el.as_ptr() as u64,
+                el.len() as u64,
+                el.as_ptr() as u64,
+                0,
+            );
+
+            let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
+            if result == 1 {
+                let value = [0u8; size_of::<u64>()];
+                read_register(0, value.as_ptr() as u64);
+                sum += u64::from_le_bytes(value);
+            }
+        }
+
+        value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
+    }
+}
+
+#[inline]
+fn generate_data(data: &mut [u8]) {
+    for i in 0..data.len() {
+        data[i] = (i % core::u8::MAX as usize) as u8;
+    }
+}
+
+/// Writes and reads some data into/from storage. Uses 10KiB key/values.
+#[no_mangle]
+pub fn benchmark_storage_10kib() {
+    unsafe {
+        input(0);
+        if register_len(0) != size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+        let n: u64 = u64::from_le_bytes(data);
+
+        let mut el = [0u8; 10 << 10];
+        generate_data(&mut el);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            el[..size_of::<u64>()].copy_from_slice(&i.to_le_bytes());
+            storage_write(
+                el.len() as u64,
+                el.as_ptr() as u64,
+                el.len() as u64,
+                el.as_ptr() as u64,
+                0,
+            );
+
+            let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
+            if result == 1 {
+                let el = [0u8; 10 << 10];
+                read_register(0, el.as_ptr() as u64);
+                let mut value = [0u8; size_of::<u64>()];
+                value.copy_from_slice(&el[0..size_of::<u64>()]);
+                sum += u64::from_le_bytes(value);
+            }
+        }
+
+        value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
+    }
+}
+
+/// Passes through input into output.
+#[no_mangle]
+pub fn pass_through() {
+    unsafe {
+        input(0);
+        if register_len(0) != size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+        value_return(data.len() as u64, data.as_ptr() as u64);
+    }
+}
+
+/// Sums numbers.
+#[no_mangle]
+pub fn sum_n() {
+    unsafe {
+        input(0);
+        if register_len(0) != size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+        let n = u64::from_le_bytes(data);
+
+        let mut sum = 0u64;
+        for i in 0..n {
+            sum += i;
+        }
+
+        let data = sum.to_le_bytes();
+        value_return(data.len() as u64, data.as_ptr() as u64);
+    }
+}

@@ -30,14 +30,9 @@ cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef6860
 test-utils = []
 
 [dev-dependencies]
-bencher = "0.1.5"
 ethereum-rlp = "0.2"
 ethereum-block = "0.3"
 ethereum-hexutil = "0.2"
 tempdir = "0.3"
 
 testlib = { path = "../../test-utils/testlib" }
-
-[[bench]]
-name = "bench"
-harness = false

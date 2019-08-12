@@ -12,7 +12,7 @@ use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{from_base64, to_base64, Decode};
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};

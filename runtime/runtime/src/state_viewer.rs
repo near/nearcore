@@ -16,6 +16,7 @@ use crate::actions::get_code_with_cache;
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 
+#[allow(dead_code)]
 pub struct TrieViewer {
     ethash_provider: Arc<Mutex<EthashProvider>>,
 }

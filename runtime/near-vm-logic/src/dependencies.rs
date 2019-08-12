@@ -75,6 +75,12 @@ pub trait External {
 
 impl std::fmt::Display for ExternalError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        unimplemented!()
+        use ExternalError::*;
+        match &self {
+            InvalidReceiptIndex => write!(f, "VM Logic returned an invalid receipt index"),
+            InvalidIteratorIndex => write!(f, "VM Logic returned an invalid iterator index"),
+            InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
+            InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
+        }
     }
 }

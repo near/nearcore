@@ -1,7 +1,7 @@
 use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 /// Context for the contract execution.
 pub struct VMContext {
     /// The account id of the current contract that we are executing.

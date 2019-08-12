@@ -1,6 +1,6 @@
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{Config, External, VMContext, VMOutcome};
+use near_vm_logic::{Config, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::mem::size_of;

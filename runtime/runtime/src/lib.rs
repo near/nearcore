@@ -48,7 +48,6 @@ pub mod state_viewer;
 mod store;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
-pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -117,6 +116,7 @@ impl Default for ActionResult {
     }
 }
 
+#[allow(dead_code)]
 pub struct Runtime {
     config: RuntimeConfig,
     ethash_provider: Arc<Mutex<EthashProvider>>,

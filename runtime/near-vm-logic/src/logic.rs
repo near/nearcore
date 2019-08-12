@@ -71,12 +71,13 @@ enum PromiseToReceipts {
 }
 
 macro_rules! set(
-    { $($el:expr),* } => {
+    {} => {::std::collections::HashSet::new()};
+    { $($el:expr),+ } => {
         {
             let mut s = ::std::collections::HashSet::new();
             $(
                 s.insert($el);
-            )*
+            )+
             s
         }
      };
@@ -160,6 +161,7 @@ impl<'a> VMLogic<'a> {
     }
 
     /// Writes `u128` to Wasm memory.
+    #[allow(dead_code)]
     fn memory_set_u128(memory: &mut dyn MemoryLike, offset: u64, value: u128) -> Result<()> {
         let data: [u8; size_of::<u128>()] = value.to_le_bytes();
         Self::memory_set(memory, offset, &data)

@@ -3,7 +3,6 @@ use near_vm_logic::types::ReturnData;
 use near_vm_logic::{Config, External, VMContext, VMOutcome};
 use near_vm_runner::{run, VMError};
 use std::fs;
-use std::mem::size_of;
 use std::path::PathBuf;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -49,7 +48,7 @@ pub fn test_ts_contract() {
 
     // Call method that writes something into storage.
     let context = create_context(b"foo bar");
-    let result = run(
+    run(
         vec![],
         &code,
         b"try_storage_write",
@@ -57,7 +56,8 @@ pub fn test_ts_contract() {
         context,
         &config,
         &promise_results,
-    );
+    )
+    .unwrap();
     // Verify by looking directly into the storage of the host.
     let res = fake_external.storage_get(b"foo");
     let value = res.unwrap().unwrap();
