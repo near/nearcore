@@ -51,7 +51,7 @@ mod test {
         ($f:expr) => {
             heavy_test(|| {
                 let mut nodes = create_thread_nodes_rpc();
-                let node = nodes.pop().unwrap();
+                let node = nodes.remove(0);
                 $f(node)
             });
         };
