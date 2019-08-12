@@ -90,18 +90,24 @@ impl Handler<Query> for ViewClientActor {
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let path_parts: Vec<&str> = msg.path.split('/').collect();
-        let account_id = AccountId::from(path_parts[1]);
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-        let head_block = self
-            .chain
-            .get_block(&head.last_block_hash)
-            .map_err(|_e| "Failed to fetch head block while executing request")?;
-        let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
-        let state_root = self
-            .chain
-            .get_chunk_extra(&chunk_hash)
-            .map_err(|_e| "Failed to fetch the chunk while executing request")?
-            .state_root;
+        let state_root = {
+            if path_parts.len() < 2 {
+                // for querying validators we don't need state root
+                CryptoHash::default()
+            } else {
+                let account_id = AccountId::from(path_parts[1]);
+                let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+                let head_block = self
+                    .chain
+                    .get_block(&head.last_block_hash)
+                    .map_err(|_e| "Failed to fetch head block while executing request")?;
+                let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
+                self.chain
+                    .get_chunk_extra(&chunk_hash)
+                    .map_err(|_e| "Failed to fetch the chunk while executing request")?
+                    .state_root
+            }
+        };
 
         self.runtime_adapter
             .query(state_root, head.height, &head.last_block_hash, path_parts, &msg.data)

@@ -8,6 +8,7 @@ use near_protos::types as types_proto;
 use crate::crypto::aggregate_signature::BlsSignature;
 use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
+use crate::serialize::u128_dec_format;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -79,6 +80,7 @@ pub struct ValidatorStake {
     /// ED25591 Public key of the proposed validator.
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
