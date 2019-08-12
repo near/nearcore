@@ -52,13 +52,13 @@ pub struct VMLogic<'a> {
     promises: HashSet<Promise>,
 }
 
-#[derive(Debug)]
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
 /// calls. A single promise can be created with zero or several dependencies on other promises.
 /// * If promise was created from a receipt (using `promise_create` or `promise_then`) then
 ///   `promise_to_receipt` is `Receipt`;
 /// * If promise was created by merging several promises (using `promise_and`) then
 ///   `promise_to_receipt` is `NotReceipt` but has receipts of all promises it depends on.
+#[derive(Debug)]
 struct Promise {
     promise_to_receipt: PromiseToReceipts,
     promise_idx: PromiseIndex,
