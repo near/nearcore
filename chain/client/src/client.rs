@@ -42,6 +42,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -405,12 +406,12 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
-        self.check_send_announce_account(&block);
+        self.check_send_announce_account(&block.hash(), block.header.height);
     }
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, block: &Block) {
+    fn check_send_announce_account(&mut self, block_hash: &CryptoHash, block_height: BlockIndex) {
         // Announce AccountId if client is becoming a validator soon.
 
         // First check that we currently have an AccountId
@@ -421,10 +422,10 @@ impl ClientActor {
 
         let block_producer = self.block_producer.as_ref().unwrap();
 
-        let epoch_hash = match self.runtime_adapter.get_epoch_offset(
-            block.hash(),
-            block.header.height + self.config.announce_account_horizon,
-        ) {
+        let epoch_hash = match self
+            .runtime_adapter
+            .get_epoch_offset(*block_hash, block_height + self.config.announce_account_horizon)
+        {
             Ok((epoch_hash, 0)) => epoch_hash,
             // Don't announce if the block is unknown to us or the offset is greater than 0
             _ => return,
@@ -434,7 +435,7 @@ impl ClientActor {
             let epoch_height = epoch_block.header.height;
 
             if let Some(last_val_announce_height) = self.last_val_announce_height {
-                if last_val_announce_height >= epoch_height {
+                if last_val_announce_height == epoch_height {
                     // This announcement was already done!
                     return;
                 }
@@ -442,7 +443,7 @@ impl ClientActor {
 
             // Check client is part of the futures validators
             if let Ok(validators) =
-                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
+                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block_hash)
             {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators
@@ -651,7 +652,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
@@ -947,6 +948,7 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
+                self.check_send_announce_account(&head.last_block_hash, head.height);
                 self.handle_scheduling_block_production(
                     ctx,
                     head.last_block_hash,
