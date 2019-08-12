@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "public_key.proto";
 import "uint128.proto";
 
 message GroupSignature {
@@ -15,6 +16,6 @@ message MerkleNode {
 
 message ValidatorStake {
     string account_id = 1;
-    string public_key = 2;
-    Uint128 amount = 4;
+    PublicKey public_key = 2;
+    Uint128 amount = 3;
 }

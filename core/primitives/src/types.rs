@@ -1,4 +1,4 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 use protobuf::SingularPtrField;
 
@@ -8,6 +8,8 @@ use near_protos::types as types_proto;
 use crate::crypto::aggregate_signature::BlsSignature;
 use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
+use crate::serialize::u128_dec_format;
+use crate::utils::proto_to_type;
 
 /// Public key alias. Used to human readable public key.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -58,9 +60,10 @@ pub enum BlockId {
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
-    /// ED25591 Public key of the proposed validator.
+    /// Public key of the proposed validator.
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
+    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
 
@@ -76,8 +79,8 @@ impl TryFrom<types_proto::ValidatorStake> for ValidatorStake {
     fn try_from(proto: types_proto::ValidatorStake) -> Result<Self, Self::Error> {
         Ok(ValidatorStake {
             account_id: proto.account_id,
-            public_key: PublicKey::try_from(proto.public_key.as_str())?,
-            amount: proto.amount.unwrap_or_default().try_into()?,
+            public_key: proto_to_type(proto.public_key)?,
+            amount: proto_to_type(proto.amount)?,
         })
     }
 }
@@ -86,9 +89,11 @@ impl From<ValidatorStake> for types_proto::ValidatorStake {
     fn from(validator: ValidatorStake) -> Self {
         types_proto::ValidatorStake {
             account_id: validator.account_id,
-            public_key: validator.public_key.to_string(),
+            public_key: SingularPtrField::some(validator.public_key.into()),
             amount: SingularPtrField::some(validator.amount.into()),
-            ..Default::default()
+
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

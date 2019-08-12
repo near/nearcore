@@ -219,6 +219,7 @@ impl NearConfig {
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
+                block_header_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,

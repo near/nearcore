@@ -8,11 +8,12 @@ use log::debug;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::TransactionResult;
-use near_primitives::types::{BlockIndex, MerkleHash};
+use near_primitives::types::{BlockIndex, MerkleHash, ValidatorStake};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCK_HEADER,
     COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_RECEIPTS, COL_STATE_REF, COL_TRANSACTION_RESULT,
+    COL_VALIDATOR_PROPOSALS,
 };
 
 use crate::error::{Error, ErrorKind};
@@ -48,6 +49,11 @@ pub trait ChainStoreAccess {
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
     /// Get state root hash after applying header with given hash.
     fn get_post_state_root(&mut self, h: &CryptoHash) -> Result<&MerkleHash, Error>;
+    /// Get validator proposals.
+    fn get_post_validator_proposals(
+        &mut self,
+        h: &CryptoHash,
+    ) -> Result<&Vec<ValidatorStake>, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -67,6 +73,8 @@ pub struct ChainStore {
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with state roots.
     post_state_roots: SizedCache<Vec<u8>, MerkleHash>,
+    /// Cache with validator proposals.
+    post_validator_proposals: SizedCache<Vec<u8>, Vec<ValidatorStake>>,
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
     /// Cache with receipts.
@@ -90,6 +98,7 @@ impl ChainStore {
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             post_state_roots: SizedCache::with_size(CACHE_SIZE),
+            post_validator_proposals: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
             receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
@@ -156,6 +165,21 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
+    fn get_post_validator_proposals(
+        &mut self,
+        h: &CryptoHash,
+    ) -> Result<&Vec<ValidatorStake>, Error> {
+        option_to_not_found(
+            read_with_cache(
+                &*self.store,
+                COL_VALIDATOR_PROPOSALS,
+                &mut self.post_validator_proposals,
+                h.as_ref(),
+            ),
+            &format!("VALIDATOR ROOT: {}", h),
+        )
+    }
+
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error> {
         option_to_not_found(
@@ -212,6 +236,7 @@ pub struct ChainStoreUpdate<'a, T> {
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
     post_state_roots: HashMap<CryptoHash, MerkleHash>,
+    post_validator_proposals: HashMap<CryptoHash, Vec<ValidatorStake>>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     receipts: HashMap<CryptoHash, Vec<Receipt>>,
     transaction_results: HashMap<CryptoHash, TransactionResult>,
@@ -232,6 +257,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             headers: HashMap::default(),
             block_index: HashMap::default(),
             post_state_roots: HashMap::default(),
+            post_validator_proposals: HashMap::default(),
             receipts: HashMap::default(),
             transaction_results: HashMap::default(),
             head: None,
@@ -313,6 +339,17 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
             Ok(post_state_root)
         } else {
             self.chain_store.get_post_state_root(hash)
+        }
+    }
+
+    fn get_post_validator_proposals(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<&Vec<ValidatorStake>, Error> {
+        if let Some(post_validator_proposals) = self.post_validator_proposals.get(hash) {
+            Ok(post_validator_proposals)
+        } else {
+            self.chain_store.get_post_validator_proposals(hash)
         }
     }
 
@@ -411,6 +448,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.post_state_roots.insert(*hash, *state_root);
     }
 
+    pub fn save_post_validator_proposals(
+        &mut self,
+        hash: &CryptoHash,
+        validator_proposals: Vec<ValidatorStake>,
+    ) {
+        self.post_validator_proposals.insert(*hash, validator_proposals);
+    }
+
     pub fn delete_block(&mut self, hash: &CryptoHash) {
         self.deleted_blocks.insert(*hash);
     }
@@ -496,6 +541,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         for (hash, state_root) in self.post_state_roots.drain() {
             store_update
                 .set_ser(COL_STATE_REF, hash.as_ref(), &state_root)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        for (hash, validator_proposals) in self.post_validator_proposals.drain() {
+            store_update
+                .set_ser(COL_VALIDATOR_PROPOSALS, hash.as_ref(), &validator_proposals)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.block_index.drain() {

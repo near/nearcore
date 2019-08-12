@@ -16,7 +16,7 @@ use near_primitives::unwrap_or_return;
 use crate::types::{ShardSyncStatus, SyncStatus};
 
 /// Maximum number of block headers send over the network.
-pub const MAX_BLOCK_HEADERS: u64 = 256;
+pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 
