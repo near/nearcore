@@ -90,8 +90,11 @@ impl Handler<Query> for ViewClientActor {
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let path_parts: Vec<&str> = msg.path.split('/').collect();
+        if path_parts.is_empty() {
+            return Err("At least one query parameter is required".to_string());
+        }
         let state_root = {
-            if path_parts.len() < 2 {
+            if path_parts[0] == "validators" && path_parts.len() == 1 {
                 // for querying validators we don't need state root
                 CryptoHash::default()
             } else {

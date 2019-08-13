@@ -73,8 +73,12 @@ pub struct ValidatorInfo {
 /// Information about this epoch validators and next epoch validators
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct EpochValidatorInfo {
+    /// Validators for the current epoch
     pub current_validators: Vec<ValidatorStake>,
+    /// Validators for the next epoch
     pub next_validators: Vec<ValidatorStake>,
+    /// Proposals in the current epoch
+    pub current_proposals: Vec<ValidatorStake>,
 }
 
 // TODO: add more information to status.

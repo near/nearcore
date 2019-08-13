@@ -1312,6 +1312,11 @@ mod test {
                 EpochValidatorInfo {
                     current_validators: current_validators.clone(),
                     next_validators: current_validators.clone(),
+                    current_proposals: vec![ValidatorStake {
+                        account_id: "test1".to_string(),
+                        public_key: block_producers[0].signer.public_key(),
+                        amount: 0
+                    }]
                 }
             ),
             _ => panic!("wrong response"),
@@ -1335,6 +1340,7 @@ mod test {
                         amount: TESTING_INIT_STAKE + per_epoch_per_validator_reward
                     }]
                 );
+                assert!(info.current_proposals.is_empty());
             }
             _ => panic!("wrong response"),
         }

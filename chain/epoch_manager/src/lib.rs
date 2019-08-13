@@ -472,10 +472,16 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<EpochValidatorInfo, EpochError> {
-        let current_validators = self.get_epoch_info_from_hash(block_hash)?.validators.clone();
+        let epoch_id = self.get_epoch_id(block_hash)?;
+        let current_validators = self.get_epoch_info(&epoch_id)?.validators.clone();
         let next_epoch_id = self.get_next_epoch_id(block_hash)?;
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
-        Ok(EpochValidatorInfo { current_validators, next_validators })
+        let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
+        Ok(EpochValidatorInfo {
+            current_validators,
+            next_validators,
+            current_proposals: epoch_summary.all_proposals,
+        })
     }
 }
 
