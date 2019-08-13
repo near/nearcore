@@ -17,6 +17,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
+use near_primitives::hash::hash;
 
 mod process_node;
 mod runtime_node;
@@ -138,14 +139,20 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code = to_base64(
-        include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
-    );
+    let code = include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 0, true);
     for seed in seeds {
-        genesis_config.records[0]
-            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+        for records in genesis_config.records.iter_mut() {
+            for record in records.iter_mut() {
+                if let StateRecord::Account { account_id, account } = record {
+                    if account_id == &seed {
+                        account.code_hash = hash(code);
+                    }
+                }
+            }
+            records.push(StateRecord::Contract { account_id: seed.clone(), code: to_base64(code) });
+        }
     }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
