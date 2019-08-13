@@ -1,15 +1,19 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use log::LevelFilter;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
+use crate::block::Block;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
-use crate::crypto::signature::{PublicKey, SecretKey};
+use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
 use crate::transaction::{SignedTransaction, TransactionBody};
+use crate::types::BlockIndex;
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -74,5 +78,36 @@ impl TransactionBody {
     pub fn sign(self, signer: &dyn EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
         SignedTransaction::new(signature, self, Some(signer.public_key()))
+    }
+}
+
+impl Block {
+    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_approvals(prev, height, HashMap::default(), signer)
+    }
+
+    pub fn empty(prev: &Block, signer: Arc<dyn EDSigner>) -> Self {
+        Self::empty_with_height(prev, prev.header.height + 1, signer)
+    }
+
+    /// This is not suppose to be used outside of chain tests, because this doesn't refer to correct chunks.
+    /// Done because chain tests don't have a good way to store chunks right now.
+    pub fn empty_with_approvals(
+        prev: &Block,
+        height: BlockIndex,
+        approvals: HashMap<usize, Signature>,
+        signer: Arc<dyn EDSigner>,
+    ) -> Self {
+        Block::produce(
+            &prev.header,
+            height,
+            prev.chunks.clone(),
+            prev.header.epoch_id.clone(),
+            vec![],
+            approvals,
+            0,
+            0,
+            signer,
+        )
     }
 }

@@ -28,6 +28,8 @@ pub type ValidatorId = usize;
 pub type ValidatorMask = Vec<bool>;
 /// Part of the signature.
 pub type PartialSignature = BlsSignature;
+/// GasUsage is used to measure gas spend.
+pub type GasUsage = u64;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.
@@ -44,6 +46,16 @@ pub type Balance = u128;
 pub type ReceiptId = Vec<u8>;
 /// Identifier for callbacks, used to store storage and refer in receipts.
 pub type CallbackId = Vec<u8>;
+
+/// Epoch identifier -- wrapped hash, to make it easier to distinguish.
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize, Deserialize, Default)]
+pub struct EpochId(pub CryptoHash);
+
+impl AsRef<[u8]> for EpochId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum PromiseId {
@@ -94,7 +106,8 @@ impl From<ValidatorStake> for types_proto::ValidatorStake {
             account_id: validator.account_id,
             public_key: validator.public_key.to_string(),
             amount: SingularPtrField::some(validator.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -106,6 +119,30 @@ impl PartialEq for ValidatorStake {
 }
 
 impl Eq for ValidatorStake {}
+
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Eq)]
+pub struct ChunkExtra {
+    /// Post state root after applying give chunk.
+    pub state_root: MerkleHash,
+    /// Validator proposals produced by given chunk.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Actually how much gas were used.
+    pub gas_used: GasUsage,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: GasUsage,
+}
+
+impl ChunkExtra {
+    pub fn new(
+        state_root: &MerkleHash,
+        validator_proposals: Vec<ValidatorStake>,
+        gas_used: GasUsage,
+        gas_limit: GasUsage,
+    ) -> Self {
+        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
+    }
+}
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

@@ -50,7 +50,7 @@ fn peer_handshake() {
         let _pm2 = make_peer_manager("test2", port2, vec![("test1", port1)]).start();
         WaitOrTimeout::new(
             Box::new(move |_| {
-                actix::spawn(pm1.send(NetworkRequests::FetchInfo { level: 0 }).then(move |res| {
+                actix::spawn(pm1.send(NetworkRequests::FetchInfo).then(move |res| {
                     if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
                         res.unwrap()
                     {
@@ -87,22 +87,19 @@ fn peers_connect_all() {
             Box::new(move |_| {
                 for i in 0..5 {
                     let flags1 = flags.clone();
-                    actix::spawn(peers[i].send(NetworkRequests::FetchInfo { level: 0 }).then(
-                        move |res| {
-                            if let NetworkResponses::Info(NetworkInfo {
-                                num_active_peers, ..
-                            }) = res.unwrap()
+                    actix::spawn(peers[i].send(NetworkRequests::FetchInfo).then(move |res| {
+                        if let NetworkResponses::Info(NetworkInfo { num_active_peers, .. }) =
+                            res.unwrap()
+                        {
+                            if num_active_peers > 4
+                                && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
                             {
-                                if num_active_peers > 4
-                                    && (flags1.load(Ordering::Relaxed) >> i) % 2 == 0
-                                {
-                                    println!("Peer {}: {}", i, num_active_peers);
-                                    flags1.fetch_add(1 << i, Ordering::Relaxed);
-                                }
+                                println!("Peer {}: {}", i, num_active_peers);
+                                flags1.fetch_add(1 << i, Ordering::Relaxed);
                             }
-                            future::result(Ok(()))
-                        },
-                    ));
+                        }
+                        future::result(Ok(()))
+                    }));
                 }
                 // Stop if all connected to all after exchanging peers.
                 println!("Flags: {}", flags.load(Ordering::Relaxed));

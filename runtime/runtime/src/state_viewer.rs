@@ -41,7 +41,7 @@ impl TrieViewer {
                 account_id: account_id.clone(),
                 nonce: account.nonce,
                 amount: account.amount,
-                stake: account.staked,
+                stake: account.stake,
                 public_keys: account.public_keys,
                 code_hash: account.code_hash,
             }),

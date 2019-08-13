@@ -14,9 +14,10 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
 use near_primitives::serialize::BaseEncode;
-use near_primitives::test_utils::init_integration_logger;
+use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{StakeTransaction, TransactionBody};
 use near_primitives::types::AccountId;
+use std::path::Path;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -38,16 +39,22 @@ struct TestNode {
     view_client: Addr<ViewClientActor>,
 }
 
-fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -> Vec<TestNode> {
-    init_integration_logger();
+fn init_test_staking(
+    paths: Vec<&Path>,
+    num_nodes: usize,
+    num_validators: usize,
+    epoch_length: u64,
+) -> Vec<TestNode> {
+    //init_integration_logger();
+    init_test_logger();
 
-    let mut genesis_config = GenesisConfig::testing_spec(num_accounts, num_nodes);
+    let mut genesis_config = GenesisConfig::testing_spec(num_nodes, num_validators);
     genesis_config.epoch_length = epoch_length;
-    genesis_config.num_block_producers = num_accounts;
-    genesis_config.validator_kickout_threshold = 0.2;
+    genesis_config.num_block_producers = num_nodes;
+    genesis_config.validator_kickout_threshold = 20;
     let first_node = open_port();
 
-    let configs = (0..num_accounts).map(|i| {
+    let configs = (0..num_nodes).map(|i| {
         let mut config = load_test_config(
             &format!("near.{}", i),
             if i == 0 { first_node } else { open_port() },
@@ -55,26 +62,38 @@ fn init_test_staking(num_accounts: usize, num_nodes: usize, epoch_length: u64) -
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
+        } else {
+            //            config.client_config.min_num_peers = 0;
         }
+        config.client_config.min_num_peers = num_nodes - 1;
         config
     });
     configs
         .enumerate()
         .map(|(i, config)| {
-            let dir = TempDir::new(&format!("stake_node_{}", i)).unwrap();
-            let (client, view_client) = start_with_config(dir.path(), config.clone());
+            let (client, view_client) = start_with_config(paths[i], config.clone());
             TestNode { account_id: format!("near.{}", i), config, client, view_client }
         })
         .collect()
 }
 
+// TODO(MarX) it is failing.
 /// Runs one validator network, sends staking transaction for the second node and
 /// waits until it becomes a validator.
 #[test]
 fn test_stake_nodes() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(2, 1, 10);
+        let num_nodes = 2;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            1,
+            10,
+        );
 
         let tx = TransactionBody::Stake(StakeTransaction {
             nonce: 1,
@@ -127,8 +146,16 @@ fn test_stake_nodes() {
 fn test_validator_kickout() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 4, 24);
-        let num_nodes = test_nodes.len();
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("validator_kickout_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            4,
+            24,
+        );
         let mut rng = rand::thread_rng();
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
@@ -248,11 +275,21 @@ fn test_validator_kickout() {
     })
 }
 
+// TODO(MarX): It is failing.
 #[test]
 fn test_validator_join() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 2, 16);
+        let num_nodes = 4;
+        let dirs = (0..num_nodes)
+            .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
+            .collect::<Vec<_>>();
+        let test_nodes = init_test_staking(
+            dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
+            num_nodes,
+            2,
+            16,
+        );
         let unstake_transaction = TransactionBody::Stake(StakeTransaction {
             nonce: 1,
             originator: test_nodes[1].account_id.clone(),
@@ -307,9 +344,8 @@ fn test_validator_join() {
                     let expected = vec![
                         ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
                         ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
-                        ValidatorInfo { account_id: "near.0".to_string(), is_slashed: false },
-                        ValidatorInfo { account_id: "near.2".to_string(), is_slashed: false },
                     ];
+                    println!("\n\n\nRESULT: {:?}\n\n\n", res);
                     if res.unwrap().unwrap().validators == expected {
                         actix::spawn(
                             test_node1
@@ -360,7 +396,7 @@ fn test_validator_join() {
                 }
             }),
             1000,
-            10000,
+            20000,
         )
         .start();
 

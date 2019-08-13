@@ -81,6 +81,7 @@ mod test {
     };
 
     use super::*;
+    use near_primitives::types::EpochId;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -121,7 +122,7 @@ mod test {
         let signature = sign(vec![].as_slice(), &sk);
         let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
             "test1".to_string(),
-            CryptoHash::default(),
+            EpochId::default(),
             pk.into(),
             CryptoHash::default(),
             signature,

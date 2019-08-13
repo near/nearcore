@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use futures::{future, Future};
 
 use near_chain::test_utils::KeyValueRuntime;
+use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
 use near_network::types::NetworkInfo;
@@ -40,19 +41,21 @@ pub fn setup_network_node(
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
-        validators.into_iter().map(Into::into).collect(),
+        vec![validators.into_iter().map(Into::into).collect()],
+        1,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
-        let mut client_config = ClientConfig::test(false);
+        let mut client_config = ClientConfig::test(false, 100);
         client_config.ttl_account_id_router = ttl_account_id_router;
         let client_actor = ClientActor::new(
             client_config,
             store.clone(),
-            genesis_time,
+            chain_genesis,
             runtime,
             config.public_key.clone().into(),
             ctx.address().recipient(),
@@ -84,18 +87,18 @@ fn wait_routing_table_state(
         let expected_accounts = expected_accounts.clone();
 
         if count.load(Ordering::Relaxed) == 0 {
-            actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(move |res| {
-                if let NetworkResponses::Info(NetworkInfo { routes, .. }) = res.unwrap() {
-                    let routes = routes.unwrap();
-                    let account_peers = &routes.account_peers;
-
+            actix::spawn(pm.send(NetworkRequests::FetchInfo).then(move |res| {
+                if let NetworkResponses::Info(NetworkInfo {
+                    known_producers: account_peers, ..
+                }) = res.unwrap()
+                {
                     let mut count_expected = 0;
 
                     for acc_id in expected_accounts.into_iter() {
                         if acc_id == cur_acc_id {
-                            assert!(!account_peers.contains_key(&acc_id));
+                            assert!(!account_peers.contains(&acc_id));
                         } else {
-                            if account_peers.contains_key(&acc_id) {
+                            if account_peers.contains(&acc_id) {
                                 count_expected += 1;
                             } else {
                                 // missing somme account id in routes yet.

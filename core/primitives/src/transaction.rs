@@ -79,7 +79,8 @@ impl From<CreateAccountTransaction> for transaction_proto::CreateAccountTransact
             new_account_id: t.new_account_id,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -132,7 +133,8 @@ impl From<DeployContractTransaction> for transaction_proto::DeployContractTransa
             nonce: t.nonce,
             contract_id: t.contract_id,
             wasm_byte_array: t.wasm_byte_array,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -172,7 +174,8 @@ impl From<FunctionCallTransaction> for transaction_proto::FunctionCallTransactio
             method_name: t.method_name,
             args: t.args,
             amount: SingularPtrField::some(t.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -219,7 +222,8 @@ impl From<SendMoneyTransaction> for transaction_proto::SendMoneyTransaction {
             originator: t.originator,
             receiver: t.receiver,
             amount: SingularPtrField::some(t.amount.into()),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -253,7 +257,9 @@ impl From<StakeTransaction> for transaction_proto::StakeTransaction {
             originator: t.originator,
             amount: SingularPtrField::some(t.amount.into()),
             public_key: t.public_key,
-            ..Default::default()
+            bls_public_key: "".to_string(),
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -287,7 +293,8 @@ impl From<SwapKeyTransaction> for transaction_proto::SwapKeyTransaction {
             originator: t.originator,
             cur_key: t.cur_key,
             new_key: t.new_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -335,7 +342,8 @@ impl From<AddKeyTransaction> for transaction_proto::AddKeyTransaction {
             originator: t.originator,
             new_key: t.new_key,
             access_key: SingularPtrField::from_option(t.access_key.map(std::convert::Into::into)),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -369,7 +377,8 @@ impl From<DeleteKeyTransaction> for transaction_proto::DeleteKeyTransaction {
             nonce: t.nonce,
             originator: t.originator,
             cur_key: t.cur_key,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -526,13 +535,22 @@ impl SignedTransaction {
         self.hash
     }
 
-    // this is for tests
+    // The following functions are for tests
     pub fn empty() -> SignedTransaction {
+        Self::create_payment_tx(AccountId::default(), AccountId::default(), 0, 0)
+    }
+
+    pub fn create_payment_tx(
+        from: AccountId,
+        to: AccountId,
+        amount: u128,
+        nonce: u64,
+    ) -> SignedTransaction {
         let body = TransactionBody::SendMoney(SendMoneyTransaction {
-            nonce: 0,
-            originator: AccountId::default(),
-            receiver: AccountId::default(),
-            amount: 0,
+            nonce: nonce,
+            originator: from,
+            receiver: to,
+            amount,
         });
         SignedTransaction {
             signature: DEFAULT_SIGNATURE,
@@ -654,7 +672,8 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
                 res.set_value((&v).into());
                 res
             })),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -705,7 +724,8 @@ impl From<AsyncCall> for receipt_proto::AsyncCall {
             refund_account: call.refund_account,
             originator_id: call.originator_id,
             public_key: call.public_key.as_ref().to_vec(),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -867,7 +887,8 @@ impl From<CallbackInfo> for receipt_proto::CallbackInfo {
             id: info.id,
             result_index: info.result_index as u64,
             receiver: info.receiver,
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -919,7 +940,8 @@ impl From<CallbackResult> for receipt_proto::CallbackResult {
                 res.set_value(v);
                 res
             })),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }
@@ -995,7 +1017,8 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             receiver: t.receiver,
             nonce: t.nonce.into(),
             body: Some(body),
-            ..Default::default()
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
         }
     }
 }

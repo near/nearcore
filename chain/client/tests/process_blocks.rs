@@ -6,16 +6,19 @@ use actix::System;
 use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
+use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
+use near_primitives::merkle::merklize;
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::MerkleHash;
+use near_primitives::types::{EpochId, MerkleHash};
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -44,7 +47,7 @@ fn produce_two_blocks() {
 /// Runs block producing client and sends it a transaction.
 #[test]
 fn produce_blocks_with_tx() {
-    let count = Arc::new(AtomicUsize::new(0));
+    let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
         let (client, _) = setup_mock(
@@ -52,16 +55,41 @@ fn produce_blocks_with_tx() {
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
-                if let NetworkRequests::Block { block } = msg {
-                    count.fetch_add(block.transactions.len(), Ordering::Relaxed);
-                    if count.load(Ordering::Relaxed) >= 1 {
-                        System::current().stop();
+                if let NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part } = msg
+                {
+                    let height = header_and_part.header.height_created as usize;
+                    assert!(encoded_chunks.len() + 2 >= height);
+
+                    // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
+                    let data_parts = 12 + 2 * (((height - 1) as usize) % 4);
+                    let total_parts = 1 + data_parts * (1 + ((height - 1) as usize) % 3);
+                    if encoded_chunks.len() + 2 == height {
+                        encoded_chunks.push(EncodedShardChunk::from_header(
+                            header_and_part.header.clone(),
+                            total_parts,
+                        ));
+                    }
+                    encoded_chunks[height - 2].content.parts[header_and_part.part_id as usize] =
+                        Some(header_and_part.part.clone());
+
+                    if let ChunkStatus::Complete(_) = ShardsManager::check_chunk_complete(
+                        data_parts,
+                        total_parts,
+                        &mut encoded_chunks[height - 2],
+                    ) {
+                        let chunk =
+                            ShardsManager::decode_chunk(data_parts, &encoded_chunks[height - 2])
+                                .unwrap();
+                        if chunk.transactions.len() > 0 {
+                            System::current().stop();
+                        }
                     }
                 }
                 NetworkResponses::NoResponse
             }),
         );
         client.do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+        near_network::test_utils::wait_or_panic(5000);
     })
     .unwrap();
 }
@@ -90,11 +118,12 @@ fn receive_network_block() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
-                CryptoHash::default(),
+                last_block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -139,11 +168,12 @@ fn receive_network_block_header() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
-                CryptoHash::default(),
+                last_block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -181,11 +211,12 @@ fn produce_block_with_approvals() {
             let block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
-                CryptoHash::default(),
+                last_block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer1,
             );
             let block_approval = BlockApproval::new(block.hash(), &*signer3, "test2".to_string());
@@ -214,7 +245,10 @@ fn invalid_blocks() {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval } => {
                         assert_eq!(header.height, 1);
-                        assert_eq!(header.prev_state_root, MerkleHash::default());
+                        assert_eq!(
+                            header.prev_state_root,
+                            merklize(&vec![MerkleHash::default()]).0
+                        );
                         assert_eq!(*approval, None);
                         System::current().stop();
                     }
@@ -227,16 +261,18 @@ fn invalid_blocks() {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             // Send invalid state root.
-            let block = Block::produce(
+            let mut block = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                hash(&[0]),
-                CryptoHash::default(),
+                last_block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer.clone(),
             );
+            block.header.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -246,11 +282,12 @@ fn invalid_blocks() {
             let block2 = Block::produce(
                 &block.header,
                 block.header.height + 1,
-                hash(&[1]),
-                CryptoHash::default(),
+                block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -258,11 +295,12 @@ fn invalid_blocks() {
             let block3 = Block::produce(
                 &last_block.header,
                 last_block.header.height + 1,
-                MerkleHash::default(),
-                CryptoHash::default(),
+                last_block.chunks.clone(),
+                EpochId::default(),
                 vec![],
                 HashMap::default(),
-                vec![],
+                0,
+                0,
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
@@ -311,7 +349,7 @@ fn client_sync_headers() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
-                NetworkRequests::FetchInfo { level: _ } => NetworkResponses::Info(NetworkInfo {
+                NetworkRequests::FetchInfo => NetworkResponses::Info(NetworkInfo {
                     num_active_peers: 1,
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {
@@ -324,7 +362,7 @@ fn client_sync_headers() {
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,
-                    routes: None,
+                    known_producers: vec![],
                 }),
                 NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
                     assert_eq!(*peer_id, peer_info1.id);

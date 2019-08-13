@@ -23,7 +23,9 @@ use near_primitives::account::Account;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, GasUsage, ReadablePublicKey, ValidatorId,
+};
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
@@ -43,9 +45,6 @@ pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 /// Attonear, 1/10^18 of NEAR.
 pub const ATTO_NEAR: Balance = 1;
 
-/// Initial token supply.
-pub const INITIAL_TOKEN_SUPPLY: Balance = 1_000_000_000 * NEAR_BASE;
-
 /// Expected block production time in secs.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 
@@ -56,17 +55,35 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
 
 /// Criterion for kicking out validators.
-pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
+pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
-pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
-pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
 pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
 /// Maximum amount of routes to store for each account id.
 pub const MAX_ROUTES_TO_STORE: usize = 5;
+/// Initial gas limit.
+pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
+
+/// Initial gas price.
+pub const INITIAL_GAS_PRICE: Balance = 100;
+
+/// The rate at which the gas price can be adjusted (alpha in the formula).
+/// The formula is
+/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
+/// This constant is supposedly 0.01 and should be divided by 100 when used
+pub const GAS_PRICE_ADJUSTMENT_RATE: u8 = 1;
+
+/// Rewards
+pub const PROTOCOL_PERCENT: u8 = 10;
+pub const DEVELOPER_PERCENT: u8 = 30;
+
+/// Maximum inflation rate per year
+pub const MAX_INFLATION_RATE: u8 = 5;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -209,6 +226,7 @@ impl NearConfig {
                 rpc_addr: config.rpc.addr.clone(),
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
+                block_production_retry_delay: config.consensus.min_block_production_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
@@ -225,6 +243,7 @@ impl NearConfig {
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
+                catchup_step_period: Duration::from_millis(100),
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key,
@@ -315,14 +334,40 @@ pub struct GenesisConfig {
     pub dynamic_resharding: bool,
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
-    /// Criterion for kicking out validators
-    pub validator_kickout_threshold: f64,
+    /// Initial gas limit.
+    pub gas_limit: GasUsage,
+    /// Initial gas price.
+    pub gas_price: Balance,
+    /// Criterion for kicking out validators (this is a number between 0 and 100)
+    pub validator_kickout_threshold: u8,
+    /// Gas price adjustment rate
+    pub gas_price_adjustment_rate: u8,
     /// Runtime configuration (mostly economics constants).
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
     pub records: Vec<Vec<StateRecord>>,
+    /// Developer reward percentage (this is a number between 0 and 100)
+    pub developer_reward_percentage: u8,
+    /// Protocol treasury percentage (this is a number between 0 and 100)
+    pub protocol_reward_percentage: u8,
+    /// Maximum inflation on the total supply every epoch (this is a number between 0 and 100)
+    pub max_inflation_rate: u8,
+    /// Total supply of tokens at genesis.
+    pub total_supply: u128,
+}
+
+fn get_initial_supply(records: &[Vec<StateRecord>]) -> Balance {
+    let mut total_supply = 0;
+    for shard_records in records {
+        for record in shard_records {
+            if let StateRecord::Account { account, .. } = record {
+                total_supply += account.amount;
+            }
+        }
+    }
+    total_supply
 }
 
 impl GenesisConfig {
@@ -350,7 +395,7 @@ impl GenesisConfig {
                         - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     public_keys: vec![signer.public_key],
                     code_hash,
-                    staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    stake: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     storage_usage: 0,
                     storage_paid_at: 0,
                 },
@@ -360,6 +405,7 @@ impl GenesisConfig {
                 code: encoded_test_contract.clone(),
             });
         }
+        let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
@@ -369,10 +415,17 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
             records,
+            developer_reward_percentage: DEVELOPER_PERCENT,
+            protocol_reward_percentage: PROTOCOL_PERCENT,
+            max_inflation_rate: MAX_INFLATION_RATE,
+            total_supply,
         }
     }
 
@@ -382,7 +435,7 @@ impl GenesisConfig {
     }
 
     pub fn testing_spec(num_accounts: usize, num_validators: usize) -> Self {
-        let mut records = vec![];
+        let mut records = vec![vec![]];
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
@@ -394,13 +447,14 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.push(StateRecord::account(
+            records[0].push(StateRecord::account(
                 &account_id,
                 &signer.public_key.to_readable().0,
                 TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                 if i < num_validators { TESTING_INIT_STAKE } else { 0 },
             ));
         }
+        let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
             genesis_time: Utc::now(),
@@ -410,10 +464,17 @@ impl GenesisConfig {
             avg_fisherman_per_shard: vec![0],
             dynamic_resharding: false,
             epoch_length: FAST_EPOCH_LENGTH,
+            gas_limit: INITIAL_GAS_LIMIT,
+            gas_price: INITIAL_GAS_PRICE,
+            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
-            records: vec![records],
+            records,
+            developer_reward_percentage: DEVELOPER_PERCENT,
+            protocol_reward_percentage: PROTOCOL_PERCENT,
+            max_inflation_rate: MAX_INFLATION_RATE,
+            total_supply,
         }
     }
 
@@ -534,6 +595,13 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::new("".to_string());
             network_signer.write_to_file(&dir.join(config.node_key_file));
+            let records = vec![vec![StateRecord::account(
+                &account_id,
+                &signer.public_key.to_readable().0,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+            )]];
+            let total_supply = get_initial_supply(&records);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
@@ -544,6 +612,9 @@ pub fn init_configs(
                 avg_fisherman_per_shard: vec![0],
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
+                gas_limit: INITIAL_GAS_LIMIT,
+                gas_price: INITIAL_GAS_PRICE,
+                gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
                 validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
@@ -551,12 +622,11 @@ pub fn init_configs(
                     public_key: signer.public_key.to_readable(),
                     amount: TESTING_INIT_STAKE,
                 }],
-                records: vec![vec![StateRecord::account(
-                    &account_id,
-                    &signer.public_key.to_readable().0,
-                    TESTING_INIT_BALANCE,
-                    TESTING_INIT_STAKE,
-                )]],
+                records,
+                developer_reward_percentage: DEVELOPER_PERCENT,
+                protocol_reward_percentage: PROTOCOL_PERCENT,
+                max_inflation_rate: MAX_INFLATION_RATE,
+                total_supply,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -593,6 +663,7 @@ pub fn create_testnet_configs_from_seeds(
             amount: TESTING_INIT_STAKE,
         })
         .collect::<Vec<_>>();
+    let total_supply = get_initial_supply(&records);
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         genesis_time: Utc::now(),
@@ -602,10 +673,17 @@ pub fn create_testnet_configs_from_seeds(
         avg_fisherman_per_shard: vec![0],
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
+        gas_limit: INITIAL_GAS_LIMIT,
+        gas_price: INITIAL_GAS_PRICE,
+        gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
         validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
         runtime_config: Default::default(),
         validators,
         records,
+        developer_reward_percentage: DEVELOPER_PERCENT,
+        protocol_reward_percentage: PROTOCOL_PERCENT,
+        max_inflation_rate: MAX_INFLATION_RATE,
+        total_supply,
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -683,7 +761,6 @@ pub fn load_config(dir: &Path) -> NearConfig {
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
     let mut config = Config::default();
-    config.network.skip_sync_wait = true;
     config.network.addr = format!("0.0.0.0:{}", port);
     config.rpc.addr = format!("0.0.0.0:{}", open_port());
     config.consensus.min_block_production_delay =
@@ -706,7 +783,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let data = json!({
-            "protocol_version": 1,
+            "protocol_version": 2,
             "genesis_time": "2019-05-07T00:10:14.434719Z",
             "chain_id": "test-chain-XYQAS",
             "num_block_producers": 1,
@@ -714,10 +791,17 @@ mod tests {
             "avg_fisherman_per_shard": [1],
             "dynamic_resharding": false,
             "epoch_length": 100,
+            "gas_limit": 1_000_000,
+            "gas_price": 100,
             "runtime_config": {},
-            "validator_kickout_threshold": 0.9,
+            "validator_kickout_threshold": 90,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],
+            "developer_reward_percentage": 30,
+            "protocol_reward_percentage": 10,
+            "max_inflation_rate": 5,
+            "gas_price_adjustment_rate": 1,
+            "total_supply": 1_000_000,
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(

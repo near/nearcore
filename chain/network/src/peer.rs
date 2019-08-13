@@ -220,9 +220,7 @@ impl Peer {
         debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
-            None => {
-                return;
-            }
+            None => return,
         };
 
         // Wrap peer message into what client expects.
@@ -254,11 +252,10 @@ impl Peer {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
             PeerMessage::StateRequest(shard_id, hash) => {
+                // TODO(MarX): Remove
                 NetworkClientMessages::StateRequest(shard_id, hash)
             }
-            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
-                NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
-            }
+            PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
                 if announce_account.peer_id() != peer_id {
                     self.ban_peer(ctx, ReasonForBan::InvalidPeerId);
@@ -275,7 +272,27 @@ impl Peer {
                 RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)
                 }
+                RoutedMessageBody::StateRequest(shard_id, hash) => {
+                    NetworkClientMessages::StateRequest(shard_id, hash)
+                }
+                RoutedMessageBody::ChunkPartRequest(request) => {
+                    NetworkClientMessages::ChunkPartRequest(request, peer_id)
+                }
+                RoutedMessageBody::ChunkOnePartRequest(request) => {
+                    NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
+                }
+                RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
             },
+            PeerMessage::ChunkPartRequest(request) => {
+                // TODO(MarX): Remove
+                NetworkClientMessages::ChunkPartRequest(request, peer_id)
+            }
+            PeerMessage::ChunkOnePartRequest(request) => {
+                NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
+            }
+            // TODO(MarX): Remove
+            PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
+            PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
             PeerMessage::Handshake(_)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_) => {
@@ -309,8 +326,8 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload, receipts }) => {
-                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload, receipts))
+                    Ok(NetworkClientResponses::StateResponse(info)) => {
+                        act.send_message(PeerMessage::StateResponse(info))
                     }
                     Err(err) => {
                         error!(
@@ -406,6 +423,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         match res {
                             Ok(true) => {
                                 debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id, act.peer_addr);
+                                println!("{:?} CONNECTED PEER: {:?}", act.node_info.id, peer_info);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.

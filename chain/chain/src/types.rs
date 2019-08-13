@@ -5,8 +5,11 @@ use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
+use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake,
+};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
@@ -19,7 +22,17 @@ pub enum BlockStatus {
     Fork,
     /// Block updates the chain head via a (potentially disruptive) "reorg".
     /// Previous block was not our previous chain head.
-    Reorg,
+    Reorg(CryptoHash),
+}
+
+impl BlockStatus {
+    pub fn is_new_head(&self) -> bool {
+        match self {
+            BlockStatus::Next => true,
+            BlockStatus::Fork => false,
+            BlockStatus::Reorg(_) => true,
+        }
+    }
 }
 
 /// Options for block origin.
@@ -41,6 +54,24 @@ pub struct ValidTransaction {
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
 
+pub enum ShardFullChunkOrOnePart<'a> {
+    // The validator follows the shard, and has the full chunk
+    FullChunk(&'a ShardChunk),
+    // The validator doesn't follow the shard, and only has one part
+    OnePart(&'a ChunkOnePart),
+    // The chunk for particular shard is not present in the block
+    NoChunk,
+}
+
+pub struct ApplyTransactionResult {
+    pub trie_changes: WrappedTrieChanges,
+    pub new_root: MerkleHash,
+    pub transaction_results: Vec<TransactionResult>,
+    pub receipt_result: ReceiptResult,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub gas_used: GasUsage,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators and block weight computation.
@@ -56,44 +87,6 @@ pub trait RuntimeAdapter: Send + Sync {
         header: &BlockHeader,
     ) -> Result<Weight, Error>;
 
-    /// Epoch block proposers (ordered by their order in the proposals) for given shard.
-    /// Returns error if height is outside of known boundaries.
-    fn get_epoch_block_proposers(
-        &self,
-        epoch_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-    ) -> Result<Vec<(AccountId, bool)>, Box<dyn std::error::Error>>;
-
-    /// Block proposer for given height for the main block. Return error if outside of known boundaries.
-    fn get_block_proposer(
-        &self,
-        epoch_hash: &CryptoHash,
-        height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>>;
-
-    /// Chunk proposer for given height for given shard. Return error if outside of known boundaries.
-    fn get_chunk_proposer(
-        &self,
-        shard_id: ShardId,
-        parent_hash: CryptoHash,
-        height: BlockIndex,
-    ) -> Result<AccountId, Box<dyn std::error::Error>>;
-
-    /// Check validator signature for the given epoch
-    fn check_validator_signature(
-        &self,
-        epoch_hash: &CryptoHash,
-        account_id: &AccountId,
-        data: &[u8],
-        signature: &Signature,
-    ) -> bool;
-
-    /// Get current number of shards.
-    fn num_shards(&self) -> ShardId;
-
-    /// Account Id to Shard Id mapping, given current number of shards.
-    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
-
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(
         &self,
@@ -101,6 +94,80 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: MerkleHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, String>;
+
+    /// Verify validator signature for the given epoch.
+    fn verify_validator_signature(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &AccountId,
+        data: &[u8],
+        signature: &Signature,
+    ) -> bool;
+
+    /// Verify chunk header signature.
+    fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
+
+    /// Epoch block producers (ordered by their order in the proposals) for given shard.
+    /// Returns error if height is outside of known boundaries.
+    fn get_epoch_block_producers(
+        &self,
+        epoch_id: &EpochId,
+        last_known_block_hash: &CryptoHash,
+    ) -> Result<Vec<(AccountId, bool)>, Error>;
+
+    /// Block producers for given height for the main block. Return error if outside of known boundaries.
+    fn get_block_producer(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockIndex,
+    ) -> Result<AccountId, Error>;
+
+    /// Chunk producer for given height for given shard. Return error if outside of known boundaries.
+    fn get_chunk_producer(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockIndex,
+        shard_id: ShardId,
+    ) -> Result<AccountId, Error>;
+
+    /// Get current number of shards.
+    fn num_shards(&self) -> ShardId;
+
+    fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize;
+
+    fn num_data_parts(&self, parent_hash: &CryptoHash) -> usize;
+
+    /// Account Id to Shard Id mapping, given current number of shards.
+    fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
+
+    fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
+
+    fn cares_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool;
+
+    fn will_care_about_shard(
+        &self,
+        account_id: &AccountId,
+        parent_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> bool;
+
+    /// Returns true, if given hash is last block in it's epoch.
+    fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error>;
+
+    /// Get epoch id given hash of previous block.
+    fn get_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash) -> Result<EpochId, Error>;
+
+    /// Get next epoch id given hash of previous block.
+    fn get_next_epoch_id_from_prev_block(&self, parent_hash: &CryptoHash)
+        -> Result<EpochId, Error>;
+
+    /// Get epoch start for given block hash.
+    fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
 
     /// Add proposals for validators.
     fn add_validator_proposals(
@@ -111,14 +178,8 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
-    ) -> Result<(), Box<dyn std::error::Error>>;
-
-    /// Get epoch offset for given block index
-    fn get_epoch_offset(
-        &self,
-        parent_hash: CryptoHash,
-        block_index: BlockIndex,
-    ) -> Result<(CryptoHash, BlockIndex), Box<dyn std::error::Error>>;
+        gas_used: GasUsage,
+    ) -> Result<(), Error>;
 
     /// Apply transactions to given state root and return store update and new state root.
     /// Also returns transaction result for each transaction and new receipts.
@@ -129,25 +190,18 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Vec<ReceiptTransaction>>,
+        receipts: &Vec<ReceiptTransaction>,
         transactions: &Vec<SignedTransaction>,
-    ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
-        Box<dyn std::error::Error>,
-    >;
+        gas_price: Balance,
+        total_supply: Balance,
+    ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
-        path: &str,
+        path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
@@ -181,8 +235,8 @@ pub struct Tip {
     pub prev_block_hash: CryptoHash,
     /// Total weight on that fork
     pub total_weight: Weight,
-    /// Previous epoch hash. Used for getting validator info.
-    pub epoch_hash: CryptoHash,
+    /// Previous epoch id. Used for getting validator info.
+    pub epoch_id: EpochId,
 }
 
 impl Tip {
@@ -193,7 +247,7 @@ impl Tip {
             last_block_hash: header.hash(),
             prev_block_hash: header.prev_hash,
             total_weight: header.total_weight,
-            epoch_hash: header.epoch_hash,
+            epoch_id: header.epoch_id.clone(),
         }
     }
 }
@@ -225,33 +279,23 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let genesis = Block::genesis(MerkleHash::default(), Utc::now());
-        let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-        let b1 = Block::produce(
-            &genesis.header,
-            1,
-            MerkleHash::default(),
-            CryptoHash::default(),
-            vec![],
-            HashMap::default(),
-            vec![],
-            signer.clone(),
+        let num_shards = 32;
+        let genesis = Block::genesis(
+            vec![MerkleHash::default()],
+            Utc::now(),
+            num_shards,
+            1_000_000,
+            100,
+            1_000_000_000,
         );
+        let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+        let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.total_weight.to_num(), 1);
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::produce(
-            &b1.header,
-            2,
-            MerkleHash::default(),
-            CryptoHash::default(),
-            vec![],
-            approvals,
-            vec![],
-            signer.clone(),
-        );
+        let b2 = Block::empty_with_approvals(&b1, 2, approvals, signer.clone());
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

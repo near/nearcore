@@ -5,7 +5,7 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, BlockHeader, Chain};
+use near_chain::{Block, Chain, ChainGenesis};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
@@ -14,13 +14,26 @@ use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 
 /// Utility to generate genesis header from config for testing purposes.
-fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
+fn genesis(genesis_config: GenesisConfig) -> Block {
     let dir = TempDir::new("unused").unwrap();
     let store = create_test_store();
     let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let chain = Chain::new(store, runtime, genesis_time).unwrap();
-    chain.genesis().clone()
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config.clone()));
+    let mut chain = Chain::new(
+        store,
+        runtime,
+        &ChainGenesis::new(
+            genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+        ),
+    )
+    .unwrap();
+    chain.get_block(&chain.genesis().hash()).unwrap().clone()
 }
 
 /// One client is in front, another must sync to it using state (fast) sync.
@@ -29,7 +42,7 @@ fn sync_state_nodes() {
     init_test_logger();
 
     let genesis_config = GenesisConfig::test(vec!["other"]);
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis = genesis(genesis_config.clone());
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -45,7 +58,7 @@ fn sync_state_nodes() {
     let (client1, _) = start_with_config(dir1.path(), near1);
 
     let mut blocks = vec![];
-    let mut prev = &genesis_header;
+    let mut prev = &genesis;
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
     for _ in 0..=100 {
         let block = Block::empty(prev, signer.clone());
@@ -55,7 +68,7 @@ fn sync_state_nodes() {
             true,
         ));
         blocks.push(block);
-        prev = &blocks[blocks.len() - 1].header;
+        prev = &blocks[blocks.len() - 1];
     }
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();

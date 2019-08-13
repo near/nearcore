@@ -3,6 +3,7 @@ use std::io;
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
+use near_primitives::sharding::ShardChunkHeader;
 
 #[derive(Debug)]
 pub struct Error {
@@ -17,6 +18,9 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
+    /// Chunks missing.
+    #[fail(display = "Chunks Missing: {:?}", _0)]
+    ChunksMissing(Vec<(ShardChunkHeader)>),
     /// Peer abusively sending us an old block we already have
     #[fail(display = "Old Block")]
     OldBlock,
@@ -44,12 +48,27 @@ pub enum ErrorKind {
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload(String),
+    /// Incorrect number of chunk headers
+    #[fail(display = "Incorrect Number of Chunk Headers")]
+    IncorrectNumberOfChunkHeaders,
+    /// One of the chunks is invalid
+    #[fail(display = "Incorrect Chunk")]
+    InvalidChunk,
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
+    /// Invalid validator proposals in the block.
+    #[fail(display = "Invalid Validator Proposals")]
+    InvalidValidatorProposals,
     /// Invalid Signature
     #[fail(display = "Invalid Signature")]
     InvalidSignature,
+    /// Validator error.
+    #[fail(display = "Validator Error")]
+    ValidatorError(String),
+    /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
+    #[fail(display = "Epoch Out Of Bounds")]
+    EpochOutOfBounds,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -93,8 +112,12 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
+            | ErrorKind::ChunksMissing(_)
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
+            | ErrorKind::ValidatorError(_)
+            // TODO: can be either way?
+            | ErrorKind::EpochOutOfBounds
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -103,9 +126,12 @@ impl Error {
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidStatePayload(_)
+            | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
+            | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidSignature => true,
         }
     }

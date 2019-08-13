@@ -28,7 +28,7 @@ impl StateRecord {
                 public_keys: vec![PublicKey::try_from(public_key).unwrap()],
                 nonce: 0,
                 amount,
-                staked,
+                stake: staked,
                 code_hash: Default::default(),
                 storage_usage: 0,
                 storage_paid_at: 0,

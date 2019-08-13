@@ -386,7 +386,9 @@ impl PeerManagerActor {
             .max()
         {
             Some(w) => w,
-            None => return vec![],
+            None => {
+                return vec![];
+            }
         };
         self.active_peers
             .values()
@@ -491,6 +493,7 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
+            // TODO(MarX): Don't remove random peer from outgoing peers.
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
                 self.outgoing_peers.insert(peer_info.id);
                 ctx.notify(OutboundTcpConnect { peer_info });
@@ -595,7 +598,14 @@ impl PeerManagerActor {
                     .and_then(|_, _, _| actix::fut::ok(()))
                     .spawn(ctx);
             } else {
-                error!(target: "network", "Missing peer {:?} that is related to account {}", peer_id, account_id);
+                // This should be unreachable!
+                error!(target: "network",
+                    "Sending message to {} / {} not a peer: {:?}\n{:?}",
+                    account_id,
+                    peer_id,
+                    self.active_peers.keys(),
+                    msg
+                );
             }
         } else {
             warn!(target: "network", "Unknown account {} in routing table. Dropping message.", account_id);
@@ -639,10 +649,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
 
     fn handle(&mut self, msg: NetworkRequests, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkRequests::FetchInfo { level } => {
+            NetworkRequests::FetchInfo => {
                 let (sent_bytes_per_sec, received_bytes_per_sec) = self.get_total_bytes_per_sec();
 
-                let routes = if level > 0 { Some(self.routing_table.clone()) } else { None };
+                let known_producers =
+                    self.routing_table.account_peers.keys().cloned().collect::<Vec<_>>();
 
                 NetworkResponses::Info(NetworkInfo {
                     num_active_peers: self.num_active_peers(),
@@ -650,7 +661,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     most_weight_peers: self.most_weight_peers(),
                     sent_bytes_per_sec,
                     received_bytes_per_sec,
-                    routes,
+                    known_producers,
                 })
             }
             NetworkRequests::Block { block } => {
@@ -695,12 +706,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::StateRequest { shard_id, hash, peer_id } => {
-                if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                    active_peer.addr.do_send(SendMessage {
-                        message: PeerMessage::StateRequest(shard_id, hash),
-                    });
-                }
+            NetworkRequests::StateRequest { shard_id, hash, account_id } => {
+                self.send_message_to_account(
+                    ctx,
+                    self.sign_routed_message(RawRoutedMessage {
+                        account_id,
+                        body: RoutedMessageBody::StateRequest(shard_id, hash),
+                    }),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
@@ -712,6 +725,51 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
                 self.announce_account(ctx, announce_account);
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkPartRequest { account_id, part_request } => {
+                self.send_message_to_account(
+                    ctx,
+                    self.sign_routed_message(RawRoutedMessage {
+                        account_id,
+                        body: RoutedMessageBody::ChunkPartRequest(part_request),
+                    }),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkOnePartRequest { account_id, part_request } => {
+                self.send_message_to_account(
+                    ctx,
+                    self.sign_routed_message(RawRoutedMessage {
+                        account_id,
+                        body: RoutedMessageBody::ChunkOnePartRequest(part_request),
+                    }),
+                );
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage {
+                        message: PeerMessage::ChunkOnePart(header_and_part),
+                    });
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkPart { peer_id, part } => {
+                // TODO(MarX): Inspect what is happening with this message.
+                if let Some(active_peer) = self.active_peers.get(&peer_id) {
+                    active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
+                self.send_message_to_account(
+                    ctx,
+                    self.sign_routed_message(RawRoutedMessage {
+                        account_id,
+                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
+                    }),
+                );
                 NetworkResponses::NoResponse
             }
         }

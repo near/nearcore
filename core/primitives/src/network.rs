@@ -116,8 +116,65 @@ impl From<PeerInfo> for network_proto::PeerInfo {
             peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
         let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: id.into(), addr, account_id, ..Default::default() }
+        network_proto::PeerInfo {
+            id: id.into(),
+            addr,
+            account_id,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
     }
 }
 
 pub type PeersInfo = Vec<PeerInfo>;
+
+#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub struct Handshake {
+    /// Protocol version.
+    pub version: u32,
+    /// Sender's peer id.
+    pub peer_id: PeerId,
+    /// Sender's listening addr.
+    pub listen_port: Option<u16>,
+    /// Sender's information about known peers.
+    pub peers_info: PeersInfo,
+}
+
+impl TryFrom<network_proto::Handshake> for Handshake {
+    type Error = Box<std::error::Error>;
+
+    fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
+        let account_id = proto.account_id.into_option().map(|s| s.value);
+        let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
+        let peers_info =
+            proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        Ok(Handshake {
+            version: proto.version,
+            peer_id: proto.peer_id.try_into()?,
+            listen_port,
+            peers_info,
+        })
+    }
+}
+
+impl From<Handshake> for network_proto::Handshake {
+    fn from(hand_shake: Handshake) -> network_proto::Handshake {
+        let account_id = SingularPtrField::from_option(hand_shake.account_id.map(to_string_value));
+        let listen_port = SingularPtrField::from_option(hand_shake.listen_port.map(|v| {
+            let mut res = UInt32Value::new();
+            res.set_value(u32::from(v));
+            res
+        }));
+        network_proto::Handshake {
+            version: hand_shake.version,
+            peer_id: hand_shake.peer_id.into(),
+            peers_info: RepeatedField::from_iter(
+                hand_shake.peers_info.into_iter().map(std::convert::Into::into),
+            ),
+            account_id,
+            listen_port,
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
+    }
+}

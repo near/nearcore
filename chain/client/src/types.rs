@@ -19,6 +19,7 @@ pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
     BlockProducer(String),
+    ChunkProducer(String),
     Other(String),
 }
 
@@ -28,6 +29,7 @@ impl std::fmt::Display for Error {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Pool(err) => write!(f, "Pool: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
+            Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
             Error::Other(err) => write!(f, "Other: {}", err),
         }
     }
@@ -72,6 +74,8 @@ pub struct ClientConfig {
     pub min_block_production_delay: Duration,
     /// Maximum duration before producing block or skipping height.
     pub max_block_production_delay: Duration,
+    /// Retry delay for block production to wait for catching up with shard state.
+    pub block_production_retry_delay: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -102,16 +106,19 @@ pub struct ClientConfig {
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
     pub state_fetch_horizon: BlockIndex,
+    /// Time between check to perform catchup.
+    pub catchup_step_period: Duration,
 }
 
 impl ClientConfig {
-    pub fn test(skip_sync_wait: bool) -> Self {
+    pub fn test(skip_sync_wait: bool, block_prod_time: u64) -> Self {
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
-            min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(300),
+            min_block_production_delay: Duration::from_millis(block_prod_time),
+            max_block_production_delay: Duration::from_millis(3 * block_prod_time),
+            block_production_retry_delay: Duration::from_millis(block_prod_time),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),
@@ -127,6 +134,7 @@ impl ClientConfig {
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            catchup_step_period: Duration::from_millis(block_prod_time / 2),
         }
     }
 }
@@ -139,6 +147,7 @@ impl ClientConfig {
             rpc_addr: "0.0.0.0:3030".to_string(),
             min_block_production_delay: Duration::from_millis(100),
             max_block_production_delay: Duration::from_millis(2000),
+            block_production_retry_delay: Duration::from_millis(100),
             block_expected_weight: 1000,
             skip_sync_wait: false,
             sync_check_period: Duration::from_secs(10),
@@ -154,6 +163,7 @@ impl ClientConfig {
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            catchup_step_period: Duration::from_millis(50),
         }
     }
 }

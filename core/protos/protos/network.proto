@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "types.proto";
 import "chain.proto";
 import "signed_transaction.proto";
 import "receipt.proto";
@@ -20,7 +21,6 @@ message PeerChainInfo {
 message Handshake {
     uint32 version = 1;
     bytes peer_id = 2;
-    google.protobuf.StringValue account_id = 3;
     google.protobuf.UInt32Value listen_port = 4;
     PeerChainInfo chain_info = 5;
 }
@@ -48,11 +48,45 @@ message StateRequest {
     bytes hash = 2;
 }
 
+message StateResponseReceipts {
+    bytes hash = 1;
+    repeated ReceiptTransaction receipts = 2;
+}
+
 message StateResponse {
     uint64 shard_id = 1;
     bytes hash = 2;
-    bytes payload = 3;
-    repeated ReceiptTransaction receipts = 4;
+    bytes prev_chunk_hash = 3;
+    bytes prev_state_root = 4;
+    uint64 prev_gas_used = 5;
+    uint64 prev_gas_limit = 6;
+    repeated ValidatorStake validator_proposals = 7;
+    bytes payload = 8;
+    StateResponseReceipts outgoing_receipts = 9;
+    repeated StateResponseReceipts incoming_receipts = 10;
+}
+
+message ChunkPartRequest{
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    uint64 height = 3;
+    uint64 part_id = 4;
+}
+message ChunkPart {
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    uint64 part_id = 3;
+    bytes part = 4;
+    bytes merkle_path = 5;
+}
+message ChunkOnePart {
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    ShardChunkHeader header = 3;
+    uint64 part_id = 4;
+    bytes part = 5;
+    repeated ReceiptTransaction receipts = 6;
+    bytes merkle_path = 7;
 }
 
 message AnnounceAccountRoute {
@@ -75,6 +109,10 @@ message RoutedMessage {
     oneof body {
         BlockApproval block_approval = 4;
         SignedTransaction transaction = 5;
+        StateRequest state_request = 6;
+        ChunkPartRequest chunk_part_request = 7;
+        ChunkPartRequest chunk_one_part_request = 8;
+        ChunkOnePart chunk_header_and_part = 9;
     }
 }
 
@@ -92,7 +130,14 @@ message PeerMessage {
         StateRequest state_request = 11;
         StateResponse state_response = 12;
         AnnounceAccount announce_account = 13;
-        RoutedMessage routed_message = 14;
+
+        // TODO(MarX): Remove unused messages
+        ChunkPartRequest chunk_part_request = 14;
+        ChunkPartRequest chunk_one_part_request = 15;
+        ChunkPart chunk_part = 16;
+        ChunkOnePart chunk_header_and_part = 17;
+
+        RoutedMessage routed_message = 18;
     }
 }
 
