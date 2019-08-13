@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use log::LevelFilter;
@@ -13,7 +13,20 @@ use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
 use crate::transaction::{SignedTransaction, TransactionBody};
-use crate::types::BlockIndex;
+use crate::types::{BlockIndex, EpochId};
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
+}
+
+pub fn heavy_test<F>(f: F)
+where
+    F: FnOnce() -> (),
+{
+    let _guard = HEAVY_TESTS_LOCK.lock();
+    f();
+}
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -82,8 +95,17 @@ impl TransactionBody {
 }
 
 impl Block {
+    pub fn empty_with_epoch(
+        prev: &Block,
+        height: BlockIndex,
+        signer: Arc<dyn EDSigner>,
+        epoch: EpochId,
+    ) -> Self {
+        Self::empty_with_approvals(prev, height, HashMap::default(), signer, epoch)
+    }
+
     pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn EDSigner>) -> Self {
-        Self::empty_with_approvals(prev, height, HashMap::default(), signer)
+        Self::empty_with_epoch(prev, height, signer, prev.header.epoch_id.clone())
     }
 
     pub fn empty(prev: &Block, signer: Arc<dyn EDSigner>) -> Self {
@@ -97,12 +119,13 @@ impl Block {
         height: BlockIndex,
         approvals: HashMap<usize, Signature>,
         signer: Arc<dyn EDSigner>,
+        epoch: EpochId,
     ) -> Self {
         Block::produce(
             &prev.header,
             height,
             prev.chunks.clone(),
-            prev.header.epoch_id.clone(),
+            epoch,
             vec![],
             approvals,
             0,

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;

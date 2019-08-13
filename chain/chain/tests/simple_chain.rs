@@ -1,6 +1,7 @@
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
 use near_primitives::test_utils::init_test_logger;
+use std::collections::HashMap;
 
 #[test]
 fn empty_chain() {
@@ -33,6 +34,25 @@ fn build_chain_with_orhpans() {
         let block = Block::empty(&blocks[i - 1], signer.clone());
         blocks.push(block);
     }
+    let last_block = &blocks[blocks.len() - 1];
+    let block = Block::produce(
+        &last_block.header,
+        10,
+        last_block.chunks.clone(),
+        last_block.header.epoch_id.clone(),
+        vec![],
+        HashMap::default(),
+        0,
+        0,
+        signer.clone(),
+    );
+    assert_eq!(
+        chain
+            .process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {})
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Orphan
+    );
     assert_eq!(
         chain
             .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}, |_| {})
@@ -54,7 +74,7 @@ fn build_chain_with_orhpans() {
         |_, _, _| {},
         |_| {},
     );
-    assert_eq!(res.unwrap().unwrap().height, 3);
+    assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain
             .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}, |_| {})

@@ -112,8 +112,9 @@ pub struct ChainStore {
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     // Cache with index to hash on the main chain.
     // block_index: SizedCache<Vec<u8>, CryptoHash>,
-    /// Cache with receipts.
+    /// Cache with outgoing receipts.
     outgoing_receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
+    /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptTransaction>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, TransactionResult>,

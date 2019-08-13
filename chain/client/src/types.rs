@@ -108,6 +108,8 @@ pub struct ClientConfig {
     pub state_fetch_horizon: BlockIndex,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
+    /// Behind this horizon header fetch kicks in.
+    pub block_header_fetch_horizon: BlockIndex,
 }
 
 impl ClientConfig {
@@ -135,6 +137,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
+            block_header_fetch_horizon: 50,
         }
     }
 }
@@ -163,6 +166,7 @@ impl ClientConfig {
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
+            block_header_fetch_horizon: 50,
             catchup_step_period: Duration::from_millis(50),
         }
     }

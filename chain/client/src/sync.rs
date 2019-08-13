@@ -17,7 +17,7 @@ use crate::types::{ShardSyncStatus, SyncStatus};
 use std::sync::Arc;
 
 /// Maximum number of block headers send over the network.
-pub const MAX_BLOCK_HEADERS: u64 = 256;
+pub const MAX_BLOCK_HEADERS: u64 = 512;
 
 const BLOCK_HEADER_PROGRESS_TIMEOUT: i64 = 2;
 
@@ -94,7 +94,7 @@ impl HeaderSync {
                 self.history_locator.retain(|&x| x.0 == 0);
                 true
             }
-            _ => false,
+            SyncStatus::StateSync { .. } => false,
         };
 
         if enable_header_sync {
@@ -118,6 +118,7 @@ impl HeaderSync {
         // Received all necessary header, can request more.
         let all_headers_received = header_head.height >= prev_height + MAX_BLOCK_HEADERS - 4;
         // No headers processed and it's past timeout, request more.
+
         let stalling = header_head.height <= latest_height && now > timeout;
 
         // Always enable header sync on initial state transition from NoSync / AwaitingPeers.

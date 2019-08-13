@@ -2,10 +2,14 @@ use near_primitives::test_utils::get_key_pair_from_seed;
 use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorStake};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::types::{BlockInfo, EpochConfig, EpochInfo};
-use crate::EpochManager;
+use crate::types::{EpochConfig, EpochInfo};
+use crate::RewardCalculator;
+use crate::{BlockInfo, EpochManager};
 use near_primitives::hash::{hash, CryptoHash};
 use near_store::test_utils::create_test_store;
+
+pub const DEFAULT_GAS_PRICE: u128 = 100;
+pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
@@ -26,6 +30,7 @@ pub fn epoch_info(
     fishermen: Vec<(usize, u64)>,
     stake_change: BTreeMap<AccountId, Balance>,
     total_gas_used: GasUsage,
+    validator_reward: HashMap<AccountId, Balance>,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -47,6 +52,7 @@ pub fn epoch_info(
         fishermen,
         stake_change,
         total_gas_used,
+        validator_reward,
     }
 }
 
@@ -72,6 +78,40 @@ pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
+pub fn reward_calculator(
+    max_inflation_rate: u8,
+    num_blocks_per_year: u64,
+    epoch_length: u64,
+    validator_reward_percentage: u8,
+    protocol_reward_percentage: u8,
+    protocol_treasury_account: AccountId,
+) -> RewardCalculator {
+    RewardCalculator {
+        max_inflation_rate,
+        num_blocks_per_year,
+        epoch_length,
+        validator_reward_percentage,
+        protocol_reward_percentage,
+        protocol_treasury_account,
+    }
+}
+
+/// No-op reward calculator. Will produce no reward
+pub fn default_reward_calculator() -> RewardCalculator {
+    RewardCalculator {
+        max_inflation_rate: 0,
+        num_blocks_per_year: 1,
+        epoch_length: 1,
+        validator_reward_percentage: 0,
+        protocol_reward_percentage: 0,
+        protocol_treasury_account: "near".to_string(),
+    }
+}
+
+pub fn reward(info: Vec<(&str, Balance)>) -> HashMap<AccountId, Balance> {
+    info.into_iter().map(|(account_id, r)| (account_id.to_string(), r)).collect()
+}
+
 pub fn setup_epoch_manager(
     validators: Vec<(&str, Balance)>,
     epoch_length: BlockIndex,
@@ -79,6 +119,7 @@ pub fn setup_epoch_manager(
     num_seats: usize,
     num_fisherman: usize,
     kickout_threshold: u8,
+    reward_calculator: RewardCalculator,
 ) -> EpochManager {
     let store = create_test_store();
     let config =
@@ -86,9 +127,29 @@ pub fn setup_epoch_manager(
     EpochManager::new(
         store,
         config,
+        reward_calculator,
         validators.iter().map(|(account_id, balance)| stake(*account_id, *balance)).collect(),
     )
     .unwrap()
+}
+
+pub fn setup_default_epoch_manager(
+    validators: Vec<(&str, Balance)>,
+    epoch_length: BlockIndex,
+    num_shards: ShardId,
+    num_seats: usize,
+    num_fisherman: usize,
+    kickout_threshold: u8,
+) -> EpochManager {
+    setup_epoch_manager(
+        validators,
+        epoch_length,
+        num_shards,
+        num_seats,
+        num_fisherman,
+        kickout_threshold,
+        default_reward_calculator(),
+    )
 }
 
 pub fn record_block(
@@ -101,7 +162,16 @@ pub fn record_block(
     epoch_manager
         .record_block_info(
             &cur_h,
-            BlockInfo::new(index, prev_h, proposals, vec![], HashSet::default(), 0),
+            BlockInfo::new(
+                index,
+                prev_h,
+                proposals,
+                vec![],
+                HashSet::default(),
+                0,
+                DEFAULT_GAS_PRICE,
+                DEFAULT_TOTAL_SUPPLY,
+            ),
             [0; 32],
         )
         .unwrap()

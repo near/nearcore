@@ -608,7 +608,12 @@ impl PeerManagerActor {
                 );
             }
         } else {
-            warn!(target: "network", "Unknown account {} in routing table. Dropping message.", account_id);
+            // TODO WTF: remove this
+            //            panic!(format!(
+            //                "Unknown account {} in routing table: {:?}",
+            //                account_id, self.routing_table
+            //            ));
+            warn!(target: "network", "Unknown account {} in routing table. Known accounts: {:?}", account_id, self.routing_table.account_peers.keys());
         }
     }
 

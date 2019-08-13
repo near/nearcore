@@ -41,20 +41,12 @@ use crate::types::{
 use crate::{sync, StatusResponse};
 use near_primitives::rpc::ValidatorInfo;
 
-/// Macro to either return value if the result is Ok, or exit function logging error.
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Error: {:?}", err);
-        return $ret;
-    }
-}));
-
 /// Economics config taken from genesis config
 struct EconConfig {
     gas_price_adjustment_rate: u8,
     max_inflation_rate: u8,
 }
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -377,6 +369,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     prev_chunk_hash,
                     prev_chunk_extra,
                     payload,
+                    block,
                     outgoing_receipts,
                     incoming_receipts,
                 )) = self.chain.state_request(shard_id, hash)
@@ -387,6 +380,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         prev_chunk_hash,
                         prev_chunk_extra,
                         payload,
+                        block,
                         outgoing_receipts,
                         incoming_receipts,
                     });
@@ -402,6 +396,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 prev_chunk_hash,
                 prev_chunk_extra,
                 payload,
+                block,
                 outgoing_receipts,
                 incoming_receipts,
             }) => {
@@ -438,11 +433,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
                 if !shard_statuseses.is_empty() {
                     match self.chain.set_shard_state(
+                        &self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id,
                         hash,
                         prev_chunk_hash,
                         prev_chunk_extra,
                         payload,
+                        block,
                         outgoing_receipts,
                         incoming_receipts,
                     ) {
@@ -1086,7 +1083,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         let elapsed = self.last_block_processed.elapsed();
         if self.approvals.len() < total_approvals
             && elapsed < self.config.max_block_production_delay
@@ -1477,7 +1474,7 @@ impl ClientActor {
             match self.run_catchup(ctx) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!("Error occurred during catchup for some future epoch: {:?}", err)
+                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().unwrap().account_id, err)
                 }
             }
 
@@ -1531,73 +1528,77 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header height is latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            if header_head.height == highest_height {
-                // Sync state if already running sync state or if block sync is too far.
-                let sync_state = match self.sync_status {
-                    SyncStatus::StateSync(_, _) => true,
-                    _ => unwrap_or_run_later!(self.block_sync.run(
+
+            // Sync state if already running sync state or if block sync is too far.
+            let sync_state = match self.sync_status {
+                SyncStatus::StateSync(_, _) => true,
+                _ if highest_height <= self.config.block_header_fetch_horizon
+                    || header_head.height
+                        >= highest_height - self.config.block_header_fetch_horizon =>
+                {
+                    unwrap_or_run_later!(self.block_sync.run(
                         &mut self.sync_status,
                         &mut self.chain,
                         highest_height,
                         &self.network_info.most_weight_peers
-                    )),
+                    ))
+                }
+                _ => false,
+            };
+            if sync_state {
+                let (sync_hash, mut new_shard_sync) = match &self.sync_status {
+                    SyncStatus::StateSync(sync_hash, shard_sync) => {
+                        (sync_hash.clone(), shard_sync.clone())
+                    }
+                    _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
                 };
-                if sync_state {
-                    let (sync_hash, mut new_shard_sync) = match &self.sync_status {
-                        SyncStatus::StateSync(sync_hash, shard_sync) => {
-                            (sync_hash.clone(), shard_sync.clone())
+
+                let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
+                match unwrap_or_run_later!(self.state_sync.run(
+                    sync_hash,
+                    &mut new_shard_sync,
+                    &mut self.chain,
+                    &self.runtime_adapter,
+                    // TODO: add tracking shards here.
+                    vec![0],
+                )) {
+                    StateSyncResult::Unchanged => (),
+                    StateSyncResult::Changed => {
+                        self.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync)
+                    }
+                    StateSyncResult::Completed => {
+                        info!(target: "sync", "State sync: all shards are done");
+
+                        let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                        let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+
+                        unwrap_or_run_later!(self.chain.reset_heads_post_state_sync(
+                            me,
+                            sync_hash,
+                            |block, status, provenance| {
+                                accepted_blocks.write().unwrap().push((
+                                    block.hash(),
+                                    status,
+                                    provenance,
+                                ));
+                            },
+                            |missing_chunks| {
+                                blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                            },
+                        ));
+
+                        for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..)
+                        {
+                            self.on_block_accepted(ctx, hash, status, provenance);
                         }
-                        _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
-                    };
-
-                    let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
-                    match unwrap_or_run_later!(self.state_sync.run(
-                        sync_hash,
-                        &mut new_shard_sync,
-                        &mut self.chain,
-                        &self.runtime_adapter,
-                        // TODO: add tracking shards here.
-                        vec![0],
-                    )) {
-                        StateSyncResult::Unchanged => (),
-                        StateSyncResult::Changed => {
-                            self.sync_status = SyncStatus::StateSync(sync_hash, new_shard_sync)
+                        for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+                            self.shards_mgr.request_chunks(missing_chunks);
                         }
-                        StateSyncResult::Completed => {
-                            info!(target: "sync", "State sync: all shards are done");
 
-                            let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                            let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-
-                            unwrap_or_run_later!(self.chain.reset_heads_post_state_sync(
-                                me,
-                                sync_hash,
-                                |block, status, provenance| {
-                                    accepted_blocks.write().unwrap().push((
-                                        block.hash(),
-                                        status,
-                                        provenance,
-                                    ));
-                                },
-                                |missing_chunks| {
-                                    blocks_missing_chunks.write().unwrap().push(missing_chunks)
-                                },
-                            ));
-
-                            for (hash, status, provenance) in
-                                accepted_blocks.write().unwrap().drain(..)
-                            {
-                                self.on_block_accepted(ctx, hash, status, provenance);
-                            }
-                            for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                                self.shards_mgr.request_chunks(missing_chunks);
-                            }
-
-                            self.sync_status =
-                                SyncStatus::BodySync { current_height: 0, highest_height: 0 };
-                        }
+                        self.sync_status =
+                            SyncStatus::BodySync { current_height: 0, highest_height: 0 };
                     }
                 }
             }

@@ -221,6 +221,8 @@ impl Chain {
                         vec![],
                         vec![],
                         0,
+                        chain_genesis.gas_price,
+                        chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
@@ -350,6 +352,8 @@ impl Chain {
                     vec![],
                     vec![],
                     header.gas_used,
+                    header.gas_price,
+                    header.total_supply,
                 )?;
             }
         }
@@ -702,7 +706,7 @@ impl Chain {
         // Check if there are orphans we can process.
         debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
         while queue_idx < queue.len() {
-            if let Some(orphans) = self.orphans.remove_by_prev_hash(prev_hash) {
+            if let Some(orphans) = self.orphans.remove_by_prev_hash(queue[queue_idx]) {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.block.hash();
@@ -718,8 +722,8 @@ impl Chain {
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
-                        Err(_) => {
-                            debug!(target: "chain", "Orphan declined");
+                        Err(e) => {
+                            debug!(target: "chain", "Orphan declined: {:?}", e);
                         }
                     }
                 }
@@ -757,6 +761,7 @@ impl Chain {
             ChunkHash,
             ChunkExtra,
             Vec<u8>,
+            Block,
             (CryptoHash, Vec<ReceiptTransaction>),
             Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
         ),
@@ -786,10 +791,13 @@ impl Chain {
         let incoming_receipts = ChainStoreUpdate::new(&mut self.store)
             .get_incoming_receipts_for_shard(shard_id, hash, &prev_chunk_header)?;
 
+        let block = self.get_block(&hash)?.clone();
+
         Ok((
             prev_chunk_hash.clone(),
             prev_chunk_extra,
             payload,
+            block,
             outgoing_receipts,
             incoming_receipts.clone(),
         ))
@@ -797,11 +805,13 @@ impl Chain {
 
     pub fn set_shard_state(
         &mut self,
+        _me: &Option<AccountId>,
         shard_id: ShardId,
         _hash: CryptoHash,
         prev_chunk_hash: ChunkHash,
         prev_extra: ChunkExtra,
         payload: Vec<u8>,
+        block: Block,
         outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
         incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
     ) -> Result<(), Error> {
@@ -828,6 +838,8 @@ impl Chain {
                 incoming_receipt.1,
             );
         }
+        // TODO MOO XXX: validate block (can't call process_block here since we don't have the previous block)
+        chain_store_update.save_block(block);
         chain_store_update.commit()?;
 
         Ok(())
@@ -1206,6 +1218,17 @@ impl<'a> ChainUpdate<'a> {
                     ),
                 };
                 if care_about_shard {
+                    // Validate state root.
+                    let prev_chunk_extra = self
+                        .chain_store_update
+                        .get_chunk_extra(&prev_chunk_header.chunk_hash())?
+                        .clone();
+                    if prev_chunk_extra.state_root != chunk_header.prev_state_root {
+                        // TODO: MOO
+                        assert!(false);
+                        return Err(ErrorKind::InvalidStateRoot.into());
+                    }
+
                     let receipts: Vec<ReceiptTransaction> = self
                         .chain_store_update
                         .get_incoming_receipts_for_shard(shard_id, block.hash(), prev_chunk_header)?
@@ -1220,6 +1243,13 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
+                    println!(
+                        "[APPLY CHUNK] {:?} PREV BLOCK HASH: {:?}, BLOCK HASH: {:?} ROOT: {:?}",
+                        chunk_header.height_included,
+                        chunk_header.prev_block_hash,
+                        block.hash(),
+                        chunk.header.prev_state_root
+                    );
                     let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
@@ -1230,8 +1260,6 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
-                            block.header.gas_price,
-                            block.header.total_supply,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1398,6 +1426,8 @@ impl<'a> ChainUpdate<'a> {
             vec![],
             vec![],
             block.header.gas_used,
+            block.header.gas_price,
+            block.header.total_supply,
         )?;
 
         // Add validated block to the db, even if it's not the selected fork.

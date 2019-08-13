@@ -737,6 +737,7 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                         gas_limit: state_response.prev_gas_limit.try_into()?,
                     },
                     payload: state_response.payload,
+                    block: proto_to_type(state_response.block)?,
                     outgoing_receipts: (
                         outgoing_receipts_proto.hash.try_into()?,
                         outgoing_receipts_proto
@@ -879,6 +880,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 prev_chunk_hash,
                 prev_chunk_extra,
                 payload,
+                block,
                 outgoing_receipts,
                 incoming_receipts,
             }) => {
@@ -896,6 +898,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     prev_gas_used: prev_chunk_extra.gas_used.into(),
                     prev_gas_limit: prev_chunk_extra.gas_limit.into(),
                     payload,
+                    block: SingularPtrField::some(block.into()),
                     outgoing_receipts: SingularPtrField::some(
                         network_proto::StateResponseReceipts {
                             hash: outgoing_receipts.0.into(),
@@ -1228,6 +1231,7 @@ pub struct StateResponseInfo {
     pub prev_chunk_hash: ChunkHash,
     pub prev_chunk_extra: ChunkExtra,
     pub payload: Vec<u8>,
+    pub block: Block,
     pub outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
     pub incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
 }
