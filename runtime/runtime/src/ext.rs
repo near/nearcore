@@ -153,8 +153,8 @@ impl<'a> External for RuntimeExt<'a> {
         receiver_id: String,
         method_name: Vec<u8>,
         args: Vec<u8>,
-        deposit: u128,
-        gas: u64,
+        attached_deposit: u128,
+        prepaid_gas: u64,
     ) -> Result<u64, ExternalError> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
@@ -178,8 +178,8 @@ impl<'a> External for RuntimeExt<'a> {
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| ExternalError::InvalidMethodName)?,
                 args,
-                gas,
-                deposit,
+                gas: prepaid_gas,
+                deposit: attached_deposit,
             })],
         };
         let new_receipt_index = self.action_receipts.len() as u64;

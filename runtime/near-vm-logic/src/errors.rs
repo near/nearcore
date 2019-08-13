@@ -4,7 +4,8 @@ use crate::dependencies::ExternalError;
 pub enum HostError {
     BadUTF16,
     BadUTF8,
-    BalanceExceeded,
+    GasExceeded,
+    GasLimitExceeded,
     EmptyMethodName,
     External(ExternalError),
     GuestPanic,
@@ -16,7 +17,6 @@ pub enum HostError {
     InvalidRegisterId,
     IteratorWasInvalidated,
     MemoryAccessViolation,
-    UsageLimit,
 }
 
 impl From<ExternalError> for HostError {
@@ -31,7 +31,8 @@ impl std::fmt::Display for HostError {
         match self {
             BadUTF8 => write!(f, "String encoding is bad UTF-8 sequence."),
             BadUTF16 => write!(f, "String encoding is bad UTF-16 sequence."),
-            BalanceExceeded => write!(f, "Exceeded the balance."),
+            GasExceeded => write!(f, "Exceeded the prepaid gas."),
+            GasLimitExceeded => write!(f, "Exceeded the maximum amount of gas allowed to burn per contract."),
             EmptyMethodName => write!(f, "Tried to call an empty method name."),
             External(ext) => {
                 write!(f, "External error: ")?;
@@ -46,7 +47,6 @@ impl std::fmt::Display for HostError {
             InvalidRegisterId => write!(f, "Accessed invalid register id"),
             IteratorWasInvalidated => write!(f, "Iterator was invalidated after its creation by performing a mutable operation on trie"),
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
-            UsageLimit => write!(f, "Exceeded the maximum contract usage."),
         }
     }
 }

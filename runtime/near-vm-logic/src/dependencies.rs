@@ -62,11 +62,11 @@ pub trait External {
     fn receipt_create(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
-        account_id: AccountId,
+        receiver_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        amount: Balance,
-        gas: Gas,
+        attached_deposit: Balance,
+        prepaid_gas: Gas,
     ) -> Result<ReceiptIndex>;
 
     fn storage_usage(&self) -> StorageUsage;

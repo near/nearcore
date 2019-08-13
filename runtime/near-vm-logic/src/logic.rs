@@ -765,9 +765,9 @@ impl<'a> VMLogic<'a> {
         } else {
             use std::cmp::min;
             let res = if new_burnt_gas >= self.config.max_gas_burnt {
-                Err(HostError::UsageLimit)
+                Err(HostError::GasLimitExceeded)
             } else if new_used_gas >= self.context.prepaid_gas {
-                Err(HostError::BalanceExceeded)
+                Err(HostError::GasExceeded)
             } else {
                 unreachable!()
             };
@@ -790,7 +790,7 @@ impl<'a> VMLogic<'a> {
             self.used_gas = new_used_gas;
             Ok(())
         } else {
-            let res = Err(HostError::BalanceExceeded);
+            let res = Err(HostError::GasExceeded);
             self.used_gas = self.context.prepaid_gas;
             res
         }

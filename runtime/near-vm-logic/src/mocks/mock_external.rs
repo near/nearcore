@@ -86,22 +86,22 @@ impl External for MockedExternal {
     fn receipt_create(
         &mut self,
         receipt_indices: Vec<u64>,
-        account_id: String,
+        receiver_id: String,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
-        amount: u128,
-        gas: u64,
+        attached_deposit: u128,
+        prepaid_gas: u64,
     ) -> Result<u64, ExternalError> {
         if receipt_indices.iter().any(|el| *el >= self.next_receipt_index) {
             return Err(ExternalError::InvalidReceiptIndex);
         }
         self.receipt_create_calls.push(ReceiptCreateCall {
             receipt_indices,
-            account_id,
+            receiver_id,
             method_name,
             arguments,
-            amount,
-            gas,
+            attached_deposit,
+            prepaid_gas,
         });
         let res = self.next_receipt_index;
         self.next_receipt_index += 1;
@@ -116,11 +116,11 @@ impl External for MockedExternal {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ReceiptCreateCall {
     receipt_indices: Vec<u64>,
-    account_id: String,
+    receiver_id: String,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     arguments: Vec<u8>,
-    amount: u128,
-    gas: u64,
+    attached_deposit: u128,
+    prepaid_gas: u64,
 }
