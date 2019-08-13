@@ -86,7 +86,6 @@ impl fmt::Debug for PeerId {
     }
 }
 
-// TODO(MarX): Duplicate Code remove this.
 /// Peer information.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerInfo {
