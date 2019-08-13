@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::iter::Peekable;
 
 use kvdb::DBValue;
@@ -149,7 +149,7 @@ impl<'a> External for RuntimeExt<'a> {
 
     fn receipt_create(
         &mut self,
-        receipt_indices: HashSet<u64>,
+        receipt_indices: Vec<u64>,
         receiver_id: String,
         method_name: Vec<u8>,
         args: Vec<u8>,

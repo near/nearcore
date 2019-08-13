@@ -1,7 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{AccountId, Balance, Gas, IteratorIndex, ReceiptIndex, StorageUsage};
-use std::collections::HashSet;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -62,7 +61,7 @@ pub trait External {
 
     fn receipt_create(
         &mut self,
-        receipt_indices: HashSet<ReceiptIndex>,
+        receipt_indices: Vec<ReceiptIndex>,
         account_id: AccountId,
         method_name: Vec<u8>,
         arguments: Vec<u8>,

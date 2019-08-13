@@ -58,7 +58,8 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Computes that has of the config. The computation is fast but not cryptographically secure.
+    /// Computes non-cryptographically-proof hash. The computation is fast but not cryptographically
+    /// secure.
     pub fn non_crypto_hash(&self) -> u64 {
         let mut s = DefaultHasher::new();
         self.hash(&mut s);

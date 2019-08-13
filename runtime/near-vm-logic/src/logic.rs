@@ -49,7 +49,7 @@ pub struct VMLogic<'a> {
     invalid_iterators: HashSet<IteratorIndex>,
 
     /// The DAG of promises, indexed by promise id.
-    promises: HashSet<Promise>,
+    promises: Vec<Promise>,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -67,21 +67,8 @@ struct Promise {
 #[derive(Debug)]
 enum PromiseToReceipts {
     Receipt(ReceiptIndex),
-    NotReceipt(HashSet<ReceiptIndex>),
+    NotReceipt(Vec<ReceiptIndex>),
 }
-
-macro_rules! set(
-    {} => {::std::collections::HashSet::new()};
-    { $($el:expr),+ } => {
-        {
-            let mut s = ::std::collections::HashSet::new();
-            $(
-                s.insert($el);
-            )+
-            s
-        }
-     };
-);
 
 impl Borrow<PromiseIndex> for Promise {
     fn borrow(&self) -> &PromiseIndex {
@@ -126,7 +113,7 @@ impl<'a> VMLogic<'a> {
             registers: HashMap::new(),
             valid_iterators: HashSet::new(),
             invalid_iterators: HashSet::new(),
-            promises: HashSet::new(),
+            promises: vec![],
         }
     }
 
@@ -441,10 +428,10 @@ impl<'a> VMLogic<'a> {
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
         self.attach_gas_to_promise(gas)?;
         let new_receipt_idx =
-            self.ext.receipt_create(set![], account_id, method_name, arguments, amount, gas)?;
+            self.ext.receipt_create(vec![], account_id, method_name, arguments, amount, gas)?;
 
         let promise_idx = self.promises.len() as PromiseIndex;
-        self.promises.insert(Promise {
+        self.promises.push(Promise {
             promise_idx,
             promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
         });
@@ -486,9 +473,13 @@ impl<'a> VMLogic<'a> {
         self.attach_gas_to_promise(gas)?;
 
         // Update the DAG and return new promise idx.
-        let promise = self.promises.get(&promise_idx).ok_or(HostError::InvalidPromiseIndex)?;
+        let promise = self
+            .promises
+            .iter()
+            .find(|p| p.promise_idx == promise_idx)
+            .ok_or(HostError::InvalidPromiseIndex)?;
         let receipt_dependencies = match &promise.promise_to_receipt {
-            PromiseToReceipts::Receipt(receipt_idx) => set![*receipt_idx],
+            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
             PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
         };
 
@@ -501,7 +492,7 @@ impl<'a> VMLogic<'a> {
             gas,
         )?;
         let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises.insert(Promise {
+        self.promises.push(Promise {
             promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx),
             promise_idx: new_promise_idx,
         });
@@ -532,12 +523,16 @@ impl<'a> VMLogic<'a> {
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
 
-        let mut receipt_dependencies = HashSet::new();
+        let mut receipt_dependencies = vec![];
         for promise_idx in &promise_indices {
-            let promise = self.promises.get(promise_idx).ok_or(HostError::InvalidPromiseIndex)?;
+            let promise = self
+                .promises
+                .iter()
+                .find(|p| p.promise_idx == *promise_idx)
+                .ok_or(HostError::InvalidPromiseIndex)?;
             match &promise.promise_to_receipt {
                 PromiseToReceipts::Receipt(receipt_idx) => {
-                    receipt_dependencies.insert(*receipt_idx);
+                    receipt_dependencies.push(*receipt_idx);
                 }
                 PromiseToReceipts::NotReceipt(receipt_indices) => {
                     receipt_dependencies.extend(receipt_indices.clone());
@@ -545,7 +540,7 @@ impl<'a> VMLogic<'a> {
             }
         }
         let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises.insert(Promise {
+        self.promises.push(Promise {
             promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
             promise_idx: new_promise_idx,
         });
@@ -607,7 +602,8 @@ impl<'a> VMLogic<'a> {
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
         match self
             .promises
-            .get(&promise_idx)
+            .iter()
+            .find(|p| p.promise_idx == promise_idx)
             .ok_or(HostError::InvalidPromiseIndex)?
             .promise_to_receipt
         {

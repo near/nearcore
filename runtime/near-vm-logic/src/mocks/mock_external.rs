@@ -2,7 +2,7 @@ use crate::dependencies::ExternalError;
 use crate::External;
 use serde::{Deserialize, Serialize};
 use std::collections::btree_map::Range;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
 
 #[derive(Default)]
@@ -85,7 +85,7 @@ impl External for MockedExternal {
 
     fn receipt_create(
         &mut self,
-        receipt_indices: HashSet<u64>,
+        receipt_indices: Vec<u64>,
         account_id: String,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
@@ -115,7 +115,7 @@ impl External for MockedExternal {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ReceiptCreateCall {
-    receipt_indices: HashSet<u64>,
+    receipt_indices: Vec<u64>,
     account_id: String,
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
