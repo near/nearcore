@@ -5,11 +5,17 @@ use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
 
+/// Encapsulates fake iterator. Optionally stores, if this iterator is built from prefix.
+struct FakeIterator {
+    iterator: Range<'static, Vec<u8>, Vec<u8>>,
+    prefix: Option<Vec<u8>>,
+}
+
 #[derive(Default)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     pub fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
-    iterators: HashMap<u64, Range<'static, Vec<u8>, Vec<u8>>>,
+    iterators: HashMap<u64, FakeIterator>,
     next_iterator_index: u64,
     receipt_create_calls: Vec<ReceiptCreateCall>,
     next_receipt_index: u64,
@@ -49,7 +55,10 @@ impl External for MockedExternal {
         let iterator = unsafe {
             transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
         };
-        self.iterators.insert(self.next_iterator_index, iterator);
+        self.iterators.insert(
+            self.next_iterator_index,
+            FakeIterator { iterator, prefix: Some(prefix.to_vec()) },
+        );
         self.next_iterator_index += 1;
         Ok(res)
     }
@@ -60,7 +69,7 @@ impl External for MockedExternal {
         let iterator = unsafe {
             transmute::<Range<'_, Vec<u8>, Vec<u8>>, Range<'static, Vec<u8>, Vec<u8>>>(iterator)
         };
-        self.iterators.insert(self.next_iterator_index, iterator);
+        self.iterators.insert(self.next_iterator_index, FakeIterator { iterator, prefix: None });
         self.next_iterator_index += 1;
         Ok(res)
     }
@@ -70,7 +79,20 @@ impl External for MockedExternal {
         iterator_idx: u64,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>, ExternalError> {
         match self.iterators.get_mut(&iterator_idx) {
-            Some(iter) => Ok(iter.next().map(|(k, v)| (k.clone(), v.clone()))),
+            Some(FakeIterator { iterator, prefix }) => match iterator.next() {
+                Some((k, v)) => {
+                    if let Some(prefix) = prefix {
+                        if k.starts_with(prefix) {
+                            Ok(Some((k.clone(), v.clone())))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(Some((k.clone(), v.clone())))
+                    }
+                }
+                None => Ok(None),
+            },
             None => Err(ExternalError::InvalidIteratorIndex),
         }
     }
