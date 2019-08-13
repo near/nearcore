@@ -253,7 +253,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id(parent_hash).unwrap();
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
         if let Ok(block_producers) = epoch_manager.get_all_block_producers(&epoch_id, &parent_hash)
         {
             let ret = block_producers.len();
@@ -283,7 +283,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        let epoch_id = epoch_manager.get_epoch_id(parent_hash)?;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
         let block_producers = epoch_manager.get_all_block_producers(&epoch_id, parent_hash)?;
         Ok(block_producers[part_id as usize % block_producers.len()].0.clone())
     }

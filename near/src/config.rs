@@ -58,7 +58,7 @@ pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DE
 pub const VALIDATOR_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
-pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 200;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 

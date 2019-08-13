@@ -62,8 +62,9 @@ message StateResponse {
     uint64 prev_gas_limit = 6;
     repeated ValidatorStake validator_proposals = 7;
     bytes payload = 8;
-    StateResponseReceipts outgoing_receipts = 9;
-    repeated StateResponseReceipts incoming_receipts = 10;
+    Block block = 9;
+    StateResponseReceipts outgoing_receipts = 10;
+    repeated StateResponseReceipts incoming_receipts = 11;
 }
 
 message ChunkPartRequest{

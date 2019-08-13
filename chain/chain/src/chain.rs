@@ -722,8 +722,8 @@ impl Chain {
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
-                        Err(_) => {
-                            debug!(target: "chain", "Orphan declined");
+                        Err(e) => {
+                            debug!(target: "chain", "Orphan declined: {:?}", e);
                         }
                     }
                 }
@@ -761,6 +761,7 @@ impl Chain {
             ChunkHash,
             ChunkExtra,
             Vec<u8>,
+            Block,
             (CryptoHash, Vec<ReceiptTransaction>),
             Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
         ),
@@ -790,10 +791,13 @@ impl Chain {
         let incoming_receipts = ChainStoreUpdate::new(&mut self.store)
             .get_incoming_receipts_for_shard(shard_id, hash, &prev_chunk_header)?;
 
+        let block = self.get_block(&hash)?.clone();
+
         Ok((
             prev_chunk_hash.clone(),
             prev_chunk_extra,
             payload,
+            block,
             outgoing_receipts,
             incoming_receipts.clone(),
         ))
@@ -801,11 +805,13 @@ impl Chain {
 
     pub fn set_shard_state(
         &mut self,
+        _me: &Option<AccountId>,
         shard_id: ShardId,
         _hash: CryptoHash,
         prev_chunk_hash: ChunkHash,
         prev_extra: ChunkExtra,
         payload: Vec<u8>,
+        block: Block,
         outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
         incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
     ) -> Result<(), Error> {
@@ -832,6 +838,8 @@ impl Chain {
                 incoming_receipt.1,
             );
         }
+        // TODO MOO XXX: validate block (can't call process_block here since we don't have the previous block)
+        chain_store_update.save_block(block);
         chain_store_update.commit()?;
 
         Ok(())

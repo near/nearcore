@@ -431,7 +431,7 @@ impl PeerManagerActor {
             //                "Unknown account {} in routing table: {:?}",
             //                account_id, self.routing_table
             //            ));
-            warn!(target: "network", "Unknown account {} in routing table.", account_id);
+            warn!(target: "network", "Unknown account {} in routing table. Known accounts: {:?}", account_id, self.routing_table.account_peers.keys());
         }
     }
 }
