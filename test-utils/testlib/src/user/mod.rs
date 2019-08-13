@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::Future;
 
 use near_chain::Block;
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
@@ -138,12 +138,7 @@ pub trait User {
                 Action::Transfer(TransferAction { deposit: amount }),
                 Action::AddKey(AddKeyAction {
                     public_key,
-                    access_key: AccessKey {
-                        amount: 0,
-                        balance_owner: None,
-                        contract_id: None,
-                        method_name: None,
-                    },
+                    access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
                 }),
             ],
         )

@@ -63,10 +63,6 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.user().get_account_nonce(account_id)
-    }
-
     fn signer(&self) -> Arc<dyn EDSigner>;
 
     fn is_running(&self) -> bool;

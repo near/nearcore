@@ -189,7 +189,9 @@ impl User for RuntimeUser {
     }
 
     fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.view_account(account_id).ok().map(|account| account.nonce)
+        self.get_access_key(account_id, &self.signer.public_key())
+            .ok()
+            .and_then(|access_key| access_key.map(|a| a.nonce))
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
