@@ -446,9 +446,10 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
+        prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        self.trie_viewer.view_state(&state_update, account_id)
+        self.trie_viewer.view_state(&state_update, account_id, prefix)
     }
 }
 

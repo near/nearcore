@@ -11,6 +11,8 @@ use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
 
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
     pub const CALLBACK: &[u8] = &[1];
@@ -22,8 +24,6 @@ pub mod col {
     pub const POSTPONED_RECEIPT: &[u8] = &[7];
 }
 
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
-
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
     let mut key = column.to_vec();
     key.append(&mut account_key.clone().into_bytes());
@@ -32,6 +32,13 @@ fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> 
 
 pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::ACCOUNT, account_key)
+}
+
+pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
+    let mut bytes = key_for_account(account_id);
+    bytes.extend(ACCOUNT_DATA_SEPARATOR);
+    bytes.extend(data);
+    bytes
 }
 
 pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
@@ -55,12 +62,6 @@ pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec
 
 pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::CODE, account_key)
-}
-
-pub fn key_for_data(account_id: &AccountId, key: &[u8]) -> Vec<u8> {
-    let mut prefix = prefix_for_data(account_id);
-    prefix.extend_from_slice(key);
-    prefix
 }
 
 pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {

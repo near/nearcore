@@ -868,7 +868,7 @@ pub fn test_stake_fail_not_enough_rent(node: impl Node) {
 pub fn test_delete_account(node: impl Node) {
     let node_user = node.user();
     // There is some data attached to the account.
-    assert!(node_user.view_state(&bob_account()).unwrap().values.len() > 0);
+    assert!(node_user.view_state(&bob_account(), b"").unwrap().values.len() > 0);
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
     let transaction_result = node_user.delete_account(alice_account(), bob_account());
@@ -876,7 +876,7 @@ pub fn test_delete_account(node: impl Node) {
     assert_eq!(transaction_result.transactions.len(), 3);
     assert!(node_user.view_account(&bob_account()).is_err());
     // No data left.
-    assert_eq!(node_user.view_state(&bob_account()).unwrap().values.len(), 0);
+    assert_eq!(node_user.view_state(&bob_account(), b"").unwrap().values.len(), 0);
     // Receive back reward the balance of the bob's account.
     assert_eq!(
         node_user.view_account(&node.account_id().unwrap()).unwrap().amount,

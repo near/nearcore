@@ -163,9 +163,11 @@ impl User for RuntimeUser {
         self.trie_viewer.view_account(&state_update, account_id).map_err(|err| err.to_string())
     }
 
-    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
+    fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_state(&state_update, account_id).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_state(&state_update, account_id, prefix)
+            .map_err(|err| err.to_string())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {

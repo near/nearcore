@@ -34,18 +34,18 @@ impl RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().status()).ok()
     }
 
-    pub fn query(&self, path: String, data: Vec<u8>) -> Result<QueryResponse, String> {
-        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(&data)))
+    pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
+        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(data)))
     }
 }
 
 impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        self.query(format!("account/{}", account_id), vec![])?.try_into()
+        self.query(format!("account/{}", account_id), &[])?.try_into()
     }
 
-    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        self.query(format!("contract/{}", account_id), vec![])?.try_into()
+    fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
+        self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -104,8 +104,7 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?
-            .try_into()
+        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
     }
 
     fn signer(&self) -> Arc<dyn EDSigner> {

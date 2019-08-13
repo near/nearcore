@@ -73,15 +73,18 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
+        prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
         let mut values = HashMap::default();
-        let prefix = prefix_for_data(account_id);
-        state_update.for_keys_with_prefix(&prefix, |key| {
+        let mut query = prefix_for_data(account_id);
+        let acc_sep_len = query.len();
+        query.extend_from_slice(prefix);
+        state_update.for_keys_with_prefix(&query, |key| {
             if let Some(value) = state_update.get(key) {
-                values.insert(key[prefix.len()..].to_vec(), value.to_vec());
+                values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
         });
         Ok(ViewStateResult { values })
@@ -176,7 +179,7 @@ mod tests {
     use kvdb::DBValue;
     use tempdir::TempDir;
 
-    use near_primitives::types::AccountId;
+    use near_primitives::utils::key_for_data;
     use testlib::runtime_utils::{
         alice_account, encode_int, get_runtime_and_trie, get_test_trie_viewer,
     };
@@ -188,8 +191,7 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result =
-            viewer.call_function(root, 1, &alice_account(), "run_test", &vec![], &mut logs);
+        let result = viewer.call_function(root, 1, &alice_account(), "run_test", &[], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -199,14 +201,8 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(
-            root,
-            1,
-            &"bad!contract".to_string(),
-            "run_test",
-            &vec![],
-            &mut logs,
-        );
+        let result =
+            viewer.call_function(root, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
 
         assert!(result.is_err());
     }
@@ -221,7 +217,7 @@ mod tests {
             1,
             &alice_account(),
             "run_test_with_storage_change",
-            &vec![],
+            &[],
             &mut logs,
         );
         // run_test tries to change storage, so it should fail
@@ -238,17 +234,11 @@ mod tests {
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
-    fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {
-        let mut bytes = prefix_for_data(account_id);
-        bytes.append(&mut suffix.clone().to_vec());
-        bytes
-    }
-
     #[test]
     fn test_view_state() {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        state_update.set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
+        state_update.set(key_for_data(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (db_changes, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         db_changes.commit().unwrap();
 
@@ -256,10 +246,17 @@ mod tests {
         let ethash_provider =
             EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
         let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
-        let result = trie_viewer.view_state(&state_update, &alice_account()).unwrap();
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"").unwrap();
         assert_eq!(
             result.values,
             [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
         );
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"test321").unwrap();
+        assert_eq!(result.values, [].iter().cloned().collect());
+        let result = trie_viewer.view_state(&state_update, &alice_account(), b"test123").unwrap();
+        assert_eq!(
+            result.values,
+            [(b"test123".to_vec(), b"123".to_vec())].iter().cloned().collect()
+        )
     }
 }
