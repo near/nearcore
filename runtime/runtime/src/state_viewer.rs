@@ -107,7 +107,7 @@ impl TrieViewer {
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty();
-        let wasm_res = match get_account(&state_update, &contract_id) {
+        let (outcome, err) = match get_account(&state_update, &contract_id) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(
@@ -149,25 +149,24 @@ impl TrieViewer {
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
-        match wasm_res {
-            Ok(res) => {
-                debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, res);
-                logs.extend(res.logs);
-                let trie_update = state_update.finalize()?;
-                if trie_update.new_root != root {
-                    return Err("function call for viewing tried to change storage".into());
-                }
-                let mut result = vec![];
-                if let ReturnData::Value(buf) = &res.return_data {
-                    result = buf.clone();
-                }
-                Ok(result)
+
+        if let Some(err) = err {
+            let message = format!("wasm execution failed with error: {:?}", err);
+            debug!(target: "runtime", "(exec time {}) {}", time_str, message);
+            Err(message.into())
+        } else {
+            let outcome = outcome.unwrap();
+            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
+            logs.extend(outcome.logs);
+            let trie_update = state_update.finalize()?;
+            if trie_update.new_root != root {
+                return Err("function call for viewing tried to change storage".into());
             }
-            Err(e) => {
-                let message = format!("wasm execution failed with error: {:?}", e);
-                debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-                Err(message.into())
+            let mut result = vec![];
+            if let ReturnData::Value(buf) = &outcome.return_data {
+                result = buf.clone();
             }
+            Ok(result)
         }
     }
 }

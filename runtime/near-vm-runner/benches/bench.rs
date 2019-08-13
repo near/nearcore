@@ -31,22 +31,22 @@ fn setup(input: u64) -> (MockedExternal, VMContext, Config, Vec<PromiseResult>, 
     (fake_external, context, config, vec![], code)
 }
 
-fn assert_run_result(result: Result<VMOutcome, VMError>, expected_value: u64) {
-    match result {
-        Ok(VMOutcome { return_data, .. }) => {
-            if let ReturnData::Value(value) = return_data {
-                let mut arr = [0u8; size_of::<u64>()];
-                arr.copy_from_slice(&value);
-                let res = u64::from_le_bytes(arr);
-                assert_eq!(res, expected_value);
-            } else {
-                panic!("Value was not returned");
-            }
+fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
+    if let Some(_) = err {
+        panic!("Failed execution");
+    }
+
+    if let Some(VMOutcome { return_data, .. }) = outcome {
+        if let ReturnData::Value(value) = return_data {
+            let mut arr = [0u8; size_of::<u64>()];
+            arr.copy_from_slice(&value);
+            let res = u64::from_le_bytes(arr);
+            assert_eq!(res, expected_value);
+        } else {
+            panic!("Value was not returned");
         }
-        Err(err) => {
-            println!("Error: {:?}", err);
-            panic!("Failed execution");
-        }
+    } else {
+        panic!("Failed execution");
     }
 }
 

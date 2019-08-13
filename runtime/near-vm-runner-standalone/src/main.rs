@@ -119,20 +119,19 @@ fn main() {
         fs::read(matches.value_of("wasm-file").expect("Wasm file needs to be specified")).unwrap();
 
     let mut fake_external = MockedExternal::new();
-    let result =
+    let (outcome, err) =
         run(vec![], &code, &method_name, &mut fake_external, context, &config, &promise_results);
 
-    match result {
-        Ok(outcome) => {
-            let str = serde_json::to_string(&outcome).unwrap();
+    if let Some(outcome) = outcome {
+        let str = serde_json::to_string(&outcome).unwrap();
+        println!("{}", str);
+        for call in fake_external.get_receipt_create_calls() {
+            let str = serde_json::to_string(&call).unwrap();
             println!("{}", str);
-            for call in fake_external.get_receipt_create_calls() {
-                let str = serde_json::to_string(&call).unwrap();
-                println!("{}", str);
-            }
         }
-        Err(err) => {
-            println!("{:?}", err);
-        }
+    }
+
+    if let Some(err) = err {
+        println!("{:?}", err);
     }
 }

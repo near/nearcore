@@ -1,6 +1,6 @@
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{Config, External, VMContext, VMOutcome};
+use near_vm_logic::{Config, External, VMContext};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::path::PathBuf;
@@ -41,9 +41,10 @@ pub fn test_ts_contract() {
     let result =
         run(vec![], &code, b"try_panic", &mut fake_external, context, &config, &promise_results);
     assert_eq!(
-        result,
-        Err(VMError::WasmerCallError("Smart contract has explicitly invoked `panic`.".to_string()))
-            as Result<VMOutcome, VMError>
+        result.1,
+        Some(VMError::WasmerCallError(
+            "Smart contract has explicitly invoked `panic`.".to_string()
+        ))
     );
 
     // Call method that writes something into storage.
@@ -57,6 +58,7 @@ pub fn test_ts_contract() {
         &config,
         &promise_results,
     )
+    .0
     .unwrap();
     // Verify by looking directly into the storage of the host.
     let res = fake_external.storage_get(b"foo");
@@ -76,7 +78,7 @@ pub fn test_ts_contract() {
         &promise_results,
     );
 
-    if let ReturnData::Value(value) = result.unwrap().return_data {
+    if let ReturnData::Value(value) = result.0.unwrap().return_data {
         let value = String::from_utf8(value).unwrap();
         assert_eq!(value, "bar");
     } else {

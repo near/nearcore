@@ -6,8 +6,12 @@ use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
 
-fn assert_run_result(result: Result<VMOutcome, VMError>, expected_value: u64) {
-    if let Ok(VMOutcome { return_data, .. }) = result {
+fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
+    if let Some(_) = err {
+        panic!("Failed execution");
+    }
+
+    if let Some(VMOutcome { return_data, .. }) = outcome {
         if let ReturnData::Value(value) = return_data {
             let mut arr = [0u8; size_of::<u64>()];
             arr.copy_from_slice(&value);

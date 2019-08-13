@@ -121,7 +121,7 @@ pub(crate) fn action_function_call(
         })
         .collect::<Vec<_>>();
 
-    let wasm_res = match near_vm_runner::run(
+    let (outcome, err) = near_vm_runner::run(
         code.hash.as_ref().to_vec(),
         &code.code,
         function_call.method_name.as_bytes(),
@@ -129,20 +129,22 @@ pub(crate) fn action_function_call(
         context,
         &config.wasm_config,
         &promise_results,
-    ) {
-        Ok(outcome) => outcome,
-        Err(e) => {
-            result.result =
-                Err(format!("wasm async call execution failed with error: {:?}", e).into());
-            return;
+    );
+    if let Some(err) = err {
+        result.result =
+            Err(format!("wasm async call execution failed with error: {:?}", err).into());
+        if let Some(outcome) = outcome {
+            result.gas_burnt += outcome.burnt_gas;
         }
-    };
-    result.logs.extend(wasm_res.logs.into_iter());
-    account.amount = wasm_res.balance;
-    // account.storage_usage = wasm_res.storage_usage;
-    result.gas_burnt += wasm_res.burnt_gas;
-    result.gas_used += wasm_res.used_gas;
-    result.result = Ok(wasm_res.return_data);
+        return;
+    }
+    let outcome = outcome.unwrap();
+    result.logs.extend(outcome.logs.into_iter());
+    account.amount = outcome.balance;
+    // account.storage_usage = outcome.storage_usage;
+    result.gas_burnt += outcome.burnt_gas;
+    result.gas_used += outcome.used_gas;
+    result.result = Ok(outcome.return_data);
     result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
 }
 
