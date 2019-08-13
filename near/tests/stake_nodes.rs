@@ -14,7 +14,6 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
-use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_primitives::types::{AccountId, Balance, Nonce};

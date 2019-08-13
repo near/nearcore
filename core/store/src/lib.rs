@@ -16,15 +16,19 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::serialize::{to_base, Decode, Encode};
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    key_for_access_key, key_for_account, key_for_code, prefix_for_access_key, prefix_for_data,
+    key_for_access_key, key_for_account, key_for_code, key_for_postponed_receipt,
+    key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
+use near_protos::receipt as receipt_proto;
 
 pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
     WrappedTrieChanges,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 
 pub mod test_utils;
 mod trie;
@@ -43,6 +47,10 @@ pub const COL_VALIDATORS: Option<u32> = Some(10);
 pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(11);
 pub const COL_VALIDATOR_PROPOSALS: Option<u32> = Some(12);
 const NUM_COLS: u32 = 13;
+
+/// We use it as a suffix to serialize `Option<Vec<u8>>` and distinguish between `Some(vec![])` and
+/// `None`.
+pub const RECEIVED_DATA_SERIALIZATION_SUFFIX: u8 = b'.';
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -238,6 +246,51 @@ pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Acc
 pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
     let proto: Option<account_proto::Account> = get_proto(state_update, &key_for_account(&key));
     // TODO(1083): consider returning proto and adapting code to work with proto.
+    proto.and_then(|value| value.try_into().ok())
+}
+
+pub fn set_received_data(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    data_id: &CryptoHash,
+    data: Option<Vec<u8>>,
+) {
+    let serialized_data = match data {
+        Some(mut v) => {
+            v.push(RECEIVED_DATA_SERIALIZATION_SUFFIX);
+            v
+        }
+        None => vec![],
+    };
+    state_update
+        .set(key_for_received_data(account_id, data_id), DBValue::from_vec(serialized_data));
+}
+
+pub fn get_received_data(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    data_id: &CryptoHash,
+) -> Option<Option<Vec<u8>>> {
+    state_update.get(&key_for_received_data(account_id, data_id)).and_then(|mut v| match v.pop() {
+        Some(RECEIVED_DATA_SERIALIZATION_SUFFIX) => Some(Some(v.as_ref().to_vec())),
+        None => Some(None),
+        _ => None,
+    })
+}
+
+pub fn set_receipt(state_update: &mut TrieUpdate, receipt: Receipt) {
+    let key = key_for_postponed_receipt(&receipt.receiver_id, &receipt.receipt_id);
+    let proto: receipt_proto::Receipt = receipt.into();
+    set_proto(state_update, key, &proto);
+}
+
+pub fn get_receipt(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    receipt_id: &CryptoHash,
+) -> Option<Receipt> {
+    let proto: Option<receipt_proto::Receipt> =
+        get_proto(state_update, &key_for_postponed_receipt(account_id, receipt_id));
     proto.and_then(|value| value.try_into().ok())
 }
 

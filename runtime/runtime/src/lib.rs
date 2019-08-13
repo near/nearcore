@@ -27,8 +27,8 @@ use near_primitives::utils::{
     key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
 };
 use near_store::{
-    get, get_account, set, set_access_key, set_account, set_code, StoreUpdate, TrieChanges,
-    TrieUpdate,
+    get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
+    set_receipt, set_received_data, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
 use near_vm_logic::ReturnData;
@@ -506,10 +506,11 @@ impl Runtime {
             ReceiptEnum::Data(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
-                set(
+                set_received_data(
                     state_update,
-                    key_for_received_data(account_id, &data_receipt.data_id),
-                    &data_receipt.data,
+                    account_id,
+                    &data_receipt.data_id,
+                    data_receipt.data.clone(),
                 );
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
@@ -533,9 +534,8 @@ impl Runtime {
                         // Removing pending data count form the state.
                         state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
                         // Fetching the receipt itself.
-                        let ready_receipt =
-                            get(state_update, &key_for_postponed_receipt(account_id, &receipt_id))
-                                .expect("pending receipt should be in the state");
+                        let ready_receipt = get_receipt(state_update, account_id, &receipt_id)
+                            .expect("pending receipt should be in the state");
                         // Removing the receipt from the state.
                         state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
@@ -565,12 +565,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get::<Option<Vec<u8>>>(
-                        state_update,
-                        &key_for_received_data(account_id, data_id),
-                    )
-                    .is_none()
-                    {
+                    if get_received_data(state_update, account_id, data_id).is_none() {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -600,11 +595,7 @@ impl Runtime {
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
-                    set(
-                        state_update,
-                        key_for_postponed_receipt(account_id, &receipt.receipt_id),
-                        receipt,
-                    );
+                    set_receipt(state_update, receipt.clone());
                 }
             }
         };
@@ -682,6 +673,7 @@ impl Runtime {
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
+        let mut postponed_receipts = vec![];
         for record in records {
             match record {
                 StateRecord::Account { account_id, account } => {
@@ -708,8 +700,49 @@ impl Runtime {
                         access_key,
                     );
                 }
+                StateRecord::PostponedReceipt(receipt) => {
+                    // Delaying processing postponed receipts, until we process all data first
+                    postponed_receipts.push(receipt);
+                }
+                StateRecord::ReceivedData { account_id, data_id, data } => {
+                    let data = data
+                        .as_ref()
+                        .map(|s| from_base64(s).expect("Failed to decode received data"));
+                    set_received_data(&mut state_update, account_id, data_id, data);
+                }
             }
         }
+        // Processing postponed receipts after we stored all received data
+        for receipt in postponed_receipts {
+            let account_id = &receipt.receiver_id;
+            let action_receipt = match &receipt.receipt {
+                ReceiptEnum::Action(a) => a,
+                _ => panic!("Expected action receipt"),
+            };
+            // Logic similar to `apply_receipt`
+            let mut pending_data_count = 0;
+            for data_id in &action_receipt.input_data_ids {
+                if get_received_data(&state_update, account_id, data_id).is_none() {
+                    pending_data_count += 1;
+                    set(
+                        &mut state_update,
+                        key_for_postponed_receipt_id(account_id, data_id),
+                        &receipt.receipt_id,
+                    )
+                }
+            }
+            if pending_data_count == 0 {
+                panic!("Postponed receipt should have pending data")
+            } else {
+                set(
+                    &mut state_update,
+                    key_for_pending_data_count(account_id, &receipt.receipt_id),
+                    &pending_data_count,
+                );
+                set_receipt(&mut state_update, receipt.clone());
+            }
+        }
+
         for (account_id, _, amount) in validators {
             let mut account: Account =
                 get_account(&state_update, account_id).expect("account must exist");

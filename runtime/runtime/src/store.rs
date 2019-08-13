@@ -2,6 +2,8 @@ use std::convert::TryFrom;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::types::{AccountId, ReadablePublicKey};
 
 /// Record in the state storage.
@@ -15,7 +17,10 @@ pub enum StateRecord {
     Contract { account_id: AccountId, code: String },
     /// Access key associated with some account.
     AccessKey { account_id: AccountId, public_key: ReadablePublicKey, access_key: AccessKey },
-    // TODO: DATA
+    /// Postponed Action Receipt.
+    PostponedReceipt(Receipt),
+    /// Data (from DataReceipt) received for the given account_id and data_id encoded in base64.
+    ReceivedData { account_id: AccountId, data_id: CryptoHash, data: Option<String> },
 }
 
 impl StateRecord {
