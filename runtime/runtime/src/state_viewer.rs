@@ -10,14 +10,13 @@ use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_store::{get_access_key, get_account, TrieUpdate};
-use wasm::executor;
-use wasm::types::{ReturnData, RuntimeContext};
+use near_vm_logic::{Config, ReturnData, VMContext};
 
-use crate::ethereum::EthashProvider;
-
-use super::RuntimeExt;
 use crate::actions::get_code_with_cache;
+use crate::ethereum::EthashProvider;
+use crate::ext::RuntimeExt;
 
+#[allow(dead_code)]
 pub struct TrieViewer {
     ethash_provider: Arc<Mutex<EthashProvider>>,
 }
@@ -108,37 +107,40 @@ impl TrieViewer {
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty();
-        let wasm_res = match get_account(&state_update, &contract_id) {
+        let (outcome, err) = match get_account(&state_update, &contract_id) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(
                     &mut state_update,
                     contract_id,
-                    self.ethash_provider.clone(),
                     originator_id,
                     &public_key,
                     0,
                     &empty_hash,
                 );
-                executor::execute(
-                    &code,
+
+                let context = VMContext {
+                    current_account_id: contract_id.clone(),
+                    signer_account_id: originator_id.clone(),
+                    signer_account_pk: public_key.as_ref().to_vec(),
+                    predecessor_account_id: originator_id.clone(),
+                    input: args.to_owned(),
+                    block_index,
+                    account_balance: account.amount,
+                    attached_deposit: 0,
+                    prepaid_gas: 0,
+                    random_seed: root.as_ref().into(),
+                    free_of_charge: true,
+                };
+
+                near_vm_runner::run(
+                    code.hash.as_ref().to_vec(),
+                    &code.code,
                     method_name.as_bytes(),
-                    &args.to_owned(),
-                    &[],
                     &mut runtime_ext,
-                    &wasm::types::Config::default(),
-                    &RuntimeContext::new(
-                        account.amount,
-                        0,
-                        originator_id,
-                        contract_id,
-                        0,
-                        block_index,
-                        root.as_ref().into(),
-                        true,
-                        originator_id,
-                        &public_key,
-                    ),
+                    context,
+                    &Config::default(),
+                    &[],
                 )
             }
             None => return Err(format!("contract {} does not exist", contract_id).into()),
@@ -147,35 +149,24 @@ impl TrieViewer {
         let time_ms =
             (elapsed.as_secs() as f64 / 1_000.0) + f64::from(elapsed.subsec_nanos()) / 1_000_000.0;
         let time_str = format!("{:.*}ms", 2, time_ms);
-        match wasm_res {
-            Ok(res) => {
-                debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, res);
-                logs.extend(res.logs);
-                match res.return_data {
-                    Ok(return_data) => {
-                        let trie_update = state_update.finalize()?;
-                        if trie_update.new_root != root {
-                            return Err("function call for viewing tried to change storage".into());
-                        }
-                        let mut result = vec![];
-                        if let ReturnData::Value(buf) = return_data {
-                            result.extend(&buf);
-                        }
-                        Ok(result)
-                    }
-                    Err(e) => {
-                        let message =
-                            format!("wasm view call execution failed with error: {:?}", e);
-                        debug!(target: "runtime", "{}", message);
-                        Err(message.into())
-                    }
-                }
+
+        if let Some(err) = err {
+            let message = format!("wasm execution failed with error: {:?}", err);
+            debug!(target: "runtime", "(exec time {}) {}", time_str, message);
+            Err(message.into())
+        } else {
+            let outcome = outcome.unwrap();
+            debug!(target: "runtime", "(exec time {}) result of execution: {:#?}", time_str, outcome);
+            logs.extend(outcome.logs);
+            let trie_update = state_update.finalize()?;
+            if trie_update.new_root != root {
+                return Err("function call for viewing tried to change storage".into());
             }
-            Err(e) => {
-                let message = format!("wasm execution failed with error: {:?}", e);
-                debug!(target: "runtime", "(exec time {}) {}", time_str, message);
-                Err(message.into())
+            let mut result = vec![];
+            if let ReturnData::Value(buf) = &outcome.return_data {
+                result = buf.clone();
             }
+            Ok(result)
         }
     }
 }
@@ -240,11 +231,11 @@ mod tests {
     #[test]
     fn test_view_call_with_args() {
         let (viewer, root) = get_test_trie_viewer();
-        let args = (1..3).into_iter().flat_map(|x| encode_int(x).to_vec()).collect::<Vec<_>>();
+        let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
         let view_call_result =
             viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
-        assert_eq!(view_call_result.unwrap(), encode_int(3).to_vec());
+        assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 
     fn account_suffix(account_id: &AccountId, suffix: &[u8]) -> Vec<u8> {

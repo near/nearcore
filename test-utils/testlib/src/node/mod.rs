@@ -1,6 +1,7 @@
-use std::panic;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::{fs, panic};
 
 use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
@@ -138,9 +139,9 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code = to_base64(
-        include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref(),
-    );
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    let code = to_base64(&fs::read(path).unwrap());
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 0, true);
     for seed in seeds {

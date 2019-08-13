@@ -1,18 +1,14 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
-use std::sync::{Arc, Mutex};
 
-use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, Balance, PromiseId};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{TrieUpdate, TrieUpdateIterator};
-use wasm::ext::{Error as ExtError, External, Result as ExtResult};
+use near_vm_logic::{External, ExternalError};
 
-use crate::ethereum::EthashProvider;
-use crate::POISONED_LOCK_ERR;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
 use near_primitives::transaction::{Action, FunctionCallAction};
@@ -21,10 +17,8 @@ pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     storage_prefix: Vec<u8>,
     action_receipts: Vec<(AccountId, ActionReceipt)>,
-    account_id: &'a AccountId,
-    iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
-    last_iter_id: u32,
-    ethash_provider: Arc<Mutex<EthashProvider>>,
+    iters: HashMap<u64, Peekable<TrieUpdateIterator<'a>>>,
+    last_iter_id: u64,
     signer_id: &'a AccountId,
     signer_public_key: &'a PublicKey,
     gas_price: Balance,
@@ -36,7 +30,6 @@ impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
-        ethash_provider: Arc<Mutex<EthashProvider>>,
         signer_id: &'a AccountId,
         signer_public_key: &'a PublicKey,
         gas_price: Balance,
@@ -46,10 +39,8 @@ impl<'a> RuntimeExt<'a> {
             trie_update,
             storage_prefix: prefix_for_data(account_id),
             action_receipts: vec![],
-            account_id,
             iters: HashMap::new(),
             last_iter_id: 0,
-            ethash_provider,
             signer_id,
             signer_public_key,
             gas_price,
@@ -70,28 +61,6 @@ impl<'a> RuntimeExt<'a> {
         data_id
     }
 
-    fn new_function_call_action_receipt(
-        &self,
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        amount: u128,
-        input_data_ids: Vec<CryptoHash>,
-    ) -> ExtResult<ActionReceipt> {
-        Ok(ActionReceipt {
-            signer_id: self.signer_id.clone(),
-            signer_public_key: self.signer_public_key.clone(),
-            gas_price: self.gas_price,
-            output_data_receivers: vec![],
-            input_data_ids,
-            actions: vec![Action::FunctionCall(FunctionCallAction {
-                method_name: String::from_utf8(method_name).map_err(|_| ExtError::BadUtf8)?,
-                args,
-                gas: 10000,
-                deposit: amount,
-            })],
-        })
-    }
-
     pub fn into_receipts(self, predecessor_id: &AccountId) -> Vec<Receipt> {
         self.action_receipts
             .into_iter()
@@ -106,128 +75,92 @@ impl<'a> RuntimeExt<'a> {
 }
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         Ok(self.trie_update.set(storage_key, DBValue::from_slice(value)))
     }
 
-    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         let value = self.trie_update.get(&storage_key);
         Ok(value.map(|buf| buf.to_vec()))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         Ok(self.trie_update.remove(&storage_key))
     }
 
-    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
+    fn storage_has_key(&mut self, key: &[u8]) -> Result<bool, ExternalError> {
+        Ok(self.storage_get(key)?.is_some())
+    }
+
+    fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64, ExternalError> {
         self.iters.insert(
             self.last_iter_id,
-            // It is safe to insert an iterator of lifetime 'a into a HashMap of lifetime 'a.
-            // We just could not convince Rust that `self.trie_update` has lifetime 'a as it
-            // shrinks the lifetime to the lifetime of `self`.
-            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
+            // Danger: we're creating a read reference to trie_update while still
+            // having a mutable reference.
+            // Any function that mutates trie_update must drop all existing iterators first.
+            unsafe { &*(self.trie_update as *const TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
-                .map_err(|_| ExtError::TrieIteratorError)?
+                // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
+                .expect("Error reading from storage")
                 .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u32> {
+    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<u64, ExternalError> {
         self.iters.insert(
             self.last_iter_id,
             unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .range(&self.storage_prefix, start, end)
-                .map_err(|_| ExtError::TrieIteratorError)?
+                .expect("Error reading from storage")
                 .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_iter_next(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
-        let result = match self.iters.get_mut(&id) {
+    fn storage_iter_next(
+        &mut self,
+        iterator_idx: u64,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, ExternalError> {
+        let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(ExtError::TrieIteratorMissing),
+            None => return Err(ExternalError::InvalidIteratorIndex),
         };
         if result.is_none() {
-            self.iters.remove(&id);
+            self.iters.remove(&iterator_idx);
         }
-        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+        Ok(result.map(|key| {
+            (
+                key[self.storage_prefix.len()..].to_vec(),
+                self.trie_update.get(&key).expect("key is guaranteed to be there").into_vec(),
+            )
+        }))
     }
 
-    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
-        let result = match self.iters.get_mut(&id) {
-            Some(iter) => iter.peek().cloned(),
-            None => return Err(ExtError::TrieIteratorMissing),
-        };
-        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
+        self.iters.remove(&iterator_idx);
+        Ok(())
     }
 
-    fn storage_iter_remove(&mut self, id: u32) {
-        self.iters.remove(&id);
-    }
-
-    /*
-        New promise APIs for reference
-
-
-        fn promise_create(
+    fn receipt_create(
         &mut self,
-        account_id: AccountId,
+        receipt_indices: Vec<u64>,
+        receiver_id: String,
         method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-        gas: Gas,
-    ) -> Result<PromiseIndex>;
-
-    fn promise_then(
-        &mut self,
-        promise_id: PromiseIndex,
-        account_id: AccountId,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-        gas: Gas,
-    ) -> Result<PromiseIndex>;
-
-    fn promise_and(&mut self, promise_indices: &[PromiseIndex]) -> Result<PromiseIndex>;
-
-    */
-
-    fn promise_create(
-        &mut self,
-        account_id: AccountId,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-    ) -> ExtResult<PromiseId> {
-        let new_receipt =
-            self.new_function_call_action_receipt(method_name, arguments, amount, vec![])?;
-        let new_promise_id = vec![self.action_receipts.len()];
-        self.action_receipts.push((account_id, new_receipt));
-        // self.promises.push(new_promise_id);
-        Ok(new_promise_id)
-    }
-
-    fn promise_then(
-        &mut self,
-        promise_id: PromiseId,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-    ) -> ExtResult<PromiseId> {
-        let receiver_id = self.account_id.clone();
-
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+    ) -> Result<u64, ExternalError> {
         let mut input_data_ids = vec![];
-        for receipt_index in promise_id {
+        for receipt_index in receipt_indices {
             let data_id = self.new_data_id();
             self.action_receipts
-                .get_mut(receipt_index)
+                .get_mut(receipt_index as usize)
                 .expect("receipt index should be present")
                 .1
                 .output_data_receivers
@@ -235,28 +168,26 @@ impl<'a> External for RuntimeExt<'a> {
             input_data_ids.push(data_id);
         }
 
-        let new_receipt =
-            self.new_function_call_action_receipt(method_name, arguments, amount, input_data_ids)?;
-        let new_promise_id = vec![self.action_receipts.len()];
-        self.action_receipts.push((self.account_id.clone(), new_receipt));
-        // self.promises.push(new_promise_id);
-        Ok(new_promise_id)
+        let new_receipt = ActionReceipt {
+            signer_id: self.signer_id.clone(),
+            signer_public_key: self.signer_public_key.clone(),
+            gas_price: self.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids,
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: String::from_utf8(method_name)
+                    .map_err(|_| ExternalError::InvalidMethodName)?,
+                args,
+                gas: prepaid_gas,
+                deposit: attached_deposit,
+            })],
+        };
+        let new_receipt_index = self.action_receipts.len() as u64;
+        self.action_receipts.push((receiver_id, new_receipt));
+        Ok(new_receipt_index)
     }
 
-    fn check_ethash(
-        &mut self,
-        block_number: u64,
-        header_hash: &[u8],
-        nonce: u64,
-        mix_hash: &[u8],
-        difficulty: u64,
-    ) -> bool {
-        self.ethash_provider.lock().expect(POISONED_LOCK_ERR).check_ethash(
-            U256::from(block_number),
-            H256::from(header_hash),
-            H64::from(nonce),
-            H256::from(mix_hash),
-            U256::from(difficulty),
-        )
+    fn storage_usage(&self) -> u64 {
+        unimplemented!()
     }
 }

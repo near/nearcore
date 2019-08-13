@@ -322,9 +322,10 @@ impl GenesisConfig {
     pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
         let mut validators = vec![];
         let mut records = vec![vec![]];
-        let default_test_contract =
-            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
-        let encoded_test_contract = to_base64(default_test_contract);
+        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+        let default_test_contract = std::fs::read(path).unwrap();
+        let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, account);

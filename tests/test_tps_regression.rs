@@ -36,8 +36,8 @@ mod test {
         let receiver_acc = nodes[money_receiver].read().unwrap().account_id().unwrap();
         let transaction = SignedTransaction::send_money(
             nonce,
-            sender_acc,
-            receiver_acc,
+            sender_acc.as_str(),
+            receiver_acc.as_str(),
             nodes[money_sender].read().unwrap().signer(),
             1,
         );

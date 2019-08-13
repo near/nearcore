@@ -1,0 +1,20 @@
+[package]
+name = "near-vm-logic"
+version = "0.2.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+edition = "2018"
+
+[dependencies]
+bs58 = "0.2.2"
+exonum_sodiumoxide = "0.0.20"
+serde = { version = "1.0", features = ["derive"] }
+
+[[test]]
+name = "test_registers"
+path = "tests/test_registers.rs"
+required-features = ["mocks"]
+
+
+[features]
+# Mocks include some unsafe code to workaround lifetimes and therefore are optional.
+mocks = []

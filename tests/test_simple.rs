@@ -32,8 +32,8 @@ mod test {
             let account_j = nodes[k].read().unwrap().view_account(&account_names[j]).unwrap();
             let transaction = SignedTransaction::send_money(
                 account_i.nonce + 1,
-                account_names[i].clone(),
-                account_names[j].clone(),
+                account_names[i].as_str(),
+                account_names[j].as_str(),
                 nodes[i].read().unwrap().signer(),
                 amount_to_send,
             );

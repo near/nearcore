@@ -1,5 +1,4 @@
 use crate::config::RuntimeConfig;
-use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
 use near_primitives::account::Account;
@@ -10,15 +9,15 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
+use near_primitives::types::{AccountId, BlockIndex, ValidatorStake};
 use near_primitives::utils::{is_valid_account_id, key_for_access_key};
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
 };
-use std::sync::{Arc, Mutex};
-use wasm::executor;
-use wasm::types::RuntimeContext;
+use near_vm_logic::types::PromiseResult;
+use near_vm_logic::VMContext;
+use std::sync::Arc;
 
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
@@ -68,7 +67,7 @@ pub(crate) fn get_code_with_cache(
         get_code(state_update, account_id)
             .ok_or_else(|| format!("cannot find contract code for account {}", account_id.clone()))
     };
-    wasm::cache::get_code_with_cache(code_hash, code)
+    crate::cache::get_code_with_cache(code_hash, code)
 }
 
 pub(crate) fn action_function_call(
@@ -83,7 +82,6 @@ pub(crate) fn action_function_call(
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
-    ethash_provider: Arc<Mutex<EthashProvider>>,
 ) {
     let account = account.as_mut().unwrap();
     let code = match get_code_with_cache(state_update, account_id, &account) {
@@ -96,50 +94,57 @@ pub(crate) fn action_function_call(
     let mut runtime_ext = RuntimeExt::new(
         state_update,
         account_id,
-        ethash_provider,
         &action_receipt.signer_id,
         &action_receipt.signer_public_key,
         action_receipt.gas_price,
         action_hash,
     );
-    account.amount += function_call.deposit;
-    let start_gas = function_call.gas;
-    let mut wasm_res = match executor::execute(
-        &code,
-        &function_call.method_name.as_bytes().to_vec(),
-        &function_call.args,
-        &input_data,
-        &mut runtime_ext,
-        &config.wasm_config,
-        &RuntimeContext::new(
-            account.amount,
-            (function_call.gas as Balance) * action_receipt.gas_price,
-            &receipt.predecessor_id,
-            account_id,
-            account.storage_usage,
-            apply_state.block_index,
-            receipt.receipt_id.as_ref().to_vec(),
-            false,
-            &action_receipt.signer_id,
-            &action_receipt.signer_public_key,
-        ),
-    ) {
-        Ok(exo) => exo,
-        Err(e) => {
-            result.result =
-                Err(format!("wasm async call preparation failed with error: {:?}", e).into());
-            return;
-        }
+    let context = VMContext {
+        current_account_id: account_id.clone(),
+        signer_account_id: action_receipt.signer_id.clone(),
+        signer_account_pk: action_receipt.signer_public_key.as_ref().to_vec(),
+        predecessor_account_id: receipt.predecessor_id.clone(),
+        input: function_call.args.clone(),
+        block_index: apply_state.block_index,
+        account_balance: account.amount,
+        attached_deposit: function_call.deposit,
+        prepaid_gas: function_call.gas,
+        random_seed: action_hash.as_ref().to_vec(),
+        free_of_charge: false,
     };
-    result.logs.append(&mut wasm_res.logs);
-    account.storage_usage = wasm_res.storage_usage;
-    let remaining_gas = (wasm_res.liquid_balance / action_receipt.gas_price) as u64;
-    let gas_used = if start_gas > remaining_gas { start_gas - remaining_gas } else { 0 };
-    result.gas_burnt += gas_used;
-    result.gas_used += gas_used;
-    result.result = wasm_res
-        .return_data
-        .map_err(|e| format!("wasm async call execution failed with error: {:?}", e).into());
+
+    let promise_results = input_data
+        .iter()
+        .map(|res| match res {
+            Some(res) => PromiseResult::Successful(res.clone()),
+            None => PromiseResult::Failed,
+        })
+        .collect::<Vec<_>>();
+
+    let (outcome, err) = near_vm_runner::run(
+        code.hash.as_ref().to_vec(),
+        &code.code,
+        function_call.method_name.as_bytes(),
+        &mut runtime_ext,
+        context,
+        &config.wasm_config,
+        &promise_results,
+    );
+    if let Some(err) = err {
+        result.result =
+            Err(format!("wasm async call execution failed with error: {:?}", err).into());
+        if let Some(outcome) = outcome {
+            result.gas_burnt += outcome.burnt_gas;
+        }
+        return;
+    }
+    let outcome = outcome.unwrap();
+    result.logs.extend(outcome.logs.into_iter());
+    account.amount = outcome.balance;
+    // account.storage_usage = outcome.storage_usage;
+    result.gas_burnt += outcome.burnt_gas;
+    result.gas_used += outcome.used_gas;
+    result.result = Ok(outcome.return_data);
     result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
 }
 

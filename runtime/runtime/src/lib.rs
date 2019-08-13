@@ -31,16 +31,16 @@ use near_store::{
     TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
-use wasm::types::ReturnData;
+use near_vm_logic::ReturnData;
 
 use crate::actions::*;
 use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
-use crate::ext::RuntimeExt;
 pub use crate::store::StateRecord;
 
 mod actions;
 pub mod adapter;
+pub mod cache;
 pub mod config;
 pub mod ethereum;
 pub mod ext;
@@ -48,7 +48,6 @@ pub mod state_viewer;
 mod store;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
-pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 #[derive(Debug)]
 pub struct ApplyState {
@@ -90,10 +89,9 @@ impl ActionResult {
         self.gas_used += next_result.gas_used;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
-        if let Ok(ReturnData::Promise(ref mut promise_id)) = self.result {
+        if let Ok(ReturnData::ReceiptIndex(ref mut receipt_index)) = self.result {
             // Shifting local receipt index to be global receipt index.
-            *promise_id.get_mut(0).expect("should be exactly one receipt index") +=
-                self.new_receipts.len();
+            *receipt_index += self.new_receipts.len() as u64;
         }
         if self.result.is_ok() {
             self.new_receipts.append(&mut next_result.new_receipts);
@@ -118,6 +116,7 @@ impl Default for ActionResult {
     }
 }
 
+#[allow(dead_code)]
 pub struct Runtime {
     config: RuntimeConfig,
     ethash_provider: Arc<Mutex<EthashProvider>>,
@@ -270,7 +269,6 @@ impl Runtime {
                     function_call,
                     &action_hash,
                     &self.config,
-                    self.ethash_provider.clone(),
                 );
             }
             Action::Transfer(transfer) => {
@@ -395,11 +393,12 @@ impl Runtime {
         };
 
         // Generating outgoing data and receipts
-        let transaction_result = if let Ok(ReturnData::Promise(ref promise_id)) = result.result {
+        let transaction_result = if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result
+        {
             // Modifying a new receipt instead of sending data
             match result
                 .new_receipts
-                .get_mut(*promise_id.get(0).expect("should be exactly one receipt index"))
+                .get_mut(receipt_index as usize)
                 .expect("the receipt for the given receipt index should exist")
                 .receipt
             {
@@ -484,7 +483,6 @@ impl Runtime {
             deposit_refund += gas_balance_refund;
             gas_balance_refund = 0;
         }
-        // Generating a refunds unless this receipt is a refund itself.
         if deposit_refund > 0 && &receipt.predecessor_id != &system_account() {
             result.new_receipts.push(Receipt::new_refund(&receipt.predecessor_id, deposit_refund));
         }
