@@ -4,8 +4,9 @@ pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::Receipt;
 use near_primitives::rpc::QueryResponse;
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::{StoreUpdate, WrappedTrieChanges};
 
@@ -39,7 +40,7 @@ pub struct ValidTransaction {
 }
 
 /// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
+pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
@@ -129,16 +130,10 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<Vec<ReceiptTransaction>>,
+        receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
-        (
-            WrappedTrieChanges,
-            MerkleHash,
-            Vec<TransactionResult>,
-            ReceiptResult,
-            Vec<ValidatorStake>,
-        ),
+        (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
         Box<dyn std::error::Error>,
     >;
 

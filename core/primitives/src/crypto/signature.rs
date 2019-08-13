@@ -4,19 +4,22 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use near_protos::public_key as public_key_proto;
+
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode};
+use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode};
 use crate::types::ReadablePublicKey;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Signature(pub sodiumoxide::crypto::sign::ed25519::Signature);
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
@@ -118,6 +121,45 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
+impl TryFrom<public_key_proto::PublicKey> for PublicKey {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(p: public_key_proto::PublicKey) -> Result<Self, Self::Error> {
+        // TODO(#979): Need to check `key_type` when we add other than ED25519 types.
+        PublicKey::try_from(p.data).map_err(std::convert::Into::into)
+    }
+}
+
+impl From<PublicKey> for public_key_proto::PublicKey {
+    fn from(p: PublicKey) -> public_key_proto::PublicKey {
+        public_key_proto::PublicKey {
+            key_type: public_key_proto::PublicKey_KeyType::ED25519,
+            data: p.as_ref().to_vec(),
+            cached_size: Default::default(),
+            unknown_fields: Default::default(),
+        }
+    }
+}
+
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_base())
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
 impl TryFrom<&[u8]> for SecretKey {
     type Error = Box<dyn std::error::Error>;
 
@@ -147,6 +189,25 @@ impl TryFrom<&str> for SecretKey {
         array.copy_from_slice(bytes_arr);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
         Ok(SecretKey(secret_key))
+    }
+}
+
+impl Serialize for SecretKey {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_base())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -188,6 +249,25 @@ impl TryFrom<&str> for Signature {
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Ok(Signature(signature))
+    }
+}
+
+impl Serialize for Signature {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_base())
+    }
+}
+
+impl<'de> Deserialize<'de> for Signature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 

@@ -9,7 +9,7 @@ use rand_xorshift::XorShiftRng;
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey};
 use crate::crypto::signer::{EDSigner, InMemorySigner};
-use crate::transaction::{SignedTransaction, TransactionBody};
+use crate::transaction::{SignedTransaction, Transaction};
 
 pub fn init_test_logger() {
     let _ = env_logger::Builder::new()
@@ -70,9 +70,9 @@ impl InMemorySigner {
     }
 }
 
-impl TransactionBody {
+impl Transaction {
     pub fn sign(self, signer: &dyn EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
-        SignedTransaction::new(signature, self, Some(signer.public_key()))
+        SignedTransaction::new(signature, self)
     }
 }

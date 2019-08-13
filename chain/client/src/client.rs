@@ -12,6 +12,7 @@ use actix::{
     WrapFuture,
 };
 use chrono::{DateTime, Utc};
+use futures::Future;
 use log::{debug, error, info, warn};
 
 use near_chain::{
@@ -27,7 +28,9 @@ use near_network::{
 use near_pool::TransactionPool;
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::receipt::Receipt;
+use near_primitives::rpc::ValidatorInfo;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 use near_store::Store;
@@ -39,8 +42,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use futures::Future;
-use near_primitives::rpc::ValidatorInfo;
+use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -404,12 +406,12 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
-        self.check_send_announce_account(&block);
+        self.check_send_announce_account(&block.hash(), block.header.height);
     }
 
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
-    fn check_send_announce_account(&mut self, block: &Block) {
+    fn check_send_announce_account(&mut self, block_hash: &CryptoHash, block_height: BlockIndex) {
         // Announce AccountId if client is becoming a validator soon.
 
         // First check that we currently have an AccountId
@@ -420,10 +422,10 @@ impl ClientActor {
 
         let block_producer = self.block_producer.as_ref().unwrap();
 
-        let epoch_hash = match self.runtime_adapter.get_epoch_offset(
-            block.hash(),
-            block.header.height + self.config.announce_account_horizon,
-        ) {
+        let epoch_hash = match self
+            .runtime_adapter
+            .get_epoch_offset(*block_hash, block_height + self.config.announce_account_horizon)
+        {
             Ok((epoch_hash, 0)) => epoch_hash,
             // Don't announce if the block is unknown to us or the offset is greater than 0
             _ => return,
@@ -433,7 +435,7 @@ impl ClientActor {
             let epoch_height = epoch_block.header.height;
 
             if let Some(last_val_announce_height) = self.last_val_announce_height {
-                if last_val_announce_height >= epoch_height {
+                if last_val_announce_height == epoch_height {
                     // This announcement was already done!
                     return;
                 }
@@ -441,7 +443,7 @@ impl ClientActor {
 
             // Check client is part of the futures validators
             if let Ok(validators) =
-                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block.hash())
+                self.runtime_adapter.get_epoch_block_proposers(&epoch_hash, &block_hash)
             {
                 // TODO(MarX): Use HashSet in validator manager to do fast searching.
                 if validators
@@ -650,7 +652,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - if prev_same_bp || total_validators < 2 { 1 } else { 2 };
+            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
@@ -675,6 +677,10 @@ impl ClientActor {
             return Ok(());
         }
 
+        // Get validator proposals.
+        let validator_proposals =
+            self.chain.get_post_validator_proposals(&head.last_block_hash)?.clone();
+
         let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // Take transactions from the pool.
@@ -693,7 +699,7 @@ impl ClientActor {
             epoch_hash,
             transactions,
             self.approvals.drain().collect(),
-            vec![],
+            validator_proposals,
             block_producer.signer.clone(),
         );
 
@@ -744,9 +750,9 @@ impl ClientActor {
                 if self.sync_status.is_syncing() {
                     // While syncing, we may receive blocks that are older or from next epochs.
                     // This leads to Old Block or EpochOutOfBounds errors.
-                    info!(target: "client", "Error on receival of block: {}", err);
+                    // info!(target: "client", "Error on receival of block: {}", err);
                 } else {
-                    error!(target: "client", "Error on receival of block: {}", err);
+                    // error!(target: "client", "Error on receival of block: {}", err);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -778,7 +784,7 @@ impl ClientActor {
             }
             // Some error that worth surfacing.
             Err(ref e) if e.is_error() => {
-                error!(target: "client", "Error on receival of header: {}", e);
+                // error!(target: "client", "Error on receival of header: {}", e);
                 return NetworkClientResponses::NoResponse;
             }
             // Got an error when trying to process the block header, but it's not due to
@@ -942,6 +948,7 @@ impl ClientActor {
                 // Initial transition out of "syncing" state.
                 // Start by handling scheduling block production if needed.
                 let head = unwrap_or_run_later!(self.chain.head());
+                self.check_send_announce_account(&head.last_block_hash, head.height);
                 self.handle_scheduling_block_production(
                     ctx,
                     head.last_block_hash,
@@ -958,9 +965,11 @@ impl ClientActor {
                 highest_height,
                 &self.network_info.most_weight_peers
             ));
-            // Only body / state sync if header height is latest.
+            // Only body / state sync if header height is close to the latest.
             let header_head = unwrap_or_run_later!(self.chain.header_head());
-            if header_head.height == highest_height {
+            if highest_height <= self.config.block_header_fetch_horizon
+                || header_head.height >= highest_height - self.config.block_header_fetch_horizon
+            {
                 // Sync state if already running sync state or if block sync is too far.
                 let sync_state = match self.sync_status {
                     SyncStatus::StateSync(_, _) => true,
@@ -1097,7 +1106,7 @@ impl ClientActor {
         &mut self,
         shard_id: ShardId,
         hash: CryptoHash,
-    ) -> Result<(Vec<u8>, Vec<ReceiptTransaction>), near_chain::Error> {
+    ) -> Result<(Vec<u8>, Vec<Receipt>), near_chain::Error> {
         let header = self.chain.get_block_header(&hash)?;
         let prev_hash = header.prev_hash;
         let payload = self

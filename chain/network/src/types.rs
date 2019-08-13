@@ -18,8 +18,9 @@ use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{proto_to_type, to_string_value};
 use near_protos::network as network_proto;
@@ -403,7 +404,7 @@ pub enum PeerMessage {
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
 
     AnnounceAccount(AnnounceAccount),
 }
@@ -841,7 +842,7 @@ pub enum NetworkClientMessages {
     /// State request.
     StateRequest(ShardId, CryptoHash),
     /// State response.
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
     /// Account announcement that needs to be validated before being processed
     AnnounceAccount(AnnounceAccount),
 }
@@ -862,12 +863,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse {
-        shard_id: ShardId,
-        hash: CryptoHash,
-        payload: Vec<u8>,
-        receipts: Vec<ReceiptTransaction>,
-    },
+    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<Receipt> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

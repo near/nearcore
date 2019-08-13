@@ -100,38 +100,6 @@ pub mod base_format {
     }
 }
 
-pub mod option_base_format {
-    use serde::de;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use super::{BaseDecode, BaseEncode};
-
-    pub fn serialize<T, S>(data: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        T: BaseEncode,
-        S: Serializer,
-    {
-        if let Some(x) = data {
-            serializer.serialize_str(&x.to_base())
-        } else {
-            serializer.serialize_str("")
-        }
-    }
-
-    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-    where
-        T: BaseDecode + std::fmt::Debug,
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if s.is_empty() {
-            Ok(None)
-        } else {
-            T::from_base(&s).map(|x| Some(x)).map_err(|err| de::Error::custom(err.to_string()))
-        }
-    }
-}
-
 pub mod vec_base_format {
     use std::fmt;
 
@@ -189,6 +157,36 @@ pub mod vec_base_format {
     }
 }
 
+pub mod option_bytes_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base, to_base};
+
+    pub fn serialize<S>(data: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(ref bytes) = data {
+            serializer.serialize_str(&to_base(bytes))
+        } else {
+            serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Option<String> = Option::deserialize(deserializer)?;
+        if let Some(s) = s {
+            Ok(Some(from_base(&s).map_err(|err| de::Error::custom(err.to_string()))?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 pub mod base_bytes_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -228,5 +226,44 @@ pub mod u128_dec_format {
     {
         let s = String::deserialize(deserializer)?;
         u128::from_str_radix(&s, 10).map_err(de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize, Serialize)]
+    struct OptionBytesStruct {
+        #[serde(with = "option_bytes_format")]
+        data: Option<Vec<u8>>,
+    }
+
+    #[test]
+    fn test_serialize_some() {
+        let s = OptionBytesStruct { data: Some(vec![10, 20, 30]) };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"data\":\"4PM7\"}");
+    }
+
+    #[test]
+    fn test_deserialize_some() {
+        let encoded = "{\"data\":\"4PM7\"}";
+        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.data, Some(vec![10, 20, 30]));
+    }
+
+    #[test]
+    fn test_serialize_none() {
+        let s = OptionBytesStruct { data: None };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"data\":null}");
+    }
+
+    #[test]
+    fn test_deserialize_none() {
+        let encoded = "{\"data\":null}";
+        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.data, None);
     }
 }

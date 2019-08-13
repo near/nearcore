@@ -28,6 +28,9 @@ core/wasm/**/Cargo.lock
 .env
 *.pyc
 
+# Node
+**/node_modules/
+
 # Integration tests
 tmp/
 

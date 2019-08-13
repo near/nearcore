@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -22,8 +24,10 @@ pub fn eve_account() -> AccountId {
 }
 
 pub fn default_code_hash() -> CryptoHash {
-    let genesis_wasm = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
-    hash(genesis_wasm)
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    let genesis_wasm = fs::read(path).unwrap();
+    hash(&genesis_wasm)
 }
 
 pub fn get_runtime_and_trie_from_genesis(
