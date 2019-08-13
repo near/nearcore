@@ -295,7 +295,13 @@ mod tests {
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::empty_with_approvals(&b1, 2, approvals, signer.clone());
+        let b2 = Block::empty_with_approvals(
+            &b1,
+            2,
+            approvals,
+            signer.clone(),
+            b1.header.epoch_id.clone(),
+        );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }

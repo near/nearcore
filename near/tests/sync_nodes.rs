@@ -105,7 +105,7 @@ fn sync_nodes() {
     let (client1, _) = start_with_config(dir1.path(), near1);
 
     let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
-    let _ = add_blocks(vec![genesis_block], client1, 11, genesis_config.epoch_length, signer);
+    let _ = add_blocks(vec![genesis_block], client1, 12, genesis_config.epoch_length, signer);
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
     let (_, view_client2) = start_with_config(dir2.path(), near2);
@@ -114,7 +114,7 @@ fn sync_nodes() {
         Box::new(move |_ctx| {
             actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height == 11 => System::current().stop(),
+                    Ok(Ok(b)) if b.header.height == 12 => System::current().stop(),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };
@@ -158,7 +158,7 @@ fn sync_after_sync_nodes() {
     let blocks = add_blocks(
         vec![genesis_block],
         client1.clone(),
-        11,
+        12,
         genesis_config.epoch_length,
         signer.clone(),
     );
@@ -173,7 +173,7 @@ fn sync_after_sync_nodes() {
             let next_step1 = next_step.clone();
             actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height == 11 => {
+                    Ok(Ok(b)) if b.header.height == 12 => {
                         if !next_step1.load(Ordering::Relaxed) {
                             let _ = add_blocks(blocks1, client11, 11, epoch_length, signer1);
                             next_step1.store(true, Ordering::Relaxed);
@@ -206,10 +206,11 @@ fn sync_state_stake_change() {
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
     near1.network_config.boot_nodes = convert_boot_nodes(vec![("test2", port2)]);
-    near1.client_config.min_block_production_delay = Duration::from_millis(100);
+    near1.client_config.min_num_peers = 0;
+    near1.client_config.min_block_production_delay = Duration::from_millis(200);
     let mut near2 = load_test_config("test2", port2, &genesis_config);
     near2.network_config.boot_nodes = convert_boot_nodes(vec![("test1", port1)]);
-    near2.client_config.min_block_production_delay = Duration::from_millis(100);
+    near2.client_config.min_block_production_delay = Duration::from_millis(200);
     near2.client_config.min_num_peers = 1;
     near2.client_config.skip_sync_wait = false;
 
@@ -250,8 +251,10 @@ fn sync_state_stake_change() {
                     WaitOrTimeout::new(
                         Box::new(move |_ctx| {
                             actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
-                                if res.unwrap().unwrap().header.height > latest_block_height + 1 {
-                                    System::current().stop()
+                                if let Ok(block) = res.unwrap() {
+                                    if block.header.height > latest_block_height + 1 {
+                                        System::current().stop()
+                                    }
                                 }
                                 future::result::<_, ()>(Ok(()))
                             }));
