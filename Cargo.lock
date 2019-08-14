@@ -2207,6 +2207,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-runtime-fees"
+version = "0.1.0"
+dependencies = [
+ "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "near-store"
 version = "0.1.0"
 dependencies = [
@@ -2340,6 +2347,7 @@ dependencies = [
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-primitives 0.1.0",
  "near-protos 0.1.0",
+ "near-runtime-fees 0.1.0",
  "near-store 0.1.0",
  "near-verifier 0.1.0",
  "near-vm-logic 0.2.0",

@@ -34,7 +34,7 @@ use near_verifier::{TransactionVerifier, VerificationData};
 use near_vm_logic::ReturnData;
 
 use crate::actions::*;
-use crate::config::RuntimeConfig;
+use crate::config::{safe_add_gas, total_send_fees, RuntimeConfig};
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
 
@@ -153,8 +153,30 @@ impl Runtime {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(signed_transaction)?
         };
+        let receiver_id = signed_transaction.transaction.receiver_id.clone();
+        let sender_id = signed_transaction.transaction.signer_id.clone();
+        let sender_is_receiver = receiver_id == sender_id;
+
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         signer.nonce = signed_transaction.transaction.nonce;
+
+        let mut total_cost_gas: Gas = self
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .send_fee(sender_is_receiver);
+
+        total_cost_gas = safe_add_gas(
+            total_cost_gas,
+            total_send_fees(
+                &self.config.transaction_costs,
+                sender_is_receiver,
+                &signed_transaction.transaction.actions,
+            )?,
+        )?;
+
+        total
+
         let gas_price = 1;
         let total_cost = self
             .config
