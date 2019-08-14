@@ -577,16 +577,8 @@ mod test {
         );
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 1,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2,
-                staked: TESTING_INIT_STAKE * 2,
-                public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2, 2 * TESTING_INIT_STAKE)
         );
 
         nightshade
@@ -663,17 +655,10 @@ mod test {
         nightshade.add_validator_proposals(h3, h4, 4, vec![], vec![], vec![]).unwrap();
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 2,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5,
-                staked: TESTING_INIT_STAKE * 2,
-                public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5, 2 * TESTING_INIT_STAKE)
         );
+
         state_root = nightshade.update(&state_root, 5, &h4, &h5, &vec![], &vec![]).0;
         nightshade.add_validator_proposals(h4, h5, 5, vec![], vec![], vec![]).unwrap();
         state_root = nightshade.update(&state_root, 6, &h5, &h6, &vec![], &vec![]).0;
@@ -681,31 +666,12 @@ mod test {
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 0,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-                staked: TESTING_INIT_STAKE,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
         );
 
         let account = nightshade.view_account(state_root, &new_validator.account_id).unwrap();
-        assert_eq!(
-            account,
-            Account {
-                nonce: 1,
-                amount: TESTING_INIT_STAKE,
-                staked: TESTING_INIT_STAKE * 2,
-                public_keys: vec![new_validator.signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
-        );
+        assert_eq!((account.amount, account.staked), (TESTING_INIT_STAKE, TESTING_INIT_STAKE * 2));
 
         state_root = nightshade.update(&state_root, 7, &h6, &h7, &vec![], &vec![]).0;
         nightshade.add_validator_proposals(h6, h7, 7, vec![], vec![], vec![]).unwrap();
@@ -713,18 +679,7 @@ mod test {
         nightshade.add_validator_proposals(h7, h8, 8, vec![], vec![], vec![]).unwrap();
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
-        assert_eq!(
-            account,
-            Account {
-                nonce: 0,
-                amount: TESTING_INIT_BALANCE,
-                staked: 0,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
-        );
+        assert_eq!((account.amount, account.staked), (TESTING_INIT_BALANCE, 0));
 
         state_root = nightshade.update(&state_root, 9, &h8, &h9, &vec![], &vec![]).0;
         nightshade.add_validator_proposals(h8, h9, 9, vec![], vec![], vec![]).unwrap();
@@ -733,18 +688,7 @@ mod test {
 
         // make sure their is no double return of stake
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
-        assert_eq!(
-            account,
-            Account {
-                nonce: 0,
-                amount: TESTING_INIT_BALANCE,
-                staked: 0,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
-        );
+        assert_eq!((account.amount, account.staked), (TESTING_INIT_BALANCE, 0));
     }
 
     #[test]
@@ -929,30 +873,14 @@ mod test {
 
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
-                staked: TESTING_INIT_STAKE + 1,
-                public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
-                staked: TESTING_INIT_STAKE + 1,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
 
         state_root = nightshade.update(&state_root, 5, &h4, &h5, &vec![], &vec![]).0;
@@ -963,30 +891,14 @@ mod test {
 
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
-                staked: TESTING_INIT_STAKE + 1,
-                public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
-                staked: TESTING_INIT_STAKE + 1,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
 
         state_root = nightshade.update(&state_root, 7, &h6, &h7, &vec![], &vec![]).0;
@@ -997,30 +909,14 @@ mod test {
 
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1,
-                staked: TESTING_INIT_STAKE + 1,
-                public_keys: vec![block_producers[0].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();
         assert_eq!(
-            account,
-            Account {
-                nonce: 3,
-                amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1,
-                staked: TESTING_INIT_STAKE - 1,
-                public_keys: vec![block_producers[1].signer.public_key()],
-                code_hash: account.code_hash,
-                storage_paid_at: 0,
-                storage_usage: 0
-            }
+            (account.amount, account.staked),
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1, TESTING_INIT_STAKE - 1)
         );
     }
 

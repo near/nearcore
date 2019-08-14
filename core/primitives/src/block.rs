@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::prelude::{DateTime, NaiveDateTime, Utc};
+use chrono::prelude::{DateTime, Utc};
 use chrono::serde::ts_nanoseconds;
 
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
@@ -10,10 +10,6 @@ use crate::hash::{hash, CryptoHash};
 use crate::serialize::vec_base_format;
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
-use bs58::alphabet::DEFAULT;
-
-/// Number of nano seconds in one second.
-const NS_IN_SECOND: u64 = 1_000_000_000;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeader {

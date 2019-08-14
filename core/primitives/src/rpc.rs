@@ -2,19 +2,111 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::account::{AccessKey, Account};
-use crate::crypto::signature::PublicKey;
+use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
-use crate::serialize::{u128_dec_format, vec_base_format};
+use crate::serialize::{from_base, to_base, u128_dec_format, vec_base_format};
 use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, StorageUsage, Version};
+
+/// Number of nano seconds in one second.
+//const NS_IN_SECOND: u64 = 1_000_000_000;
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct PublicKeyView(Vec<u8>);
+
+impl Serialize for PublicKeyView {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicKeyView {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s)
+            .map(|v| PublicKeyView(v))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl From<PublicKey> for PublicKeyView {
+    fn from(public_key: PublicKey) -> Self {
+        Self(public_key.0.as_ref().to_vec())
+    }
+}
+
+#[derive(Debug)]
+pub struct SecretKeyView(Vec<u8>);
+
+impl Serialize for SecretKeyView {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretKeyView {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s)
+            .map(|v| SecretKeyView(v))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl From<SecretKey> for SecretKeyView {
+    fn from(secret_key: SecretKey) -> Self {
+        Self(secret_key.0[..].to_vec())
+    }
+}
+
+#[derive(Debug)]
+pub struct SignatureView(Vec<u8>);
+
+impl Serialize for SignatureView {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for SignatureView {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s)
+            .map(|v| SignatureView(v))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl From<Signature> for SignatureView {
+    fn from(signature: Signature) -> Self {
+        Self(signature.0.as_ref().to_vec())
+    }
+}
 
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct AccountView {
-    #[serde(with = "vec_base_format")]
-    pub public_keys: Vec<PublicKey>,
+    pub public_keys: Vec<PublicKeyView>,
     pub nonce: Nonce,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
@@ -26,9 +118,13 @@ pub struct AccountView {
 }
 
 impl From<Account> for AccountView {
-    fn from(account: Account) -> Self {
+    fn from(mut account: Account) -> Self {
         AccountView {
-            public_keys: account.public_keys,
+            public_keys: account
+                .public_keys
+                .drain(..)
+                .map(|public_key| public_key.into())
+                .collect(),
             nonce: account.nonce,
             amount: account.amount,
             staked: account.staked,
@@ -78,7 +174,7 @@ pub struct QueryError {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AccessKeyInfo {
-    pub public_key: PublicKey,
+    pub public_key: PublicKeyView,
     pub access_key: AccessKeyView,
 }
 

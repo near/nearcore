@@ -1,7 +1,5 @@
 use std::borrow::Borrow;
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use std::iter::FromIterator;
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;

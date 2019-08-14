@@ -87,7 +87,7 @@ pub fn query_client(
                     QueryResponse::AccessKeyList(
                         r.drain(..)
                             .map(|(public_key, access_key)| AccessKeyInfo {
-                                public_key,
+                                public_key: public_key.into(),
                                 access_key: access_key.into(),
                             })
                             .collect(),

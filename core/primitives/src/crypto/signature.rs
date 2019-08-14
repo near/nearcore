@@ -9,15 +9,15 @@ pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode};
 use crate::types::ReadablePublicKey;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
 pub struct Signature(pub sodiumoxide::crypto::sign::ed25519::Signature);
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
@@ -119,25 +119,6 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
-impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
-    }
-}
-
 impl TryFrom<&[u8]> for SecretKey {
     type Error = Box<dyn std::error::Error>;
 
@@ -167,25 +148,6 @@ impl TryFrom<&str> for SecretKey {
         array.copy_from_slice(bytes_arr);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
         Ok(SecretKey(secret_key))
-    }
-}
-
-impl Serialize for SecretKey {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for SecretKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -227,25 +189,6 @@ impl TryFrom<&str> for Signature {
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Ok(Signature(signature))
-    }
-}
-
-impl Serialize for Signature {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for Signature {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
