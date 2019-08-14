@@ -19,7 +19,7 @@ use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::{hash, CryptoHash};
@@ -465,7 +465,7 @@ fn state_records_account_with_key(
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
             public_key: public_key.to_readable(),
-            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+            access_key: AccessKey::full_access(),
         },
     ]
 }

@@ -89,6 +89,12 @@ pub struct AccessKey {
     pub permission: AccessKeyPermission,
 }
 
+impl AccessKey {
+    pub fn full_access() -> Self {
+        Self { nonce: 0, permission: AccessKeyPermission::FullAccess }
+    }
+}
+
 /// Defines permissions for AccessKey
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AccessKeyPermission {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::Future;
 
 use near_chain::Block;
-use near_primitives::account::{AccessKey, AccessKeyPermission};
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
@@ -41,7 +41,11 @@ pub trait User {
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String>;
 
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64>;
+    fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
+        self.get_access_key(account_id, &self.signer().public_key()).and_then(|access_key| {
+            access_key.ok_or_else(|| "Access key doesn't exist".to_string()).map(|a| a.nonce)
+        })
+    }
 
     fn get_best_block_index(&self) -> Option<u64>;
 
@@ -72,7 +76,7 @@ pub trait User {
         actions: Vec<Action>,
     ) -> FinalTransactionResult {
         let signed_transaction = SignedTransaction::from_actions(
-            self.get_account_nonce(&signer_id).unwrap_or_default() + 1,
+            self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
             self.signer(),
@@ -136,10 +140,7 @@ pub trait User {
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::Transfer(TransferAction { deposit: amount }),
-                Action::AddKey(AddKeyAction {
-                    public_key,
-                    access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                Action::AddKey(AddKeyAction { public_key, access_key: AccessKey::full_access() }),
             ],
         )
     }
