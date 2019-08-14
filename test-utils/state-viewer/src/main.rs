@@ -7,12 +7,12 @@ use clap::{App, Arg, SubCommand};
 use protobuf::parse_from_bytes;
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{from_base64, to_base64, Decode};
+use near_primitives::serialize::{from_base64, to_base, to_base64, Decode};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::Callback;
 use near_primitives::types::BlockIndex;
@@ -110,6 +110,40 @@ fn load_trie(
     (runtime, *state_root, last_header.height)
 }
 
+pub fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..6].to_string()
+}
+
+fn print_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    for index in start_index..=end_index {
+        let block_hash = chain_store.get_block_hash_by_height(index).unwrap();
+        let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+        if index == 0 {
+            println!("{: >3} {}", header.height, format_hash(header.hash()));
+        } else {
+            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
+            let (epoch_id, _) = runtime.get_epoch_offset(header.prev_hash, index).unwrap();
+            let block_producer = runtime.get_block_proposer(&epoch_id, header.height).unwrap();
+            println!(
+                "{: >3} {} | {: >10} | parent: {: >3} {}",
+                header.height,
+                format_hash(header.hash()),
+                block_producer,
+                parent_header.height,
+                format_hash(parent_header.hash()),
+            );
+        }
+    }
+}
+
 fn main() {
     init_integration_logger();
 
@@ -132,6 +166,23 @@ fn main() {
                     .help("Output path for new genesis given current blockchain state")
                     .takes_value(true),
             ),
+        )
+        .subcommand(
+            SubCommand::with_name("chain")
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(true)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(true)
+                        .help("End index of query")
+                        .takes_value(true),
+                ),
         )
         .get_matches();
 
@@ -167,6 +218,12 @@ fn main() {
                 near_config.genesis_config.records[0].push(kv_to_state_record(key, value));
             }
             near_config.genesis_config.write_to_file(&output_path);
+        }
+        ("chain", Some(args)) => {
+            let start_index =
+                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            print_chain(store, home_dir, &near_config, start_index, end_index);
         }
         (_, _) => unreachable!(),
     }
