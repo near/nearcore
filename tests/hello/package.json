@@ -10,7 +10,7 @@
     },
     "devDependencies": {
         "gulp": "^3.0.0",
-        "near-shell": "github:nearprotocol/near-shell#nightshade",
+        "near-shell": "github:nearprotocol/near-shell",
         "bignum": "github:MaxGraey/bignum.wasm"
     }
 }
