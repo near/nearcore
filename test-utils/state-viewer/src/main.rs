@@ -110,6 +110,15 @@ fn load_trie(
     (runtime, *state_root, last_header.height)
 }
 
+fn print_chain(store: Arc<Store>, start_index: BlockIndex, end_index: BlockIndex) {
+    let mut chain_store = ChainStore::new(store.clone());
+    for index in start_index..=end_index {
+        let block_hash = chain_store.get_block_hash_by_height(index).unwrap();
+        let block_header = chain_store.get_block_header(&block_hash).unwrap();
+        println!("{}: {:?}", index, block_header);
+    }
+}
+
 fn main() {
     init_integration_logger();
 
@@ -132,6 +141,23 @@ fn main() {
                     .help("Output path for new genesis given current blockchain state")
                     .takes_value(true),
             ),
+        )
+        .subcommand(
+            SubCommand::with_name("chain")
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(true)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(true)
+                        .help("End index of query")
+                        .takes_value(true),
+                ),
         )
         .get_matches();
 
@@ -167,6 +193,12 @@ fn main() {
                 near_config.genesis_config.records[0].push(kv_to_state_record(key, value));
             }
             near_config.genesis_config.write_to_file(&output_path);
+        }
+        ("chain", Some(args)) => {
+            let start_index =
+                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            print_chain(store, start_index, end_index);
         }
         (_, _) => unreachable!(),
     }
