@@ -8,7 +8,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::{debug, info};
 
-use near_chain::types::ApplyTransactionResult;
+use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
@@ -115,11 +115,11 @@ impl NightshadeRuntime {
                     account.stake += *reward;
                 }
 
-                assert!(account.stake >= max_of_stakes, "FATAL: staking invariance does not hold");
                 println!(
                     "account {} stake {} max_of_stakes: {}",
                     account_id, account.stake, max_of_stakes
                 );
+                assert!(account.stake >= max_of_stakes, "FATAL: staking invariance does not hold");
                 let return_stake = account.stake - max_of_stakes;
                 account.stake -= return_stake;
                 account.amount += return_stake;
@@ -140,6 +140,11 @@ impl NightshadeRuntime {
         }
         Ok(())
     }
+}
+
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+    let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+    cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
@@ -194,13 +199,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> bool {
+    ) -> ValidatorSignatureVerificationResult {
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         if let Ok(Some(validator)) = epoch_manager.get_validator_by_account_id(epoch_id, account_id)
         {
-            return verify(data, signature, &validator.public_key);
+            if verify(data, signature, &validator.public_key) {
+                ValidatorSignatureVerificationResult::Valid
+            } else {
+                ValidatorSignatureVerificationResult::Invalid
+            }
+        } else {
+            ValidatorSignatureVerificationResult::UnknownEpoch
         }
-        false
     }
 
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error> {
@@ -277,8 +287,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     }
 
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId {
-        let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
-        cursor.read_u64::<LittleEndian>().expect("Must not happened") % (self.num_shards())
+        account_id_to_shard_id(account_id, self.num_shards())
     }
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<String, Error> {

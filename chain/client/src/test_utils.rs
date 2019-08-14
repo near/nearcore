@@ -260,7 +260,7 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::AnnounceAccount(announce_account) => {
+                        NetworkRequests::AnnounceAccount(announce_account, _force) => {
                             let mut aa = announced_accounts1.write().unwrap();
                             let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
                             if aa.get(&key).is_none() {

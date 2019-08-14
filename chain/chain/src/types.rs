@@ -63,6 +63,13 @@ pub enum ShardFullChunkOrOnePart<'a> {
     NoChunk,
 }
 
+#[derive(Eq, PartialEq)]
+pub enum ValidatorSignatureVerificationResult {
+    Valid,
+    Invalid,
+    UnknownEpoch,
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
@@ -102,7 +109,7 @@ pub trait RuntimeAdapter: Send + Sync {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> bool;
+    ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;

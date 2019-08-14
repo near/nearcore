@@ -400,7 +400,8 @@ pub enum StateSyncResult {
     /// No shard has changed its status
     Unchanged,
     /// At least one shard has changed its status
-    Changed,
+    /// Boolean parameter specifies whether the client needs to start fetching the block
+    Changed(bool),
     /// The state for all shards was downloaded
     Completed,
 }
@@ -410,11 +411,16 @@ pub struct StateSync {
     network_recipient: Recipient<NetworkRequests>,
 
     prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
+    last_time_block_requested: Option<DateTime<Utc>>,
 }
 
 impl StateSync {
     pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
-        StateSync { network_recipient, prev_state_sync: Default::default() }
+        StateSync {
+            network_recipient,
+            prev_state_sync: Default::default(),
+            last_time_block_requested: None,
+        }
     }
 
     pub fn run(
@@ -429,11 +435,32 @@ impl StateSync {
 
         debug!("MOO run state sync tracking shards: {:?}", tracking_shards);
 
+        let now = Utc::now();
+        let (request_block, have_block) = if !chain.block_exists(&sync_hash)? {
+            match self.last_time_block_requested {
+                None => (true, false),
+                Some(last_time) => {
+                    error!(target: "sync", "State sync: block request for {} timed out in {} seconds", sync_hash, STATE_SYNC_TIMEOUT);
+                    (now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT), false)
+                }
+            }
+        } else {
+            (false, true)
+        };
+
+        if request_block {
+            self.last_time_block_requested = Some(now);
+        }
+
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
             //    in the previous (or about a subset of them), return success right away
 
-            return Ok(StateSyncResult::Completed);
+            return if !have_block {
+                Ok(StateSyncResult::Changed(request_block))
+            } else {
+                Ok(StateSyncResult::Completed)
+            };
         }
 
         // Check for errors
@@ -449,13 +476,16 @@ impl StateSync {
             }
         }
 
+        if !have_block {
+            all_done = false
+        };
+
         if all_done {
             self.prev_state_sync.clear();
             debug!("MOO omg it's completed");
             return Ok(StateSyncResult::Completed);
         }
 
-        let now = Utc::now();
         let mut update_sync_status = false;
         for shard_id in tracking_shards {
             let (go, download_timeout) = match self.prev_state_sync.get(&shard_id) {
@@ -470,7 +500,7 @@ impl StateSync {
             };
 
             if download_timeout {
-                error!(target: "sync", "State sync: state download for shard {} timed out in {} minutes", shard_id, STATE_SYNC_TIMEOUT);
+                error!(target: "sync", "State sync: state download for shard {} timed out in {} seconds", shard_id, STATE_SYNC_TIMEOUT);
             }
 
             if go || download_timeout {
@@ -501,7 +531,11 @@ impl StateSync {
                 update_sync_status = true;
             }
         }
-        Ok(if update_sync_status { StateSyncResult::Changed } else { StateSyncResult::Unchanged })
+        Ok(if update_sync_status || request_block {
+            StateSyncResult::Changed(request_block)
+        } else {
+            StateSyncResult::Unchanged
+        })
     }
 
     fn request_state(
