@@ -57,10 +57,11 @@ impl OrphanBlockPool {
     }
 
     fn add(&mut self, orphan: Orphan) {
-        let height_hashes = self.height_idx.entry(orphan.block.header.height).or_insert(vec![]);
+        let height_hashes =
+            self.height_idx.entry(orphan.block.header.inner.height).or_insert(vec![]);
         height_hashes.push(orphan.block.hash());
         let prev_hash_entries =
-            self.prev_hash_idx.entry(orphan.block.header.prev_hash).or_insert(vec![]);
+            self.prev_hash_idx.entry(orphan.block.header.inner.prev_hash).or_insert(vec![]);
         prev_hash_entries.push(orphan.block.hash());
         self.orphans.insert(orphan.block.hash(), orphan);
 
@@ -176,8 +177,10 @@ impl Chain {
                             vec![],
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
-                    store_update
-                        .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
+                    store_update.save_post_state_root(
+                        &genesis.hash(),
+                        &genesis.header.inner.prev_state_root,
+                    );
                     store_update.save_post_validator_proposals(&genesis.hash(), vec![]);
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
@@ -271,13 +274,13 @@ impl Chain {
         let mut oldest_height = 0;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
-            if header.height <= block_head.height {
+            if header.inner.height <= block_head.height {
                 if self.is_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
 
-            oldest_height = header.height;
+            oldest_height = header.inner.height;
             hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
@@ -291,7 +294,7 @@ impl Chain {
 
     /// Returns if given block header on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let chain_header = self.get_header_by_height(header.height)?;
+        let chain_header = self.get_header_by_height(header.inner.height)?;
         if chain_header.hash() == header.hash() {
             Ok(())
         } else {
@@ -303,7 +306,7 @@ impl Chain {
     pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(&hash).map(|h| h.clone()) {
-                if let Ok(header_at_height) = self.get_header_by_height(header.height) {
+                if let Ok(header_at_height) = self.get_header_by_height(header.inner.height) {
                     if header.hash() == header_at_height.hash() {
                         return Some(header);
                     }
@@ -382,7 +385,7 @@ impl Chain {
                         target: "chain",
                         "Block {} at {} is unfit at this time: {}",
                         block.hash(),
-                        block.header.height,
+                        block.header.inner.height,
                         msg
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
@@ -446,7 +449,7 @@ impl Chain {
     ) -> Result<(), Error> {
         // TODO(1046): update this with any required changes for chunks support.
         let header = self.get_block_header(&hash)?;
-        let (prev_hash, state_root) = (header.prev_hash, header.prev_state_root);
+        let (prev_hash, state_root) = (header.inner.prev_hash, header.inner.prev_state_root);
 
         // Save state in the runtime, will also check it's validity.
         self.runtime_adapter
@@ -623,7 +626,7 @@ impl<'a> ChainUpdate<'a> {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height);
+        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner.height);
 
         self.check_header_known(header)?;
         self.validate_header(header, &Provenance::NONE)?;
@@ -645,14 +648,14 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<Option<Tip>, Error> {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, tx: {}", block.hash(), block.header.height, block.header.approval_sigs.len(), block.transactions.len());
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, tx: {}", block.hash(), block.header.inner.height, block.header.inner.approval_sigs.len(), block.transactions.len());
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
-        let is_next = block.header.prev_hash == head.last_block_hash;
+        let is_next = block.header.inner.prev_hash == head.last_block_hash;
 
         // First real I/O expense.
         self.check_header_signature(&block.header)?;

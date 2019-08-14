@@ -5,10 +5,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::account::{AccessKey, Account};
+use crate::block::BlockHeader;
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
 use crate::serialize::{from_base, to_base, u128_dec_format, vec_base_format};
-use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, Version};
+use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, ValidatorStake, Version};
 
 /// Number of nano seconds in one second.
 //const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -279,6 +280,43 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
         match query_response {
             QueryResponse::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
+        }
+    }
+}
+
+struct BlockHeaderView {
+    pub height: BlockIndex,
+    pub epoch_hash: CryptoHash,
+    pub prev_hash: CryptoHashView,
+    pub prev_state_root: CryptoHashView,
+    pub tx_root: CryptoHashView,
+    pub timestamp: u64,
+    pub approval_mask: Vec<bool>,
+    pub approval_sigs: Vec<SignatureView>,
+    pub total_weight: u64,
+    pub validator_proposals: Vec<ValidatorStake>,
+    pub signature: Signature,
+}
+
+impl From<BlockHeader> for BlockHeaderView {
+    fn from(mut header: BlockHeader) -> Self {
+        Self {
+            height: header.inner.height,
+            epoch_hash: header.inner.epoch_hash,
+            prev_hash: header.inner.prev_hash.into(),
+            prev_state_root: header.inner.prev_state_root.into(),
+            tx_root: header.inner.tx_root.into(),
+            timestamp: header.inner.timestamp.timestamp() as u64,
+            approval_mask: header.inner.approval_mask,
+            approval_sigs: header
+                .inner
+                .approval_sigs
+                .drain(..)
+                .map(|signature| signature.into())
+                .collect(),
+            total_weight: header.inner.total_weight.to_num(),
+            validator_proposals: header.inner.validator_proposals,
+            signature: header.signature.into(),
         }
     }
 }

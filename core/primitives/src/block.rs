@@ -7,14 +7,18 @@ use chrono::serde::ts_nanoseconds;
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
-use crate::serialize::vec_base_format;
+use crate::serialize::{vec_base_format, Encode};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
+use serde::{Deserialize, Deserializer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct BlockHeader {
+pub struct BlockHeaderInner {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
+    /// Epoch start hash of the previous epoch.
+    /// Used for retrieving validator information
+    pub epoch_hash: CryptoHash,
     /// Hash of the block previous to this in the chain.
     pub prev_hash: CryptoHash,
     /// Root hash of the state at the previous block.
@@ -27,26 +31,17 @@ pub struct BlockHeader {
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures.
-    #[serde(with = "vec_base_format")]
     pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
     /// Validator proposals.
-    pub validator_proposal: Vec<ValidatorStake>,
-    /// Epoch start hash of the previous epoch.
-    /// Used for retrieving validator information
-    pub epoch_hash: CryptoHash,
-
-    /// Signature of the block producer.
-    pub signature: Signature,
-
-    /// Cached value of hash for this block.
-    hash: CryptoHash,
+    pub validator_proposals: Vec<ValidatorStake>,
 }
 
-impl BlockHeader {
-    fn header_body(
+impl BlockHeaderInner {
+    pub fn new(
         height: BlockIndex,
+        epoch_hash: CryptoHash,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
@@ -54,32 +49,37 @@ impl BlockHeader {
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
-        mut validator_proposal: Vec<ValidatorStake>,
-        epoch_hash: CryptoHash,
-    ) -> BlockHeader {
-        //chain_proto::BlockHeaderBody {
-        BlockHeader {
+        validator_proposals: Vec<ValidatorStake>,
+    ) -> Self {
+        BlockHeaderInner {
             height,
-            prev_hash: prev_hash.into(),
-            prev_state_root: prev_state_root.into(),
-            tx_root: tx_root.into(),
-            timestamp, //: timestamp.timestamp_nanos() as u64,
+            epoch_hash,
+            prev_hash,
+            prev_state_root,
+            tx_root,
+            timestamp,
             approval_mask,
             approval_sigs,
-            //            approval_sigs: RepeatedField::from_iter(
-            //                approval_sigs.iter().map(std::convert::Into::into),
-            //            ),
-            total_weight, //: total_weight.to_num(),
-            validator_proposal,
-            //            validator_proposal: RepeatedField::from_iter(
-            //                validator_proposal.drain(..).map(std::convert::Into::into),
-            //            ),
-            epoch_hash: epoch_hash.into(),
-            hash: CryptoHash::default(),
-            signature: DEFAULT_SIGNATURE,
+            total_weight,
+            validator_proposals,
         }
     }
+}
 
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockHeader {
+    /// Inner part of the block header that gets hashed.
+    pub inner: BlockHeaderInner,
+
+    /// Signature of the block producer.
+    pub signature: Signature,
+
+    /// Cached value of hash for this block.
+    #[serde(skip)]
+    hash: CryptoHash,
+}
+
+impl BlockHeader {
     pub fn new(
         height: BlockIndex,
         prev_hash: CryptoHash,
@@ -93,8 +93,9 @@ impl BlockHeader {
         epoch_hash: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
-        Self::header_body(
+        let inner = BlockHeaderInner::new(
             height,
+            epoch_hash,
             prev_hash,
             prev_state_root,
             tx_root,
@@ -103,21 +104,16 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
-            epoch_hash,
-        )
-        //        let bytes = hb.write_to_bytes().expect("Failed to serialize");
-        //        let hash = hash(&bytes);
-        //        let h = chain_proto::BlockHeader {
-        //            body: SingularPtrField::some(hb),
-        //            signature: signer.sign(hash.as_ref()).into(),
-        //            ..Default::default()
-        //        };
-        //        h.try_into().expect("Failed to parse just created header")
+        );
+        let bytes = inner.encode().expect("Failed to serialze block header");
+        let hash = hash(&bytes);
+        Self { inner, signature: signer.sign(hash.as_ref()).into(), hash }
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        Self::header_body(
+        let inner = BlockHeaderInner::new(
             0,
+            CryptoHash::default(),
             CryptoHash::default(),
             state_root,
             MerkleHash::default(),
@@ -126,15 +122,10 @@ impl BlockHeader {
             vec![],
             0.into(),
             vec![],
-            CryptoHash::default(),
-        )
-        //        chain_proto::BlockHeader {
-        //            body: SingularPtrField::some(header_body),
-        //            signature: DEFAULT_SIGNATURE.into(),
-        //            ..Default::default()
-        //        }
-        //        .try_into()
-        //        .expect("Failed to parse just created header")
+        );
+        let bytes = inner.encode().expect("Failed to serialze block header");
+        let hash = hash(&bytes);
+        Self { inner, signature: DEFAULT_SIGNATURE.into(), hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -146,6 +137,17 @@ impl BlockHeader {
         verify(self.hash.as_ref(), &self.signature, public_key)
     }
 }
+
+//impl<'de> Deserialize<'de> for BlockHeader {
+//    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+//    where
+//        D: Deserializer<'de>,
+//    {
+//        let mut header = BlockHeader::deserialize(deserializer)?;
+//        header.hash = hash(&header.inner.encode().expect("Failed serializing header"));
+//        Ok(header)
+//    }
+//}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Bytes(Vec<u8>);
@@ -183,7 +185,8 @@ impl Block {
         } else {
             (vec![], vec![])
         };
-        let total_weight = (prev.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
+        let total_weight =
+            (prev.inner.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
         Block {
             header: BlockHeader::new(
                 height,
@@ -210,9 +213,9 @@ impl Block {
     pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
         Block::produce(
             prev,
-            prev.height + 1,
-            prev.prev_state_root,
-            prev.epoch_hash,
+            prev.inner.height + 1,
+            prev.inner.prev_state_root,
+            prev.inner.epoch_hash,
             vec![],
             HashMap::default(),
             vec![],

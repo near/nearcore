@@ -3,6 +3,7 @@ use std::fmt;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::serialize::{Encode, EncodeResult};
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.

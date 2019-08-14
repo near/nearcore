@@ -8,8 +8,9 @@ use crate::crypto::signature::{verify, PublicKey, Signature};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::serialize::{base_bytes_format, u128_dec_format};
+use crate::serialize::{base_bytes_format, u128_dec_format, Decode, DecodeResult, Encode};
 use crate::types::{AccountId, Balance, Gas, Nonce, ShardId, StructSignature};
+use serde::{Deserialize, Deserializer};
 use std::sync::Arc;
 
 pub type LogEntry = String;
@@ -132,6 +133,7 @@ pub struct DeleteAccountAction {
 pub struct SignedTransaction {
     pub signature: StructSignature,
     pub transaction: Transaction,
+    #[serde(skip)]
     hash: CryptoHash,
 }
 
@@ -319,6 +321,7 @@ mod tests {
     use crate::crypto::signature::{get_key_pair, sign, DEFAULT_SIGNATURE};
 
     use super::*;
+    use crate::serialize::{Decode, Encode};
 
     #[test]
     fn test_verify_transaction() {
@@ -340,5 +343,9 @@ mod tests {
 
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
+
+        let bytes = transaction.encode().unwrap();
+        let new_tx = SignedTransaction::decode(&bytes).unwrap().into();
+        assert!(verify_transaction_signature(&new_tx, &valid_keys));
     }
 }
