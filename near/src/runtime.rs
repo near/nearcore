@@ -603,6 +603,7 @@ mod test {
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use near_chain::types::ValidatorSignatureVerificationResult;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         TransactionBody::Stake(StakeTransaction {
@@ -1124,12 +1125,15 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
-        assert!(env.runtime.verify_validator_signature(
-            &EpochId::default(),
-            &validators[0],
-            &data,
-            &signature
-        ));
+        assert_eq!(
+            ValidatorSignatureVerificationResult::Valid,
+            env.runtime.verify_validator_signature(
+                &EpochId::default(),
+                &validators[0],
+                &data,
+                &signature
+            )
+        );
     }
 
     #[test]
@@ -1139,12 +1143,15 @@ mod test {
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
         let signature = signer.sign(&data);
-        assert!(!env.runtime.verify_validator_signature(
-            &EpochId::default(),
-            &validators[1],
-            &data,
-            &signature
-        ));
+        assert_eq!(
+            ValidatorSignatureVerificationResult::Invalid,
+            env.runtime.verify_validator_signature(
+                &EpochId::default(),
+                &validators[1],
+                &data,
+                &signature
+            )
+        );
     }
 
     #[test]
