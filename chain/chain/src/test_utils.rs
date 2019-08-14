@@ -7,7 +7,7 @@ use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::rpc::QueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
@@ -19,6 +19,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Chain, ValidTransaction};
+use near_primitives::account::Account;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -193,15 +194,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         path: &str,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        let path = path.split("/").collect::<Vec<_>>();
-        Ok(QueryResponse::ViewAccount(AccountViewCallResult {
-            account_id: path[1].to_string(),
-            nonce: 0,
-            amount: 1000,
-            stake: 0,
-            public_keys: vec![],
-            code_hash: CryptoHash::default(),
-        }))
+        Ok(QueryResponse::ViewAccount(Account::new(vec![], 0, CryptoHash::default(), 0).into()))
     }
 
     fn dump_state(

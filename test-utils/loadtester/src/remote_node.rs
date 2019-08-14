@@ -8,7 +8,7 @@ use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::rpc::AccountViewCallResult;
+use near_primitives::rpc::AccountView;
 use near_primitives::serialize::{from_base, Encode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
@@ -139,7 +139,7 @@ impl RemoteNode {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
+    ) -> Result<AccountView, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/abci_query");
         let response: serde_json::Value = self
             .sync_client

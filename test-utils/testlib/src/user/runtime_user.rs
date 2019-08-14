@@ -6,12 +6,11 @@ use tempdir::TempDir;
 
 use lazy_static::lazy_static;
 use near_chain::Block;
-use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_primitives::rpc::{AccessKeyView, AccountView, ViewStateResult};
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction, TransactionLog,
     TransactionResult, TransactionStatus,
@@ -158,9 +157,12 @@ impl RuntimeUser {
 }
 
 impl User for RuntimeUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_account(&state_update, account_id).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_account(&state_update, account_id)
+            .map(|account| account.into())
+            .map_err(|err| err.to_string())
     }
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
@@ -222,10 +224,11 @@ impl User for RuntimeUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKeyView>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
+            .map(|value| value.map(|access_key| access_key.into()))
             .map_err(|err| err.to_string())
     }
 

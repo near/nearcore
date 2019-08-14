@@ -8,7 +8,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_primitives::rpc::{AccessKeyView, AccountView, ViewStateResult};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FinalTransactionResult, FunctionCallAction, SignedTransaction,
@@ -24,7 +24,7 @@ pub mod runtime_user;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub trait User {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String>;
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         Ok(self.view_account(account_id)?.amount)
@@ -59,7 +59,7 @@ pub trait User {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String>;
+    ) -> Result<Option<AccessKeyView>, String>;
 
     fn signer(&self) -> Arc<dyn EDSigner>;
 
@@ -218,7 +218,7 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = AccountViewCallResult, Error = String>>;
+    ) -> Box<dyn Future<Item = AccountView, Error = String>>;
 
     fn view_balance(
         &self,

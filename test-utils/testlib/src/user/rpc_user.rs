@@ -6,12 +6,11 @@ use actix::System;
 use near_chain::Block;
 use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
+use near_primitives::rpc::{AccessKeyView, AccountView, QueryResponse, ViewStateResult};
 use near_primitives::serialize::{to_base, to_base64, BaseEncode, Encode};
 use near_primitives::transaction::{FinalTransactionResult, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, MerkleHash};
@@ -38,7 +37,7 @@ impl RpcUser {
 }
 
 impl User for RpcUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         self.query(format!("account/{}", account_id), &[])?.try_into()
     }
 
@@ -100,7 +99,7 @@ impl User for RpcUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKeyView>, String> {
         self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
     }
 

@@ -14,7 +14,6 @@ use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
-use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_primitives::types::{AccountId, Balance, Nonce};
@@ -195,7 +194,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            if result.stake == 0
+                                            if result.staked == 0
                                                 || result.amount == TESTING_INIT_BALANCE
                                             {
                                                 mark.store(true, Ordering::SeqCst);
@@ -221,7 +220,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            assert_eq!(result.stake, TESTING_INIT_STAKE);
+                                            assert_eq!(result.staked, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
                                                 TESTING_INIT_BALANCE - TESTING_INIT_STAKE
@@ -305,7 +304,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.stake == 0
+                                        if result.staked == 0
                                             && result.amount == TESTING_INIT_BALANCE
                                         {
                                             done1_copy2.store(true, Ordering::SeqCst);
@@ -324,7 +323,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.stake == TESTING_INIT_STAKE
+                                        if result.staked == TESTING_INIT_STAKE
                                             && result.amount
                                                 == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
                                         {

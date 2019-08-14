@@ -3,10 +3,10 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_primitives::rpc::ViewStateResult;
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
 use near_store::{get_access_key, get_account, TrieUpdate};
@@ -30,20 +30,13 @@ impl TrieViewer {
         &self,
         state_update: &TrieUpdate,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
+    ) -> Result<Account, Box<dyn std::error::Error>> {
         if !is_valid_account_id(account_id) {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
         match get_account(state_update, &account_id) {
-            Some(account) => Ok(AccountViewCallResult {
-                account_id: account_id.clone(),
-                nonce: account.nonce,
-                amount: account.amount,
-                stake: account.staked,
-                public_keys: account.public_keys,
-                code_hash: account.code_hash,
-            }),
+            Some(account) => Ok(account),
             _ => Err(format!("account {} does not exist while viewing", account_id).into()),
         }
     }

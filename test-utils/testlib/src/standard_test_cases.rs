@@ -2,7 +2,6 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::rpc::AccountViewCallResult;
 use near_primitives::transaction::FinalTransactionStatus;
 use near_primitives::types::Balance;
 
@@ -11,6 +10,7 @@ use crate::runtime_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
 };
 use crate::user::User;
+use near_primitives::rpc::AccountView;
 use std::sync::Arc;
 
 /// The amount to send with function call.
@@ -209,26 +209,28 @@ pub fn test_send_money(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 1,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 }
@@ -246,26 +248,28 @@ pub fn test_send_money_over_balance(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 }
@@ -283,13 +287,14 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 1,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
     let result2 = node_user.view_account(&eve_account());
@@ -316,13 +321,14 @@ pub fn test_create_account(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 1,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 
@@ -330,13 +336,14 @@ pub fn test_create_account(node: impl Node) {
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: eve_account(),
             public_keys,
             amount: money_used,
-            stake: 0,
+            staked: 0,
             code_hash: CryptoHash::default(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 }
@@ -356,13 +363,14 @@ pub fn test_create_account_again(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 1,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 
@@ -370,13 +378,14 @@ pub fn test_create_account_again(node: impl Node) {
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: eve_account(),
             public_keys,
             amount: money_used,
-            stake: 0,
+            staked: 0,
             code_hash: CryptoHash::default(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 
@@ -395,13 +404,14 @@ pub fn test_create_account_again(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 2,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 }
@@ -434,13 +444,14 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
         let account = node_user.view_account(account_id).unwrap();
         assert_eq!(
             account,
-            AccountViewCallResult {
+            AccountView {
                 nonce: 0,
-                account_id: account_id.clone(),
                 public_keys: vec![node.signer().public_key()],
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-                stake: TESTING_INIT_STAKE,
+                staked: TESTING_INIT_STAKE,
                 code_hash: default_code_hash(),
+                storage_paid_at: 0,
+                storage_usage: 0,
             }
         );
     }
@@ -466,13 +477,14 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
-        AccountViewCallResult {
+        AccountView {
             nonce: 1,
-            account_id: account_id.clone(),
             public_keys: vec![node.signer().public_key()],
             amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 
@@ -480,13 +492,14 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
-        AccountViewCallResult {
+        AccountView {
             nonce: 0,
-            account_id: bob_account(),
             public_keys,
             amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
-            stake: TESTING_INIT_STAKE,
+            staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash(),
+            storage_paid_at: 0,
+            storage_usage: 0,
         }
     );
 }
@@ -625,7 +638,7 @@ pub fn test_add_access_key(node: impl Node) {
     assert_eq!(account.public_keys.len(), 1);
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, Some(access_key));
+    assert_eq!(view_access_key, Some(access_key.into()));
 }
 
 pub fn test_delete_access_key(node: impl Node) {
@@ -674,7 +687,7 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
     assert_eq!(account.amount, initial_balance - 10);
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, Some(access_key));
+    assert_eq!(view_access_key, Some(access_key.into()));
 }
 
 pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
@@ -810,7 +823,7 @@ pub fn test_increase_stake(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
-    assert_eq!(account.stake, amount_staked)
+    assert_eq!(account.staked, amount_staked)
 }
 
 pub fn test_decrease_stake(node: impl Node) {
@@ -827,7 +840,7 @@ pub fn test_decrease_stake(node: impl Node) {
 
     let account = node_user.view_account(account_id).unwrap();
     assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
-    assert_eq!(account.stake, TESTING_INIT_STAKE);
+    assert_eq!(account.staked, TESTING_INIT_STAKE);
 }
 
 pub fn test_unstake_while_not_staked(node: impl Node) {

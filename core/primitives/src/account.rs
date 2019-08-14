@@ -1,6 +1,4 @@
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use std::iter::FromIterator;
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
@@ -11,13 +9,11 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 /// Per account information stored in the state.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    #[serde(with = "vec_base_format")]
     pub public_keys: Vec<PublicKey>,
     pub nonce: Nonce,
-    // amount + staked is the total value of the account
-    #[serde(with = "u128_dec_format")]
+    /// The sum of `amount` and `staked` is the total value of the account.
     pub amount: Balance,
-    #[serde(with = "u128_dec_format")]
+    /// The amount staked by given account.
     pub staked: Balance,
     pub code_hash: CryptoHash,
     /// Storage used by the given account.
@@ -25,12 +21,6 @@ pub struct Account {
     /// Last block index at which the storage was paid for.
     pub storage_paid_at: BlockIndex,
 }
-//
-///// A view of the account
-//#[serde(remote = "Account")]
-//pub struct AccountView {
-//    pub public
-//}
 
 impl Account {
     pub fn new(
@@ -67,7 +57,6 @@ impl Account {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
-    #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     /// Owner of the balance of this Access Key. None means the account owner.
     pub balance_owner: Option<AccountId>,
