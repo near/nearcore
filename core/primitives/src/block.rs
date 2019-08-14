@@ -5,9 +5,6 @@ use std::sync::Arc;
 
 use chrono::prelude::{DateTime, NaiveDateTime, Utc};
 use chrono::serde::ts_nanoseconds;
-use protobuf::{Message as ProtoMessage, RepeatedField, SingularPtrField};
-
-use near_protos::chain as chain_proto;
 
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
@@ -15,7 +12,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::serialize::vec_base_format;
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
-use crate::utils::proto_to_type;
+use bs58::alphabet::DEFAULT;
 
 /// Number of nano seconds in one second.
 const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -65,23 +62,27 @@ impl BlockHeader {
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
-    ) -> chain_proto::BlockHeaderBody {
-        chain_proto::BlockHeaderBody {
+    ) -> BlockHeader {
+        //chain_proto::BlockHeaderBody {
+        BlockHeader {
             height,
             prev_hash: prev_hash.into(),
             prev_state_root: prev_state_root.into(),
             tx_root: tx_root.into(),
-            timestamp: timestamp.timestamp_nanos() as u64,
+            timestamp, //: timestamp.timestamp_nanos() as u64,
             approval_mask,
-            approval_sigs: RepeatedField::from_iter(
-                approval_sigs.iter().map(std::convert::Into::into),
-            ),
-            total_weight: total_weight.to_num(),
-            validator_proposal: RepeatedField::from_iter(
-                validator_proposal.drain(..).map(std::convert::Into::into),
-            ),
+            approval_sigs,
+            //            approval_sigs: RepeatedField::from_iter(
+            //                approval_sigs.iter().map(std::convert::Into::into),
+            //            ),
+            total_weight, //: total_weight.to_num(),
+            validator_proposal,
+            //            validator_proposal: RepeatedField::from_iter(
+            //                validator_proposal.drain(..).map(std::convert::Into::into),
+            //            ),
             epoch_hash: epoch_hash.into(),
-            ..Default::default()
+            hash: CryptoHash::default(),
+            signature: DEFAULT_SIGNATURE,
         }
     }
 
@@ -98,7 +99,7 @@ impl BlockHeader {
         epoch_hash: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Self {
-        let hb = Self::header_body(
+        Self::header_body(
             height,
             prev_hash,
             prev_state_root,
@@ -109,19 +110,19 @@ impl BlockHeader {
             total_weight,
             validator_proposal,
             epoch_hash,
-        );
-        let bytes = hb.write_to_bytes().expect("Failed to serialize");
-        let hash = hash(&bytes);
-        let h = chain_proto::BlockHeader {
-            body: SingularPtrField::some(hb),
-            signature: signer.sign(hash.as_ref()).into(),
-            ..Default::default()
-        };
-        h.try_into().expect("Failed to parse just created header")
+        )
+        //        let bytes = hb.write_to_bytes().expect("Failed to serialize");
+        //        let hash = hash(&bytes);
+        //        let h = chain_proto::BlockHeader {
+        //            body: SingularPtrField::some(hb),
+        //            signature: signer.sign(hash.as_ref()).into(),
+        //            ..Default::default()
+        //        };
+        //        h.try_into().expect("Failed to parse just created header")
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
-        let header_body = Self::header_body(
+        Self::header_body(
             0,
             CryptoHash::default(),
             state_root,
@@ -132,14 +133,14 @@ impl BlockHeader {
             0.into(),
             vec![],
             CryptoHash::default(),
-        );
-        chain_proto::BlockHeader {
-            body: SingularPtrField::some(header_body),
-            signature: DEFAULT_SIGNATURE.into(),
-            ..Default::default()
-        }
-        .try_into()
-        .expect("Failed to parse just created header")
+        )
+        //        chain_proto::BlockHeader {
+        //            body: SingularPtrField::some(header_body),
+        //            signature: DEFAULT_SIGNATURE.into(),
+        //            ..Default::default()
+        //        }
+        //        .try_into()
+        //        .expect("Failed to parse just created header")
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -149,78 +150,6 @@ impl BlockHeader {
     /// Verifies that given public key produced the block.
     pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
         verify(self.hash.as_ref(), &self.signature, public_key)
-    }
-}
-
-impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: chain_proto::BlockHeader) -> Result<Self, Self::Error> {
-        let body = proto.body.into_option().ok_or("Missing Header body")?;
-        let bytes = body.write_to_bytes().map_err(|err| err.to_string())?;
-        let hash = hash(&bytes);
-        let height = body.height;
-        let prev_hash = body.prev_hash.try_into()?;
-        let prev_state_root = body.prev_state_root.try_into()?;
-        let tx_root = body.tx_root.try_into()?;
-        let timestamp = DateTime::from_utc(
-            NaiveDateTime::from_timestamp(
-                (body.timestamp / NS_IN_SECOND) as i64,
-                (body.timestamp % NS_IN_SECOND) as u32,
-            ),
-            Utc,
-        );
-        let approval_mask = body.approval_mask;
-        let approval_sigs =
-            body.approval_sigs.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
-        let total_weight = body.total_weight.into();
-        let signature = proto.signature.try_into()?;
-        let validator_proposal = body
-            .validator_proposal
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
-        let epoch_hash = body.epoch_hash.try_into()?;
-        Ok(BlockHeader {
-            height,
-            prev_hash,
-            prev_state_root,
-            tx_root,
-            timestamp,
-            approval_mask,
-            approval_sigs,
-            total_weight,
-            validator_proposal,
-            epoch_hash,
-            signature,
-            hash,
-        })
-    }
-}
-
-impl From<BlockHeader> for chain_proto::BlockHeader {
-    fn from(mut header: BlockHeader) -> Self {
-        chain_proto::BlockHeader {
-            body: SingularPtrField::some(chain_proto::BlockHeaderBody {
-                height: header.height,
-                prev_hash: header.prev_hash.into(),
-                prev_state_root: header.prev_state_root.into(),
-                tx_root: header.tx_root.into(),
-                timestamp: header.timestamp.timestamp_nanos() as u64,
-                approval_mask: header.approval_mask,
-                approval_sigs: RepeatedField::from_iter(
-                    header.approval_sigs.iter().map(std::convert::Into::into),
-                ),
-                total_weight: header.total_weight.to_num(),
-                validator_proposal: RepeatedField::from_iter(
-                    header.validator_proposal.drain(..).map(std::convert::Into::into),
-                ),
-                epoch_hash: header.epoch_hash.into(),
-                ..Default::default()
-            }),
-            signature: header.signature.into(),
-            ..Default::default()
-        }
     }
 }
 
@@ -295,26 +224,6 @@ impl Block {
             vec![],
             signer,
         )
-    }
-}
-
-impl TryFrom<chain_proto::Block> for Block {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: chain_proto::Block) -> Result<Self, Self::Error> {
-        let transactions =
-            proto.transactions.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
-        Ok(Block { header: proto_to_type(proto.header)?, transactions })
-    }
-}
-
-impl From<Block> for chain_proto::Block {
-    fn from(block: Block) -> Self {
-        chain_proto::Block {
-            header: SingularPtrField::some(block.header.into()),
-            transactions: block.transactions.into_iter().map(std::convert::Into::into).collect(),
-            ..Default::default()
-        }
     }
 }
 

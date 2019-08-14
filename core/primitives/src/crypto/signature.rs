@@ -4,8 +4,6 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use near_protos::public_key as public_key_proto;
-
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
@@ -118,26 +116,6 @@ impl TryFrom<&str> for PublicKey {
         array.copy_from_slice(bytes_arr);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         Ok(PublicKey(public_key))
-    }
-}
-
-impl TryFrom<public_key_proto::PublicKey> for PublicKey {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(p: public_key_proto::PublicKey) -> Result<Self, Self::Error> {
-        // TODO(#979): Need to check `key_type` when we add other than ED25519 types.
-        PublicKey::try_from(p.data).map_err(std::convert::Into::into)
-    }
-}
-
-impl From<PublicKey> for public_key_proto::PublicKey {
-    fn from(p: PublicKey) -> public_key_proto::PublicKey {
-        public_key_proto::PublicKey {
-            key_type: public_key_proto::PublicKey_KeyType::ED25519,
-            data: p.as_ref().to_vec(),
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
     }
 }
 

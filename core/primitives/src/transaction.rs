@@ -3,11 +3,6 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 
-use protobuf::{RepeatedField, SingularPtrField};
-
-use near_protos::signed_transaction as transaction_proto;
-use near_protos::Message as ProtoMessage;
-
 use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey, Signature};
 use crate::crypto::signer::EDSigner;
@@ -15,7 +10,6 @@ use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::serialize::{base_bytes_format, u128_dec_format};
 use crate::types::{AccountId, Balance, Gas, Nonce, ShardId, StructSignature};
-use crate::utils::{proto_to_result, proto_to_type, proto_to_vec};
 use std::sync::Arc;
 
 pub type LogEntry = String;
@@ -32,38 +26,10 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn get_hash(&self) -> CryptoHash {
-        let proto: transaction_proto::Transaction = self.clone().into();
-        let bytes = proto.write_to_bytes().unwrap();
+        //        let proto: transaction_proto::Transaction = self.clone().into();
+        //        let bytes = proto.write_to_bytes().unwrap();
+        let bytes = vec![];
         hash(&bytes)
-    }
-}
-
-impl TryFrom<transaction_proto::Transaction> for Transaction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(t: transaction_proto::Transaction) -> Result<Self, Self::Error> {
-        Ok(Transaction {
-            signer_id: t.signer_id,
-            public_key: proto_to_type(t.public_key)?,
-            nonce: t.nonce,
-            receiver_id: t.receiver_id,
-            actions: proto_to_vec(t.actions)?,
-        })
-    }
-}
-
-impl From<Transaction> for transaction_proto::Transaction {
-    fn from(t: Transaction) -> transaction_proto::Transaction {
-        transaction_proto::Transaction {
-            signer_id: t.signer_id,
-            public_key: SingularPtrField::some(t.public_key.into()),
-            nonce: t.nonce,
-            receiver_id: t.receiver_id,
-            actions: RepeatedField::from_iter(t.actions.into_iter().map(std::convert::Into::into)),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
     }
 }
 
@@ -77,70 +43,6 @@ pub enum Action {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
-}
-
-impl TryFrom<transaction_proto::Action> for Action {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action) -> Result<Self, Self::Error> {
-        match a.action {
-            Some(transaction_proto::Action_oneof_action::create_account(t)) => {
-                Ok(Action::CreateAccount(CreateAccountAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::deploy_contract(t)) => {
-                Ok(Action::DeployContract(DeployContractAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::function_call(t)) => {
-                Ok(Action::FunctionCall(FunctionCallAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::transfer(t)) => {
-                Ok(Action::Transfer(TransferAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::stake(t)) => {
-                Ok(Action::Stake(StakeAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::add_key(t)) => {
-                Ok(Action::AddKey(AddKeyAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::delete_key(t)) => {
-                Ok(Action::DeleteKey(DeleteKeyAction::try_from(t)?))
-            }
-            Some(transaction_proto::Action_oneof_action::delete_account(t)) => {
-                Ok(Action::DeleteAccount(DeleteAccountAction::try_from(t)?))
-            }
-            None => Err("No such action".into()),
-        }
-    }
-}
-
-impl From<Action> for transaction_proto::Action {
-    fn from(a: Action) -> transaction_proto::Action {
-        let action = match a {
-            Action::CreateAccount(a) => {
-                transaction_proto::Action_oneof_action::create_account(a.into())
-            }
-            Action::DeployContract(a) => {
-                transaction_proto::Action_oneof_action::deploy_contract(a.into())
-            }
-            Action::FunctionCall(a) => {
-                transaction_proto::Action_oneof_action::function_call(a.into())
-            }
-            Action::Transfer(a) => transaction_proto::Action_oneof_action::transfer(a.into()),
-            Action::Stake(a) => transaction_proto::Action_oneof_action::stake(a.into()),
-            Action::AddKey(a) => transaction_proto::Action_oneof_action::add_key(a.into()),
-            Action::DeleteKey(a) => transaction_proto::Action_oneof_action::delete_key(a.into()),
-            Action::DeleteAccount(a) => {
-                transaction_proto::Action_oneof_action::delete_account(a.into())
-            }
-        };
-
-        transaction_proto::Action {
-            action: Some(action),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
 }
 
 impl Action {
@@ -162,46 +64,10 @@ impl Action {
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
-impl TryFrom<transaction_proto::Action_CreateAccount> for CreateAccountAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(_: transaction_proto::Action_CreateAccount) -> Result<Self, Self::Error> {
-        Ok(CreateAccountAction {})
-    }
-}
-
-impl From<CreateAccountAction> for transaction_proto::Action_CreateAccount {
-    fn from(_: CreateAccountAction) -> transaction_proto::Action_CreateAccount {
-        transaction_proto::Action_CreateAccount {
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     #[serde(with = "base_bytes_format")]
     pub code: Vec<u8>,
-}
-
-impl TryFrom<transaction_proto::Action_DeployContract> for DeployContractAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_DeployContract) -> Result<Self, Self::Error> {
-        Ok(DeployContractAction { code: a.code })
-    }
-}
-
-impl From<DeployContractAction> for transaction_proto::Action_DeployContract {
-    fn from(a: DeployContractAction) -> transaction_proto::Action_DeployContract {
-        transaction_proto::Action_DeployContract {
-            code: a.code,
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
 }
 
 impl fmt::Debug for DeployContractAction {
@@ -222,33 +88,6 @@ pub struct FunctionCallAction {
     pub deposit: Balance,
 }
 
-impl TryFrom<transaction_proto::Action_FunctionCall> for FunctionCallAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_FunctionCall) -> Result<Self, Self::Error> {
-        Ok(FunctionCallAction {
-            method_name: a.method_name,
-            args: a.args,
-            gas: a.gas,
-            deposit: proto_to_type(a.deposit)?,
-        })
-    }
-}
-
-impl From<FunctionCallAction> for transaction_proto::Action_FunctionCall {
-    fn from(a: FunctionCallAction) -> transaction_proto::Action_FunctionCall {
-        transaction_proto::Action_FunctionCall {
-            method_name: a.method_name,
-            args: a.args,
-            gas: a.gas,
-            deposit: SingularPtrField::some(a.deposit.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 impl fmt::Debug for FunctionCallAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("FunctionCallAction")
@@ -266,50 +105,11 @@ pub struct TransferAction {
     pub deposit: Balance,
 }
 
-impl TryFrom<transaction_proto::Action_Transfer> for TransferAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_Transfer) -> Result<Self, Self::Error> {
-        Ok(TransferAction { deposit: proto_to_type(a.deposit)? })
-    }
-}
-
-impl From<TransferAction> for transaction_proto::Action_Transfer {
-    fn from(a: TransferAction) -> transaction_proto::Action_Transfer {
-        transaction_proto::Action_Transfer {
-            deposit: SingularPtrField::some(a.deposit.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
     pub public_key: PublicKey,
-}
-
-impl TryFrom<transaction_proto::Action_Stake> for StakeAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_Stake) -> Result<Self, Self::Error> {
-        Ok(StakeAction { stake: proto_to_type(a.stake)?, public_key: proto_to_type(a.public_key)? })
-    }
-}
-
-impl From<StakeAction> for transaction_proto::Action_Stake {
-    fn from(a: StakeAction) -> transaction_proto::Action_Stake {
-        transaction_proto::Action_Stake {
-            stake: SingularPtrField::some(a.stake.into()),
-            public_key: SingularPtrField::some(a.public_key.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
 }
 
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
@@ -318,75 +118,14 @@ pub struct AddKeyAction {
     pub access_key: AccessKey,
 }
 
-impl TryFrom<transaction_proto::Action_AddKey> for AddKeyAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_AddKey) -> Result<Self, Self::Error> {
-        Ok(AddKeyAction {
-            public_key: proto_to_type(a.public_key)?,
-            access_key: proto_to_type(a.access_key)?,
-        })
-    }
-}
-
-impl From<AddKeyAction> for transaction_proto::Action_AddKey {
-    fn from(a: AddKeyAction) -> transaction_proto::Action_AddKey {
-        transaction_proto::Action_AddKey {
-            public_key: SingularPtrField::some(a.public_key.into()),
-            access_key: SingularPtrField::some(a.access_key.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     pub public_key: PublicKey,
 }
 
-impl TryFrom<transaction_proto::Action_DeleteKey> for DeleteKeyAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_DeleteKey) -> Result<Self, Self::Error> {
-        Ok(DeleteKeyAction { public_key: proto_to_type(a.public_key)? })
-    }
-}
-
-impl From<DeleteKeyAction> for transaction_proto::Action_DeleteKey {
-    fn from(a: DeleteKeyAction) -> transaction_proto::Action_DeleteKey {
-        transaction_proto::Action_DeleteKey {
-            public_key: SingularPtrField::some(a.public_key.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 #[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
-}
-
-impl TryFrom<transaction_proto::Action_DeleteAccount> for DeleteAccountAction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(a: transaction_proto::Action_DeleteAccount) -> Result<Self, Self::Error> {
-        Ok(DeleteAccountAction { beneficiary_id: a.beneficiary_id })
-    }
-}
-
-impl From<DeleteAccountAction> for transaction_proto::Action_DeleteAccount {
-    fn from(a: DeleteAccountAction) -> transaction_proto::Action_DeleteAccount {
-        transaction_proto::Action_DeleteAccount {
-            beneficiary_id: a.beneficiary_id,
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
 }
 
 #[derive(Eq, Debug, Clone, Serialize, Deserialize)]
@@ -443,31 +182,6 @@ impl Hash for SignedTransaction {
 impl PartialEq for SignedTransaction {
     fn eq(&self, other: &SignedTransaction) -> bool {
         self.hash == other.hash && self.signature == other.signature
-    }
-}
-
-impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(t: transaction_proto::SignedTransaction) -> Result<Self, Self::Error> {
-        let signature: Signature =
-            Signature::try_from(&t.signature as &[u8]).map_err(|e| format!("{}", e))?;
-        let transaction_message = proto_to_result(t.transaction)?;
-        let hash = hash(&transaction_message.write_to_bytes()?);
-        let transaction = transaction_message.try_into()?;
-        Ok(SignedTransaction { signature, transaction, hash })
-    }
-}
-
-impl From<SignedTransaction> for transaction_proto::SignedTransaction {
-    fn from(t: SignedTransaction) -> transaction_proto::SignedTransaction {
-        transaction_proto::SignedTransaction {
-            signature: t.signature.as_ref().to_vec(),
-            transaction: SingularPtrField::some(t.transaction.into()),
-
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
     }
 }
 

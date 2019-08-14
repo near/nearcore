@@ -2,7 +2,6 @@ use std::convert::{AsRef, TryFrom, TryInto};
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use protobuf::{well_known_types::StringValue, RepeatedField, SingularPtrField};
 use regex::Regex;
 
 use lazy_static::lazy_static;
@@ -124,30 +123,6 @@ pub fn is_valid_account_id(account_id: &AccountId) -> bool {
         return false;
     }
     VALID_ACCOUNT_ID.is_match(account_id)
-}
-
-pub fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
-}
-
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<dyn std::error::Error>> {
-    proto.into_option().ok_or_else(|| "Bad Proto".into())
-}
-
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto_to_result(proto).and_then(TryInto::try_into)
-}
-
-pub fn proto_to_vec<T, U>(proto: RepeatedField<T>) -> Result<Vec<U>, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto.into_iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()
 }
 
 /// A wrapper around Option<T> that provides native Display trait.

@@ -1,10 +1,8 @@
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
 
 use clap::{App, Arg, SubCommand};
-use protobuf::parse_from_bytes;
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -12,12 +10,10 @@ use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::serialize::{from_base64, to_base64, Decode};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
-use near_protos::access_key as access_key_proto;
-use near_protos::account as account_proto;
 use near_store::{create_store, DBValue, Store, TrieIterator};
 use node_runtime::StateRecord;
 
@@ -44,8 +40,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
             if separator.is_some() {
                 StateRecord::Data { key: to_base64(&key), value: to_base64(&value) }
             } else {
-                let proto: account_proto::Account = parse_from_bytes(&value).unwrap();
-                let account: Account = proto.try_into().unwrap();
+                let account = Account::decode(&value).unwrap();
                 StateRecord::Account { account_id: to_printable(&key[1..]), account }
             }
         }
@@ -60,8 +55,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
         }
         col::ACCESS_KEY => {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
-            let proto: access_key_proto::AccessKey = parse_from_bytes(&value).unwrap();
-            let access_key: AccessKey = proto.try_into().unwrap();
+            let access_key = AccessKey::decode(&value).unwrap();
             let account_id = to_printable(&key[1..separator]);
             let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
             StateRecord::AccessKey { account_id, public_key: public_key.to_readable(), access_key }

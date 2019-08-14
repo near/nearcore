@@ -2,12 +2,6 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::iter::FromIterator;
 
-use protobuf::well_known_types::{BytesValue, StringValue};
-use protobuf::{RepeatedField, SingularPtrField};
-
-use near_protos::access_key as access_key_proto;
-use near_protos::account as account_proto;
-
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
@@ -31,6 +25,12 @@ pub struct Account {
     /// Last block index at which the storage was paid for.
     pub storage_paid_at: BlockIndex,
 }
+//
+///// A view of the account
+//#[serde(remote = "Account")]
+//pub struct AccountView {
+//    pub public
+//}
 
 impl Account {
     pub fn new(
@@ -62,44 +62,6 @@ impl Account {
     }
 }
 
-impl TryFrom<account_proto::Account> for Account {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(account: account_proto::Account) -> Result<Self, Self::Error> {
-        Ok(Account {
-            public_keys: account
-                .public_keys
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()?,
-            nonce: account.nonce,
-            amount: account.amount.unwrap_or_default().try_into()?,
-            staked: account.staked.unwrap_or_default().try_into()?,
-            code_hash: account.code_hash.try_into()?,
-            storage_usage: account.storage_usage,
-            storage_paid_at: account.storage_paid_at,
-        })
-    }
-}
-
-impl From<Account> for account_proto::Account {
-    fn from(account: Account) -> Self {
-        account_proto::Account {
-            public_keys: RepeatedField::from_iter(
-                account.public_keys.iter().map(std::convert::Into::into),
-            ),
-            nonce: account.nonce,
-            amount: SingularPtrField::some(account.amount.into()),
-            staked: SingularPtrField::some(account.staked.into()),
-            code_hash: account.code_hash.into(),
-            storage_usage: account.storage_usage,
-            storage_paid_at: account.storage_paid_at,
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
-    }
-}
-
 /// Limited Access key to use owner's account with the fixed public_key.
 /// Access Key is stored under the key of owner's `account_id` and the `public_key`.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -124,43 +86,5 @@ impl fmt::Debug for AccessKey {
             .field("contract_id", &self.contract_id)
             .field("method_name", &self.method_name.as_ref().map(|v| logging::pretty_utf8(&v)))
             .finish()
-    }
-}
-
-impl TryFrom<access_key_proto::AccessKey> for AccessKey {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(access_key: access_key_proto::AccessKey) -> Result<Self, Self::Error> {
-        Ok(AccessKey {
-            amount: access_key.amount.unwrap_or_default().try_into()?,
-            balance_owner: access_key.balance_owner.into_option().map(|s| s.value),
-            contract_id: access_key.contract_id.into_option().map(|s| s.value),
-            method_name: access_key.method_name.into_option().map(|s| s.value),
-        })
-    }
-}
-
-impl From<AccessKey> for access_key_proto::AccessKey {
-    fn from(access_key: AccessKey) -> Self {
-        access_key_proto::AccessKey {
-            amount: SingularPtrField::some(access_key.amount.into()),
-            balance_owner: SingularPtrField::from_option(access_key.balance_owner.map(|v| {
-                let mut res = StringValue::new();
-                res.set_value(v);
-                res
-            })),
-            contract_id: SingularPtrField::from_option(access_key.contract_id.map(|v| {
-                let mut res = StringValue::new();
-                res.set_value(v);
-                res
-            })),
-            method_name: SingularPtrField::from_option(access_key.method_name.map(|v| {
-                let mut res = BytesValue::new();
-                res.set_value(v);
-                res
-            })),
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
-        }
     }
 }
