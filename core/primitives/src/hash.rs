@@ -7,9 +7,9 @@ use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Encode};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
@@ -101,25 +101,6 @@ impl Hash for CryptoHash {
 impl PartialEq for CryptoHash {
     fn eq(&self, other: &CryptoHash) -> bool {
         self.0 == other.0
-    }
-}
-
-impl Serialize for CryptoHash {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for CryptoHash {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 

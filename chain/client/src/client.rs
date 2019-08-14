@@ -343,9 +343,9 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash,
+                latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: state_root.clone(),
+                latest_state_root: state_root.clone().into(),
                 latest_block_time,
                 syncing: self.sync_status.is_syncing(),
             },

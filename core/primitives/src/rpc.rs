@@ -8,7 +8,7 @@ use crate::account::{AccessKey, Account};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
 use crate::serialize::{from_base, to_base, u128_dec_format, vec_base_format};
-use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, StorageUsage, Version};
+use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, Version};
 
 /// Number of nano seconds in one second.
 //const NS_IN_SECOND: u64 = 1_000_000_000;
@@ -103,6 +103,36 @@ impl From<Signature> for SignatureView {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct CryptoHashView(Vec<u8>);
+
+impl Serialize for CryptoHashView {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&to_base(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for CryptoHashView {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        from_base(&s)
+            .map(|v| CryptoHashView(v))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl From<CryptoHash> for CryptoHashView {
+    fn from(hash: CryptoHash) -> Self {
+        CryptoHashView(hash.as_ref().to_vec())
+    }
+}
+
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct AccountView {
@@ -112,7 +142,7 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub staked: Balance,
-    pub code_hash: CryptoHash,
+    pub code_hash: CryptoHashView,
     pub storage_usage: StorageUsage,
     pub storage_paid_at: BlockIndex,
 }
@@ -128,7 +158,7 @@ impl From<Account> for AccountView {
             nonce: account.nonce,
             amount: account.amount,
             staked: account.staked,
-            code_hash: account.code_hash,
+            code_hash: account.code_hash.into(),
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
         }
@@ -191,9 +221,9 @@ pub enum QueryResponse {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusSyncInfo {
-    pub latest_block_hash: CryptoHash,
+    pub latest_block_hash: CryptoHashView,
     pub latest_block_height: BlockIndex,
-    pub latest_state_root: MerkleHash,
+    pub latest_state_root: CryptoHashView,
     pub latest_block_time: DateTime<Utc>,
     pub syncing: bool,
 }
