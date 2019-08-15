@@ -101,7 +101,7 @@ fn nbor_enum_ser(input: &ItemEnum) -> TokenStream2 {
     let name = &input.ident;
     let mut body = TokenStream2::new();
     for (variant_idx, variant) in input.variants.iter().enumerate() {
-        let variant_idx = variant_idx as u32;
+        let variant_idx = variant_idx as u8;
         let variant_ident = &variant.ident;
         let mut variant_header = TokenStream2::new();
         let mut variant_body = TokenStream2::new();
@@ -144,7 +144,7 @@ fn nbor_enum_ser(input: &ItemEnum) -> TokenStream2 {
         }
         body.extend(quote!(
             #name::#variant_ident #variant_header => {
-                let variant_idx: u32 = #variant_idx;
+                let variant_idx: u8 = #variant_idx;
                 writer.write(&variant_idx.to_le_bytes())?;
                 #variant_body
             }
@@ -233,7 +233,7 @@ fn nbor_enum_de(input: &ItemEnum) -> TokenStream2 {
     let init_method = contains_initialize_with(&input.attrs);
     let mut variant_arms = TokenStream2::new();
     for (variant_idx, variant) in input.variants.iter().enumerate() {
-        let variant_idx = variant_idx as u32;
+        let variant_idx = variant_idx as u8;
         let variant_ident = &variant.ident;
         let mut variant_header = TokenStream2::new();
         match &variant.fields {
@@ -269,9 +269,9 @@ fn nbor_enum_de(input: &ItemEnum) -> TokenStream2 {
         });
     }
     let variant_idx = quote! {
-        let mut variant_idx = [0u8; std::mem::size_of::<u32>()];
+        let mut variant_idx = [0u8; std::mem::size_of::<u8>()];
         reader.read(&mut variant_idx)?;
-        let variant_idx = u32::from_le_bytes(variant_idx);
+        let variant_idx = u8::from_le_bytes(variant_idx);
     };
     if let Some(method_ident) = init_method {
         quote! {
