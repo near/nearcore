@@ -123,8 +123,8 @@ pub struct DeleteAccountAction {
 #[derive(nbor, Eq, Debug, Clone)]
 #[nbor_init(init)]
 pub struct SignedTransaction {
-    pub signature: StructSignature,
     pub transaction: Transaction,
+    pub signature: StructSignature,
     #[nbor_skip]
     hash: CryptoHash,
 }
@@ -370,7 +370,7 @@ mod tests {
                 //                    gas: 1_000,
                 //                    deposit: 1_000_000,
                 //                }),
-                Action::Transfer(TransferAction { deposit: 1_000_000_000 }),
+                Action::Transfer(TransferAction { deposit: 123 }),
                 //                Action::Stake(StakeAction { public_key, stake: 1_000_000 }),
                 //                Action::AddKey(AddKeyAction {
                 //                    public_key,
@@ -386,6 +386,9 @@ mod tests {
             ],
         };
         let signed_tx = SignedTransaction::new(DEFAULT_SIGNATURE, transaction);
+        println!("{:?}", signed_tx.to_vec().unwrap());
+        // [9, 0, 0, 0, 116, 101, 115, 116, 46, 110, 101, 97, 114, 0, 15, 86, 165, 240, 40, 223, 192, 137, 236, 124, 57, 193, 24, 59, 50, 27, 77, 143, 137, 186, 91, 236, 158, 23, 98, 128, 60, 194, 73, 31, 110, 248, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        // [9, 0, 0, 0, 116, 101, 115, 116, 46, 110, 101, 97, 114, 0, 15, 86, 165, 240, 40, 223, 192, 137, 236, 124, 57, 193, 24, 59, 50, 27, 77, 143, 137, 186, 91, 236, 158, 23, 98, 128, 60, 194, 73, 31, 110, 248, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 49, 50, 51, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         let new_signed_tx = SignedTransaction::from_slice(&signed_tx.to_vec().unwrap()).unwrap();
 
         assert_eq!(

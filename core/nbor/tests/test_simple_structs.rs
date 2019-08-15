@@ -4,7 +4,7 @@ use nbor::{nbor, Deserializable, Serializable};
 #[nbor_init(init)]
 struct A {
     x: u64,
-    // b: B,
+    b: B,
     y: f32,
     z: String,
     v: Vec<String>,
@@ -46,7 +46,7 @@ struct D {
 fn test_simple_struct() {
     let a = A {
         x: 1,
-        // b: B { x: 2, y: 3, c: C::C5(D { x: 1 }) },
+        b: B { x: 2, y: 3, c: C::C5(D { x: 1 }) },
         y: 4.0,
         z: "123".to_string(),
         v: vec!["qwe".to_string(), "zxc".to_string()],
@@ -57,7 +57,7 @@ fn test_simple_struct() {
     let decoded_a = A::from_slice(&encoded_a).unwrap();
     let expected_a = A {
         x: 1,
-        // b: B { x: 2, y: 3, c: C::C5(D { x: 1 }) },
+        b: B { x: 2, y: 3, c: C::C5(D { x: 1 }) },
         y: 4.0,
         z: a.z,
         v: a.v,

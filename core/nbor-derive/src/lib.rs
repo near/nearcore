@@ -132,10 +132,10 @@ fn nbor_enum_ser(input: &ItemEnum) -> TokenStream2 {
                         let field_ident =
                             Ident::new(format!("id{}", field_idx).as_str(), Span::call_site());
                         variant_header.extend(quote! { #field_ident, });
+                        variant_body.extend(quote! {
+                            nbor::Serializable::write(#field_ident, writer)?;
+                        })
                     }
-                    variant_body.extend(quote! {
-                         nbor::Serializable::write(&#field_idx, writer)?;
-                    })
                 }
                 variant_header = quote! { ( #variant_header )};
             }
@@ -159,7 +159,6 @@ fn nbor_enum_ser(input: &ItemEnum) -> TokenStream2 {
             }
         }
     };
-    println!("{}", res.to_string());
     res
 }
 
