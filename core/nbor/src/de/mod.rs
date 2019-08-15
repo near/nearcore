@@ -87,7 +87,7 @@ impl Deserializable for String {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let len = u32::read(reader)?;
         let mut result = vec![0; len as usize];
-        reader.read_exact(&mut result)?;
+        reader.read(&mut result)?;
         String::from_utf8(result)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
     }
@@ -100,7 +100,7 @@ where
 {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let len = u32::read(reader)?;
-        let mut result = vec![];
+        let mut result = Vec::with_capacity(len as usize);
         for _ in 0..len {
             result.push(T::read(reader)?);
         }
@@ -127,7 +127,7 @@ where
 {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let len = u32::read(reader)?;
-        let mut result = HashMap::default();
+        let mut result = HashMap::with_capacity(len as usize);
         for _ in 0..len {
             let key = K::read(reader)?;
             let value = V::read(reader)?;
@@ -145,7 +145,7 @@ where
 {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let len = u32::read(reader)?;
-        let mut result = BTreeMap::default();
+        let mut result = BTreeMap::new();
         for _ in 0..len {
             let key = K::read(reader)?;
             let value = V::read(reader)?;

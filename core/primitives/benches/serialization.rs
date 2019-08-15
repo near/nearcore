@@ -7,13 +7,12 @@ use std::sync::Arc;
 use bencher::Bencher;
 use chrono::Utc;
 
+use nbor::{Deserializable, Serializable};
 use near_primitives::account::Account;
 use near_primitives::block::Block;
 use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
-//use near_primitives::serialize::{Decode, Encode};
-use nbor::{Deserializable, Serializable};
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::MerkleHash;
 
@@ -108,8 +107,8 @@ fn deserialize_account(bench: &mut Bencher) {
 benchmark_group!(
     benches,
     serialize_tx,
-    serialize_block,
     deserialize_tx,
+    serialize_block,
     deserialize_block,
     serialize_account,
     deserialize_account

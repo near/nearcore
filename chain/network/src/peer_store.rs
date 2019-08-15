@@ -12,6 +12,7 @@ use near_store::{Store, COL_PEERS};
 use crate::types::{
     FullPeerInfo, KnownPeerState, KnownPeerStatus, NetworkConfig, PeerId, PeerInfo, ReasonForBan,
 };
+use near_primitives::utils::to_timestamp;
 
 /// Known peers store, maintaining cache of known peers and connection to storage to save/load them.
 pub struct PeerStore {
@@ -56,7 +57,7 @@ impl PeerStore {
             .peer_states
             .entry(peer_info.peer_info.id)
             .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
-        entry.last_seen = Utc::now().timestamp_millis() as u64;
+        entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
         store_update.set_ser(COL_PEERS, peer_info.peer_info.id.as_ref(), entry)?;
@@ -68,7 +69,7 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now().timestamp_millis() as u64;
+            peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
             store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
@@ -84,9 +85,8 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now().timestamp_millis() as u64;
-            peer_state.status =
-                KnownPeerStatus::Banned(ban_reason, Utc::now().timestamp_millis() as u64);
+            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
             let mut store_update = self.store.store_update();
             store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
             store_update.commit().map_err(|err| err.into())

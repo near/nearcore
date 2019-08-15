@@ -728,7 +728,7 @@ mod test {
             assignment(
                 vec![("test1", 1_000_000)],
                 vec![0],
-                vec![vec![0, 0]],
+                vec![vec![0], vec![0]],
                 vec![],
                 0,
                 change_stake(vec![("test1", 1_000_000)])
@@ -759,9 +759,9 @@ mod test {
                 vec![0, 1, 0, 0, 1, 2],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
-                    vec![0, 1, 2],
+                    vec![0, 1, 0, 0, 1, 2],
                     vec![0, 1],
-                    vec![0, 2],
+                    vec![0, 0],
                     vec![1, 2],
                     vec![0, 1]
                 ],
@@ -794,7 +794,7 @@ mod test {
         let expected0 = assignment(
             vec![("test1", amount_staked)],
             vec![0, 0],
-            vec![vec![0]],
+            vec![vec![0, 0]],
             vec![],
             1,
             change_stake(vec![("test1", amount_staked)]),
@@ -943,7 +943,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked), ("test3", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![0, 1]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -963,7 +963,7 @@ mod test {
             &assignment(
                 vec![("test4", amount_staked), ("test2", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![0, 1]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -1046,7 +1046,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1057,7 +1057,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", amount_staked), ("test2", 0)])
@@ -1090,7 +1090,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1104,7 +1104,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 6,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1137,7 +1137,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1207,7 +1207,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1227,7 +1227,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![0]],
+                vec![vec![0, 0]],
                 vec![],
                 6,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])

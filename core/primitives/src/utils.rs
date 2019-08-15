@@ -13,6 +13,9 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
+/// Number of nano seconds in a second.
+const NS_IN_SECOND: u64 = 1_000_000_000;
+
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
     pub const CALLBACK: &[u8] = &[1];
@@ -167,13 +170,18 @@ macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
     }
 }));
 
-/// Converts timestamp in millis into DateTime UTC time.
+/// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
     DateTime::from_utc(
         NaiveDateTime::from_timestamp(
-            (timestamp / 1000) as i64,
-            ((timestamp % 1000) * 1_000_000) as u32,
+            (timestamp / NS_IN_SECOND) as i64,
+            (timestamp % NS_IN_SECOND) as u32,
         ),
         Utc,
     )
+}
+
+/// Converts DateTime UTC time into timestamp in ns.
+pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
+    time.timestamp_nanos() as u64
 }

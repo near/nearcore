@@ -362,38 +362,35 @@ mod tests {
             nonce: 1,
             receiver_id: "123".to_string(),
             actions: vec![
-                //                Action::CreateAccount(CreateAccountAction {}),
-                //                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
-                //                Action::FunctionCall(FunctionCallAction {
-                //                    method_name: "qqq".to_string(),
-                //                    args: vec![1, 2, 3],
-                //                    gas: 1_000,
-                //                    deposit: 1_000_000,
-                //                }),
+                Action::CreateAccount(CreateAccountAction {}),
+                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
+                Action::FunctionCall(FunctionCallAction {
+                    method_name: "qqq".to_string(),
+                    args: vec![1, 2, 3],
+                    gas: 1_000,
+                    deposit: 1_000_000,
+                }),
                 Action::Transfer(TransferAction { deposit: 123 }),
-                //                Action::Stake(StakeAction { public_key, stake: 1_000_000 }),
-                //                Action::AddKey(AddKeyAction {
-                //                    public_key,
-                //                    access_key: AccessKey {
-                //                        amount: 1,
-                //                        balance_owner: Some("123".to_string()),
-                //                        contract_id: Some("321".to_string()),
-                //                        method_name: None,
-                //                    },
-                //                }),
-                //                Action::DeleteKey(DeleteKeyAction { public_key }),
-                //                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
+                Action::Stake(StakeAction { public_key, stake: 1_000_000 }),
+                Action::AddKey(AddKeyAction {
+                    public_key,
+                    access_key: AccessKey {
+                        amount: 1,
+                        balance_owner: Some("123".to_string()),
+                        contract_id: Some("321".to_string()),
+                        method_name: None,
+                    },
+                }),
+                Action::DeleteKey(DeleteKeyAction { public_key }),
+                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
             ],
         };
         let signed_tx = SignedTransaction::new(DEFAULT_SIGNATURE, transaction);
-        println!("{:?}", signed_tx.to_vec().unwrap());
-        // [9, 0, 0, 0, 116, 101, 115, 116, 46, 110, 101, 97, 114, 0, 15, 86, 165, 240, 40, 223, 192, 137, 236, 124, 57, 193, 24, 59, 50, 27, 77, 143, 137, 186, 91, 236, 158, 23, 98, 128, 60, 194, 73, 31, 110, 248, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        // [9, 0, 0, 0, 116, 101, 115, 116, 46, 110, 101, 97, 114, 0, 15, 86, 165, 240, 40, 223, 192, 137, 236, 124, 57, 193, 24, 59, 50, 27, 77, 143, 137, 186, 91, 236, 158, 23, 98, 128, 60, 194, 73, 31, 110, 248, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 49, 50, 51, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         let new_signed_tx = SignedTransaction::from_slice(&signed_tx.to_vec().unwrap()).unwrap();
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "EsTRpLernDsH2hzznZ6wKMu1XYdyT4ynKK2H13hbMyzb"
+            "8QXFE2Kes67MYTMuqeKHW5jGQPD2t7Ue9vRMo2oB8Cw"
         );
     }
 }

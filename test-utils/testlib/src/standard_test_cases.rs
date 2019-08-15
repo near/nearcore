@@ -774,7 +774,7 @@ pub fn test_stake_fail_not_enough_rent(node: impl Node) {
         alice_account(),
         eve_account(),
         node.signer().public_key(),
-        119_000_000_000_000_010,
+        134_000_000_000_000_010,
     );
     let transaction_result = node_user.stake(eve_account(), node.signer().public_key(), 5);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);

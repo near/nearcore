@@ -10,7 +10,7 @@ use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
-use crate::utils::from_timestamp;
+use crate::utils::{from_timestamp, to_timestamp};
 
 #[derive(nbor, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInner {
@@ -44,7 +44,7 @@ impl BlockHeaderInner {
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
-        timestamp: DateTime<Utc>,
+        time: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
@@ -56,7 +56,7 @@ impl BlockHeaderInner {
             prev_hash,
             prev_state_root,
             tx_root,
-            timestamp: timestamp.timestamp_millis() as u64,
+            timestamp: to_timestamp(time),
             approval_mask,
             approval_sigs,
             total_weight,

@@ -22,7 +22,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 
 use crate::peer::Peer;
-use near_primitives::utils::from_timestamp;
+use near_primitives::utils::{from_timestamp, to_timestamp};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 2;
@@ -343,8 +343,8 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: Utc::now().timestamp_millis() as u64,
-            last_seen: Utc::now().timestamp_millis() as u64,
+            first_seen: to_timestamp(Utc::now()),
+            last_seen: to_timestamp(Utc::now()),
         }
     }
 

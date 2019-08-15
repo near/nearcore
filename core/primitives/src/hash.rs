@@ -143,23 +143,24 @@ pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::CryptoHashView;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        hash: CryptoHash,
+        hash: CryptoHashView,
     }
 
     #[test]
     fn test_serialize_success() {
         let hash = hash(&[0, 1, 2]);
-        let s = Struct { hash };
+        let s = Struct { hash: hash.into() };
         let encoded = serde_json::to_string(&s).unwrap();
         assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
     }
 
     #[test]
     fn test_serialize_default() {
-        let s = Struct { hash: CryptoHash::default() };
+        let s = Struct { hash: CryptoHash::default().into() };
         let encoded = serde_json::to_string(&s).unwrap();
         assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
     }
@@ -168,14 +169,14 @@ mod tests {
     fn test_deserialize_default() {
         let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded.hash, CryptoHash::default());
+        assert_eq!(decoded.hash, CryptoHash::default().into());
     }
 
     #[test]
     fn test_deserialize_success() {
         let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded.hash, hash(&[0, 1, 2]));
+        assert_eq!(decoded.hash, hash(&[0, 1, 2]).into());
     }
 
     #[test]

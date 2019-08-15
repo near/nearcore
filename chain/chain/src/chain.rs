@@ -419,8 +419,8 @@ impl Chain {
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
-                        Err(_) => {
-                            debug!(target: "chain", "Orphan declined");
+                        Err(err) => {
+                            debug!(target: "chain", "Orphan declined: {:?}", err);
                         }
                     }
                 }
