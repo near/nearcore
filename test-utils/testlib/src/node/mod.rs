@@ -125,7 +125,7 @@ fn near_configs_to_node_configs(
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
             &genesis_config,
-            network_signers[i].clone().into(),
+            (&network_signers[i]).into(),
             Some(signers[i].clone().into()),
         )))
     }

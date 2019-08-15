@@ -390,7 +390,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "8QXFE2Kes67MYTMuqeKHW5jGQPD2t7Ue9vRMo2oB8Cw"
+            "6jaty3HYh35hQUj2PSN4rhVoZXx5EZ1xUBhBgXjko8fa"
         );
     }
 }

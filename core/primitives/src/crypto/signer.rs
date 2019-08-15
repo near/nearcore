@@ -11,6 +11,7 @@ use rand::Rng;
 
 use crate::crypto::aggregate_signature::BlsPublicKey;
 use crate::crypto::signature::{get_key_pair, sign, verify, PublicKey, SecretKey, Signature};
+use crate::rpc::{PublicKeyView, SecretKeyView};
 use crate::types::{AccountId, PartialSignature};
 
 /// Trait to abstract the signer account.
@@ -39,8 +40,26 @@ pub trait BLSSigner: Sync + Send {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyFile {
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
+    pub account_id: AccountId,
+    pub public_key: PublicKeyView,
+    pub secret_key: SecretKeyView,
+}
+
+impl KeyFile {
+    fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
+        }
+    }
+
+    fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
 }
 
 pub fn write_key_file(
@@ -52,7 +71,11 @@ pub fn write_key_file(
         fs::create_dir_all(key_store_path).unwrap();
     }
 
-    let key_file = KeyFile { public_key, secret_key };
+    let key_file = KeyFile {
+        account_id: "".to_string(),
+        public_key: public_key.into(),
+        secret_key: secret_key.into(),
+    };
     let key_file_path = key_store_path.join(Path::new(&public_key.to_string()));
     let serialized = serde_json::to_string(&key_file).unwrap();
     fs::write(key_file_path, serialized).unwrap();
@@ -187,10 +210,7 @@ impl InMemorySigner {
 
     /// Read key file into signer.
     pub fn from_file(path: &Path) -> Self {
-        let mut file = File::open(path).expect("Could not open key file.");
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Could not read from key file.");
-        InMemorySigner::from(content.as_str())
+        KeyFile::from_file(path).into()
     }
 
     /// Initialize `InMemorySigner` with a random ED25519 and BLS keys, and random account id. Used
@@ -210,15 +230,33 @@ impl From<&str> for InMemorySigner {
     }
 }
 
-impl From<InMemorySigner> for KeyFile {
-    fn from(signer: InMemorySigner) -> KeyFile {
-        KeyFile { public_key: signer.public_key, secret_key: signer.secret_key.clone() }
+impl From<KeyFile> for InMemorySigner {
+    fn from(key_file: KeyFile) -> Self {
+        Self {
+            account_id: key_file.account_id,
+            public_key: key_file.public_key.into(),
+            secret_key: key_file.secret_key.into(),
+        }
+    }
+}
+
+impl From<&InMemorySigner> for KeyFile {
+    fn from(signer: &InMemorySigner) -> KeyFile {
+        KeyFile {
+            account_id: signer.account_id.clone(),
+            public_key: signer.public_key.into(),
+            secret_key: signer.secret_key.clone().into(),
+        }
     }
 }
 
 impl From<Arc<InMemorySigner>> for KeyFile {
     fn from(signer: Arc<InMemorySigner>) -> KeyFile {
-        KeyFile { public_key: signer.public_key, secret_key: signer.secret_key.clone() }
+        KeyFile {
+            account_id: signer.account_id.clone(),
+            public_key: signer.public_key.into(),
+            secret_key: signer.secret_key.clone().into(),
+        }
     }
 }
 
@@ -245,10 +283,7 @@ impl EDSigner for InMemorySigner {
 
     /// Save signer into key file.
     fn write_to_file(&self, path: &Path) {
-        let mut file = File::create(path).expect("Failed to create / write a key file.");
-        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
-        if let Err(err) = file.write_all(str.as_bytes()) {
-            panic!("Failed to write a key file {}", err);
-        }
+        let key_file: KeyFile = self.into();
+        key_file.write_to_file(path);
     }
 }

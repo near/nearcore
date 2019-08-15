@@ -222,8 +222,8 @@ impl NearConfig {
                 block_header_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
+                public_key: network_key_pair.public_key.into(),
+                secret_key: network_key_pair.secret_key.into(),
                 account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
@@ -672,7 +672,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {

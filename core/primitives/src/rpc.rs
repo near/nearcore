@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -8,9 +9,11 @@ use crate::account::{AccessKey, Account};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
-use crate::serialize::{from_base, to_base, u128_dec_format};
-use crate::transaction::SignedTransaction;
-use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, ValidatorStake, Version};
+use crate::serialize::{from_base, to_base, to_base64, u128_dec_format};
+use crate::transaction::{Action, SignedTransaction};
+use crate::types::{
+    AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
+};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PublicKeyView(Vec<u8>);
@@ -33,6 +36,12 @@ impl<'de> Deserialize<'de> for PublicKeyView {
         from_base(&s)
             .map(|v| PublicKeyView(v))
             .map_err(|err| serde::de::Error::custom(err.to_string()))
+    }
+}
+
+impl fmt::Display for PublicKeyView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", to_base(&self.0))
     }
 }
 
@@ -75,6 +84,13 @@ impl<'de> Deserialize<'de> for SecretKeyView {
 impl From<SecretKey> for SecretKeyView {
     fn from(secret_key: SecretKey) -> Self {
         Self(secret_key.0[..].to_vec())
+    }
+}
+
+impl From<SecretKeyView> for SecretKey {
+    fn from(view: SecretKeyView) -> Self {
+        TryFrom::<&[u8]>::try_from(view.0.as_ref())
+            .expect("Failed to get SecretKeyView from SecretKey")
     }
 }
 
@@ -406,11 +422,92 @@ impl From<Block> for BlockView {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct SignedTransactionView {}
+pub enum ActionView {
+    CreateAccount,
+    DeployContract {
+        code: String,
+    },
+    FunctionCall {
+        method_name: String,
+        args: String,
+        gas: Gas,
+        #[serde(with = "u128_dec_format")]
+        deposit: Balance,
+    },
+    Transfer {
+        #[serde(with = "u128_dec_format")]
+        deposit: Balance,
+    },
+    Stake {
+        #[serde(with = "u128_dec_format")]
+        stake: Balance,
+        public_key: PublicKeyView,
+    },
+    AddKey {
+        public_key: PublicKeyView,
+        access_key: AccessKeyView,
+    },
+    DeleteKey {
+        public_key: PublicKey,
+    },
+    DeleteAccount {
+        beneficiary_id: AccountId,
+    },
+}
+
+impl From<Action> for ActionView {
+    fn from(action: Action) -> Self {
+        match action {
+            Action::CreateAccount(_) => ActionView::CreateAccount,
+            Action::DeployContract(action) => {
+                ActionView::DeployContract { code: to_base64(&action.code) }
+            }
+            Action::FunctionCall(action) => ActionView::FunctionCall {
+                method_name: action.method_name,
+                args: to_base(&action.args),
+                gas: action.gas,
+                deposit: action.deposit,
+            },
+            Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
+            Action::Stake(action) => {
+                ActionView::Stake { stake: action.stake, public_key: action.public_key.into() }
+            }
+            Action::AddKey(action) => ActionView::AddKey {
+                public_key: action.public_key.into(),
+                access_key: action.access_key.into(),
+            },
+            Action::DeleteKey(action) => {
+                ActionView::DeleteKey { public_key: action.public_key.into() }
+            }
+            Action::DeleteAccount(action) => {
+                ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignedTransactionView {
+    signer_id: AccountId,
+    public_key: PublicKeyView,
+    nonce: Nonce,
+    receiver_id: AccountId,
+    actions: Vec<ActionView>,
+    signature: SignatureView,
+    hash: CryptoHashView,
+}
 
 impl From<SignedTransaction> for SignedTransactionView {
-    fn from(signed_tx: SignedTransaction) -> Self {
-        // MOO
-        SignedTransactionView {}
+    fn from(mut signed_tx: SignedTransaction) -> Self {
+        let hash = signed_tx.get_hash().into();
+        SignedTransactionView {
+            signer_id: signed_tx.transaction.signer_id,
+            public_key: signed_tx.transaction.public_key.into(),
+            nonce: signed_tx.transaction.nonce,
+            receiver_id: signed_tx.transaction.receiver_id,
+            actions: signed_tx.transaction.actions.drain(..).map(|action| action.into()).collect(),
+            signature: signed_tx.signature.into(),
+            hash,
+        }
     }
 }

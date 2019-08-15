@@ -63,7 +63,7 @@ fn sign_data(matches: &ArgMatches) {
 
     let data = matches.value_of("data").unwrap();
     let bytes = from_base(data).unwrap();
-    let signature = sign(&bytes, &key_file.secret_key);
+    let signature = sign(&bytes, &key_file.secret_key.into());
     let encoded = to_base(&signature);
     print!("{}", encoded);
 }
