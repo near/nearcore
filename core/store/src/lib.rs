@@ -22,8 +22,8 @@ use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
 
 pub use crate::trie::{
-    update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
-    WrappedTrieChanges,
+    update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
+    TrieIterator, WrappedTrieChanges,
 };
 
 pub mod test_utils;
