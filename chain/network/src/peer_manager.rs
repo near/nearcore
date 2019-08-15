@@ -551,11 +551,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartRequest { account_id, part_request } => {
+            NetworkRequests::ChunkOnePartRequest { account_id, one_part_request } => {
                 self.send_message_to_account(
                     ctx,
                     account_id,
-                    SendMessage { message: PeerMessage::ChunkOnePartRequest(part_request) },
+                    SendMessage { message: PeerMessage::ChunkOnePartRequest(one_part_request) },
                 );
                 NetworkResponses::NoResponse
             }
