@@ -86,6 +86,7 @@ message ChunkOnePart {
     bytes part = 5;
     repeated ReceiptTransaction receipts = 6;
     bytes merkle_path = 7;
+    repeated bytes receipts_proofs = 8;
 }
 
 message AnnounceAccountRoute {
