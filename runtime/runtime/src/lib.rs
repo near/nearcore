@@ -366,6 +366,9 @@ impl Runtime {
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
+        let exec_fee = self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        result.gas_used = exec_fee;
+        result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             result.merge(self.apply_action(

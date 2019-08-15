@@ -7,7 +7,7 @@ pub type Gas = u64;
 
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct Fee {
     /// Fee for sending an object from the sender to itself, guaranteeing that it does not leave
     /// the shard.
@@ -32,7 +32,7 @@ impl Fee {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct RuntimeFeesConfig {
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
@@ -44,7 +44,7 @@ pub struct RuntimeFeesConfig {
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct DataReceiptCreationConfig {
     /// Base cost of creating a data receipt.
     pub base_cost: Fee,
@@ -53,7 +53,7 @@ pub struct DataReceiptCreationConfig {
 }
 
 /// Describes the cost of creating a specific action, `Action`. Includes all variants.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct ActionCreationConfig {
     /// Base cost of creating an account.
     pub create_account_cost: Fee,

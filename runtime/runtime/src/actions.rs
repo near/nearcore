@@ -99,6 +99,8 @@ pub(crate) fn action_function_call(
         action_receipt.gas_price,
         action_hash,
     );
+    let output_data_receivers: Vec<_> =
+        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect();
     let context = VMContext {
         current_account_id: account_id.clone(),
         signer_account_id: action_receipt.signer_id.clone(),
@@ -111,6 +113,7 @@ pub(crate) fn action_function_call(
         prepaid_gas: function_call.gas,
         random_seed: action_hash.as_ref().to_vec(),
         free_of_charge: false,
+        output_data_receivers,
     };
 
     let promise_results = input_data

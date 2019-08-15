@@ -37,4 +37,6 @@ pub struct VMContext {
     pub random_seed: Vec<u8>,
     /// Whether the execution should not charge any costs.
     pub free_of_charge: bool,
+    /// How many `DataReceipt`'s should receive this execution result.
+    pub output_data_receivers: Vec<AccountId>,
 }
