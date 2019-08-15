@@ -188,10 +188,6 @@ impl User for RuntimeUser {
         Ok(())
     }
 
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.view_account(account_id).ok().map(|account| account.nonce)
-    }
-
     fn get_best_block_index(&self) -> Option<u64> {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }

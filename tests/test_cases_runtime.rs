@@ -174,9 +174,9 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_runtime() {
+    fn test_add_access_key_function_call_runtime() {
         let node = create_runtime_node();
-        test_add_access_key(node);
+        test_add_access_key_function_call(node);
     }
 
     #[test]
@@ -186,15 +186,15 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_with_funding_runtime() {
+    fn test_add_access_key_with_allowance_runtime() {
         let node = create_runtime_node();
-        test_add_access_key_with_funding(node);
+        test_add_access_key_with_allowance(node);
     }
 
     #[test]
-    fn test_delete_access_key_with_owner_refund_runtime() {
+    fn test_delete_access_key_with_allowance_runtime() {
         let node = create_runtime_node();
-        test_delete_access_key_with_owner_refund(node);
+        test_delete_access_key_with_allowance(node);
     }
 
     #[test]
