@@ -3345,6 +3345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "state-viewer"
 version = "0.1.0"
 dependencies = [
+ "ansi_term 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hex 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "near 0.2.7",
