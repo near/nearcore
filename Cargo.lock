@@ -2260,6 +2260,7 @@ version = "0.2.0"
 dependencies = [
  "bs58 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "exonum_sodiumoxide 0.0.20 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near-runtime-fees 0.1.0",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
