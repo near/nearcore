@@ -8,7 +8,9 @@ use crate::crypto::signature::{verify, PublicKey, Signature};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::serialize::{base_bytes_format, u128_dec_format, Decode, DecodeResult, Encode};
+use crate::serialize::{
+    base_bytes_format, u128_dec_format, Decode, DecodeResult, Encode, Writable, WritableResult,
+};
 use crate::types::{AccountId, Balance, Gas, Nonce, ShardId, StructSignature};
 use serde::{Deserialize, Deserializer};
 use std::sync::Arc;
@@ -27,10 +29,19 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn get_hash(&self) -> CryptoHash {
-        //        let proto: transaction_proto::Transaction = self.clone().into();
-        //        let bytes = proto.write_to_bytes().unwrap();
-        let bytes = vec![];
+        let bytes = self.write().expect("Failed to deserialize");
         hash(&bytes)
+    }
+}
+
+impl Writable for Transaction {
+    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
+        self.signer_id.write_into(out)?;
+        self.public_key.write_into(out)?;
+        self.nonce.write_into(out)?;
+        self.receiver_id.write_into(out)?;
+        self.actions.write_into(out)?;
+        Ok(())
     }
 }
 
@@ -321,7 +332,7 @@ mod tests {
     use crate::crypto::signature::{get_key_pair, sign, DEFAULT_SIGNATURE};
 
     use super::*;
-    use crate::serialize::{Decode, Encode};
+    use crate::serialize::{to_base, Decode, Encode};
 
     #[test]
     fn test_verify_transaction() {
@@ -347,5 +358,21 @@ mod tests {
         let bytes = transaction.encode().unwrap();
         let new_tx = SignedTransaction::decode(&bytes).unwrap().into();
         assert!(verify_transaction_signature(&new_tx, &valid_keys));
+    }
+
+    /// This test is change checker for a reason - we don't expect transaction format to change.
+    /// If it does - you MUST update all of the dependencies: like nearlib.
+    #[test]
+    fn test_serialize_transaction() {
+        let transaction = Transaction {
+            signer_id: "test.near".to_string(),
+            public_key: PublicKey::try_from("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV")
+                .unwrap(),
+            nonce: 1,
+            receiver_id: "123".to_string(),
+            actions: vec![],
+        };
+        let hash = to_base(&transaction.get_hash());
+        assert_eq!(hash, "EsTRpLernDsH2hzznZ6wKMu1XYdyT4ynKK2H13hbMyzb");
     }
 }

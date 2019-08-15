@@ -37,6 +37,14 @@ impl_writable_for_uint!(u32);
 impl_writable_for_uint!(u64);
 impl_writable_for_uint!(u128);
 
+impl Writable for String {
+    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
+        (self.len() as u32).write_into(out)?;
+        out.extend_from_slice(self.as_bytes());
+        Ok(())
+    }
+}
+
 impl<T> Writable for Vec<T>
 where
     T: Writable,

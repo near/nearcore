@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode};
+use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Writable, WritableResult};
 use crate::types::ReadablePublicKey;
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +116,15 @@ impl TryFrom<&str> for PublicKey {
         array.copy_from_slice(bytes_arr);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
         Ok(PublicKey(public_key))
+    }
+}
+
+impl Writable for PublicKey {
+    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
+        // 1 byte for kind.
+        out.extend_from_slice(&vec![0]);
+        out.extend_from_slice(&(self.0).0);
+        Ok(())
     }
 }
 
