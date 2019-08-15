@@ -10,7 +10,7 @@ use near_network::NetworkRequests;
 use near_pool::{Error, TransactionPool};
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{verify_path, MerklePath};
+use near_primitives::merkle::{verify_path, MerklePath, merklize};
 use near_primitives::serialize::{Decode, Encode};
 use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ShardChunk, ShardChunkHeader,
@@ -338,6 +338,9 @@ impl ShardsManager {
                     peer_id,
                     self.me.clone().unwrap()
                 );
+                let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+                let (receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+                assert_eq!(chunk.header.receipts_root, receipts_root);
                 let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartResponse {
                     peer_id,
                     header_and_part: self.create_chunk_one_part(
@@ -346,6 +349,7 @@ impl ShardsManager {
                         // TODO: we may want to add set of shards this peer is interested in chunks for.
                         request.part_id,
                         chunk.receipts,
+                        receipts_proofs,
                     ),
                 });
             }
@@ -546,6 +550,30 @@ impl ShardsManager {
             return Err(ErrorKind::Other("Invalid merkle proof".to_string()).into());
         }
 
+        // Checking one_part's receipts validity here
+        //
+        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&one_part.receipts)?;
+        let mut proof_index = 0;
+        for shard_id in 0..self.runtime_adapter.num_shards() {
+            if self.cares_about_shard_this_or_next_epoch(
+                self.me.as_ref().unwrap(),
+                prev_block_hash,
+                shard_id,
+            ) {
+                if proof_index == one_part.receipts_proofs.len() || !verify_path(one_part.header.receipts_root,
+                                                                                 &one_part.receipts_proofs[proof_index],
+                                                                                 &receipts_hashes[shard_id as usize]) {
+                    assert!(false); // TODO XXX MOO remove
+                    return Err(ErrorKind::InvalidReceiptsProof.into());
+                }
+                proof_index += 1;
+            }
+        }
+        if proof_index != one_part.receipts_proofs.len() {
+            assert!(false); // TODO XXX MOO remove
+            return Err(ErrorKind::InvalidReceiptsProof.into());
+        }
+
         if let Some(send_to) =
             self.requests.remove(&(one_part.shard_id, chunk_hash.clone(), one_part.part_id))
         {
@@ -678,6 +706,7 @@ impl ShardsManager {
         validator_proposal: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<ReceiptTransaction>,
+        receipts_root: CryptoHash,
         signer: Arc<dyn EDSigner>,
     ) -> Result<EncodedShardChunk, io::Error> {
         let mut bytes = Encode::encode(&(transactions, receipts))?;
@@ -711,6 +740,7 @@ impl ShardsManager {
             shard_id,
             gas_used,
             gas_limit,
+            receipts_root,
             validator_proposal,
             encoded_length as u64,
             parts,
@@ -733,6 +763,7 @@ impl ShardsManager {
         encoded_chunk: &EncodedShardChunk,
         part_id: u64,
         receipts: Vec<ReceiptTransaction>,
+        receipts_proofs: Vec<MerklePath>,
     ) -> ChunkOnePart {
         ChunkOnePart {
             shard_id: encoded_chunk.header.shard_id,
@@ -741,6 +772,7 @@ impl ShardsManager {
             part_id,
             part: encoded_chunk.content.parts[part_id as usize].clone().unwrap(),
             receipts,
+            receipts_proofs,
             // It should be impossible to have a part but not the merkle path
             merkle_path: self.merkle_paths.get(&(chunk_hash.clone(), part_id)).unwrap().clone(),
         }
@@ -756,24 +788,39 @@ impl ShardsManager {
         let mut processed_one_part = false;
         let chunk_hash = encoded_chunk.chunk_hash();
         let shard_id = encoded_chunk.header.shard_id;
+        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts).unwrap();
+        let (receipts_root, receipts_proofs) = merklize(&receipts_hashes);
+        assert_eq!(encoded_chunk.header.receipts_root, receipts_root);
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
+            let one_part_receipts = receipts
+                .iter()
+                .filter(|&receipt| {
+                    self.cares_about_shard_this_or_next_epoch(
+                        &to_whom,
+                        prev_block_hash,
+                        self.runtime_adapter.account_id_to_shard_id(&receipt.receiver),
+                    )
+                })
+                .cloned()
+                .collect();
+            let mut one_part_receipts_proofs = vec![];
+            for shard in 0..self.runtime_adapter.num_shards() {
+                if self.cares_about_shard_this_or_next_epoch(
+                    &to_whom,
+                    prev_block_hash,
+                    shard,
+                ) {
+                    one_part_receipts_proofs.push(receipts_proofs[shard as usize].clone())
+                }
+            }
             let one_part = self.create_chunk_one_part(
                 chunk_hash.clone(),
                 &encoded_chunk,
                 part_ord,
-                receipts
-                    .iter()
-                    .filter(|&receipt| {
-                        self.cares_about_shard_this_or_next_epoch(
-                            &to_whom,
-                            prev_block_hash,
-                            self.runtime_adapter.account_id_to_shard_id(&receipt.receiver),
-                        )
-                    })
-                    .cloned()
-                    .collect(),
+                one_part_receipts,
+                one_part_receipts_proofs,
             );
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage

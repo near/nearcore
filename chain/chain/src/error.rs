@@ -45,6 +45,9 @@ pub enum ErrorKind {
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid receipts proof.
+    #[fail(display = "Invalid Receipts Proof")]
+    InvalidReceiptsProof,
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload(String),
@@ -128,6 +131,7 @@ impl Error {
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
+            | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload(_)
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash

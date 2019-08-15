@@ -593,6 +593,15 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()?,
+                receipts_proofs: chunk_header_and_part
+                    .receipts_proofs
+                    .into_iter()
+                    .map(|proof| {
+                        Ok(
+                            MerklePath::decode(proof.as_slice())?,
+                        )
+                    })
+                    .collect::<Result<Vec<MerklePath>, Self::Error>>()?,
                 merkle_path: MerklePath::decode(chunk_header_and_part.merkle_path.as_slice())?,
             })),
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
