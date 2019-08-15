@@ -268,11 +268,13 @@ impl Handler<NetworkClientMessages> for ClientActor {
             }
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut self.sync_status {
-                    if block.hash() == *sync_hash {
-                        if let Err(_) = self.chain.save_block(&block) {
-                            error!(target: "client", "Failed to save a block during state sync");
+                    if let Ok(header) = self.chain.get_block_header(sync_hash) {
+                        if block.hash() == header.prev_hash {
+                            if let Err(_) = self.chain.save_block(&block) {
+                                error!(target: "client", "Failed to save a block during state sync");
+                            }
+                            return NetworkClientResponses::NoResponse;
                         }
-                        return NetworkClientResponses::NoResponse;
                     }
                 }
                 self.receive_block(ctx, block, peer_id, was_requested)
@@ -1511,14 +1513,46 @@ impl ClientActor {
                 _ => false,
             };
             if sync_state {
+                let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
+
                 let (sync_hash, mut new_shard_sync) = match &self.sync_status {
                     SyncStatus::StateSync(sync_hash, shard_sync) => {
-                        (sync_hash.clone(), shard_sync.clone())
+                        let mut need_to_restart = false;
+
+                        if let Ok(sync_block_header) = self.chain.get_block_header(&sync_hash) {
+                            let prev_hash = sync_block_header.prev_hash;
+
+                            if let Ok(current_epoch) =
+                                self.runtime_adapter.get_epoch_id_from_prev_block(&prev_hash)
+                            {
+                                if let Ok(next_epoch) = self
+                                    .runtime_adapter
+                                    .get_next_epoch_id_from_prev_block(&prev_hash)
+                                {
+                                    if let Ok(header_head) = self.chain.header_head() {
+                                        let header_head_epoch = header_head.epoch_id;
+
+                                        if current_epoch != header_head_epoch
+                                            && next_epoch != header_head_epoch
+                                        {
+                                            error!(target: "client", "Header head is not within two epochs of state sync hash, restarting state sync");
+                                            debug!(target: "client", "Current epoch: {:?}, Next epoch: {:?}, Header head epoch: {:?}", current_epoch, next_epoch, header_head_epoch);
+                                            need_to_restart = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if need_to_restart {
+                            (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default())
+                        } else {
+                            (sync_hash.clone(), shard_sync.clone())
+                        }
                     }
                     _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
                 };
 
-                let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
                 let shards_to_sync = (0..self.runtime_adapter.num_shards())
                     .filter(|x| match me {
                         Some(me) => {
@@ -1541,7 +1575,10 @@ impl ClientActor {
                             most_weight_peer(&self.network_info.most_weight_peers)
                         {
                             if fetch_block {
-                                self.request_block_by_hash(sync_hash, peer_info.peer_info.id);
+                                if let Ok(header) = self.chain.get_block_header(&sync_hash) {
+                                    let prev_hash = header.prev_hash;
+                                    self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
+                                }
                             }
                         }
                     }
