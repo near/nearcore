@@ -196,10 +196,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let path = path.split("/").collect::<Vec<_>>();
         Ok(QueryResponse::ViewAccount(AccountViewCallResult {
             account_id: path[1].to_string(),
-            nonce: 0,
             amount: 1000,
             stake: 0,
-            public_keys: vec![],
             code_hash: CryptoHash::default(),
         }))
     }

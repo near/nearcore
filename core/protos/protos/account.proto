@@ -4,11 +4,9 @@ import "wrappers.proto";
 import "uint128.proto";
 
 message Account {
-    repeated bytes public_keys = 1;
-    uint64 nonce = 2;
-    Uint128 amount = 3;
-    Uint128 staked = 4;
-    bytes code_hash = 5;
-    uint64 storage_usage = 6;
-    uint64 storage_paid_at = 7;
+    Uint128 amount = 1;
+    Uint128 staked = 2;
+    bytes code_hash = 3;
+    uint64 storage_usage = 4;
+    uint64 storage_paid_at = 5;
 }

@@ -8,9 +8,10 @@ use protobuf::Message;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::rpc::AccountViewCallResult;
-use near_primitives::serialize::from_base;
+use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 
@@ -126,32 +127,38 @@ impl RemoteNode {
     }
 
     /// Get nonces for the given list of signers.
-    fn get_nonces(&mut self, signers: &[AccountId]) {
-        let nonces: Vec<Nonce> =
-            signers.iter().map(|s| get_result(|| self.view_account(s)).nonce).collect();
+    fn get_nonces(&mut self, accounts: &[AccountId]) {
+        let nonces: Vec<Nonce> = accounts
+            .iter()
+            .zip(self.signers.iter().map(|s| &s.public_key))
+            .map(|(account_id, public_key)| {
+                get_result(|| self.get_access_key(&account_id, &public_key)).unwrap().nonce
+            })
+            .collect();
         self.nonces = nonces;
     }
 
-    fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/status");
-        Ok(self.sync_client.post(url.as_str()).send().map(|_| ())?)
-    }
-
-    fn view_account(
+    fn get_access_key(
         &self,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>> {
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/abci_query");
         let response: serde_json::Value = self
             .sync_client
             .post(url.as_str())
-            .form(&[("path", format!("\"account/{}\"", account_id))])
+            .form(&[("path", format!("\"access_key/{}/{}\"", account_id, public_key.to_base()))])
             .send()?
             .json()?;
         let bytes =
             from_base(response["result"]["response"]["value"].as_str().ok_or(VALUE_NOT_STR_ERR)?)?;
         let s = std::str::from_utf8(&bytes)?;
         Ok(serde_json::from_str(s)?)
+    }
+
+    fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        Ok(self.sync_client.post(url.as_str()).send().map(|_| ())?)
     }
 
     /// Sends transaction using `broadcast_tx_sync` using non-blocking Futures.

@@ -38,10 +38,8 @@ impl TrieViewer {
         match get_account(state_update, &account_id) {
             Some(account) => Ok(AccountViewCallResult {
                 account_id: account_id.clone(),
-                nonce: account.nonce,
                 amount: account.amount,
                 stake: account.staked,
-                public_keys: account.public_keys,
                 code_hash: account.code_hash,
             }),
             _ => Err(format!("account {} does not exist while viewing", account_id).into()),
@@ -59,14 +57,6 @@ impl TrieViewer {
         }
 
         Ok(get_access_key(state_update, account_id, public_key))
-    }
-
-    pub fn get_public_keys_for_account(
-        &self,
-        state_update: &TrieUpdate,
-        account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
-        self.view_account(state_update, account_id).map(|account| account.public_keys)
     }
 
     pub fn view_state(

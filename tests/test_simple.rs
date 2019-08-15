@@ -28,12 +28,16 @@ mod test {
             println!("TRIAL #{}", trial);
             let (i, j) = sample_two_nodes(num_nodes);
             let (k, r) = sample_two_nodes(num_nodes);
-            let account_i = nodes[k].read().unwrap().view_account(&account_names[i]).unwrap();
+            let nonce_i = nodes[k]
+                .read()
+                .unwrap()
+                .get_access_key_nonce_for_signer(&account_names[i])
+                .unwrap();
             let account_j = nodes[k].read().unwrap().view_account(&account_names[j]).unwrap();
             let transaction = SignedTransaction::send_money(
-                account_i.nonce + 1,
-                account_names[i].as_str(),
-                account_names[j].as_str(),
+                nonce_i + 1,
+                account_names[i].clone(),
+                account_names[j].clone(),
                 nodes[i].read().unwrap().signer(),
                 amount_to_send,
             );

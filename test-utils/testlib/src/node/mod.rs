@@ -55,16 +55,16 @@ pub trait Node: Send + Sync {
         self.user().view_account(account_id)
     }
 
+    fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
+        self.user().get_access_key_nonce_for_signer(account_id)
+    }
+
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         self.user().view_balance(account_id)
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         self.user().add_transaction(transaction)
-    }
-
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.user().get_account_nonce(account_id)
     }
 
     fn signer(&self) -> Arc<dyn EDSigner>;

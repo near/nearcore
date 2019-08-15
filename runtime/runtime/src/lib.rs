@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
 
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
@@ -141,26 +141,38 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// node receives signed_transaction, processes it
-    /// and generates the receipt to send to receiver
+    /// Processes signed transaction, charges fees and generates the receipt
     fn apply_signed_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
     ) -> Result<Receipt, Box<dyn std::error::Error>> {
-        let VerificationData { signer_id, mut signer, public_key, .. } = {
+        let VerificationData { signer_id, mut signer, public_key, mut access_key } = {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(signed_transaction)?
         };
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
-        signer.nonce = signed_transaction.transaction.nonce;
+        access_key.nonce = signed_transaction.transaction.nonce;
         let gas_price = 1;
         let total_cost = self
             .config
             .transaction_costs
             .total_cost(gas_price, &signed_transaction.transaction.actions)?;
         signer.checked_sub(total_cost)?;
+        if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
+            access_key.permission
+        {
+            if let Some(ref mut allowance) = function_call_permission.allowance {
+                *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
+                    format!(
+                        "Access Key does not have enough balance {} for transaction costing {}",
+                        allowance, total_cost
+                    )
+                })?;
+            }
+        }
+        set_access_key(state_update, &signer_id, &public_key, &access_key);
 
         if !check_rent(&signer_id, &mut signer, &self.config, apply_state.epoch_length) {
             return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
@@ -278,10 +290,10 @@ impl Runtime {
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
-                action_add_key(state_update, account, &mut result, account_id, add_key);
+                action_add_key(state_update, &mut result, account_id, add_key);
             }
             Action::DeleteKey(delete_key) => {
-                action_delete_key(state_update, account, &mut result, account_id, delete_key);
+                action_delete_key(state_update, &mut result, account_id, delete_key);
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
@@ -738,7 +750,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(vec![], 10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
         let get_res = get_account(&state_update, &account_id).unwrap();
@@ -750,7 +762,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(vec![], 10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();

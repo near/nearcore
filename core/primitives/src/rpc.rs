@@ -7,19 +7,16 @@ use serde::{Deserialize, Serialize};
 use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
-use crate::serialize::{u128_dec_format, vec_base_format};
-use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, Version};
+use crate::serialize::u128_dec_format;
+use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Version};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
     pub account_id: AccountId,
-    pub nonce: Nonce,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
     pub stake: Balance,
-    #[serde(with = "vec_base_format")]
-    pub public_keys: Vec<PublicKey>,
     pub code_hash: CryptoHash,
 }
 
