@@ -124,22 +124,23 @@ fn print_chain(
     let mut chain_store = ChainStore::new(store.clone());
     let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
     for index in start_index..=end_index {
-        let block_hash = chain_store.get_block_hash_by_height(index).unwrap();
-        let header = chain_store.get_block_header(&block_hash).unwrap().clone();
-        if index == 0 {
-            println!("{: >3} {}", header.height, format_hash(header.hash()));
-        } else {
-            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
-            let (epoch_id, _) = runtime.get_epoch_offset(header.prev_hash, index).unwrap();
-            let block_producer = runtime.get_block_proposer(&epoch_id, header.height).unwrap();
-            println!(
-                "{: >3} {} | {: >10} | parent: {: >3} {}",
-                header.height,
-                format_hash(header.hash()),
-                block_producer,
-                parent_header.height,
-                format_hash(parent_header.hash()),
-            );
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            if index == 0 {
+                println!("{: >3} {}", header.height, format_hash(header.hash()));
+            } else {
+                let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
+                let (epoch_id, _) = runtime.get_epoch_offset(header.prev_hash, index).unwrap();
+                let block_producer = runtime.get_block_proposer(&epoch_id, header.height).unwrap();
+                println!(
+                    "{: >3} {} | {: >10} | parent: {: >3} {}",
+                    header.height,
+                    format_hash(header.hash()),
+                    block_producer,
+                    parent_header.height,
+                    format_hash(parent_header.hash()),
+                );
+            }
         }
     }
 }
