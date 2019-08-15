@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
 use syn::export::TokenStream2;
-use syn::{Attribute, Fields, Ident, ItemEnum, ItemStruct, ItemUnion, Meta, NestedMeta};
+use syn::{Attribute, Fields, Ident, Index, ItemEnum, ItemStruct, ItemUnion, Meta, NestedMeta};
 
 #[proc_macro_derive(nbor, attributes(nbor_skip, nbor_init))]
 pub fn nbor(input: TokenStream) -> TokenStream {
@@ -78,6 +78,7 @@ fn nbor_struct_ser(input: &ItemStruct) -> TokenStream2 {
         }
         Fields::Unnamed(fields) => {
             for field_idx in 0..fields.unnamed.len() {
+                let field_idx = Index { index: field_idx as u32, span: Span::call_site() };
                 let delta = quote! {
                     nbor::Serializable::write(&self.#field_idx, writer)?;
                 };
