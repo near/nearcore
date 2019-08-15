@@ -10,10 +10,12 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccessKeyView, AccountView, QueryResponse, ViewStateResult};
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, CryptoHashView, QueryResponse, ViewStateResult,
+};
 use near_primitives::serialize::{to_base, to_base64, BaseEncode, Encode};
 use near_primitives::transaction::{FinalTransactionResult, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, MerkleHash};
+use near_primitives::types::AccountId;
 
 use crate::user::User;
 
@@ -86,7 +88,7 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
-    fn get_state_root(&self) -> MerkleHash {
+    fn get_state_root(&self) -> CryptoHashView {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 

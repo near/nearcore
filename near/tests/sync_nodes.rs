@@ -13,7 +13,6 @@ use near_client::{ClientActor, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
@@ -81,7 +80,7 @@ fn sync_nodes() {
         Box::new(move |_ctx| {
             actix::spawn(view_client2.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height == 11 => System::current().stop(),
+                    Ok(Ok(b)) if b.header.inner.height == 11 => System::current().stop(),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };
@@ -131,13 +130,13 @@ fn sync_after_sync_nodes() {
             let next_step1 = next_step.clone();
             actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height == 11 => {
+                    Ok(Ok(b)) if b.header.inner.height == 11 => {
                         if !next_step1.load(Ordering::Relaxed) {
                             let _ = add_blocks(&last_block1, client11, 11, signer1);
                             next_step1.store(true, Ordering::Relaxed);
                         }
                     }
-                    Ok(Ok(b)) if b.header.height > 20 => System::current().stop(),
+                    Ok(Ok(b)) if b.header.inner.height > 20 => System::current().stop(),
                     Err(_) => return futures::future::err(()),
                     _ => {}
                 };
@@ -203,7 +202,7 @@ fn sync_state_stake_change() {
             let near2_copy = near2.clone();
             let dir2_path_copy = dir2_path.clone();
             actix::spawn(view_client1.send(GetBlock::Best).then(move |res| {
-                let latest_block_height = res.unwrap().unwrap().header.height;
+                let latest_block_height = res.unwrap().unwrap().header.inner.height;
                 if !started_copy.load(Ordering::SeqCst) && latest_block_height > 10 {
                     started_copy.store(true, Ordering::SeqCst);
                     let (_, view_client2) = start_with_config(&dir2_path_copy, near2_copy);
@@ -211,7 +210,9 @@ fn sync_state_stake_change() {
                     WaitOrTimeout::new(
                         Box::new(move |_ctx| {
                             actix::spawn(view_client2.send(GetBlock::Best).then(move |res| {
-                                if res.unwrap().unwrap().header.height > latest_block_height + 1 {
+                                if res.unwrap().unwrap().header.inner.height
+                                    > latest_block_height + 1
+                                {
                                     System::current().stop()
                                 }
                                 future::result::<_, ()>(Ok(()))

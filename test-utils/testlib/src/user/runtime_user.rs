@@ -10,7 +10,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccessKeyView, AccountView, ViewStateResult};
+use near_primitives::rpc::{AccessKeyView, AccountView, CryptoHashView, ViewStateResult};
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction, TransactionLog,
     TransactionResult, TransactionStatus,
@@ -210,8 +210,8 @@ impl User for RuntimeUser {
         self.get_final_transaction_result(hash)
     }
 
-    fn get_state_root(&self) -> MerkleHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root
+    fn get_state_root(&self) -> CryptoHashView {
+        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
     }
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {

@@ -124,12 +124,12 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<Weight, Error> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
         let validator = vm
-            .get_block_proposer_info(header.epoch_hash, header.height)
+            .get_block_proposer_info(header.inner.epoch_hash, header.inner.height)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
     }
 
     fn get_epoch_block_proposers(

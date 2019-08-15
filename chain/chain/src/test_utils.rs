@@ -66,11 +66,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = &self.validators[(header.height as usize) % self.validators.len()];
+        let validator = &self.validators[(header.inner.height as usize) % self.validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
     }
 
     fn get_epoch_block_proposers(
@@ -191,7 +191,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _state_root: MerkleHash,
         _height: BlockIndex,
-        path: &str,
+        _path: &str,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         Ok(QueryResponse::ViewAccount(Account::new(vec![], 0, CryptoHash::default(), 0).into()))

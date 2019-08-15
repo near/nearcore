@@ -8,7 +8,7 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccessKeyView, AccountView, ViewStateResult};
+use near_primitives::rpc::{AccessKeyView, AccountView, CryptoHashView, ViewStateResult};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FinalTransactionResult, FunctionCallAction, SignedTransaction,
@@ -51,7 +51,7 @@ pub trait User {
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult;
 
-    fn get_state_root(&self) -> MerkleHash;
+    fn get_state_root(&self) -> CryptoHashView;
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 

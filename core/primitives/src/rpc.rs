@@ -14,7 +14,7 @@ use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, Validato
 /// Number of nano seconds in one second.
 //const NS_IN_SECOND: u64 = 1_000_000_000;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PublicKeyView(Vec<u8>);
 
 impl Serialize for PublicKeyView {

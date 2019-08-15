@@ -16,7 +16,7 @@ fn test_block() {
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.block(0).then(|res| {
-            assert_eq!(res.unwrap().header.height, 0);
+            assert_eq!(res.unwrap().header.inner.height, 0);
             System::current().stop();
             future::result(Ok(()))
         }));

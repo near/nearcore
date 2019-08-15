@@ -184,11 +184,11 @@ impl Tip {
     /// Creates a new tip based on provided header.
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
-            height: header.height,
+            height: header.inner.height,
             last_block_hash: header.hash(),
-            prev_block_hash: header.prev_hash,
-            total_weight: header.total_weight,
-            epoch_hash: header.epoch_hash,
+            prev_block_hash: header.inner.prev_hash,
+            total_weight: header.inner.total_weight,
+            epoch_hash: header.inner.epoch_hash,
         }
     }
 }
@@ -233,7 +233,7 @@ mod tests {
             signer.clone(),
         );
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.total_weight.to_num(), 1);
+        assert_eq!(b1.header.inner.total_weight.to_num(), 1);
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
@@ -248,6 +248,6 @@ mod tests {
             signer.clone(),
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.total_weight.to_num(), 3);
+        assert_eq!(b2.header.inner.total_weight.to_num(), 3);
     }
 }

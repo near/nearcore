@@ -676,7 +676,7 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that state root we computed from previous block matches recorded in this block.
         let state_root = self.chain_store_update.get_post_state_root(&prev_hash)?;
-        if &block.header.prev_state_root != state_root {
+        if &block.header.inner.prev_state_root != state_root {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
@@ -688,9 +688,9 @@ impl<'a> ChainUpdate<'a> {
             .runtime_adapter
             .apply_transactions(
                 0,
-                &block.header.prev_state_root,
-                block.header.height,
-                &block.header.prev_hash,
+                &block.header.inner.prev_state_root,
+                block.header.inner.height,
+                &block.header.inner.prev_hash,
                 &block.header.hash(),
                 &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
@@ -705,9 +705,9 @@ impl<'a> ChainUpdate<'a> {
         // If block checks out, record validator proposals for given block.
         self.runtime_adapter
             .add_validator_proposals(
-                block.header.prev_hash,
+                block.header.inner.prev_hash,
                 block.hash(),
-                block.header.height,
+                block.header.inner.height,
                 validator_proposals,
                 vec![],
                 vec![],
@@ -749,10 +749,10 @@ impl<'a> ChainUpdate<'a> {
     /// Process incoming block headers for syncing.
     fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
         // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.height.cmp(&right.height));
+        headers.sort_by(|left, right| left.inner.height.cmp(&right.inner.height));
 
         let _first_header = if let Some(header) = headers.first() {
-            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.inner.height);
             header
         } else {
             return Ok(None);
@@ -773,10 +773,10 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
-                        header.prev_hash,
+                        header.inner.prev_hash,
                         header.hash(),
-                        header.height,
-                        header.validator_proposal.clone(),
+                        header.inner.height,
+                        header.inner.validator_proposals.clone(),
                         vec![],
                         vec![],
                     )
@@ -797,10 +797,10 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(&header.epoch_hash, header.height)
+            .get_block_proposer(&header.inner.epoch_hash, header.inner.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.check_validator_signature(
-            &header.epoch_hash,
+            &header.inner.epoch_hash,
             &validator,
             header.hash().as_ref(),
             &header.signature,
@@ -817,8 +817,8 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
-        if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
-            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
+        if header.inner.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+            return Err(ErrorKind::InvalidBlockFutureTime(header.inner.timestamp).into());
         }
 
         // First I/O cost, delay as much as possible.
@@ -828,17 +828,19 @@ impl<'a> ChainUpdate<'a> {
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
-        if header.timestamp <= prev_header.timestamp {
-            return Err(
-                ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into()
-            );
+        if header.inner.timestamp <= prev_header.inner.timestamp {
+            return Err(ErrorKind::InvalidBlockPastTime(
+                prev_header.inner.timestamp,
+                header.inner.timestamp,
+            )
+            .into());
         }
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures and returns new total weight.
         if *provenance != Provenance::PRODUCED {
             let prev_header = self.get_previous_header(header)?.clone();
             let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
-            if weight != header.total_weight {
+            if weight != header.inner.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());
             }
         }
@@ -849,7 +851,7 @@ impl<'a> ChainUpdate<'a> {
     /// Update the header head if this header has most work.
     fn update_header_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.total_weight > header_head.total_weight {
+        if header.inner.total_weight > header_head.total_weight {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
@@ -867,7 +869,7 @@ impl<'a> ChainUpdate<'a> {
         // if we made a fork with more work than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.total_weight > head.total_weight {
+        if block.header.inner.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip);
@@ -917,12 +919,12 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Check if this block is ini the store already.
+    /// Check if this block is in the store already.
     fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
         match self.chain_store_update.block_exists(&header.hash()) {
             Ok(true) => {
                 let head = self.chain_store_update.head()?;
-                if header.height > 50 && header.height < head.height - 50 {
+                if header.inner.height > 50 && header.inner.height < head.height - 50 {
                     // We flag this as an "abusive peer" but only in the case
                     // where we have the full block in our store.
                     // So this is not a particularly exhaustive check.
