@@ -280,7 +280,7 @@ fn nbor_enum_de(input: &ItemEnum) -> TokenStream2 {
                     #variant_idx
                     let mut return_value = match variant_idx {
                         #variant_arms
-                        _ => panic!("Unexpeted variant index"),
+                        _ => panic!(format!("Unexpeted variant index: {:?}", variant_idx)),
                     };
                     return_value.#method_ident();
                     Ok(return_value)
@@ -294,7 +294,7 @@ fn nbor_enum_de(input: &ItemEnum) -> TokenStream2 {
                     #variant_idx
                     let return_value = match variant_idx {
                         #variant_arms
-                        _ => panic!("Unexpeted variant index"),
+                        _ => panic!(format!("Unexpeted variant index: {:?}", variant_idx)),
                     };
                     Ok(return_value)
                 }

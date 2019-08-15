@@ -9,25 +9,26 @@ use std::time::Duration;
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use chrono::{DateTime, Utc};
-use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
+use nbor::{nbor, Deserializable};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::logging::pretty_str;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::{BaseEncode, Decode};
+use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 
 use crate::peer::Peer;
+use near_primitives::utils::from_timestamp;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Peer id is the public key.
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
+#[derive(nbor, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -81,7 +82,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(nbor, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -131,7 +132,7 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
+#[derive(nbor, Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Genesis hash.
     pub genesis: CryptoHash,
@@ -161,7 +162,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(nbor, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
@@ -180,7 +181,7 @@ impl Handshake {
 }
 
 /// Account route description
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(nbor, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
@@ -188,7 +189,7 @@ pub struct AnnounceAccountRoute {
 }
 
 /// Account announcement information
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(nbor, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
@@ -254,7 +255,7 @@ impl AnnounceAccount {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+#[derive(nbor, PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
 
@@ -320,21 +321,21 @@ pub struct NetworkConfig {
 }
 
 /// Status of the known peers.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(nbor, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan, DateTime<Utc>),
+    Banned(ReasonForBan, u64),
 }
 
 /// Information node stores about known peers.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(nbor, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: DateTime<Utc>,
-    pub last_seen: DateTime<Utc>,
+    pub first_seen: u64,
+    pub last_seen: u64,
 }
 
 impl KnownPeerState {
@@ -342,9 +343,17 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: Utc::now(),
-            last_seen: Utc::now(),
+            first_seen: Utc::now().timestamp_millis() as u64,
+            last_seen: Utc::now().timestamp_millis() as u64,
         }
+    }
+
+    pub fn first_seen(&self) -> DateTime<Utc> {
+        from_timestamp(self.first_seen)
+    }
+
+    pub fn last_seen(&self) -> DateTime<Utc> {
+        from_timestamp(self.last_seen)
     }
 }
 
@@ -352,7 +361,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, Self::Error> {
-        Decode::decode(&bytes).map_err(|err| err.into())
+        KnownPeerState::from_slice(&bytes).map_err(|err| err.into())
     }
 }
 
@@ -431,7 +440,7 @@ where
 }
 
 /// Ban reason.
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(nbor, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,

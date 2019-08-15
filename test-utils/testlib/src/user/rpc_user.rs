@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 
 use actix::System;
 
-use near_chain::Block;
+use nbor::Serializable;
 use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::crypto::signature::PublicKey;
@@ -11,9 +11,9 @@ use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::rpc::{
-    AccessKeyView, AccountView, CryptoHashView, QueryResponse, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CryptoHashView, QueryResponse, ViewStateResult,
 };
-use near_primitives::serialize::{to_base, to_base64, BaseEncode, Encode};
+use near_primitives::serialize::{to_base, to_base64, BaseEncode};
 use near_primitives::transaction::{FinalTransactionResult, SignedTransaction, TransactionResult};
 use near_primitives::types::AccountId;
 
@@ -48,7 +48,7 @@ impl User for RpcUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let bytes = transaction.encode().unwrap();
+        let bytes = transaction.to_vec().unwrap();
         let _ = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
         Ok(())
@@ -58,7 +58,7 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let bytes = transaction.encode().unwrap();
+        let bytes = transaction.to_vec().unwrap();
         System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
     }
@@ -76,7 +76,7 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
-    fn get_block(&self, index: u64) -> Option<Block> {
+    fn get_block(&self, index: u64) -> Option<BlockView> {
         System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }
 

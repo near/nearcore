@@ -1,23 +1,19 @@
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::iter::FromIterator;
+use std::sync::Arc;
+
+use nbor::{nbor, Serializable};
 
 use crate::account::AccessKey;
-use crate::crypto::signature::{verify, PublicKey, Signature};
+use crate::crypto::signature::{verify, PublicKey};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::serialize::{
-    base_bytes_format, u128_dec_format, Decode, DecodeResult, Encode, Writable, WritableResult,
-};
 use crate::types::{AccountId, Balance, Gas, Nonce, ShardId, StructSignature};
-use serde::{Deserialize, Deserializer};
-use std::sync::Arc;
 
 pub type LogEntry = String;
 
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
+#[derive(nbor, Hash, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -29,23 +25,12 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn get_hash(&self) -> CryptoHash {
-        let bytes = self.write().expect("Failed to deserialize");
+        let bytes = self.to_vec().expect("Failed to deserialize");
         hash(&bytes)
     }
 }
 
-impl Writable for Transaction {
-    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-        self.signer_id.write_into(out)?;
-        self.public_key.write_into(out)?;
-        self.nonce.write_into(out)?;
-        self.receiver_id.write_into(out)?;
-        self.actions.write_into(out)?;
-        Ok(())
-    }
-}
-
-#[derive(Hash, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
+#[derive(nbor, Hash, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
     CreateAccount(CreateAccountAction),
     DeployContract(DeployContractAction),
@@ -73,12 +58,11 @@ impl Action {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
-    #[serde(with = "base_bytes_format")]
     pub code: Vec<u8>,
 }
 
@@ -90,13 +74,11 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
-    #[serde(with = "base_bytes_format")]
     pub args: Vec<u8>,
     pub gas: Gas,
-    #[serde(with = "u128_dec_format")]
     pub deposit: Balance,
 }
 
@@ -111,47 +93,51 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
-    #[serde(with = "u128_dec_format")]
     pub deposit: Balance,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
-    #[serde(with = "u128_dec_format")]
     pub stake: Balance,
     pub public_key: PublicKey,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     pub public_key: PublicKey,
     pub access_key: AccessKey,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     pub public_key: PublicKey,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
 
-#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
+#[derive(nbor, Eq, Debug, Clone)]
+#[nbor_init(init)]
 pub struct SignedTransaction {
     pub signature: StructSignature,
     pub transaction: Transaction,
-    #[serde(skip)]
+    #[nbor_skip]
     hash: CryptoHash,
 }
 
 impl SignedTransaction {
     pub fn new(signature: StructSignature, transaction: Transaction) -> Self {
-        let hash = transaction.get_hash();
-        Self { signature, transaction, hash }
+        let mut signed_tx = Self { signature, transaction, hash: CryptoHash::default() };
+        signed_tx.init();
+        signed_tx
+    }
+
+    pub fn init(&mut self) {
+        self.hash = self.transaction.get_hash();
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -198,7 +184,7 @@ impl PartialEq for SignedTransaction {
     }
 }
 
-#[derive(Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Unknown,
     Completed,
@@ -236,7 +222,7 @@ impl Default for TransactionStatus {
     }
 }
 
-#[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
+#[derive(nbor, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct TransactionResult {
     /// Transaction status.
     pub status: TransactionStatus,
@@ -329,10 +315,14 @@ pub fn verify_transaction_signature(
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
+    use nbor::de::Deserializable;
+
     use crate::crypto::signature::{get_key_pair, sign, DEFAULT_SIGNATURE};
+    use crate::serialize::to_base;
 
     use super::*;
-    use crate::serialize::{to_base, Decode, Encode};
 
     #[test]
     fn test_verify_transaction() {
@@ -355,24 +345,52 @@ mod tests {
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
 
-        let bytes = transaction.encode().unwrap();
-        let new_tx = SignedTransaction::decode(&bytes).unwrap().into();
-        assert!(verify_transaction_signature(&new_tx, &valid_keys));
+        //let bytes = transaction.encode().unwrap();
+        // let new_tx = SignedTransaction::decode(&bytes).unwrap().into();
+        //assert!(verify_transaction_signature(&new_tx, &valid_keys));
     }
 
     /// This test is change checker for a reason - we don't expect transaction format to change.
-    /// If it does - you MUST update all of the dependencies: like nearlib.
+    /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
     #[test]
     fn test_serialize_transaction() {
+        let public_key =
+            PublicKey::try_from("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV").unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
-            public_key: PublicKey::try_from("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV")
-                .unwrap(),
+            public_key,
             nonce: 1,
             receiver_id: "123".to_string(),
-            actions: vec![],
+            actions: vec![
+                //                Action::CreateAccount(CreateAccountAction {}),
+                //                Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
+                //                Action::FunctionCall(FunctionCallAction {
+                //                    method_name: "qqq".to_string(),
+                //                    args: vec![1, 2, 3],
+                //                    gas: 1_000,
+                //                    deposit: 1_000_000,
+                //                }),
+                Action::Transfer(TransferAction { deposit: 1_000_000_000 }),
+                //                Action::Stake(StakeAction { public_key, stake: 1_000_000 }),
+                //                Action::AddKey(AddKeyAction {
+                //                    public_key,
+                //                    access_key: AccessKey {
+                //                        amount: 1,
+                //                        balance_owner: Some("123".to_string()),
+                //                        contract_id: Some("321".to_string()),
+                //                        method_name: None,
+                //                    },
+                //                }),
+                //                Action::DeleteKey(DeleteKeyAction { public_key }),
+                //                Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
+            ],
         };
-        let hash = to_base(&transaction.get_hash());
-        assert_eq!(hash, "EsTRpLernDsH2hzznZ6wKMu1XYdyT4ynKK2H13hbMyzb");
+        let signed_tx = SignedTransaction::new(DEFAULT_SIGNATURE, transaction);
+        let new_signed_tx = SignedTransaction::from_slice(&signed_tx.to_vec().unwrap()).unwrap();
+
+        assert_eq!(
+            to_base(&new_signed_tx.get_hash()),
+            "EsTRpLernDsH2hzznZ6wKMu1XYdyT4ynKK2H13hbMyzb"
+        );
     }
 }

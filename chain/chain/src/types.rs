@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use nbor::nbor;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::EDSigner;
@@ -166,7 +167,7 @@ pub trait RuntimeAdapter: Send + Sync {
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience and the total weight.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(nbor, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockIndex,

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use chrono::{DateTime, Utc};
 
-use near_chain::{Block, Chain, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::QueryResponse;
+use near_primitives::rpc::{BlockView, QueryResponse};
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, TransactionLog, TransactionResult,
     TransactionStatus,
@@ -108,7 +108,7 @@ impl Handler<Query> for ViewClientActor {
 
 /// Handles retrieving block from the chain.
 impl Handler<GetBlock> for ViewClientActor {
-    type Result = Result<Block, String>;
+    type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg {
@@ -119,6 +119,7 @@ impl Handler<GetBlock> for ViewClientActor {
             GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
+        .map(|block| block.into())
         .map_err(|err| err.to_string())
     }
 }

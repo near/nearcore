@@ -3,8 +3,9 @@ use std::io::{Error, ErrorKind};
 use bytes::{BufMut, BytesMut};
 use tokio::codec::{Decoder, Encoder};
 
+use nbor::{Deserializable, Serializable};
+
 use crate::types::PeerMessage;
-use near_primitives::serialize::{Decode, Encode};
 
 pub struct Codec {
     max_length: u32,
@@ -57,13 +58,11 @@ impl Decoder for Codec {
 }
 
 pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
-    // MOO
-    Encode::encode(&peer_message)
+    peer_message.to_vec()
 }
 
 pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
-    // MOO
-    Decode::decode(bytes)
+    PeerMessage::from_slice(bytes)
 }
 
 #[cfg(test)]

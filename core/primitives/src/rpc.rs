@@ -5,14 +5,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::account::{AccessKey, Account};
-use crate::block::BlockHeader;
+use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
-use crate::serialize::{from_base, to_base, u128_dec_format, vec_base_format};
+use crate::serialize::{from_base, to_base, u128_dec_format};
+use crate::transaction::SignedTransaction;
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage, ValidatorStake, Version};
-
-/// Number of nano seconds in one second.
-//const NS_IN_SECOND: u64 = 1_000_000_000;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PublicKeyView(Vec<u8>);
@@ -41,6 +39,12 @@ impl<'de> Deserialize<'de> for PublicKeyView {
 impl From<PublicKey> for PublicKeyView {
     fn from(public_key: PublicKey) -> Self {
         Self(public_key.0.as_ref().to_vec())
+    }
+}
+
+impl From<PublicKeyView> for PublicKey {
+    fn from(view: PublicKeyView) -> Self {
+        Self::try_from(view.0).expect("Failed to get PublicKey from PublicKeyView")
     }
 }
 
@@ -74,7 +78,7 @@ impl From<SecretKey> for SecretKeyView {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SignatureView(Vec<u8>);
 
 impl Serialize for SignatureView {
@@ -104,7 +108,13 @@ impl From<Signature> for SignatureView {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl From<SignatureView> for Signature {
+    fn from(view: SignatureView) -> Self {
+        Signature::try_from(view.0).expect("Failed to get Signature from SignatureView")
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CryptoHashView(Vec<u8>);
 
 impl Serialize for CryptoHashView {
@@ -134,8 +144,14 @@ impl From<CryptoHash> for CryptoHashView {
     }
 }
 
+impl From<CryptoHashView> for CryptoHash {
+    fn from(view: CryptoHashView) -> Self {
+        CryptoHash::try_from(view.0).expect("Failed to convert CryptoHashView to CryptoHash")
+    }
+}
+
 /// A view of the account
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
     pub public_keys: Vec<PublicKeyView>,
     pub nonce: Nonce,
@@ -166,7 +182,21 @@ impl From<Account> for AccountView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+impl From<AccountView> for Account {
+    fn from(mut view: AccountView) -> Self {
+        Self {
+            public_keys: view.public_keys.drain(..).map(|public_key| public_key.into()).collect(),
+            nonce: view.nonce,
+            amount: view.amount,
+            staked: view.staked,
+            code_hash: view.code_hash.into(),
+            storage_usage: view.storage_usage,
+            storage_paid_at: view.storage_paid_at,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccessKeyView {
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
@@ -182,6 +212,17 @@ impl From<AccessKey> for AccessKeyView {
             balance_owner: access_key.balance_owner,
             contract_id: access_key.contract_id,
             method_name: access_key.method_name,
+        }
+    }
+}
+
+impl From<AccessKeyView> for AccessKey {
+    fn from(view: AccessKeyView) -> Self {
+        Self {
+            amount: view.amount,
+            balance_owner: view.balance_owner,
+            contract_id: view.contract_id,
+            method_name: view.method_name,
         }
     }
 }
@@ -284,7 +325,8 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
     }
 }
 
-struct BlockHeaderView {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_hash: CryptoHash,
     pub prev_hash: CryptoHashView,
@@ -295,7 +337,7 @@ struct BlockHeaderView {
     pub approval_sigs: Vec<SignatureView>,
     pub total_weight: u64,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub signature: Signature,
+    pub signature: SignatureView,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -306,7 +348,7 @@ impl From<BlockHeader> for BlockHeaderView {
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
             tx_root: header.inner.tx_root.into(),
-            timestamp: header.inner.timestamp.timestamp() as u64,
+            timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
             approval_sigs: header
                 .inner
@@ -318,5 +360,57 @@ impl From<BlockHeader> for BlockHeaderView {
             validator_proposals: header.inner.validator_proposals,
             signature: header.signature.into(),
         }
+    }
+}
+
+impl From<BlockHeaderView> for BlockHeader {
+    fn from(mut view: BlockHeaderView) -> Self {
+        let mut header = Self {
+            inner: BlockHeaderInner {
+                height: view.height,
+                epoch_hash: view.epoch_hash.into(),
+                prev_hash: view.prev_hash.into(),
+                prev_state_root: view.prev_state_root.into(),
+                tx_root: view.tx_root.into(),
+                timestamp: view.timestamp,
+                approval_mask: view.approval_mask,
+                approval_sigs: view
+                    .approval_sigs
+                    .drain(..)
+                    .map(|signature| signature.into())
+                    .collect(),
+                total_weight: view.total_weight.into(),
+                validator_proposals: view.validator_proposals,
+            },
+            signature: view.signature.into(),
+            hash: CryptoHash::default(),
+        };
+        header.init();
+        header
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlockView {
+    pub header: BlockHeaderView,
+    pub transactions: Vec<SignedTransactionView>,
+}
+
+impl From<Block> for BlockView {
+    fn from(mut block: Block) -> Self {
+        BlockView {
+            header: block.header.into(),
+            transactions: block.transactions.drain(..).map(|tx| tx.into()).collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SignedTransactionView {}
+
+impl From<SignedTransaction> for SignedTransactionView {
+    fn from(signed_tx: SignedTransaction) -> Self {
+        // MOO
+        SignedTransactionView {}
     }
 }

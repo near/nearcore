@@ -1,13 +1,14 @@
 use std::fmt;
 
+use nbor::nbor;
+
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::serialize::{Encode, EncodeResult};
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(nbor, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     pub public_keys: Vec<PublicKey>,
     pub nonce: Nonce,
@@ -54,7 +55,7 @@ impl Account {
 
 /// Limited Access key to use owner's account with the fixed public_key.
 /// Access Key is stored under the key of owner's `account_id` and the `public_key`.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[derive(nbor, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct AccessKey {
     /// Balance amount on this Access Key. Can be used to pay for the transactions.
     pub amount: Balance,

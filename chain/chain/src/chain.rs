@@ -817,8 +817,8 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
-        if header.inner.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
-            return Err(ErrorKind::InvalidBlockFutureTime(header.inner.timestamp).into());
+        if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
         // First I/O cost, delay as much as possible.
@@ -830,8 +830,8 @@ impl<'a> ChainUpdate<'a> {
         // time progression.
         if header.inner.timestamp <= prev_header.inner.timestamp {
             return Err(ErrorKind::InvalidBlockPastTime(
-                prev_header.inner.timestamp,
-                header.inner.timestamp,
+                prev_header.timestamp(),
+                header.timestamp(),
             )
             .into());
         }

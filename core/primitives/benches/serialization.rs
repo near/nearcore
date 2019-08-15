@@ -12,7 +12,8 @@ use near_primitives::block::Block;
 use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{Decode, Encode};
+//use near_primitives::serialize::{Decode, Encode};
+use nbor::{Deserializable, Serializable};
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::MerkleHash;
 
@@ -56,50 +57,50 @@ fn create_account() -> Account {
 fn serialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
     bench.iter(|| {
-        let bytes = t.encode().unwrap();
+        let bytes = t.to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
-    let bytes = t.encode().unwrap();
+    let bytes = t.to_vec().unwrap();
     bench.iter(|| {
-        let nt = SignedTransaction::decode(&bytes).unwrap();
-        // assert_eq!(nt, t);
+        let nt = SignedTransaction::from_slice(&bytes).unwrap();
+        assert_eq!(nt, t);
     });
 }
 
 fn serialize_block(bench: &mut Bencher) {
     let b = create_block();
     bench.iter(|| {
-        let bytes = b.encode().unwrap();
+        let bytes = b.to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_block(bench: &mut Bencher) {
     let b = create_block();
-    let bytes = b.encode().unwrap();
+    let bytes = b.to_vec().unwrap();
     bench.iter(|| {
-        let nb = Block::decode(&bytes).unwrap();
-        // assert_eq!(nb, b);
+        let nb = Block::from_slice(&bytes).unwrap();
+        assert_eq!(nb, b);
     });
 }
 
 fn serialize_account(bench: &mut Bencher) {
     let acc = create_account();
     bench.iter(|| {
-        let bytes = acc.encode().unwrap();
+        let bytes = acc.to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_account(bench: &mut Bencher) {
     let acc = create_account();
-    let bytes = acc.encode().unwrap();
+    let bytes = acc.to_vec().unwrap();
     bench.iter(|| {
-        let nacc = Account::decode(&bytes).unwrap();
+        let nacc = Account::from_slice(&bytes).unwrap();
         assert_eq!(nacc, acc);
     });
 }

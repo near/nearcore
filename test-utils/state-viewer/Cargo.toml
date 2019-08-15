@@ -8,6 +8,7 @@ edition = "2018"
 clap = "2.32.0"
 hex = "0.3"
 
+nbor = { path = "../../core/nbor" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }

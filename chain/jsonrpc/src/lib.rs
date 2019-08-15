@@ -15,12 +15,13 @@ use serde_json::Value;
 use async_utils::{delay, timeout};
 use message::{Request, RpcError};
 use message::Message;
+use nbor::Deserializable;
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::message as message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::{BaseEncode, Decode, from_base, from_base64};
+use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 use near_primitives::types::BlockIndex;
 
@@ -98,13 +99,7 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
-    Decode::decode(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
-//    let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
-//        RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
-//    })?;
-//    Ok(tx.try_into().map_err(|e| {
-//        RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
-//    })?)
+    SignedTransaction::from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {

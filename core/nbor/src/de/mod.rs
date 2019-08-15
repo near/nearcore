@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Cursor, Error, Read};
 use std::mem::size_of;
 
@@ -59,6 +60,14 @@ macro_rules! impl_for_float {
 impl_for_float!(f32, u32);
 impl_for_float!(f64, u64);
 
+impl Deserializable for bool {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let mut buf = [0u8];
+        reader.read(&mut buf)?;
+        Ok(buf[0] == 1)
+    }
+}
+
 impl<T> Deserializable for Option<T>
 where
     T: Deserializable,
@@ -71,5 +80,125 @@ where
         } else {
             Ok(Some(T::read(reader)?))
         }
+    }
+}
+
+impl Deserializable for String {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let len = u32::read(reader)?;
+        let mut result = vec![0; len as usize];
+        reader.read_exact(&mut result)?;
+        String::from_utf8(result)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Deserializable for Vec<T>
+where
+    T: Deserializable,
+{
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let len = u32::read(reader)?;
+        let mut result = vec![];
+        for _ in 0..len {
+            result.push(T::read(reader)?);
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Deserializable for HashSet<T>
+where
+    T: Deserializable + Eq + std::hash::Hash,
+{
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let mut vec = <Vec<T>>::read(reader)?;
+        Ok(vec.drain(..).collect::<HashSet<T>>())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> Deserializable for HashMap<K, V>
+where
+    K: Deserializable + Eq + std::hash::Hash,
+    V: Deserializable,
+{
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let len = u32::read(reader)?;
+        let mut result = HashMap::default();
+        for _ in 0..len {
+            let key = K::read(reader)?;
+            let value = V::read(reader)?;
+            result.insert(key, value);
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> Deserializable for BTreeMap<K, V>
+where
+    K: Deserializable + Ord + std::hash::Hash,
+    V: Deserializable,
+{
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let len = u32::read(reader)?;
+        let mut result = BTreeMap::default();
+        for _ in 0..len {
+            let key = K::read(reader)?;
+            let value = V::read(reader)?;
+            result.insert(key, value);
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "std")]
+impl Deserializable for std::net::SocketAddr {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let kind = u8::read(reader)?;
+        match kind {
+            0 => std::net::SocketAddrV4::read(reader).map(|addr| std::net::SocketAddr::V4(addr)),
+            1 => std::net::SocketAddrV6::read(reader).map(|addr| std::net::SocketAddr::V6(addr)),
+            value => panic!(format!("Invalid SocketAddr variant: {}", value)),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Deserializable for std::net::SocketAddrV4 {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let ip = std::net::Ipv4Addr::read(reader)?;
+        let port = u16::read(reader)?;
+        Ok(std::net::SocketAddrV4::new(ip, port))
+    }
+}
+
+#[cfg(feature = "std")]
+impl Deserializable for std::net::SocketAddrV6 {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let ip = std::net::Ipv6Addr::read(reader)?;
+        let port = u16::read(reader)?;
+        Ok(std::net::SocketAddrV6::new(ip, port, 0, 0))
+    }
+}
+
+#[cfg(feature = "std")]
+impl Deserializable for std::net::Ipv4Addr {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let mut buf = [0u8; 4];
+        reader.read(&mut buf)?;
+        Ok(std::net::Ipv4Addr::from(buf))
+    }
+}
+
+#[cfg(feature = "std")]
+impl Deserializable for std::net::Ipv6Addr {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let mut buf = [0u8; 16];
+        reader.read(&mut buf)?;
+        Ok(std::net::Ipv6Addr::from(buf))
     }
 }

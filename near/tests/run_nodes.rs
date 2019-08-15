@@ -43,10 +43,7 @@ fn run_nodes(num_nodes: usize) {
         Box::new(move |_ctx| {
             actix::spawn(view_client.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Ok(b))
-                        if b.header.inner.height > 4
-                            && b.header.inner.total_weight.to_num() > 6 =>
-                    {
+                    Ok(Ok(b)) if b.header.height > 4 && b.header.total_weight > 6 => {
                         System::current().stop()
                     }
                     Err(_) => return futures::future::err(()),

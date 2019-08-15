@@ -8,3 +8,10 @@ description = """Near Binary Object Representation
 
 [dependencies]
 nbor-derive = { path = "../nbor-derive" }
+
+[features]
+default = ["std"]
+
+# Provides impls for common standard library types like Vec<T>.
+# Requires a dependency on the Rust standard library.
+std = []

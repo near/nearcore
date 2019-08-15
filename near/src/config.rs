@@ -19,9 +19,9 @@ use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::Account;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::hash;
+use near_primitives::rpc::AccountView;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
@@ -338,12 +338,12 @@ impl GenesisConfig {
             }
             records[0].push(StateRecord::Account {
                 account_id: account.to_string(),
-                account: Account {
+                account: AccountView {
                     nonce: 0,
                     amount: TESTING_INIT_BALANCE
                         - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    public_keys: vec![signer.public_key],
-                    code_hash,
+                    public_keys: vec![signer.public_key.into()],
+                    code_hash: code_hash.into(),
                     staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     storage_usage: 0,
                     storage_paid_at: 0,

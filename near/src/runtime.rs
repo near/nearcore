@@ -169,20 +169,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         height: BlockIndex,
     ) -> Result<AccountId, Box<dyn std::error::Error>> {
         let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
-        let (epoch_hash, idx) = vm.get_epoch_offset(parent_hash, height)?;
+        let (epoch_hash, _idx) = vm.get_epoch_offset(parent_hash, height)?;
         let validator_assignemnt = vm.get_validators(epoch_hash)?;
-        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize]
-            .iter()
-            .map(|(_, seats)| seats)
-            .sum();
-        let mut cur_seats = 0;
-        for (index, seats) in validator_assignemnt.chunk_producers[shard_id as usize].iter() {
-            if cur_seats + *seats > idx % total_seats {
-                return Ok(validator_assignemnt.validators[*index].account_id.clone());
-            }
-            cur_seats += *seats;
-        }
-        unreachable!()
+        let total_seats: u64 = validator_assignemnt.chunk_producers[shard_id as usize].len() as u64;
+        let validator_id = validator_assignemnt.chunk_producers[shard_id as usize]
+            [(height % total_seats) as usize];
+        Ok(validator_assignemnt.validators[validator_id].account_id.clone())
     }
 
     fn check_validator_signature(
@@ -640,7 +632,7 @@ mod test {
                 &assignment(
                     vec![("test3", TESTING_INIT_STAKE * 2), ("test1", TESTING_INIT_STAKE * 2)],
                     vec![1, 0],
-                    vec![vec![(1, 1), (0, 1)]],
+                    vec![vec![1, 0]],
                     vec![],
                     6,
                     change_stake(vec![

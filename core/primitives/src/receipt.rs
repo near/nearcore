@@ -1,22 +1,23 @@
 use std::borrow::Borrow;
 use std::fmt;
 
+use nbor::nbor;
+
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::serialize::{option_bytes_format, u128_dec_format};
 use crate::transaction::{Action, TransactionResult, TransferAction};
 use crate::types::{AccountId, Balance};
 use crate::utils::system_account;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReceiptInfo {
     pub receipt: Receipt,
     pub block_index: u64,
     pub result: TransactionResult,
 }
 
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -56,18 +57,17 @@ impl Receipt {
     }
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(nbor, Hash, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     pub signer_id: AccountId,
     pub signer_public_key: PublicKey,
 
-    #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
 
     /// If present, where to route the output data
@@ -78,16 +78,15 @@ pub struct ActionReceipt {
     pub actions: Vec<Action>,
 }
 
-#[derive(Hash, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(nbor, Hash, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(Hash, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(nbor, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
-    #[serde(with = "option_bytes_format")]
     pub data: Option<Vec<u8>>,
 }
 

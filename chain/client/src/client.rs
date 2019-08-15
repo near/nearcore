@@ -33,6 +33,7 @@ use near_primitives::rpc::ValidatorInfo;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
@@ -346,7 +347,7 @@ impl Handler<Status> for ClientActor {
                 latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
                 latest_state_root: state_root.clone().into(),
-                latest_block_time,
+                latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.sync_status.is_syncing(),
             },
         })

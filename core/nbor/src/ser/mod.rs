@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Error, Write};
 
 /// A data-structure that can be serialized into binary format by NBOR.
@@ -54,17 +55,141 @@ macro_rules! impl_for_float {
 impl_for_float!(f32);
 impl_for_float!(f64);
 
+impl Serializable for bool {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        writer.write(if *self { &[0u8] } else { &[1u8] }).map(|_| ())
+    }
+}
+
 impl<T> Serializable for Option<T>
 where
     T: Serializable,
 {
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
-            None => writer.write(&[0u8]).map(|_| ()),
+            None => 0u8.write(writer).map(|_| ()),
             Some(value) => {
-                writer.write(&[1u8])?;
+                1u8.write(writer)?;
                 value.write(writer)
             }
         }
+    }
+}
+
+impl Serializable for String {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        (self.len() as u32).write(writer)?;
+        writer.write(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Serializable for Vec<T>
+where
+    T: Serializable,
+{
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        (self.len() as u32).write(writer)?;
+        for item in self {
+            item.write(writer)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Serializable for HashSet<T>
+where
+    T: Serializable + PartialOrd,
+{
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let mut vec = self.iter().collect::<Vec<_>>();
+        vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        (vec.len() as u32).write(writer)?;
+        for item in vec {
+            item.write(writer)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> Serializable for HashMap<K, V>
+where
+    K: Serializable + PartialOrd,
+    V: Serializable,
+{
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let mut vec = self.iter().collect::<Vec<_>>();
+        vec.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
+        (vec.len() as u32).write(writer)?;
+        for (key, value) in vec {
+            key.write(writer)?;
+            value.write(writer)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> Serializable for BTreeMap<K, V>
+where
+    K: Serializable + PartialOrd,
+    V: Serializable,
+{
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        (self.len() as u32).write(writer)?;
+        for (key, value) in self.iter() {
+            key.write(writer)?;
+            value.write(writer)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl Serializable for std::net::SocketAddr {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match *self {
+            std::net::SocketAddr::V4(ref addr) => {
+                0u8.write(writer)?;
+                addr.write(writer)
+            }
+            std::net::SocketAddr::V6(ref addr) => {
+                1u8.write(writer)?;
+                addr.write(writer)
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Serializable for std::net::SocketAddrV4 {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        self.ip().write(writer)?;
+        self.port().write(writer).map(|_| ())
+    }
+}
+
+#[cfg(feature = "std")]
+impl Serializable for std::net::SocketAddrV6 {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        self.ip().write(writer)?;
+        self.port().write(writer).map(|_| ())
+    }
+}
+
+#[cfg(feature = "std")]
+impl Serializable for std::net::Ipv4Addr {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        writer.write(&self.octets()).map(|_| ())
+    }
+}
+
+#[cfg(feature = "std")]
+impl Serializable for std::net::Ipv6Addr {
+    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        writer.write(&self.octets()).map(|_| ())
     }
 }

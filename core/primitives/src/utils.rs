@@ -1,4 +1,4 @@
-use std::convert::{AsRef, TryFrom, TryInto};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
+use chrono::{DateTime, NaiveDateTime, Utc};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
@@ -165,3 +166,14 @@ macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
         return $ret;
     }
 }));
+
+/// Converts timestamp in millis into DateTime UTC time.
+pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
+    DateTime::from_utc(
+        NaiveDateTime::from_timestamp(
+            (timestamp / 1000) as i64,
+            ((timestamp % 1000) * 1_000_000) as u32,
+        ),
+        Utc,
+    )
+}

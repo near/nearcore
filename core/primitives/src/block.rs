@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::prelude::{DateTime, Utc};
-use chrono::serde::ts_nanoseconds;
+
+use nbor::{nbor, Serializable};
 
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
-use crate::serialize::{vec_base_format, Encode};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
-use serde::{Deserialize, Deserializer};
+use crate::utils::from_timestamp;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(nbor, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInner {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -26,8 +26,7 @@ pub struct BlockHeaderInner {
     /// Root hash of the transactions in the given block.
     pub tx_root: MerkleHash,
     /// Timestamp at which the block was built.
-    #[serde(with = "ts_nanoseconds")]
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: u64,
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures.
@@ -57,7 +56,7 @@ impl BlockHeaderInner {
             prev_hash,
             prev_state_root,
             tx_root,
-            timestamp,
+            timestamp: timestamp.timestamp_millis() as u64,
             approval_mask,
             approval_sigs,
             total_weight,
@@ -66,7 +65,8 @@ impl BlockHeaderInner {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(nbor, Debug, Clone, Eq, PartialEq)]
+#[nbor_init(init)]
 pub struct BlockHeader {
     /// Inner part of the block header that gets hashed.
     pub inner: BlockHeaderInner,
@@ -75,11 +75,15 @@ pub struct BlockHeader {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[serde(skip)]
-    hash: CryptoHash,
+    #[nbor_skip]
+    pub hash: CryptoHash,
 }
 
 impl BlockHeader {
+    pub fn init(&mut self) {
+        self.hash = hash(&self.inner.to_vec().expect("Failed to serialize"));
+    }
+
     pub fn new(
         height: BlockIndex,
         prev_hash: CryptoHash,
@@ -105,9 +109,8 @@ impl BlockHeader {
             total_weight,
             validator_proposal,
         );
-        let bytes = inner.encode().expect("Failed to serialze block header");
-        let hash = hash(&bytes);
-        Self { inner, signature: signer.sign(hash.as_ref()).into(), hash }
+        let hash = hash(&inner.to_vec().expect("Failed to serialize"));
+        Self { inner, signature: signer.sign(hash.as_ref()), hash }
     }
 
     pub fn genesis(state_root: MerkleHash, timestamp: DateTime<Utc>) -> Self {
@@ -123,9 +126,8 @@ impl BlockHeader {
             0.into(),
             vec![],
         );
-        let bytes = inner.encode().expect("Failed to serialze block header");
-        let hash = hash(&bytes);
-        Self { inner, signature: DEFAULT_SIGNATURE.into(), hash }
+        let hash = hash(&inner.to_vec().expect("Failed to serialize"));
+        Self { inner, signature: DEFAULT_SIGNATURE, hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -136,23 +138,13 @@ impl BlockHeader {
     pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
         verify(self.hash.as_ref(), &self.signature, public_key)
     }
+
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        from_timestamp(self.inner.timestamp)
+    }
 }
 
-//impl<'de> Deserialize<'de> for BlockHeader {
-//    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-//    where
-//        D: Deserializer<'de>,
-//    {
-//        let mut header = BlockHeader::deserialize(deserializer)?;
-//        header.hash = hash(&header.inner.encode().expect("Failed serializing header"));
-//        Ok(header)
-//    }
-//}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Bytes(Vec<u8>);
-
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(nbor, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -225,7 +217,7 @@ impl Block {
 }
 
 /// The weight is defined as the number of unique validators approving this fork.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize, Default)]
+#[derive(nbor, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default)]
 pub struct Weight {
     num: u64,
 }

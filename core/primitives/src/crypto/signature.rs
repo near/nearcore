@@ -3,13 +3,13 @@ extern crate exonum_sodiumoxide as sodiumoxide;
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Writable, WritableResult};
+use crate::serialize::{from_base, to_base, BaseDecode};
 use crate::types::ReadablePublicKey;
-use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -17,7 +17,7 @@ pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 #[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
-#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Signature(pub sodiumoxide::crypto::sign::ed25519::Signature);
 
 pub fn sign(data: &[u8], secret_key: &SecretKey) -> Signature {
@@ -119,12 +119,24 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
-impl Writable for PublicKey {
-    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-        // 1 byte for kind.
-        out.extend_from_slice(&vec![0]);
-        out.extend_from_slice(&(self.0).0);
+impl nbor::Serializable for PublicKey {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write(&vec![0])?;
+        writer.write(&(self.0).0)?;
         Ok(())
+    }
+}
+
+impl nbor::Deserializable for PublicKey {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES + 1];
+        reader.read(&mut bytes)?;
+        // TODO: support other curves here.
+        assert_eq!(bytes[0], 0);
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        array.copy_from_slice(&bytes[1..]);
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        Ok(PublicKey(public_key))
     }
 }
 
@@ -198,6 +210,21 @@ impl TryFrom<&str> for Signature {
         array.copy_from_slice(bytes_arr);
         let signature = sodiumoxide::crypto::sign::ed25519::Signature(array);
         Ok(Signature(signature))
+    }
+}
+
+impl nbor::Serializable for Signature {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write(&(self.0).0)?;
+        Ok(())
+    }
+}
+
+impl nbor::Deserializable for Signature {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        reader.read(&mut bytes)?;
+        Ok(Signature(sodiumoxide::crypto::sign::ed25519::Signature(bytes)))
     }
 }
 

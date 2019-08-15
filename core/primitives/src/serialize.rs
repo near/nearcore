@@ -1,108 +1,10 @@
 use std::convert::TryFrom;
 use std::io;
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use serde::{de::DeserializeOwned, Serialize};
-use std::io::Cursor;
 
 pub type EncodeResult = Result<Vec<u8>, io::Error>;
 pub type DecodeResult<T> = Result<T, io::Error>;
-
-pub type WritableResult = Result<(), std::io::Error>;
-pub type ReadableResult<T> = Result<T, std::io::Error>;
-
-pub trait Writable {
-    fn write(&self) -> Result<Vec<u8>, std::io::Error> {
-        let mut out = vec![];
-        self.write_into(&mut out)?;
-        Ok(out)
-    }
-    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult;
-}
-
-macro_rules! impl_writable_for_uint {
-    ($type: ident) => {
-        impl Writable for $type {
-            fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-                out.extend_from_slice(&self.to_le_bytes());
-                Ok(())
-            }
-        }
-    };
-}
-
-impl_writable_for_uint!(u8);
-impl_writable_for_uint!(u16);
-impl_writable_for_uint!(u32);
-impl_writable_for_uint!(u64);
-impl_writable_for_uint!(u128);
-
-impl Writable for String {
-    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-        (self.len() as u32).write_into(out)?;
-        out.extend_from_slice(self.as_bytes());
-        Ok(())
-    }
-}
-
-impl<T> Writable for Vec<T>
-where
-    T: Writable,
-{
-    fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-        (self.len() as u32).write_into(out)?;
-        for item in self.iter() {
-            item.write_into(out)?;
-        }
-        Ok(())
-    }
-}
-
-pub trait Readable: Sized {
-    fn read(bytes: &[u8]) -> ReadableResult<Self> {
-        let mut cursor = Cursor::new(bytes);
-        Self::read_from_cursor(&mut cursor)
-    }
-
-    fn read_from_cursor(cursor: &mut Cursor<&[u8]>) -> ReadableResult<Self>;
-}
-
-macro_rules! impl_readable_for_primitive {
-    ($type: ident, $func: ident) => {
-        impl Readable for $type {
-            fn read_from_cursor(cursor: &mut Cursor<&[u8]>) -> ReadableResult<Self> {
-                cursor.$func()
-            }
-        }
-    };
-    ($type: ident, $func: ident, $qual: ident) => {
-        impl Readable for $type {
-            fn read_from_cursor(cursor: &mut Cursor<&[u8]>) -> ReadableResult<Self> {
-                cursor.$func::<$qual>()
-            }
-        }
-    };
-}
-
-impl_readable_for_primitive!(u8, read_u8);
-impl_readable_for_primitive!(u16, read_u16, LittleEndian);
-impl_readable_for_primitive!(u32, read_u32, LittleEndian);
-impl_readable_for_primitive!(u64, read_u64, LittleEndian);
-impl_readable_for_primitive!(u128, read_u128, LittleEndian);
-
-impl<T> Readable for Vec<T>
-where
-    T: Readable,
-{
-    fn read_from_cursor(mut cursor: &mut Cursor<&[u8]>) -> ReadableResult<Self> {
-        let len = u32::read_from_cursor(&mut cursor)?;
-        let mut result = vec![];
-        for _ in 0..len {
-            result.push(T::read_from_cursor(&mut cursor)?);
-        }
-        Ok(result)
-    }
-}
 
 // encode a type to byte array
 pub trait Encode {
@@ -331,45 +233,10 @@ pub mod u128_dec_format {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Eq, PartialEq)]
-    struct SomeStruct {
-        a: u8,
-        b: u32,
-        c: u128,
-        x: Vec<u32>,
-    }
-
     #[derive(Deserialize, Serialize)]
     struct OptionBytesStruct {
         #[serde(with = "option_bytes_format")]
         data: Option<Vec<u8>>,
-    }
-
-    impl Writable for SomeStruct {
-        fn write_into(&self, out: &mut Vec<u8>) -> WritableResult {
-            self.a.write_into(out)?;
-            self.b.write_into(out)?;
-            self.c.write_into(out)?;
-            self.x.write_into(out)
-        }
-    }
-
-    impl Readable for SomeStruct {
-        fn read_from_cursor(mut cursor: &mut Cursor<&[u8]>) -> ReadableResult<Self> {
-            let a = u8::read_from_cursor(&mut cursor)?;
-            let b = u32::read_from_cursor(&mut cursor)?;
-            let c = u128::read_from_cursor(&mut cursor)?;
-            let x = <Vec<u32>>::read_from_cursor(&mut cursor)?;
-            Ok(Self { a, b, c, x })
-        }
-    }
-
-    #[test]
-    fn test_serialize_struct() {
-        let s = SomeStruct { a: 1, b: 2, c: 3, x: vec![1, 2, 3] };
-        let bytes = s.write().unwrap();
-        let ns = SomeStruct::read(&bytes).unwrap();
-        assert_eq!(s, ns);
     }
 
     #[test]

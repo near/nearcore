@@ -5,12 +5,13 @@ use std::sync::{Arc, Mutex, RwLock};
 use tempdir::TempDir;
 
 use lazy_static::lazy_static;
-use near_chain::Block;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccessKeyView, AccountView, CryptoHashView, ViewStateResult};
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
+};
 use near_primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, SignedTransaction, TransactionLog,
     TransactionResult, TransactionStatus,
@@ -198,7 +199,7 @@ impl User for RuntimeUser {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
-    fn get_block(&self, _index: u64) -> Option<Block> {
+    fn get_block(&self, _index: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 

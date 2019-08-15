@@ -3,11 +3,12 @@ use std::sync::Arc;
 use actix::{Actor, System};
 use futures::future::Future;
 
+use nbor::Serializable;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::serialize::{to_base64, Encode};
+use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
 
@@ -30,7 +31,7 @@ fn test_send_tx_async() {
         );
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
-        let bytes = tx.encode().unwrap();
+        let bytes = tx.to_vec().unwrap();
         actix::spawn(
             client
                 .broadcast_tx_async(to_base64(&bytes))
@@ -74,7 +75,7 @@ fn test_send_tx_commit() {
             Arc::new(signer),
             100,
         );
-        let bytes = tx.encode().unwrap();
+        let bytes = tx.to_vec().unwrap();
         actix::spawn(
             client
                 .broadcast_tx_commit(to_base64(&bytes))

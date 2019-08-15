@@ -32,7 +32,7 @@ impl PeerStore {
             let mut peer_state: KnownPeerState = value.try_into()?;
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
-                _ => peer_state.status = KnownPeerStatus::NotConnected
+                _ => peer_state.status = KnownPeerStatus::NotConnected,
             };
             peer_states.insert(peer_id, peer_state);
         }
@@ -56,7 +56,7 @@ impl PeerStore {
             .peer_states
             .entry(peer_info.peer_info.id)
             .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
-        entry.last_seen = Utc::now();
+        entry.last_seen = Utc::now().timestamp_millis() as u64;
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
         store_update.set_ser(COL_PEERS, peer_info.peer_info.id.as_ref(), entry)?;
@@ -68,7 +68,7 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now();
+            peer_state.last_seen = Utc::now().timestamp_millis() as u64;
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
             store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
@@ -84,8 +84,9 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now();
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, Utc::now());
+            peer_state.last_seen = Utc::now().timestamp_millis() as u64;
+            peer_state.status =
+                KnownPeerStatus::Banned(ban_reason, Utc::now().timestamp_millis() as u64);
             let mut store_update = self.store.store_update();
             store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
             store_update.commit().map_err(|err| err.into())
@@ -157,7 +158,7 @@ impl PeerStore {
         let now = Utc::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen).to_std()?;
+            let diff = (now - peer_status.last_seen()).to_std()?;
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {
@@ -186,15 +187,11 @@ impl PeerStore {
 mod test {
     extern crate tempdir;
     use super::*;
-    use near_store::{create_store};
     use near_primitives::crypto::signature::get_key_pair;
+    use near_store::create_store;
 
     fn gen_peer_info() -> PeerInfo {
-        PeerInfo{
-            id: PeerId::from(get_key_pair().0),
-            addr: None,
-            account_id: None,
-        }
+        PeerInfo { id: PeerId::from(get_key_pair().0), addr: None, account_id: None }
     }
 
     #[test]

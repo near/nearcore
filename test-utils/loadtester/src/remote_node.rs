@@ -7,9 +7,10 @@ use futures::Future;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
+use nbor::Serializable;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::rpc::AccountView;
-use near_primitives::serialize::{from_base, Encode};
+use near_primitives::serialize::from_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 
@@ -158,7 +159,7 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let bytes = transaction.encode().unwrap();
+        let bytes = transaction.to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let response = self
             .async_client
@@ -176,7 +177,7 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let bytes = transaction.encode().unwrap();
+        let bytes = transaction.to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let result: serde_json::Value = self
             .sync_client

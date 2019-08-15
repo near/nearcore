@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccessKeyView, AccountView, CryptoHashView, ViewStateResult};
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FinalTransactionResult, FunctionCallAction, SignedTransaction,
@@ -45,7 +46,7 @@ pub trait User {
 
     fn get_best_block_index(&self) -> Option<u64>;
 
-    fn get_block(&self, index: u64) -> Option<Block>;
+    fn get_block(&self, index: u64) -> Option<BlockView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
 

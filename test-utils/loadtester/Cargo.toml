@@ -15,6 +15,7 @@ futures = "0.1.25"
 tokio = "0.1"
 serde_json = "1.0.0"
 
+nbor = { path = "../../core/nbor" }
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 testlib = { path = "../testlib" }

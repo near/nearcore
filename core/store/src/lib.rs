@@ -5,13 +5,12 @@ use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
+use nbor::{Deserializable, Serializable};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::serialize::{to_base, Decode, Encode};
+use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
     key_for_access_key, key_for_account, key_for_code, prefix_for_access_key, prefix_for_data,
@@ -53,13 +52,13 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Decode + DeserializeOwned>(
+    pub fn get_ser<T: Deserializable>(
         &self,
         column: Option<u32>,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
-            Ok(Some(bytes)) => match Decode::decode(bytes.as_ref()) {
+            Ok(Some(bytes)) => match T::from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
                 Err(e) => Err(e),
             },
@@ -107,13 +106,13 @@ impl StoreUpdate {
         self.transaction.put(column, key, value)
     }
 
-    pub fn set_ser<T: Encode>(
+    pub fn set_ser<T: Serializable>(
         &mut self,
         column: Option<u32>,
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
-        let data = Encode::encode(value)?;
+        let data = value.to_vec()?;
         self.set(column, key, &data);
         Ok(())
     }
@@ -165,7 +164,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Decode + DeserializeOwned + 'a>(
+pub fn read_with_cache<'a, T: Deserializable + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,
@@ -189,18 +188,18 @@ pub fn create_store(path: &str) -> Arc<Store> {
 }
 
 /// Reads an object from Trie.
-pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| Decode::decode(&data).ok())
+pub fn get<T: Deserializable>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
+    state_update.get(key).and_then(|data| T::from_slice(&data).ok())
 }
 
 /// Writes an object into Trie.
-pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
+pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+    value.to_vec().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
 }
 
 /// Number of bytes the account data structure occupies in the storage.
 pub fn account_storage_size(account: &Account) -> StorageUsage {
-    account.encode().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
+    account.to_vec().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
@@ -212,7 +211,7 @@ pub fn total_account_storage(account_id: &AccountId, account: &Account) -> Stora
 }
 
 pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
-    set(state_update, key_for_account(key), &account)
+    set(state_update, key_for_account(key), account)
 }
 
 pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
@@ -225,7 +224,7 @@ pub fn set_access_key(
     public_key: &PublicKey,
     access_key: &AccessKey,
 ) {
-    set(state_update, key_for_access_key(account_id, public_key), &access_key);
+    set(state_update, key_for_access_key(account_id, public_key), access_key);
 }
 
 pub fn get_access_key(

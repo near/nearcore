@@ -6,8 +6,9 @@ use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Encode};
+use crate::serialize::{from_base, to_base, BaseDecode, Encode};
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 
 #[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CryptoHash(pub Digest);
@@ -46,6 +47,21 @@ impl AsMut<[u8]> for CryptoHash {
 }
 
 impl BaseDecode for CryptoHash {}
+
+impl nbor::Serializable for CryptoHash {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write(&(self.0).0)?;
+        Ok(())
+    }
+}
+
+impl nbor::Deserializable for CryptoHash {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let mut bytes = [0; 32];
+        reader.read(&mut bytes)?;
+        Ok(CryptoHash(Digest(bytes)))
+    }
+}
 
 impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
