@@ -96,12 +96,16 @@ impl<'a> TransactionVerifier<'a> {
                             &function_call_permission.receiver_id,
                         ));
                     }
-                    if let Some(ref method_name) = function_call_permission.method_name {
-                        if &function_call.method_name != method_name {
+                    if !function_call_permission.method_names.is_empty() {
+                        if function_call_permission
+                            .method_names
+                            .iter()
+                            .find(|method_name| &function_call.method_name == *method_name)
+                            .is_none()
+                        {
                             return Err(format!(
-                                "Transaction method name {:?} doesn't match the access key method name {:?}",
-                                &function_call.method_name,
-                                &method_name,
+                                "Transaction method name {:?} isn't allowed by the access key",
+                                &function_call.method_name
                             ));
                         }
                     }

@@ -1,7 +1,6 @@
 use std::convert::{TryFrom, TryInto};
 
-use protobuf::well_known_types::StringValue;
-use protobuf::SingularPtrField;
+use protobuf::{RepeatedField, SingularPtrField};
 
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
@@ -165,10 +164,10 @@ pub struct FunctionCallPermission {
     /// The access key only allows transactions with the given receiver's account id.
     pub receiver_id: AccountId,
 
-    /// `Some` means the access key only allows transactions with the function call of the given
-    /// method name.
-    /// `None` means any method name can be used.
-    pub method_name: Option<String>,
+    /// A list of method names that can be used. The access key only allows transactions with the
+    /// function call of one of the given method names.
+    /// Empty list means any method name can be used.
+    pub method_names: Vec<String>,
 }
 
 impl TryFrom<access_key_proto::FunctionCallPermission> for FunctionCallPermission {
@@ -178,7 +177,7 @@ impl TryFrom<access_key_proto::FunctionCallPermission> for FunctionCallPermissio
         Ok(FunctionCallPermission {
             allowance: proto.allowance.into_option().map(|a| a.try_into()).transpose()?,
             receiver_id: proto.receiver_id,
-            method_name: proto.method_name.into_option().map(|s| s.value),
+            method_names: proto.method_names.to_vec(),
         })
     }
 }
@@ -188,11 +187,7 @@ impl From<FunctionCallPermission> for access_key_proto::FunctionCallPermission {
         access_key_proto::FunctionCallPermission {
             allowance: SingularPtrField::from_option(f.allowance.map(|a| a.into())),
             receiver_id: f.receiver_id,
-            method_name: SingularPtrField::from_option(f.method_name.map(|v| {
-                let mut res = StringValue::new();
-                res.set_value(v);
-                res
-            })),
+            method_names: RepeatedField::from_vec(f.method_names),
 
             cached_size: Default::default(),
             unknown_fields: Default::default(),

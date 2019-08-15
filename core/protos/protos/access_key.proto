@@ -44,8 +44,8 @@ message FunctionCallPermission {
     // The access key only allows transactions with the given receiver's account id.
     string receiver_id = 2;
 
-    // `Some` means the access key only allows transactions with the function call of the given
-    // method name.
-    // `None` means any method name can be used.
-    google.protobuf.StringValue method_name = 3;
+    // A list of method names that can be used. The access key only allows transactions with the
+    // function call of one of the given method names.
+    // Empty list means any method name can be used.
+    repeated string method_names = 3;
 }
