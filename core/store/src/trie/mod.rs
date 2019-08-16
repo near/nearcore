@@ -305,13 +305,6 @@ impl RcTrieNode {
         let rc = cursor.read_u32::<LittleEndian>()?;
         Ok((&bytes[..bytes.len() - 4], rc))
     }
-
-    fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
-        let node = RawTrieNode::decode(&bytes[..bytes.len() - 4])?;
-        let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
-        let rc = cursor.read_u32::<LittleEndian>()?;
-        Ok((node, rc))
-    }
 }
 
 pub trait TrieStorage: Send + Sync {
@@ -585,7 +578,7 @@ impl Trie {
     }
 
     fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
-        let mut map = partial_storage.nodes.into_iter().collect();
+        let map = partial_storage.nodes.into_iter().collect();
         Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }
     }
 
@@ -1769,7 +1762,7 @@ mod tests {
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             let updates = vec![(b"doge".to_vec(), None)];
-            trie2.update(&root, updates.into_iter());
+            trie2.update(&root, updates.into_iter()).unwrap();
             // record extension, branch and both leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
         }
@@ -1777,7 +1770,7 @@ mod tests {
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
             let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
-            trie2.update(&root, updates.into_iter());
+            trie2.update(&root, updates.into_iter()).unwrap();
             // record extension and branch, but not leaves
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
         }
