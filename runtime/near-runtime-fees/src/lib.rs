@@ -76,13 +76,25 @@ pub struct ActionCreationConfig {
     pub stake_cost: Fee,
 
     /// Base cost of adding a key.
-    pub add_key_cost: Fee,
+    pub add_key_cost: AccessKeyCreationConfig,
 
     /// Base cost of deleting a key.
     pub delete_key_cost: Fee,
 
     /// Base cost of deleting an account.
     pub delete_account_cost: Fee,
+}
+
+/// Describes the cost of creating an access key.
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct AccessKeyCreationConfig {
+    /// Base cost of creating a full access access-key.
+    pub full_access_cost: Fee,
+    /// Base cost of creating an access-key restricted to specific functions.
+    pub function_call_cost: Fee,
+    /// Cost per byte (includes allowance, receiver_id, method_names) of creating a restrictec
+    /// access-key.
+    pub function_call_cost_per_byte: Fee,
 }
 
 impl Default for RuntimeFeesConfig {
@@ -101,7 +113,11 @@ impl Default for RuntimeFeesConfig {
                 function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
                 transfer_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
                 stake_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                add_key_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                    function_call_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                    function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                },
                 delete_key_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
                 delete_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
             },

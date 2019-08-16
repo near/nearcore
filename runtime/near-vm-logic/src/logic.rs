@@ -377,7 +377,7 @@ impl<'a> VMLogic<'a> {
 
     /// A helper function to pay gas fee for creating a contract call.
     /// # Args:
-    /// * `sir`: whether contract call is addressed to is addressed to itself;
+    /// * `sir`: whether contract call is addressed to itself;
     /// * `prepay_gas`: how much prepaid gas should be attached;
     /// * `num_bytes`: the number of bytes of method name and arguments used for this call;
     /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather

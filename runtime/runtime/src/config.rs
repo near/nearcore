@@ -1,5 +1,8 @@
 //! Settings of the parameters of the runtime.
-use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
+use near_primitives::account::AccessKeyPermission;
+use near_primitives::transaction::{
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction,
+};
 use near_primitives::types::{Balance, BlockIndex, Gas};
 use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::Config;
@@ -58,7 +61,25 @@ pub fn total_send_fees(
             }
             Transfer(_) => cfg.transfer_cost.send_fee(sender_is_receiver),
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
-            AddKey(_) => cfg.add_key_cost.send_fee(sender_is_receiver),
+            AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+                AccessKeyPermission::FunctionCall(call_perm) => {
+                    let num_bytes = call_perm.receiver_id.as_bytes().len() as u64
+                        + call_perm
+                            .method_names
+                            .iter()
+                            .map(|name| name.as_bytes().len() as u64)
+                            .sum::<u64>();
+                    cfg.add_key_cost.function_call_cost.send_fee(sender_is_receiver)
+                        + num_bytes
+                            * cfg
+                                .add_key_cost
+                                .function_call_cost_per_byte
+                                .send_fee(sender_is_receiver)
+                }
+                AccessKeyPermission::FullAccess => {
+                    cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+                }
+            },
             DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
             DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
         };
@@ -84,7 +105,19 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         }
         Transfer(_) => cfg.transfer_cost.exec_fee(),
         Stake(_) => cfg.stake_cost.exec_fee(),
-        AddKey(_) => cfg.add_key_cost.exec_fee(),
+        AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+            AccessKeyPermission::FunctionCall(call_perm) => {
+                let num_bytes = call_perm.receiver_id.as_bytes().len() as u64
+                    + call_perm
+                        .method_names
+                        .iter()
+                        .map(|name| name.as_bytes().len() as u64)
+                        .sum::<u64>();
+                cfg.add_key_cost.function_call_cost.exec_fee()
+                    + num_bytes * cfg.add_key_cost.function_call_cost_per_byte.exec_fee()
+            }
+            AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
+        },
         DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
         DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
