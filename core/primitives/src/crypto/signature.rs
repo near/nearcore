@@ -11,10 +11,10 @@ use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};
 use crate::types::ReadablePublicKey;
 
-#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
 
-#[derive(Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct SecretKey(pub sodiumoxide::crypto::sign::ed25519::SecretKey);
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -121,6 +121,7 @@ impl TryFrom<&str> for PublicKey {
 
 impl nbor::Serializable for PublicKey {
     fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        // TODO: support other curves here.
         writer.write(&vec![0])?;
         writer.write(&(self.0).0)?;
         Ok(())
@@ -132,7 +133,9 @@ impl nbor::Deserializable for PublicKey {
         let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES + 1];
         reader.read(&mut bytes)?;
         // TODO: support other curves here.
-        assert_eq!(bytes[0], 0);
+        if bytes[0] != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unsupported curve"));
+        }
         let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
         array.copy_from_slice(&bytes[1..]);
         let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);

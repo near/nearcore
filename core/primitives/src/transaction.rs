@@ -197,7 +197,7 @@ impl Default for TransactionStatus {
     }
 }
 
-#[derive(nbor, PartialEq, Clone, Default, Serialize, Deserialize)]
+#[derive(nbor, PartialEq, Clone, Default)]
 pub struct TransactionResult {
     /// Transaction status.
     pub status: TransactionStatus,

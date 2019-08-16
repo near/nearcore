@@ -4,8 +4,9 @@ use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
 
-use near_primitives::rpc::{BlockView, FinalTransactionResult, QueryResponse, StatusResponse};
-use near_primitives::transaction::TransactionResult;
+use near_primitives::rpc::{
+    BlockView, FinalTransactionResult, QueryResponse, StatusResponse, TransactionResultView,
+};
 use near_primitives::types::BlockIndex;
 
 pub mod message;
@@ -167,7 +168,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn status(&mut self) -> RpcRequest<StatusResponse>;
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
-    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResult>;
+    pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResultView>;
     pub fn block(&mut self, height: BlockIndex) -> RpcRequest<BlockView>;
 });
 

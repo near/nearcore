@@ -7,10 +7,9 @@ use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode, Encode};
-use serde::{Deserialize, Serialize};
 use std::io::Read;
 
-#[derive(Copy, Clone, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
 
 impl<'a> From<&'a CryptoHash> for String {
@@ -183,7 +182,7 @@ mod tests {
     fn test_deserialize_not_base64() {
         let encoded = "\"---\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }
@@ -192,7 +191,7 @@ mod tests {
     fn test_deserialize_not_crypto_hash() {
         let encoded = "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }

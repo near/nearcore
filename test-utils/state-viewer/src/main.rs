@@ -44,7 +44,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
             } else {
                 let account = Account::try_from_slice(&value).unwrap();
                 StateRecord::Account {
-                    account_id: to_printable(&key[1..]),
+                    account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
                     account: account.into(),
                 }
             }
@@ -61,7 +61,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
         col::ACCESS_KEY => {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
             let access_key = AccessKey::try_from_slice(&value).unwrap();
-            let account_id = to_printable(&key[1..separator]);
+            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
             let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
             StateRecord::AccessKey {
                 account_id,

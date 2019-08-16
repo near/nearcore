@@ -35,10 +35,8 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        match get_account(state_update, &account_id) {
-            Some(account) => Ok(account),
-            _ => Err(format!("account {} does not exist while viewing", account_id).into()),
-        }
+        get_account(state_update, &account_id)
+            .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
     }
 
     pub fn view_access_key(

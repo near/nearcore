@@ -7,9 +7,10 @@ use chrono::{DateTime, Utc};
 
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockView, FinalTransactionResult, QueryResponse};
+use near_primitives::rpc::{
+    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+};
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
-use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -261,5 +262,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResult, String>;
+    type Result = Result<TransactionResultView, String>;
 }

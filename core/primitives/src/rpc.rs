@@ -10,87 +10,63 @@ use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
 use crate::logging;
-use crate::serialize::{from_base, option_u128_dec_format, to_base, to_base64, u128_dec_format};
-use crate::transaction::{Action, SignedTransaction, TransactionLog, TransactionResult};
+use crate::serialize::{
+    base_bytes_format, from_base, from_base64, option_u128_dec_format, to_base, to_base64,
+    u128_dec_format,
+};
+use crate::transaction::{
+    Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
+};
 use crate::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
 };
 
-#[derive(Debug, Eq, PartialEq, Clone)]
-pub struct PublicKeyView(Vec<u8>);
-
-impl Serialize for PublicKeyView {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(&self.0))
-    }
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum KeyType {
+    ED25519 = 0,
 }
 
-impl<'de> Deserialize<'de> for PublicKeyView {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base(&s)
-            .map(|v| PublicKeyView(v))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))
-    }
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
+pub struct PublicKeyView {
+    key_type: KeyType,
+    #[serde(with = "base_bytes_format")]
+    data: Vec<u8>,
 }
 
 impl fmt::Display for PublicKeyView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", to_base(&self.0))
+        write!(f, "{:?}:{}", self.key_type, to_base(&self.data))
     }
 }
 
 impl From<PublicKey> for PublicKeyView {
     fn from(public_key: PublicKey) -> Self {
-        Self(public_key.0.as_ref().to_vec())
+        Self { key_type: KeyType::ED25519, data: public_key.0.as_ref().to_vec() }
     }
 }
 
 impl From<PublicKeyView> for PublicKey {
     fn from(view: PublicKeyView) -> Self {
-        Self::try_from(view.0).expect("Failed to get PublicKey from PublicKeyView")
+        Self::try_from(view.data).expect("Failed to get PublicKey from PublicKeyView")
     }
 }
 
-#[derive(Debug)]
-pub struct SecretKeyView(Vec<u8>);
-
-impl Serialize for SecretKeyView {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(&self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for SecretKeyView {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base(&s)
-            .map(|v| SecretKeyView(v))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))
-    }
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SecretKeyView {
+    key_type: KeyType,
+    #[serde(with = "base_bytes_format")]
+    data: Vec<u8>,
 }
 
 impl From<SecretKey> for SecretKeyView {
     fn from(secret_key: SecretKey) -> Self {
-        Self(secret_key.0[..].to_vec())
+        Self { key_type: KeyType::ED25519, data: secret_key.0[..].to_vec() }
     }
 }
 
 impl From<SecretKeyView> for SecretKey {
     fn from(view: SecretKeyView) -> Self {
-        TryFrom::<&[u8]>::try_from(view.0.as_ref())
+        TryFrom::<&[u8]>::try_from(view.data.as_ref())
             .expect("Failed to get SecretKeyView from SecretKey")
     }
 }
@@ -132,7 +108,7 @@ impl From<SignatureView> for Signature {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct CryptoHashView(Vec<u8>);
+pub struct CryptoHashView(pub Vec<u8>);
 
 impl Serialize for CryptoHashView {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
@@ -278,7 +254,7 @@ pub struct QueryError {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct AccessKeyInfo {
+pub struct AccessKeyInfoView {
     pub public_key: PublicKeyView,
     pub access_key: AccessKeyView,
 }
@@ -291,7 +267,7 @@ pub enum QueryResponse {
     CallResult(CallResult),
     Error(QueryError),
     AccessKey(Option<AccessKeyView>),
-    AccessKeyList(Vec<AccessKeyInfo>),
+    AccessKeyList(Vec<AccessKeyInfoView>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -361,7 +337,7 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
-    pub epoch_hash: CryptoHash,
+    pub epoch_hash: CryptoHashView,
     pub prev_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
     pub tx_root: CryptoHashView,
@@ -369,7 +345,7 @@ pub struct BlockHeaderView {
     pub approval_mask: Vec<bool>,
     pub approval_sigs: Vec<SignatureView>,
     pub total_weight: u64,
-    pub validator_proposals: Vec<ValidatorStake>,
+    pub validator_proposals: Vec<ValidatorStakeView>,
     pub signature: SignatureView,
 }
 
@@ -377,7 +353,7 @@ impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.inner.height,
-            epoch_hash: header.inner.epoch_hash,
+            epoch_hash: header.inner.epoch_hash.into(),
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
             tx_root: header.inner.tx_root.into(),
@@ -390,7 +366,12 @@ impl From<BlockHeader> for BlockHeaderView {
                 .map(|signature| signature.into())
                 .collect(),
             total_weight: header.inner.total_weight.to_num(),
-            validator_proposals: header.inner.validator_proposals,
+            validator_proposals: header
+                .inner
+                .validator_proposals
+                .into_iter()
+                .map(|v| v.into())
+                .collect(),
             signature: header.signature.into(),
         }
     }
@@ -413,7 +394,11 @@ impl From<BlockHeaderView> for BlockHeader {
                     .map(|signature| signature.into())
                     .collect(),
                 total_weight: view.total_weight.into(),
-                validator_proposals: view.validator_proposals,
+                validator_proposals: view
+                    .validator_proposals
+                    .into_iter()
+                    .map(|v| v.into())
+                    .collect(),
             },
             signature: view.signature.into(),
             hash: CryptoHash::default(),
@@ -465,7 +450,7 @@ pub enum ActionView {
         access_key: AccessKeyView,
     },
     DeleteKey {
-        public_key: PublicKey,
+        public_key: PublicKeyView,
     },
     DeleteAccount {
         beneficiary_id: AccountId,
@@ -559,15 +544,45 @@ impl FinalTransactionStatus {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TransactionResultView {
+    pub status: TransactionStatus,
+    pub logs: Vec<LogEntry>,
+    pub receipts: Vec<CryptoHashView>,
+    pub result: Option<String>,
+}
+
+impl From<TransactionResult> for TransactionResultView {
+    fn from(result: TransactionResult) -> Self {
+        Self {
+            status: result.status,
+            logs: result.logs,
+            receipts: result.receipts.into_iter().map(|h| h.into()).collect(),
+            result: result.result.map(|v| to_base64(&v)),
+        }
+    }
+}
+
+impl From<TransactionResultView> for TransactionResult {
+    fn from(view: TransactionResultView) -> Self {
+        Self {
+            status: view.status,
+            logs: view.logs,
+            receipts: view.receipts.into_iter().map(|h| h.into()).collect(),
+            result: view.result.map(|v| from_base64(&v).unwrap()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct TransactionLogView {
     pub hash: CryptoHashView,
-    pub result: TransactionResult,
+    pub result: TransactionResultView,
 }
 
 impl From<TransactionLog> for TransactionLogView {
     fn from(log: TransactionLog) -> Self {
-        Self { hash: log.hash.into(), result: log.result }
+        Self { hash: log.hash.into(), result: log.result.into() }
     }
 }
 
@@ -600,12 +615,40 @@ impl FinalTransactionResult {
         logs.join("\n")
     }
 
-    pub fn last_result(&self) -> Vec<u8> {
+    pub fn last_result(&self) -> String {
         for transaction in self.transactions.iter().rev() {
             if let Some(r) = &transaction.result.result {
                 return r.clone();
             }
         }
-        vec![]
+        "".to_string()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ValidatorStakeView {
+    pub account_id: AccountId,
+    pub public_key: PublicKeyView,
+    #[serde(with = "u128_dec_format")]
+    pub amount: Balance,
+}
+
+impl From<ValidatorStake> for ValidatorStakeView {
+    fn from(stake: ValidatorStake) -> Self {
+        Self {
+            account_id: stake.account_id,
+            public_key: stake.public_key.into(),
+            amount: stake.amount,
+        }
+    }
+}
+
+impl From<ValidatorStakeView> for ValidatorStake {
+    fn from(view: ValidatorStakeView) -> Self {
+        Self {
+            account_id: view.account_id,
+            public_key: view.public_key.into(),
+            amount: view.amount,
+        }
     }
 }

@@ -7,10 +7,10 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::FinalTransactionResult;
 use near_primitives::rpc::{
     AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
 };
+use near_primitives::rpc::{FinalTransactionResult, TransactionResultView};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransactionResult,
@@ -53,7 +53,7 @@ pub trait User {
 
     fn get_block(&self, index: u64) -> Option<BlockView>;
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView;
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult;
 

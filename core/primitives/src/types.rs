@@ -41,15 +41,8 @@ pub type Gas = u64;
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Hash, Clone)]
-pub enum BlockId {
-    Best,
-    Number(BlockIndex),
-    Hash(CryptoHash),
-}
-
 /// Stores validator and its stake.
-#[derive(nbor, Debug, Serialize, Deserialize, Clone)]
+#[derive(nbor, Debug, Clone)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
