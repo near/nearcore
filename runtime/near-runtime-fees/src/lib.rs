@@ -92,8 +92,7 @@ pub struct AccessKeyCreationConfig {
     pub full_access_cost: Fee,
     /// Base cost of creating an access-key restricted to specific functions.
     pub function_call_cost: Fee,
-    /// Cost per byte (includes allowance, receiver_id, method_names) of creating a restrictec
-    /// access-key.
+    /// Cost per byte of method_names of creating a restricted access-key.
     pub function_call_cost_per_byte: Fee,
 }
 

@@ -63,12 +63,12 @@ pub fn total_send_fees(
             Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
             AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
-                    let num_bytes = call_perm.receiver_id.as_bytes().len() as u64
-                        + call_perm
-                            .method_names
-                            .iter()
-                            .map(|name| name.as_bytes().len() as u64)
-                            .sum::<u64>();
+                    let num_bytes = call_perm
+                        .method_names
+                        .iter()
+                        // Account for null-terminating characters.
+                        .map(|name| name.as_bytes().len() as u64 + 1)
+                        .sum::<u64>();
                     cfg.add_key_cost.function_call_cost.send_fee(sender_is_receiver)
                         + num_bytes
                             * cfg
@@ -107,12 +107,12 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
         Stake(_) => cfg.stake_cost.exec_fee(),
         AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
             AccessKeyPermission::FunctionCall(call_perm) => {
-                let num_bytes = call_perm.receiver_id.as_bytes().len() as u64
-                    + call_perm
-                        .method_names
-                        .iter()
-                        .map(|name| name.as_bytes().len() as u64)
-                        .sum::<u64>();
+                let num_bytes = call_perm
+                    .method_names
+                    .iter()
+                    // Account for null-terminating characters.
+                    .map(|name| name.as_bytes().len() as u64 + 1)
+                    .sum::<u64>();
                 cfg.add_key_cost.function_call_cost.exec_fee()
                     + num_bytes * cfg.add_key_cost.function_call_cost_per_byte.exec_fee()
             }
