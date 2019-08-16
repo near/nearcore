@@ -10,9 +10,9 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
+use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo, PeerId};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
 use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
@@ -225,6 +225,7 @@ fn produce_block_with_approvals() {
                 "test3".to_string(),
                 block_approval.hash,
                 block_approval.signature,
+                PeerId::from(signer3.public_key()),
             ));
             future::result(Ok(()))
         }));
