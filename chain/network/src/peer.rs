@@ -251,7 +251,6 @@ impl Peer {
                 NetworkClientMessages::BlockHeaders(headers, peer_id)
             }
             PeerMessage::StateRequest(shard_id, hash) => {
-                // TODO(MarX): Remove
                 NetworkClientMessages::StateRequest(shard_id, hash)
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
@@ -283,13 +282,11 @@ impl Peer {
                 RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
             },
             PeerMessage::ChunkPartRequest(request) => {
-                // TODO(MarX): Remove
                 NetworkClientMessages::ChunkPartRequest(request, peer_id)
             }
             PeerMessage::ChunkOnePartRequest(request) => {
                 NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
             }
-            // TODO(MarX): Remove
             PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
             PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
             PeerMessage::Handshake(_)

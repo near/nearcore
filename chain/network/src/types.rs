@@ -17,7 +17,7 @@ use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{sign, verify, PublicKey, SecretKey, Signature};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::{hash, hash_struct, CryptoHash};
 use near_primitives::logging::pretty_str;
 use near_primitives::merkle::MerklePath;
 use near_primitives::serialize::{BaseEncode, Decode, Encode};
@@ -398,7 +398,7 @@ impl From<AnnounceAccount> for network_proto::AnnounceAccount {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
@@ -408,27 +408,19 @@ pub enum RoutedMessageBody {
     ChunkOnePart(ChunkOnePart),
 }
 
-impl RoutedMessageBody {
-    // TODO(MarX): Explain what is this hash for, and check used hash is valid.
-    pub fn hash(&self) -> CryptoHash {
-        match &self {
-            RoutedMessageBody::BlockApproval(_, hash, _) => hash.clone(),
-            RoutedMessageBody::ForwardTx(tx) => tx.get_hash(),
-            RoutedMessageBody::StateRequest(_, hash) => hash.clone(),
-            RoutedMessageBody::ChunkPartRequest(part) => part.chunk_hash.0.clone(),
-            RoutedMessageBody::ChunkOnePartRequest(one_part) => one_part.chunk_hash.0.clone(),
-            RoutedMessageBody::ChunkOnePart(one_part) => one_part.chunk_hash.0.clone(),
-        }
-    }
-}
-
 #[derive(Message)]
 pub struct RawRoutedMessage {
     pub account_id: AccountId,
     pub body: RoutedMessageBody,
 }
 
-impl RawRoutedMessage {}
+impl RawRoutedMessage {
+    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+        let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
+        let signature = sign(hash.as_ref(), &secret_key);
+        RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
+    }
+}
 
 /// RoutedMessage represent a package that will travel the network towards a specific account id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
@@ -450,8 +442,20 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
+    pub fn build_hash(
+        account_id: &AccountId,
+        author: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
+        hash_struct(&(account_id, author, body))
+    }
+
+    fn hash(&self) -> CryptoHash {
+        RoutedMessage::build_hash(&self.account_id, &self.author, &self.body)
+    }
+
     pub fn verify(&self) -> bool {
-        verify(self.body.hash().as_ref(), &self.signature, &self.author.public_key())
+        verify(self.hash().as_ref(), &self.signature, &self.author.public_key())
     }
 }
 
@@ -598,6 +602,8 @@ impl From<RoutedMessage> for network_proto::RoutedMessage {
     }
 }
 
+// TODO(MarX): We have duplicated types of messages for now while routing between non-validators
+//  is necessary. Some message are routed and others are directed between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
@@ -614,18 +620,14 @@ pub enum PeerMessage {
 
     Transaction(SignedTransaction),
 
-    // TODO(MarX): Remove State Request from here
     StateRequest(ShardId, CryptoHash),
     StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
     Routed(RoutedMessage),
 
-    // TODO(MarX): this
     ChunkPartRequest(ChunkPartRequestMsg),
-    // TODO(MarX): this
     ChunkOnePartRequest(ChunkPartRequestMsg),
     ChunkPart(ChunkPartMsg),
-    // TODO(MarX): this
     ChunkOnePart(ChunkOnePart),
 }
 
@@ -1337,7 +1339,7 @@ impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ChunkPartRequestMsg {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
@@ -1345,7 +1347,7 @@ pub struct ChunkPartRequestMsg {
     pub part_id: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ChunkPartMsg {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,

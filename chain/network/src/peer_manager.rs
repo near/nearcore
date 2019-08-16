@@ -34,7 +34,6 @@ use crate::types::{
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
-use near_primitives::crypto::signature::sign;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -493,7 +492,6 @@ impl PeerManagerActor {
         }
 
         if self.is_outbound_bootstrap_needed() {
-            // TODO(MarX): Don't remove random peer from outgoing peers.
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
                 self.outgoing_peers.insert(peer_info.id);
                 ctx.notify(OutboundTcpConnect { peer_info });
@@ -618,14 +616,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
-        let hash = msg.body.hash();
-        let signature = sign(hash.as_ref(), &self.config.secret_key);
-        RoutedMessage {
-            account_id: msg.account_id,
-            author: self.peer_id,
-            signature,
-            body: msg.body,
-        }
+        msg.sign(self.peer_id, &self.config.secret_key)
     }
 }
 
@@ -761,7 +752,6 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkPart { peer_id, part } => {
-                // TODO(MarX): Inspect what is happening with this message.
                 if let Some(active_peer) = self.active_peers.get(&peer_id) {
                     active_peer.addr.do_send(SendMessage { message: PeerMessage::ChunkPart(part) });
                 }
