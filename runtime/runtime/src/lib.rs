@@ -271,6 +271,7 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         input_data: &Vec<Option<Vec<u8>>>,
         action_hash: CryptoHash,
+        is_last_action: bool,
     ) -> ActionResult {
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(&self.config.transaction_costs, action);
@@ -314,6 +315,7 @@ impl Runtime {
                     function_call,
                     &action_hash,
                     &self.config,
+                    is_last_action,
                 );
             }
             Action::Transfer(transfer) => {
@@ -384,6 +386,7 @@ impl Runtime {
         result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
+            let is_last_action = action_index + 1 == action_receipt.actions.len();
             result.merge(self.apply_action(
                 action,
                 state_update,
@@ -397,6 +400,7 @@ impl Runtime {
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
                 ),
+                is_last_action,
             ));
             if result.result.is_err() {
                 break;
