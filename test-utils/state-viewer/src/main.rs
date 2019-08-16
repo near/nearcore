@@ -236,7 +236,8 @@ fn main() {
                         .required(true)
                         .help("End index of query")
                         .takes_value(true),
-                ),
+                )
+                .help("print chain from start_index to end_index"),
         )
         .subcommand(
             SubCommand::with_name("replay")
@@ -253,7 +254,8 @@ fn main() {
                         .required(true)
                         .help("End index of query")
                         .takes_value(true),
-                ),
+                )
+                .help("replay headers from chain"),
         )
         .get_matches();
 
