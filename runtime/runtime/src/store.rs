@@ -24,8 +24,6 @@ impl StateRecord {
         StateRecord::Account {
             account_id: account_id.to_string(),
             account: AccountView {
-                public_keys: vec![PublicKey::try_from(public_key).unwrap().into()],
-                nonce: 0,
                 amount,
                 staked,
                 code_hash: CryptoHash::default().into(),

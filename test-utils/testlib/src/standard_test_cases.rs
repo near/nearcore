@@ -1,5 +1,5 @@
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
 use near_primitives::transaction::FinalTransactionStatus;
@@ -143,7 +143,7 @@ pub fn test_nonce_update_when_deploying_contract(node: impl Node) {
     let transaction_result = node_user.deploy_contract(account_id.clone(), wasm_binary.to_vec());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
-    assert_eq!(node_user.get_account_nonce(account_id).unwrap(), 1);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 }
@@ -156,7 +156,7 @@ pub fn test_nonce_updated_when_tx_failed(node: impl Node) {
         node_user.send_money(account_id.clone(), bob_account(), TESTING_INIT_BALANCE + 1);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 1);
-    assert_eq!(node_user.get_account_nonce(account_id).unwrap(), 0);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
     let new_root = node_user.get_state_root();
     assert_eq!(root, new_root);
 }
@@ -206,12 +206,12 @@ pub fn test_send_money(node: impl Node) {
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
+
     let result1 = node_user.view_account(account_id);
     assert_eq!(
         result1.unwrap(),
         AccountView {
-            nonce: 1,
-            public_keys: vec![node.signer().public_key().into()],
             amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
@@ -220,12 +220,9 @@ pub fn test_send_money(node: impl Node) {
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
-    let public_keys = result2.public_keys.clone();
     assert_eq!(
         result2,
         AccountView {
-            nonce: 0,
-            public_keys,
             amount: TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE,
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
@@ -250,6 +247,7 @@ pub fn test_send_money_over_balance(node: impl Node) {
         (result1.amount, result1.staked),
         (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
     );
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
 
     let result2 = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
@@ -273,6 +271,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
         (result1.amount, result1.staked),
         (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
     );
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let result2 = node_user.view_account(&eve_account());
     assert!(result2.is_err());
 }
@@ -293,6 +292,7 @@ pub fn test_create_account(node: impl Node) {
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
@@ -321,6 +321,7 @@ pub fn test_create_account_again(node: impl Node) {
         (result1.amount, result1.staked),
         (TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
     );
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
     let result2 = node_user.view_account(&eve_account()).unwrap();
     assert_eq!((result2.amount, result2.staked), (money_used, 0));
@@ -336,6 +337,7 @@ pub fn test_create_account_again(node: impl Node) {
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
@@ -367,6 +369,7 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
 
         assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
         assert_eq!(transaction_result.transactions.len(), 1);
+        assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 0);
         let new_root = node_user.get_state_root();
         assert_eq!(root, new_root);
         let result1 = node_user.view_account(account_id).unwrap();
@@ -393,6 +396,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+    assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
@@ -426,15 +430,18 @@ pub fn test_swap_key(node: impl Node) {
         eve_account(),
         node.signer().public_key(),
         signer2.public_key.clone(),
-        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None },
+        AccessKey::full_access(),
     );
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root1 = node_user.get_state_root();
     assert_ne!(new_root, new_root1);
 
-    let account = node_user.view_account(&eve_account()).unwrap();
-    assert_eq!(account.public_keys, vec![signer2.public_key.into()]);
+    assert!(node_user
+        .get_access_key(&eve_account(), &node.signer().public_key())
+        .unwrap()
+        .is_none());
+    assert!(node_user.get_access_key(&eve_account(), &signer2.public_key).unwrap().is_some());
 }
 
 pub fn test_add_key(node: impl Node) {
@@ -442,46 +449,31 @@ pub fn test_add_key(node: impl Node) {
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
 
-    add_access_key(
-        &node,
-        node_user.as_ref(),
-        &AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None },
-        &signer2,
-    );
+    add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 2);
-    assert_eq!(account.public_keys[1], signer2.public_key.into());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_some());
 }
 
 pub fn test_add_existing_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result = node_user.add_key(
-        account_id.clone(),
-        node.signer().public_key(),
-        AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None },
-    );
+    let transaction_result =
+        node_user.add_key(account_id.clone(), node.signer().public_key(), AccessKey::full_access());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
 }
 
 pub fn test_delete_key(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let signer2 = InMemorySigner::from_random();
     let node_user = node.user();
-    add_access_key(
-        &node,
-        node_user.as_ref(),
-        &AccessKey { amount: 0, balance_owner: None, contract_id: None, method_name: None },
-        &signer2,
-    );
+    add_access_key(&node, node_user.as_ref(), &AccessKey::full_access(), &signer2);
     let root = node_user.get_state_root();
     let transaction_result = node_user.delete_key(account_id.clone(), node.signer().public_key());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
@@ -489,9 +481,8 @@ pub fn test_delete_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], signer2.public_key.into());
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_none());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_some());
 }
 
 pub fn test_delete_key_not_owned(node: impl Node) {
@@ -506,8 +497,8 @@ pub fn test_delete_key_not_owned(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
 }
 
 pub fn test_delete_key_last(node: impl Node) {
@@ -521,24 +512,24 @@ pub fn test_delete_key_last(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 0);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_none());
 }
 
-pub fn test_add_access_key(node: impl Node) {
+pub fn test_add_access_key_function_call(node: impl Node) {
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
     let access_key = AccessKey {
-        amount: 0,
-        balance_owner: None,
-        contract_id: Some(account_id.clone()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: account_id.clone(),
+            method_names: vec![],
+        }),
     };
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
 
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key.into()));
@@ -548,10 +539,12 @@ pub fn test_delete_access_key(node: impl Node) {
     let node_user = node.user();
     let account_id = &node.account_id().unwrap();
     let access_key = AccessKey {
-        amount: 0,
-        balance_owner: None,
-        contract_id: Some(account_id.clone()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: account_id.clone(),
+            method_names: vec![],
+        }),
     };
     let signer2 = InMemorySigner::from_random();
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
@@ -563,21 +556,19 @@ pub fn test_delete_access_key(node: impl Node) {
     let new_root = node_user.get_state_root();
     assert_ne!(new_root, root);
 
-    let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], node.signer().public_key().into());
-
-    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, None);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
 }
 
-pub fn test_add_access_key_with_funding(node: impl Node) {
+pub fn test_add_access_key_with_allowance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let access_key = AccessKey {
-        amount: 10,
-        balance_owner: None,
-        contract_id: Some(account_id.clone()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(10),
+            receiver_id: account_id.clone(),
+            method_names: vec![],
+        }),
     };
     let node_user = node.user();
     let signer2 = InMemorySigner::from_random();
@@ -586,20 +577,22 @@ pub fn test_add_access_key_with_funding(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.amount, initial_balance - 10);
+    assert_eq!(account.amount, initial_balance);
 
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
     assert_eq!(view_access_key, Some(access_key.into()));
 }
 
-pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
+pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let access_key = AccessKey {
-        amount: 10,
-        balance_owner: None,
-        contract_id: Some(account_id.clone()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(10),
+            receiver_id: account_id.clone(),
+            method_names: vec![],
+        }),
     };
     let node_user = node.user();
     let signer2 = InMemorySigner::from_random();
@@ -615,43 +608,61 @@ pub fn test_delete_access_key_with_owner_refund(node: impl Node) {
     assert_ne!(new_root, root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.public_keys.len(), 1);
-    assert_eq!(account.public_keys[0], node.signer().public_key().into());
-    // Shit Happens. AccessKey should be switched to allowance and currently don't give refunds.
-    assert_eq!(account.amount, initial_balance - 10);
+    assert_eq!(account.amount, initial_balance);
 
-    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
-    assert_eq!(view_access_key, None);
+    assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
+    assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
 }
 
 pub fn test_access_key_smart_contract(node: impl Node) {
     let access_key = AccessKey {
-        amount: FUNCTION_CALL_AMOUNT,
-        balance_owner: None,
-        contract_id: Some(bob_account()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(FUNCTION_CALL_AMOUNT),
+            receiver_id: bob_account(),
+            method_names: vec![],
+        }),
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
-    let signer2 = InMemorySigner::from_random();
+    let signer2 = Arc::new(InMemorySigner::from_random());
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
-    node_user.set_signer(Arc::new(signer2));
+    node_user.set_signer(signer2.clone());
 
+    let gas = 1000000;
     let root = node_user.get_state_root();
     let transaction_result =
-        node_user.function_call(account_id.clone(), bob_account(), "run_test", vec![], 1000000, 0);
+        node_user.function_call(account_id.clone(), bob_account(), "run_test", vec![], gas, 0);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
+
+    let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
+    assert_eq!(
+        view_access_key,
+        Some(
+            AccessKey {
+                nonce: 1,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(FUNCTION_CALL_AMOUNT - gas as Balance),
+                    receiver_id: bob_account(),
+                    method_names: vec![],
+                }),
+            }
+            .into()
+        )
+    );
 }
 
 pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
     let access_key = AccessKey {
-        amount: FUNCTION_CALL_AMOUNT,
-        balance_owner: None,
-        contract_id: Some(bob_account()),
-        method_name: Some(b"log_something".to_vec()),
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(FUNCTION_CALL_AMOUNT),
+            receiver_id: bob_account(),
+            method_names: vec!["log_something".to_string()],
+        }),
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
@@ -670,10 +681,12 @@ pub fn test_access_key_smart_contract_reject_method_name(node: impl Node) {
 
 pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
     let access_key = AccessKey {
-        amount: FUNCTION_CALL_AMOUNT,
-        balance_owner: None,
-        contract_id: Some(bob_account()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(FUNCTION_CALL_AMOUNT),
+            receiver_id: bob_account(),
+            method_names: vec![],
+        }),
     };
     let mut node_user = node.user();
     let account_id = &node.account_id().unwrap();
@@ -693,10 +706,12 @@ pub fn test_access_key_smart_contract_reject_contract_id(node: impl Node) {
 pub fn test_access_key_reject_non_function_call(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let access_key = AccessKey {
-        amount: 0,
-        balance_owner: None,
-        contract_id: Some(account_id.clone()),
-        method_name: None,
+        nonce: 0,
+        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: Some(FUNCTION_CALL_AMOUNT),
+            receiver_id: account_id.to_string(),
+            method_names: vec![],
+        }),
     };
     let mut node_user = node.user();
     let signer2 = InMemorySigner::from_random();

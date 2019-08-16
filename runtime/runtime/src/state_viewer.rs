@@ -54,14 +54,6 @@ impl TrieViewer {
         Ok(get_access_key(state_update, account_id, public_key))
     }
 
-    pub fn get_public_keys_for_account(
-        &self,
-        state_update: &TrieUpdate,
-        account_id: &AccountId,
-    ) -> Result<Vec<PublicKey>, Box<dyn std::error::Error>> {
-        self.view_account(state_update, account_id).map(|account| account.public_keys)
-    }
-
     pub fn view_state(
         &self,
         state_update: &TrieUpdate,

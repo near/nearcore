@@ -194,7 +194,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _path: &str,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        Ok(QueryResponse::ViewAccount(Account::new(vec![], 0, CryptoHash::default(), 0).into()))
+        Ok(QueryResponse::ViewAccount(Account::new(1000, CryptoHash::default(), 0).into()))
     }
 
     fn dump_state(

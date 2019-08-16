@@ -572,6 +572,18 @@ mod test {
             (account.amount, account.staked),
             (TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 2, 2 * TESTING_INIT_STAKE)
         );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[0].account_id,
+                    &block_producers[0].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            1
+        );
 
         nightshade
             .add_validator_proposals(CryptoHash::default(), h0, 0, validator_stakes, vec![], vec![])
@@ -590,12 +602,7 @@ mod test {
                 Action::Transfer(TransferAction { deposit: TESTING_INIT_STAKE * 3 }),
                 Action::AddKey(AddKeyAction {
                     public_key: new_validator.signer.public_key(),
-                    access_key: AccessKey {
-                        amount: 0,
-                        balance_owner: None,
-                        contract_id: None,
-                        method_name: None,
-                    },
+                    access_key: AccessKey::full_access(),
                 }),
             ],
         );
@@ -661,6 +668,18 @@ mod test {
             (account.amount, account.staked),
             (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
         );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[1].account_id,
+                    &block_producers[1].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            0
+        );
 
         let account = nightshade.view_account(state_root, &new_validator.account_id).unwrap();
         assert_eq!((account.amount, account.staked), (TESTING_INIT_STAKE, TESTING_INIT_STAKE * 2));
@@ -722,14 +741,24 @@ mod test {
         assert_eq!(
             account,
             Account {
-                nonce: 1,
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 staked: TESTING_INIT_STAKE,
-                public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash,
                 storage_paid_at: 0,
                 storage_usage: 0,
             }
+        );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[0].account_id,
+                    &block_producers[0].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            1
         );
 
         nightshade
@@ -752,14 +781,24 @@ mod test {
         assert_eq!(
             account,
             Account {
-                nonce: 1,
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 staked: TESTING_INIT_STAKE,
-                public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash,
                 storage_paid_at: 0,
                 storage_usage: 0
             }
+        );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[0].account_id,
+                    &block_producers[0].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            1
         );
 
         state_root = nightshade.update(&state_root, 5, &h4, &h5, &vec![], &vec![]).0;
@@ -772,14 +811,24 @@ mod test {
         assert_eq!(
             account,
             Account {
-                nonce: 1,
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE + 1,
                 staked: TESTING_INIT_STAKE - 1,
-                public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash,
                 storage_paid_at: 0,
                 storage_usage: 0
             }
+        );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[0].account_id,
+                    &block_producers[0].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            1
         );
     }
 
@@ -825,16 +874,25 @@ mod test {
         assert_eq!(
             account,
             Account {
-                nonce: 2,
                 amount: TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 staked: TESTING_INIT_STAKE,
-                public_keys: vec![block_producers[0].signer.public_key()],
                 code_hash: account.code_hash,
                 storage_paid_at: 0,
                 storage_usage: 0
             }
         );
-
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[0].account_id,
+                    &block_producers[0].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            2
+        );
         nightshade
             .add_validator_proposals(CryptoHash::default(), h0, 0, validator_stakes, vec![], vec![])
             .unwrap();
@@ -892,6 +950,18 @@ mod test {
             (account.amount, account.staked),
             (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
         );
+        assert_eq!(
+            nightshade
+                .view_access_key(
+                    state_root,
+                    &block_producers[1].account_id,
+                    &block_producers[1].signer.public_key()
+                )
+                .unwrap()
+                .unwrap()
+                .nonce,
+            3
+        );
 
         state_root = nightshade.update(&state_root, 7, &h6, &h7, &vec![], &vec![]).0;
         nightshade.add_validator_proposals(h6, h7, 7, vec![], vec![], vec![]).unwrap();
@@ -902,7 +972,7 @@ mod test {
         let account = nightshade.view_account(state_root, &block_producers[0].account_id).unwrap();
         assert_eq!(
             (account.amount, account.staked),
-            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, 1 + TESTING_INIT_STAKE)
+            (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1, TESTING_INIT_STAKE + 1)
         );
 
         let account = nightshade.view_account(state_root, &block_producers[1].account_id).unwrap();

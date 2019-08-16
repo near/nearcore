@@ -35,12 +35,7 @@ fn test_check_tx_error_log() {
             Action::Transfer(TransferAction { deposit: 1_000 }),
             Action::AddKey(AddKeyAction {
                 public_key: signer.public_key.clone(),
-                access_key: AccessKey {
-                    amount: 0,
-                    balance_owner: None,
-                    contract_id: None,
-                    method_name: None,
-                },
+                access_key: AccessKey::full_access(),
             }),
         ],
     );
@@ -48,7 +43,7 @@ fn test_check_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx);
     assert_eq!(
         tx_result,
-        Err("RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Transaction is not signed with a public key of the signer \\\"bob.near\\\"\")) }".to_string())
+        Err("RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Signer \\\"bob.near\\\" doesn\\'t have access key with the given public_key `22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV`\")) }".to_string())
     );
 }
 
@@ -66,12 +61,7 @@ fn test_deliver_tx_error_log() {
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),
             Action::AddKey(AddKeyAction {
                 public_key: signer.public_key.clone(),
-                access_key: AccessKey {
-                    amount: 0,
-                    balance_owner: None,
-                    contract_id: None,
-                    method_name: None,
-                },
+                access_key: AccessKey::full_access(),
             }),
         ],
     );

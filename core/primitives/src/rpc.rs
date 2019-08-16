@@ -5,11 +5,11 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::account::{AccessKey, Account};
+use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
-use crate::serialize::{from_base, to_base, to_base64, u128_dec_format};
+use crate::serialize::{from_base, option_u128_dec_format, to_base, to_base64, u128_dec_format};
 use crate::transaction::{Action, SignedTransaction};
 use crate::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
@@ -169,8 +169,6 @@ impl From<CryptoHashView> for CryptoHash {
 /// A view of the account
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccountView {
-    pub public_keys: Vec<PublicKeyView>,
-    pub nonce: Nonce,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
@@ -181,14 +179,8 @@ pub struct AccountView {
 }
 
 impl From<Account> for AccountView {
-    fn from(mut account: Account) -> Self {
+    fn from(account: Account) -> Self {
         AccountView {
-            public_keys: account
-                .public_keys
-                .drain(..)
-                .map(|public_key| public_key.into())
-                .collect(),
-            nonce: account.nonce,
             amount: account.amount,
             staked: account.staked,
             code_hash: account.code_hash.into(),
@@ -199,10 +191,8 @@ impl From<Account> for AccountView {
 }
 
 impl From<AccountView> for Account {
-    fn from(mut view: AccountView) -> Self {
+    fn from(view: AccountView) -> Self {
         Self {
-            public_keys: view.public_keys.drain(..).map(|public_key| public_key.into()).collect(),
-            nonce: view.nonce,
             amount: view.amount,
             staked: view.staked,
             code_hash: view.code_hash.into(),
@@ -213,33 +203,59 @@ impl From<AccountView> for Account {
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+pub enum AccessKeyPermissionView {
+    FunctionCall {
+        #[serde(with = "option_u128_dec_format")]
+        allowance: Option<Balance>,
+        receiver_id: AccountId,
+        method_names: Vec<String>,
+    },
+    FullAccess,
+}
+
+impl From<AccessKeyPermission> for AccessKeyPermissionView {
+    fn from(permission: AccessKeyPermission) -> Self {
+        match permission {
+            AccessKeyPermission::FunctionCall(func_call) => AccessKeyPermissionView::FunctionCall {
+                allowance: func_call.allowance,
+                receiver_id: func_call.receiver_id,
+                method_names: func_call.method_names,
+            },
+            AccessKeyPermission::FullAccess => AccessKeyPermissionView::FullAccess,
+        }
+    }
+}
+
+impl From<AccessKeyPermissionView> for AccessKeyPermission {
+    fn from(view: AccessKeyPermissionView) -> Self {
+        match view {
+            AccessKeyPermissionView::FunctionCall { allowance, receiver_id, method_names } => {
+                AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance,
+                    receiver_id,
+                    method_names,
+                })
+            }
+            AccessKeyPermissionView::FullAccess => AccessKeyPermission::FullAccess,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct AccessKeyView {
-    #[serde(with = "u128_dec_format")]
-    pub amount: Balance,
-    pub balance_owner: Option<AccountId>,
-    pub contract_id: Option<AccountId>,
-    pub method_name: Option<Vec<u8>>,
+    pub nonce: Nonce,
+    pub permission: AccessKeyPermissionView,
 }
 
 impl From<AccessKey> for AccessKeyView {
     fn from(access_key: AccessKey) -> Self {
-        Self {
-            amount: access_key.amount,
-            balance_owner: access_key.balance_owner,
-            contract_id: access_key.contract_id,
-            method_name: access_key.method_name,
-        }
+        Self { nonce: access_key.nonce, permission: access_key.permission.into() }
     }
 }
 
 impl From<AccessKeyView> for AccessKey {
     fn from(view: AccessKeyView) -> Self {
-        Self {
-            amount: view.amount,
-            balance_owner: view.balance_owner,
-            contract_id: view.contract_id,
-            method_name: view.method_name,
-        }
+        Self { nonce: view.nonce, permission: view.permission.into() }
     }
 }
 

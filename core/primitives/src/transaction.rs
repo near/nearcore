@@ -323,6 +323,7 @@ mod tests {
     use crate::serialize::to_base;
 
     use super::*;
+    use crate::account::{AccessKeyPermission, FunctionCallPermission};
 
     #[test]
     fn test_verify_transaction() {
@@ -375,10 +376,12 @@ mod tests {
                 Action::AddKey(AddKeyAction {
                     public_key,
                     access_key: AccessKey {
-                        amount: 1,
-                        balance_owner: Some("123".to_string()),
-                        contract_id: Some("321".to_string()),
-                        method_name: None,
+                        nonce: 2,
+                        permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                            allowance: None,
+                            receiver_id: "zzz".to_string(),
+                            method_names: vec!["www".to_string()],
+                        }),
                     },
                 }),
                 Action::DeleteKey(DeleteKeyAction { public_key }),
