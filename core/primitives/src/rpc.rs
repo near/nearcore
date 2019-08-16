@@ -125,9 +125,13 @@ impl<'de> Deserialize<'de> for CryptoHashView {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        from_base(&s)
+        let view = from_base(&s)
             .map(|v| CryptoHashView(v))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))
+            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
+        if let Err(err) = CryptoHash::try_from(view.0.clone()) {
+            return Err(serde::de::Error::custom(err.to_string()));
+        }
+        Ok(view)
     }
 }
 
