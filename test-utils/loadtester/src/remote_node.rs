@@ -3,14 +3,14 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use borsh::Serializable;
 use futures::Future;
-use protobuf::Message;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
-use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::rpc::AccessKeyView;
 use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
@@ -142,7 +142,7 @@ impl RemoteNode {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/abci_query");
         let response: serde_json::Value = self
             .sync_client
@@ -166,13 +166,12 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let transaction: near_protos::signed_transaction::SignedTransaction = transaction.into();
-        let tx_bytes = transaction.write_to_bytes().expect("write to bytes failed");
+        let bytes = transaction.try_to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let response = self
             .async_client
             .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&tx_bytes)))])
+            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
             .send()
             .map(|_| ())
             .map_err(|err| format!("{}", err));
@@ -185,13 +184,12 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let transaction: near_protos::signed_transaction::SignedTransaction = transaction.into();
-        let tx_bytes = transaction.write_to_bytes().expect("write to bytes failed");
+        let bytes = transaction.try_to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let result: serde_json::Value = self
             .sync_client
             .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&tx_bytes)))])
+            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
             .send()?
             .json()?;
         Ok(result["result"]["hash"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())

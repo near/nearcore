@@ -3,15 +3,13 @@ extern crate exonum_sodiumoxide as sodiumoxide;
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-
-use near_protos::public_key as public_key_proto;
+use std::io::Read;
 
 pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode};
+use crate::serialize::{from_base, to_base, BaseDecode};
 use crate::types::ReadablePublicKey;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PublicKey(pub sodiumoxide::crypto::sign::ed25519::PublicKey);
@@ -121,42 +119,27 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
-impl TryFrom<public_key_proto::PublicKey> for PublicKey {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(p: public_key_proto::PublicKey) -> Result<Self, Self::Error> {
-        // TODO(#979): Need to check `key_type` when we add other than ED25519 types.
-        PublicKey::try_from(p.data).map_err(std::convert::Into::into)
+impl borsh::Serializable for PublicKey {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        // TODO: support other curves here.
+        writer.write(&vec![0])?;
+        writer.write(&(self.0).0)?;
+        Ok(())
     }
 }
 
-impl From<PublicKey> for public_key_proto::PublicKey {
-    fn from(p: PublicKey) -> public_key_proto::PublicKey {
-        public_key_proto::PublicKey {
-            key_type: public_key_proto::PublicKey_KeyType::ED25519,
-            data: p.as_ref().to_vec(),
-            cached_size: Default::default(),
-            unknown_fields: Default::default(),
+impl borsh::Deserializable for PublicKey {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES + 1];
+        reader.read(&mut bytes)?;
+        // TODO: support other curves here.
+        if bytes[0] != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unsupported curve"));
         }
-    }
-}
-
-impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES];
+        array.copy_from_slice(&bytes[1..]);
+        let public_key = sodiumoxide::crypto::sign::ed25519::PublicKey(array);
+        Ok(PublicKey(public_key))
     }
 }
 
@@ -189,25 +172,6 @@ impl TryFrom<&str> for SecretKey {
         array.copy_from_slice(bytes_arr);
         let secret_key = sodiumoxide::crypto::sign::ed25519::SecretKey(array);
         Ok(SecretKey(secret_key))
-    }
-}
-
-impl Serialize for SecretKey {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for SecretKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
     }
 }
 
@@ -252,22 +216,26 @@ impl TryFrom<&str> for Signature {
     }
 }
 
-impl Serialize for Signature {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
+impl borsh::Serializable for Signature {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        // TODO: add crypto curve.
+        writer.write(&vec![0])?;
+        writer.write(&(self.0).0)?;
+        Ok(())
     }
 }
 
-impl<'de> Deserialize<'de> for Signature {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
+impl borsh::Deserializable for Signature {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        // TODO: add crypto curve.
+        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES + 1];
+        reader.read(&mut bytes)?;
+        if bytes[0] != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unsupported curve"));
+        }
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        array.copy_from_slice(&bytes[1..]);
+        Ok(Signature(sodiumoxide::crypto::sign::ed25519::Signature(array)))
     }
 }
 

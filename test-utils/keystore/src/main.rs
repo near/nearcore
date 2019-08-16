@@ -1,55 +1,11 @@
-#[macro_use]
-extern crate serde_derive;
-
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 
-use near_primitives::crypto::signature::{sign, PublicKey, SecretKey};
-use near_primitives::crypto::signer::{
-    get_key_file, write_block_producer_key_file, InMemorySigner,
-};
-use near_primitives::hash::hash;
-use near_primitives::serialize::{from_base, to_base, BaseEncode};
-
-#[derive(Serialize)]
-struct TypeValue {
-    #[serde(rename = "type")]
-    type_field: String,
-    value: String,
-}
-
-#[derive(Serialize)]
-struct TendermintKeyFile {
-    address: String,
-    pub_key: TypeValue,
-    priv_key: TypeValue,
-}
-
-fn write_tendermint_key_file(key_store_path: &Path, public_key: PublicKey, secret_key: SecretKey) {
-    if !key_store_path.exists() {
-        fs::create_dir_all(key_store_path).unwrap();
-    }
-
-    let address_bytes = hash(public_key.as_ref()).as_ref()[..20].to_vec();
-    let address = hex::encode(&address_bytes);
-    let key_file = TendermintKeyFile {
-        address,
-        pub_key: TypeValue {
-            type_field: "tendermint/PubKeyEd25519".to_string(),
-            value: public_key.to_base(),
-        },
-        priv_key: TypeValue {
-            type_field: "tendermint/PrivKeyEd25519".to_string(),
-            value: secret_key.to_base(),
-        },
-    };
-    let key_file_path = key_store_path.join(Path::new("priv_validator_key.json"));
-    let serialized = serde_json::to_string(&key_file).unwrap();
-    fs::write(key_file_path, serialized).unwrap();
-}
+use near_primitives::crypto::signature::sign;
+use near_primitives::crypto::signer::{get_key_file, write_key_file, InMemorySigner};
+use near_primitives::serialize::{from_base, to_base};
 
 fn get_key_store_path(matches: &ArgMatches) -> PathBuf {
     matches.value_of("key_store_path").map(PathBuf::from).unwrap()
@@ -63,7 +19,7 @@ fn sign_data(matches: &ArgMatches) {
 
     let data = matches.value_of("data").unwrap();
     let bytes = from_base(data).unwrap();
-    let signature = sign(&bytes, &key_file.secret_key);
+    let signature = sign(&bytes, &key_file.secret_key.into());
     let encoded = to_base(&signature);
     print!("{}", encoded);
 }
@@ -71,13 +27,7 @@ fn sign_data(matches: &ArgMatches) {
 fn generate_key(matches: &ArgMatches) {
     let key_store_path = get_key_store_path(matches);
     let signer = InMemorySigner::from_seed("not_used", matches.value_of("test_seed").unwrap());
-    write_block_producer_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key);
-}
-
-fn generate_tendermint_key(matches: &ArgMatches) {
-    let key_store_path = get_key_store_path(matches);
-    let signer = InMemorySigner::from_seed("not_used", matches.value_of("test_seed").unwrap());
-    write_tendermint_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key);
+    write_key_file(&key_store_path.as_path(), signer.public_key, signer.secret_key);
 }
 
 fn get_public_key(matches: &ArgMatches) {
@@ -98,20 +48,17 @@ fn main() {
         .takes_value(true);
     let matches = App::new("keystore")
         .subcommand(
-            SubCommand::with_name("keygen")
-                .arg(key_store_path_arg)
-                .arg(
-                    Arg::with_name("test_seed")
-                        .long("test-seed")
-                        .value_name("TEST_SEED")
-                        .help(
-                            "Specify a seed for generating a key pair.\
-                             This should only be used for deterministically \
-                             creating key pairs during tests.",
-                        )
-                        .takes_value(true),
-                )
-                .arg(Arg::with_name("tendermint").long("tendermint").takes_value(false)),
+            SubCommand::with_name("keygen").arg(key_store_path_arg).arg(
+                Arg::with_name("test_seed")
+                    .long("test-seed")
+                    .value_name("TEST_SEED")
+                    .help(
+                        "Specify a seed for generating a key pair.\
+                         This should only be used for deterministically \
+                         creating key pairs during tests.",
+                    )
+                    .takes_value(true),
+            ),
         )
         .subcommand(SubCommand::with_name("get_public_key").arg(key_store_path_arg))
         .subcommand(
@@ -141,11 +88,7 @@ fn main() {
         .get_matches();
 
     if let Some(sub) = matches.subcommand_matches("keygen") {
-        if sub.is_present("tendermint") {
-            generate_tendermint_key(sub);
-        } else {
-            generate_key(sub);
-        }
+        generate_key(sub);
     } else if let Some(sub) = matches.subcommand_matches("sign") {
         sign_data(sub);
     } else if let Some(sub) = matches.subcommand_matches("get_public_key") {

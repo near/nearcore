@@ -85,7 +85,7 @@ mod test {
         let mut nodes = create_nodes(num_nodes, test_prefix);
 
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
-            nodes.drain(..).map(|cfg| Node::new_sharable(cfg)).collect();
+            nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
         for i in 0..num_nodes {
             nodes[i].write().unwrap().start();
         }

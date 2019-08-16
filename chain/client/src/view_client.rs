@@ -6,13 +6,13 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use chrono::{DateTime, Utc};
 
-use near_chain::{Block, Chain, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::QueryResponse;
-use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, TransactionLog, TransactionResult,
-    TransactionStatus,
+use near_primitives::rpc::{
+    BlockView, FinalTransactionResult, FinalTransactionStatus, QueryResponse, TransactionLogView,
+    TransactionResultView,
 };
+use near_primitives::transaction::{TransactionResult, TransactionStatus};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
@@ -38,14 +38,15 @@ impl ViewClientActor {
     pub fn get_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<TransactionResult, String> {
+    ) -> Result<TransactionResultView, String> {
         match self.chain.get_transaction_result(hash) {
-            Ok(result) => Ok(result.clone()),
+            Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
                 ErrorKind::DBNotFoundErr(_) => Ok(TransactionResult {
                     status: TransactionStatus::Unknown,
                     ..Default::default()
-                }),
+                }
+                .into()),
                 _ => Err(err.to_string()),
             },
         }
@@ -54,12 +55,13 @@ impl ViewClientActor {
     fn get_recursive_transaction_results(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<Vec<TransactionLog>, String> {
+    ) -> Result<Vec<TransactionLogView>, String> {
         let result = self.get_transaction_result(hash)?;
         let receipt_ids = result.receipts.clone();
-        let mut transactions = vec![TransactionLog { hash: *hash, result }];
+        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
         for hash in &receipt_ids {
-            transactions.extend(self.get_recursive_transaction_results(hash)?.into_iter());
+            transactions
+                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
         }
         Ok(transactions)
     }
@@ -84,7 +86,10 @@ impl ViewClientActor {
         } else {
             FinalTransactionStatus::Completed
         };
-        Ok(FinalTransactionResult { status, transactions })
+        Ok(FinalTransactionResult {
+            status,
+            transactions: transactions.into_iter().map(|t| t.into()).collect(),
+        })
     }
 }
 
@@ -108,7 +113,7 @@ impl Handler<Query> for ViewClientActor {
 
 /// Handles retrieving block from the chain.
 impl Handler<GetBlock> for ViewClientActor {
-    type Result = Result<Block, String>;
+    type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg {
@@ -119,6 +124,7 @@ impl Handler<GetBlock> for ViewClientActor {
             GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
+        .map(|block| block.into())
         .map_err(|err| err.to_string())
     }
 }
@@ -132,7 +138,7 @@ impl Handler<TxStatus> for ViewClientActor {
 }
 
 impl Handler<TxDetails> for ViewClientActor {
-    type Result = Result<TransactionResult, String>;
+    type Result = Result<TransactionResultView, String>;
 
     fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
         self.get_transaction_result(&msg.tx_hash)

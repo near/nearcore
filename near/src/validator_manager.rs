@@ -4,9 +4,9 @@ use std::fmt;
 use std::iter;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
-use serde_derive::{Deserialize, Serialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -188,19 +188,13 @@ fn proposals_to_assignments(
     let block_producers = dup_proposals[..epoch_config.num_block_producers].to_vec();
 
     // Collect proposals into block producer assignments.
-    let mut chunk_producers: Vec<Vec<(ValidatorId, u64)>> = vec![];
+    let mut chunk_producers: Vec<Vec<ValidatorId>> = vec![];
     let mut last_index: usize = 0;
     for num_seats in epoch_config.block_producers_per_shard.iter() {
-        let mut cp_to_index: HashMap<ValidatorId, usize> = HashMap::default();
-        let mut cp: Vec<(ValidatorId, u64)> = vec![];
+        let mut cp: Vec<ValidatorId> = vec![];
         for i in 0..*num_seats {
             let proposal_index = dup_proposals[(i + last_index) % epoch_config.num_block_producers];
-            if let Some(j) = cp_to_index.get(&proposal_index) {
-                cp[*j as usize].1 += 1;
-            } else {
-                cp_to_index.insert(proposal_index, cp.len());
-                cp.push((proposal_index, 1));
-            }
+            cp.push(proposal_index);
         }
         chunk_producers.push(cp);
         last_index = (last_index + num_seats) % epoch_config.num_block_producers;
@@ -226,7 +220,7 @@ fn proposals_to_assignments(
         validator_to_index,
         block_producers,
         chunk_producers,
-        fishermen: vec![],
+        fishermen: HashMap::default(),
         expected_epoch_start,
         stake_change: final_stake_change,
     })
@@ -270,7 +264,7 @@ pub struct ValidatorEpochConfig {
 }
 
 /// Information about validator seat assignments.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Clone, Debug)]
 pub struct ValidatorAssignment {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -279,9 +273,9 @@ pub struct ValidatorAssignment {
     /// Weights for each of the validators responsible for block production.
     pub block_producers: Vec<ValidatorId>,
     /// Per each shard, ids and seats of validators that are responsible.
-    pub chunk_producers: Vec<Vec<(ValidatorId, u64)>>,
+    pub chunk_producers: Vec<Vec<ValidatorId>>,
     /// Weight of given validator used to determine how many shards they will validate.
-    pub fishermen: Vec<(ValidatorId, u64)>,
+    pub fishermen: HashMap<ValidatorId, u64>,
     /// Expected epoch start index: previous expected epoch start + epoch_length
     pub expected_epoch_start: BlockIndex,
     /// New stake for validators
@@ -323,7 +317,7 @@ impl PartialEq for ValidatorAssignment {
 impl Eq for ValidatorAssignment {}
 
 /// Information per each index about validators.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Clone, Debug)]
 pub struct ValidatorIndexInfo {
     pub index: BlockIndex,
     pub prev_hash: CryptoHash,
@@ -583,7 +577,7 @@ impl ValidatorManager {
 
         self.last_epoch = *new_hash;
         self.set_validators(new_hash, assignment, &mut store_update)?;
-        store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, &epoch_hash)?;
+        store_update.set_ser(COL_PROPOSALS, LAST_EPOCH_KEY, epoch_hash)?;
         store_update.set_ser(COL_LAST_EPOCH_PROPOSALS, new_hash.as_ref(), &cur_proposals)?;
         store_update.commit().map_err(|err| ValidatorError::Other(err.to_string()))?;
         Ok(())
@@ -682,10 +676,11 @@ impl ValidatorManager {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::*;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::get_key_pair_from_seed;
     use near_store::test_utils::create_test_store;
+
+    use crate::test_utils::*;
 
     use super::*;
 
@@ -734,7 +729,7 @@ mod test {
             assignment(
                 vec![("test1", 1_000_000)],
                 vec![0],
-                vec![vec![(0, 1)], vec![(0, 1)]],
+                vec![vec![0], vec![0]],
                 vec![],
                 0,
                 change_stake(vec![("test1", 1_000_000)])
@@ -765,11 +760,11 @@ mod test {
                 vec![0, 1, 0, 0, 1, 2],
                 vec![
                     // Shard 0 is block produced / validated by all block producers & fisherman.
-                    vec![(0, 3), (1, 2), (2, 1)],
-                    vec![(0, 1), (1, 1)],
-                    vec![(0, 2)],
-                    vec![(1, 1), (2, 1)],
-                    vec![(0, 1), (1, 1)]
+                    vec![0, 1, 0, 0, 1, 2],
+                    vec![0, 1],
+                    vec![0, 0],
+                    vec![1, 2],
+                    vec![0, 1]
                 ],
                 vec![],
                 0,
@@ -800,7 +795,7 @@ mod test {
         let expected0 = assignment(
             vec![("test1", amount_staked)],
             vec![0, 0],
-            vec![vec![(0, 2)]],
+            vec![vec![0, 0]],
             vec![],
             1,
             change_stake(vec![("test1", amount_staked)]),
@@ -821,7 +816,7 @@ mod test {
         let expected2 = assignment(
             vec![("test1", amount_staked), ("test2", amount_staked)],
             vec![0, 1],
-            vec![vec![(0, 1), (1, 1)]],
+            vec![vec![0, 1]],
             vec![],
             3,
             change_stake(vec![("test1", amount_staked), ("test2", amount_staked)]),
@@ -914,7 +909,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked), ("test2", amount_staked), ("test3", amount_staked)],
                 vec![2, 1, 0],
-                vec![vec![(2, 1), (1, 1), (0, 1)]],
+                vec![vec![2, 1, 0]],
                 vec![],
                 3,
                 change_stake(vec![
@@ -931,7 +926,7 @@ mod test {
             &assignment(
                 vec![("test4", amount_staked), ("test3", amount_staked), ("test2", amount_staked)],
                 vec![2, 1, 0],
-                vec![vec![(2, 1), (1, 1), (0, 1)]],
+                vec![vec![2, 1, 0]],
                 vec![],
                 6,
                 change_stake(vec![
@@ -949,7 +944,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked), ("test3", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![(0, 2), (1, 1)]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -969,7 +964,7 @@ mod test {
             &assignment(
                 vec![("test4", amount_staked), ("test2", amount_staked)],
                 vec![0, 1, 0],
-                vec![vec![(0, 2), (1, 1)]],
+                vec![vec![0, 1, 0]],
                 vec![],
                 9,
                 change_stake(vec![
@@ -1018,7 +1013,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked)],
                 vec![0],
-                vec![vec![(0, 1)]],
+                vec![vec![0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", amount_staked)]),
@@ -1052,7 +1047,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1063,7 +1058,7 @@ mod test {
             &assignment(
                 vec![("test1", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", amount_staked), ("test2", 0)])
@@ -1096,7 +1091,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1110,7 +1105,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 6,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1143,7 +1138,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1213,7 +1208,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 4,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])
@@ -1233,7 +1228,7 @@ mod test {
             &assignment(
                 vec![("test2", amount_staked)],
                 vec![0, 0],
-                vec![vec![(0, 2)]],
+                vec![vec![0, 0]],
                 vec![],
                 6,
                 change_stake(vec![("test1", 0), ("test2", amount_staked)])

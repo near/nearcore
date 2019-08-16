@@ -5,17 +5,16 @@ use std::sync::{Arc, Mutex, RwLock};
 use tempdir::TempDir;
 
 use lazy_static::lazy_static;
-use near_chain::Block;
-use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
-use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, SignedTransaction, TransactionLog,
-    TransactionResult, TransactionStatus,
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, TransactionLogView,
+    TransactionResultView, ViewStateResult,
 };
+use near_primitives::rpc::{FinalTransactionResult, FinalTransactionStatus};
+use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
@@ -46,7 +45,7 @@ pub struct RuntimeUser {
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
-    pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResult>>,
+    pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResultView>>,
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
@@ -91,7 +90,7 @@ impl RuntimeUser {
             for transaction_result in apply_result.tx_result.into_iter() {
                 self.transaction_results
                     .borrow_mut()
-                    .insert(transaction_result.hash, transaction_result.result);
+                    .insert(transaction_result.hash, transaction_result.result.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             if apply_result.new_receipts.is_empty() {
@@ -126,12 +125,13 @@ impl RuntimeUser {
         }
     }
 
-    fn get_recursive_transaction_results(&self, hash: &CryptoHash) -> Vec<TransactionLog> {
+    fn get_recursive_transaction_results(&self, hash: &CryptoHash) -> Vec<TransactionLogView> {
         let result = self.get_transaction_result(hash);
         let receipt_ids = result.receipts.clone();
-        let mut transactions = vec![TransactionLog { hash: *hash, result }];
+        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
         for hash in &receipt_ids {
-            transactions.extend(self.get_recursive_transaction_results(hash).into_iter());
+            transactions
+                .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
         }
         transactions
     }
@@ -153,14 +153,20 @@ impl RuntimeUser {
         } else {
             FinalTransactionStatus::Completed
         };
-        FinalTransactionResult { status, transactions }
+        FinalTransactionResult {
+            status,
+            transactions: transactions.into_iter().map(|t| t.into()).collect(),
+        }
     }
 }
 
 impl User for RuntimeUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_account(&state_update, account_id).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_account(&state_update, account_id)
+            .map(|account| account.into())
+            .map_err(|err| err.to_string())
     }
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
@@ -192,11 +198,11 @@ impl User for RuntimeUser {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
-    fn get_block(&self, _index: u64) -> Option<Block> {
+    fn get_block(&self, _index: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
         self.transaction_results.borrow().get(hash).cloned().unwrap()
     }
 
@@ -204,24 +210,29 @@ impl User for RuntimeUser {
         self.get_final_transaction_result(hash)
     }
 
-    fn get_state_root(&self) -> MerkleHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root
+    fn get_state_root(&self) -> CryptoHashView {
+        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
     }
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
         let receipt = self.receipts.borrow().get(hash).cloned()?;
         let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
-        Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
+        Some(ReceiptInfo {
+            receipt,
+            result: transaction_result.into(),
+            block_index: Default::default(),
+        })
     }
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKeyView>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
+            .map(|value| value.map(|access_key| access_key.into()))
             .map_err(|err| err.to_string())
     }
 

@@ -1,25 +1,20 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 use std::{fmt, io};
 
+use borsh::{Deserializable, Serializable};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-use protobuf::{parse_from_bytes, Message};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::serialize::{to_base, Decode, Encode};
+use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
     key_for_access_key, key_for_account, key_for_code, prefix_for_access_key, prefix_for_data,
 };
-use near_protos::access_key as access_key_proto;
-use near_protos::account as account_proto;
 
 pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
@@ -57,13 +52,13 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Decode + DeserializeOwned>(
+    pub fn get_ser<T: Deserializable>(
         &self,
         column: Option<u32>,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
-            Ok(Some(bytes)) => match Decode::decode(bytes.as_ref()) {
+            Ok(Some(bytes)) => match T::try_from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
                 Err(e) => Err(e),
             },
@@ -111,13 +106,13 @@ impl StoreUpdate {
         self.transaction.put(column, key, value)
     }
 
-    pub fn set_ser<T: Encode>(
+    pub fn set_ser<T: Serializable>(
         &mut self,
         column: Option<u32>,
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
-        let data = Encode::encode(value)?;
+        let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
     }
@@ -169,7 +164,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Decode + DeserializeOwned + 'a>(
+pub fn read_with_cache<'a, T: Deserializable + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,
@@ -192,34 +187,23 @@ pub fn create_store(path: &str) -> Arc<Store> {
     Arc::new(Store::new(db))
 }
 
-/// Reads a proto from Trie.
-pub fn get_proto<T: Message>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| parse_from_bytes(&data).ok())
+/// Reads an object from Trie.
+pub fn get<T: Deserializable>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
+    state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
 }
 
-/// Writes a proto into Trie.
-pub fn set_proto<T: Message>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+/// Writes an object into Trie.
+pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
     value
-        .write_to_bytes()
+        .try_to_vec()
         .ok()
         .map(|data| state_update.set(key, DBValue::from_vec(data)))
         .or_else(|| None);
 }
 
-/// Reads an object from Trie.
-pub fn get<T: DeserializeOwned>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| Decode::decode(&data).ok())
-}
-
-/// Writes an object into Trie.
-pub fn set<T: Serialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value.encode().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
-}
-
 /// Number of bytes the account data structure occupies in the storage.
 pub fn account_storage_size(account: &Account) -> StorageUsage {
-    let proto: account_proto::Account = account.clone().into();
-    proto.write_to_bytes().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
+    account.try_to_vec().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
@@ -231,14 +215,11 @@ pub fn total_account_storage(account_id: &AccountId, account: &Account) -> Stora
 }
 
 pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
-    let proto: account_proto::Account = account.clone().into();
-    set_proto(state_update, key_for_account(key), &proto)
+    set(state_update, key_for_account(key), account)
 }
 
 pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
-    let proto: Option<account_proto::Account> = get_proto(state_update, &key_for_account(&key));
-    // TODO(1083): consider returning proto and adapting code to work with proto.
-    proto.and_then(|value| value.try_into().ok())
+    get(state_update, &key_for_account(key))
 }
 
 pub fn set_access_key(
@@ -247,8 +228,7 @@ pub fn set_access_key(
     public_key: &PublicKey,
     access_key: &AccessKey,
 ) {
-    let proto: access_key_proto::AccessKey = access_key.clone().into();
-    set_proto(state_update, key_for_access_key(account_id, public_key), &proto);
+    set(state_update, key_for_access_key(account_id, public_key), access_key);
 }
 
 pub fn get_access_key(
@@ -256,13 +236,11 @@ pub fn get_access_key(
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Option<AccessKey> {
-    get_proto(state_update, &key_for_access_key(account_id, public_key))
-        .and_then(|value: access_key_proto::AccessKey| value.try_into().ok())
+    get(state_update, &key_for_access_key(account_id, public_key))
 }
 
 pub fn get_access_key_raw(state_update: &TrieUpdate, key: &[u8]) -> Option<AccessKey> {
-    get_proto(state_update, key)
-        .and_then(|value: access_key_proto::AccessKey| value.try_into().ok())
+    get(state_update, key)
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {

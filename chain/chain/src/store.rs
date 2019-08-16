@@ -154,7 +154,7 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
-        self.get_block_header(&header.prev_hash)
+        self.get_block_header(&header.inner.prev_hash)
     }
 
     /// Get state root hash after applying header with given hash.
@@ -330,7 +330,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error> {
-        self.get_block_header(&header.prev_hash)
+        self.get_block_header(&header.inner.prev_hash)
     }
 
     /// Get state root hash after applying header with given hash.
@@ -404,7 +404,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         loop {
             let header = self.get_block_header(&prev_hash)?;
             let (header_height, header_hash, header_prev_hash) =
-                (header.height, header.hash(), header.prev_hash);
+                (header.inner.height, header.hash(), header.inner.prev_hash);
             // Clean up block indicies between blocks.
             for height in (header_height + 1)..prev_height {
                 self.block_index.insert(height, None);

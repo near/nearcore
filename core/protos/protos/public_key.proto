@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-message PublicKey {
-    enum KeyType {
-        ED25519 = 0;
-    }
-    KeyType key_type = 1;
-    bytes data = 2;
-}

@@ -38,8 +38,8 @@ fn build_chain_with_orhpans() {
     let block = Block::produce(
         &blocks[blocks.len() - 1].header,
         10,
-        blocks[blocks.len() - 1].header.prev_state_root,
-        blocks[blocks.len() - 1].header.epoch_hash,
+        blocks[blocks.len() - 1].header.inner.prev_state_root,
+        blocks[blocks.len() - 1].header.inner.epoch_hash,
         vec![],
         HashMap::default(),
         vec![],
@@ -107,5 +107,5 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(b4, Provenance::PRODUCED, |_, _, _| {}).is_ok());
     assert!(chain.process_block(b5, Provenance::PRODUCED, |_, _, _| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height, 5);
+    assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
 }

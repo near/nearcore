@@ -1,16 +1,17 @@
+use std::sync::Arc;
+
 use actix::{Actor, System};
+use borsh::Serializable;
 use futures::future::Future;
-use protobuf::Message;
 
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
-use near_protos::signed_transaction as transaction_proto;
-use std::sync::Arc;
+use near_primitives::transaction::SignedTransaction;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]
@@ -31,10 +32,10 @@ fn test_send_tx_async() {
         );
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
-        let proto: transaction_proto::SignedTransaction = tx.into();
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
-                .broadcast_tx_async(to_base64(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_async(to_base64(&bytes))
                 .map_err(|_| ())
                 .map(move |result| assert_eq!(tx_hash, result)),
         );
@@ -75,10 +76,10 @@ fn test_send_tx_commit() {
             Arc::new(signer),
             100,
         );
-        let proto: transaction_proto::SignedTransaction = tx.into();
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
-                .broadcast_tx_commit(to_base64(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_commit(to_base64(&bytes))
                 .map_err(|why| {
                     System::current().stop();
                     panic!(why);

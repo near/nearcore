@@ -13,7 +13,6 @@ use near_client::{ClientActor, GetBlock};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
