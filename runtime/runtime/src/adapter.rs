@@ -83,9 +83,9 @@ pub fn query_client(
         },
         "access_key" => {
             let result = if path_parts.len() == 2 {
-                adapter.view_access_keys(state_root, &AccountId::from(path_parts[1])).map(|mut r| {
+                adapter.view_access_keys(state_root, &AccountId::from(path_parts[1])).map(|r| {
                     QueryResponse::AccessKeyList(
-                        r.drain(..)
+                        r.into_iter()
                             .map(|(public_key, access_key)| AccessKeyInfo {
                                 public_key: public_key.into(),
                                 access_key: access_key.into(),

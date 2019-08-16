@@ -320,7 +320,7 @@ impl BlockSync {
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
-        let mut hashes_to_request = hashes
+        let hashes_to_request = hashes
             .iter()
             .filter(|x| !chain.get_block(x).is_ok() && !chain.is_orphan(x))
             .take(block_count)
@@ -335,7 +335,7 @@ impl BlockSync {
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
             let mut peers_iter = most_weight_peers.iter().cycle();
-            for hash in hashes_to_request.drain(..) {
+            for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
                     if self
                         .network_recipient

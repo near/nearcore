@@ -624,9 +624,9 @@ impl Handler<PeersRequest> for PeerManagerActor {
 impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, mut msg: PeersResponse, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         self.peer_store.add_peers(
-            msg.peers.drain(..).filter(|peer_info| peer_info.id != self.peer_id).collect(),
+            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect(),
         );
     }
 }

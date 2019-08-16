@@ -174,8 +174,8 @@ impl PeerStore {
         store_update.commit().map_err(|err| err.into())
     }
 
-    pub fn add_peers(&mut self, mut peers: Vec<PeerInfo>) {
-        for peer_info in peers.drain(..) {
+    pub fn add_peers(&mut self, peers: Vec<PeerInfo>) {
+        for peer_info in peers.into_iter() {
             if !self.peer_states.contains_key(&peer_info.id) {
                 self.peer_states.insert(peer_info.id, KnownPeerState::new(peer_info));
             }

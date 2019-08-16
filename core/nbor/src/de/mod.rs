@@ -114,8 +114,8 @@ where
     T: Deserializable + Eq + std::hash::Hash,
 {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let mut vec = <Vec<T>>::read(reader)?;
-        Ok(vec.drain(..).collect::<HashSet<T>>())
+        let vec = <Vec<T>>::read(reader)?;
+        Ok(vec.into_iter().collect::<HashSet<T>>())
     }
 }
 

@@ -137,7 +137,7 @@ impl RuntimeUser {
     }
 
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        let mut transactions = self.get_recursive_transaction_results(hash);
+        let transactions = self.get_recursive_transaction_results(hash);
         let status = if transactions
             .iter()
             .find(|t| &t.result.status == &TransactionStatus::Failed)
@@ -155,7 +155,7 @@ impl RuntimeUser {
         };
         FinalTransactionResult {
             status,
-            transactions: transactions.drain(..).map(|t| t.into()).collect(),
+            transactions: transactions.into_iter().map(|t| t.into()).collect(),
         }
     }
 }

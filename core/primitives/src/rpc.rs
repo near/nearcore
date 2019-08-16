@@ -374,7 +374,7 @@ pub struct BlockHeaderView {
 }
 
 impl From<BlockHeader> for BlockHeaderView {
-    fn from(mut header: BlockHeader) -> Self {
+    fn from(header: BlockHeader) -> Self {
         Self {
             height: header.inner.height,
             epoch_hash: header.inner.epoch_hash,
@@ -386,7 +386,7 @@ impl From<BlockHeader> for BlockHeaderView {
             approval_sigs: header
                 .inner
                 .approval_sigs
-                .drain(..)
+                .into_iter()
                 .map(|signature| signature.into())
                 .collect(),
             total_weight: header.inner.total_weight.to_num(),
@@ -397,7 +397,7 @@ impl From<BlockHeader> for BlockHeaderView {
 }
 
 impl From<BlockHeaderView> for BlockHeader {
-    fn from(mut view: BlockHeaderView) -> Self {
+    fn from(view: BlockHeaderView) -> Self {
         let mut header = Self {
             inner: BlockHeaderInner {
                 height: view.height,
@@ -409,7 +409,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 approval_mask: view.approval_mask,
                 approval_sigs: view
                     .approval_sigs
-                    .drain(..)
+                    .into_iter()
                     .map(|signature| signature.into())
                     .collect(),
                 total_weight: view.total_weight.into(),
@@ -430,10 +430,10 @@ pub struct BlockView {
 }
 
 impl From<Block> for BlockView {
-    fn from(mut block: Block) -> Self {
+    fn from(block: Block) -> Self {
         BlockView {
             header: block.header.into(),
-            transactions: block.transactions.drain(..).map(|tx| tx.into()).collect(),
+            transactions: block.transactions.into_iter().map(|tx| tx.into()).collect(),
         }
     }
 }
@@ -515,14 +515,19 @@ pub struct SignedTransactionView {
 }
 
 impl From<SignedTransaction> for SignedTransactionView {
-    fn from(mut signed_tx: SignedTransaction) -> Self {
+    fn from(signed_tx: SignedTransaction) -> Self {
         let hash = signed_tx.get_hash().into();
         SignedTransactionView {
             signer_id: signed_tx.transaction.signer_id,
             public_key: signed_tx.transaction.public_key.into(),
             nonce: signed_tx.transaction.nonce,
             receiver_id: signed_tx.transaction.receiver_id,
-            actions: signed_tx.transaction.actions.drain(..).map(|action| action.into()).collect(),
+            actions: signed_tx
+                .transaction
+                .actions
+                .into_iter()
+                .map(|action| action.into())
+                .collect(),
             signature: signed_tx.signature.into(),
             hash,
         }
