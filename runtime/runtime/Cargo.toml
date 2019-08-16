@@ -20,6 +20,7 @@ ethereum-bigint = "0.2"
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-verifier = { path = "../../runtime/verifier" }
+near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
 cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }

@@ -82,6 +82,7 @@ pub(crate) fn action_function_call(
     function_call: &FunctionCallAction,
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
+    is_last_action: bool,
 ) {
     let account = account.as_mut().unwrap();
     let code = match get_code_with_cache(state_update, account_id, &account) {
@@ -99,6 +100,12 @@ pub(crate) fn action_function_call(
         action_receipt.gas_price,
         action_hash,
     );
+    // Output data receipts are ignored if the function call is not the last action in the batch.
+    let output_data_receivers: Vec<_> = if is_last_action {
+        action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
+    } else {
+        vec![]
+    };
     let context = VMContext {
         current_account_id: account_id.clone(),
         signer_account_id: action_receipt.signer_id.clone(),
@@ -111,6 +118,7 @@ pub(crate) fn action_function_call(
         prepaid_gas: function_call.gas,
         random_seed: action_hash.as_ref().to_vec(),
         free_of_charge: false,
+        output_data_receivers,
     };
 
     let promise_results = input_data

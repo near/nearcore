@@ -117,6 +117,7 @@ impl TrieViewer {
                     prepaid_gas: 0,
                     random_seed: root.as_ref().into(),
                     free_of_charge: true,
+                    output_data_receivers: vec![],
                 };
 
                 near_vm_runner::run(

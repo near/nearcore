@@ -48,6 +48,8 @@ pub struct VMLogic<'a> {
 
     /// The DAG of promises, indexed by promise id.
     promises: Vec<Promise>,
+    /// Record the accounts towards which the receipts are directed.
+    receipt_to_account: HashMap<ReceiptIndex, AccountId>,
 }
 
 /// Promises API allows to create a DAG-structure that defines dependencies between smart contract
@@ -91,6 +93,7 @@ impl<'a> VMLogic<'a> {
             valid_iterators: HashSet::new(),
             invalid_iterators: HashSet::new(),
             promises: vec![],
+            receipt_to_account: HashMap::new(),
         }
     }
 
@@ -372,6 +375,45 @@ impl<'a> VMLogic<'a> {
     // # Promises API #
     // ################
 
+    /// A helper function to pay gas fee for creating a contract call.
+    /// # Args:
+    /// * `sir`: whether contract call is addressed to itself;
+    /// * `prepay_gas`: how much prepaid gas should be attached;
+    /// * `num_bytes`: the number of bytes of method name and arguments used for this call;
+    /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
+    ///   their data receipts), where bool indicates whether this is sender=receiver communication.
+    fn pay_gas_for_contract_call(
+        &mut self,
+        sir: bool,
+        prepay_gas: Gas,
+        num_bytes: u64,
+        data_dependencies: &[bool],
+    ) -> Result<()> {
+        let runtime_fees_cfg = &self.config.runtime_fees;
+        let function_call_cost = &runtime_fees_cfg.action_creation_config.function_call_cost;
+        let mut use_gas = runtime_fees_cfg
+            .action_receipt_creation_config
+            .send_fee(sir)
+            .checked_add(function_call_cost.send_fee(sir))
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(
+                num_bytes
+                    .checked_mul(function_call_cost.send_fee(sir))
+                    .ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(prepay_gas)
+            .ok_or(HostError::IntegerOverflow)?;
+        for dep in data_dependencies {
+            use_gas = use_gas
+                .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.send_fee(*dep))
+                .ok_or(HostError::IntegerOverflow)?
+                .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.exec_fee())
+                .ok_or(HostError::IntegerOverflow)?;
+        }
+        self.deduct_gas(0, use_gas)
+    }
+
     /// Creates a promise that will execute a method on account with given arguments and attaches
     /// the given amount and gas. `amount_ptr` point to slices of bytes representing `u128`.
     ///
@@ -403,9 +445,18 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::EmptyMethodName);
         }
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-        self.attach_gas_to_promise(gas)?;
-        let new_receipt_idx =
-            self.ext.receipt_create(vec![], account_id, method_name, arguments, amount, gas)?;
+        let sir = account_id == self.context.current_account_id;
+        let num_bytes = method_name_len + arguments_len;
+        self.pay_gas_for_contract_call(sir, gas, num_bytes, &[])?;
+        let new_receipt_idx = self.ext.receipt_create(
+            vec![],
+            account_id.clone(),
+            method_name,
+            arguments,
+            amount,
+            gas,
+        )?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
 
         let promise_idx = self.promises.len() as PromiseIndex;
         self.promises
@@ -445,7 +496,6 @@ impl<'a> VMLogic<'a> {
             return Err(HostError::EmptyMethodName);
         }
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-        self.attach_gas_to_promise(gas)?;
 
         // Update the DAG and return new promise idx.
         let promise =
@@ -455,14 +505,28 @@ impl<'a> VMLogic<'a> {
             PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
         };
 
+        let sir = account_id == self.context.current_account_id;
+        let num_bytes = method_name_len + arguments_len;
+        let deps: Vec<_> = receipt_dependencies
+            .iter()
+            .map(|receipt_idx| {
+                self.receipt_to_account
+                    .get(receipt_idx)
+                    .expect("promises and receipt_to_account should be consistent.")
+                    == &account_id
+            })
+            .collect();
+        self.pay_gas_for_contract_call(sir, gas, num_bytes, &deps)?;
+
         let new_receipt_idx = self.ext.receipt_create(
             receipt_dependencies,
-            account_id,
+            account_id.clone(),
             method_name,
             arguments,
             amount,
             gas,
         )?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
         let new_promise_idx = self.promises.len() as PromiseIndex;
         self.promises
             .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
@@ -591,6 +655,30 @@ impl<'a> VMLogic<'a> {
     /// returns `MemoryAccessViolation`.
     pub fn value_return(&mut self, value_len: u64, value_ptr: u64) -> Result<()> {
         let return_val = Self::memory_get(self.memory, value_ptr, value_len)?;
+        let mut gas_use: Gas = 0;
+        let num_bytes = return_val.len() as u64;
+        let data_cfg = &self.config.runtime_fees.data_receipt_creation_config;
+        for data_receiver in &self.context.output_data_receivers {
+            let sir = data_receiver == &self.context.current_account_id;
+            // We deduct for execution here too, because if we later have an OR combinator
+            // for promises then we might have some valid data receipts that arrive too late
+            // to be picked up by the execution that waits on them (because it has started
+            // after it receives the first data receipt) and then we need to issue a special
+            // refund in this situation. Which we avoid by just paying for execution of
+            // data receipt that might not be performed.
+            gas_use = gas_use
+                .checked_add(
+                    data_cfg
+                        .cost_per_byte
+                        .send_fee(sir)
+                        .checked_add(data_cfg.cost_per_byte.exec_fee())
+                        .ok_or(HostError::IntegerOverflow)?
+                        .checked_mul(num_bytes)
+                        .ok_or(HostError::IntegerOverflow)?,
+                )
+                .ok_or(HostError::IntegerOverflow)?;
+        }
+        self.deduct_gas(0, gas_use)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
@@ -716,10 +804,15 @@ impl<'a> VMLogic<'a> {
     /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
     /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
     pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        self.deduct_gas(gas_amount as _, gas_amount as _)
+    }
+
+    fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        assert!(burn_gas <= use_gas);
         let new_burnt_gas =
-            self.burnt_gas.checked_add(gas_amount as _).ok_or(HostError::IntegerOverflow)?;
+            self.burnt_gas.checked_add(burn_gas as _).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
-            self.used_gas.checked_add(gas_amount as _).ok_or(HostError::IntegerOverflow)?;
+            self.used_gas.checked_add(use_gas as _).ok_or(HostError::IntegerOverflow)?;
         if self.context.free_of_charge
             || (new_burnt_gas < self.config.max_gas_burnt
                 && new_used_gas < self.context.prepaid_gas)
@@ -738,25 +831,6 @@ impl<'a> VMLogic<'a> {
             };
             self.burnt_gas = min(new_burnt_gas, self.config.max_gas_burnt);
             self.used_gas = min(new_used_gas, self.context.prepaid_gas);
-            res
-        }
-    }
-
-    /// Called upon creating a promise. Counts towards `used_gas` but not `burnt_gas`.
-    ///
-    /// # Errors:
-    ///
-    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
-    pub fn attach_gas_to_promise(&mut self, gas_amount: u64) -> Result<()> {
-        let new_used_gas =
-            self.used_gas.checked_add(gas_amount).ok_or(HostError::IntegerOverflow)?;
-        if self.context.free_of_charge || new_used_gas < self.context.prepaid_gas {
-            self.used_gas = new_used_gas;
-            Ok(())
-        } else {
-            let res = Err(HostError::GasExceeded);
-            self.used_gas = self.context.prepaid_gas;
             res
         }
     }

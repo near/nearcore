@@ -1,6 +1,10 @@
 //! Settings of the parameters of the runtime.
-use near_primitives::transaction::Action;
+use near_primitives::account::AccessKeyPermission;
+use near_primitives::transaction::{
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction,
+};
 use near_primitives::types::{Balance, BlockIndex, Gas};
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::Config;
 
 /// The structure that holds the parameters of the runtime, mostly economics.
@@ -11,105 +15,140 @@ pub struct RuntimeConfig {
     pub storage_cost_byte_per_block: Balance,
     /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
     pub poke_threshold: BlockIndex,
-    /// Costs for different types of transactions.
-    pub transaction_costs: TransactionCosts,
+    /// Costs of different actions that need to be performed when sending and processing transaction
+    /// and receipts.
+    pub transaction_costs: RuntimeFeesConfig,
     /// Config of wasm operations.
     pub wasm_config: Config,
 }
 
-/// The costs of the transactions.
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct TransactionCosts {
-    pub create_account: Gas,
-    pub deploy_contract: Gas,
-    pub function_call: Gas,
-    pub transfer: Gas,
-    pub stake: Gas,
-    pub add_key: Gas,
-    pub delete_key: Gas,
-    pub delete_account: Gas,
-}
-
-fn safe_gas_to_balance(
+pub fn safe_gas_to_balance(
     gas_price: Balance,
     gas: Gas,
 ) -> Result<Balance, Box<dyn std::error::Error>> {
     gas_price.checked_mul(gas as Balance).ok_or_else(|| "gas to balance overflow".into())
 }
 
-fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, Box<dyn std::error::Error>> {
+pub fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, Box<dyn std::error::Error>> {
     val.checked_add(rhs).ok_or_else(|| "gas add overflow".into())
 }
 
-fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, Box<dyn std::error::Error>> {
+pub fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, Box<dyn std::error::Error>> {
     val.checked_add(rhs).ok_or_else(|| "balance add overflow".into())
 }
 
-impl TransactionCosts {
-    pub fn action_gas_cost(&self, action: &Action) -> Gas {
+/// Total sum of gas that needs to be burnt to send these actions.
+pub fn total_send_fees(
+    config: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    actions: &[Action],
+) -> Result<Gas, Box<dyn std::error::Error>> {
+    let cfg = &config.action_creation_config;
+    let mut result = 0;
+    for action in actions {
         use Action::*;
-        match action {
-            CreateAccount(_) => self.create_account,
-            DeployContract(_) => self.deploy_contract,
-            FunctionCall(_) => self.function_call,
-            Transfer(_) => self.transfer,
-            Stake(_) => self.stake,
-            AddKey(_) => self.add_key,
-            DeleteKey(_) => self.delete_key,
-            DeleteAccount(_) => self.delete_account,
+        let delta = match action {
+            CreateAccount(_) => cfg.create_account_cost.send_fee(sender_is_receiver),
+            DeployContract(DeployContractAction { code }) => {
+                let num_bytes = code.len() as u64;
+                cfg.deploy_contract_cost.send_fee(sender_is_receiver)
+                    + cfg.deploy_contract_cost_per_byte.send_fee(sender_is_receiver) * num_bytes
+            }
+            FunctionCall(FunctionCallAction { method_name, args, .. }) => {
+                let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
+                cfg.function_call_cost.send_fee(sender_is_receiver)
+                    + cfg.function_call_cost_per_byte.send_fee(sender_is_receiver) * num_bytes
+            }
+            Transfer(_) => cfg.transfer_cost.send_fee(sender_is_receiver),
+            Stake(_) => cfg.stake_cost.send_fee(sender_is_receiver),
+            AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+                AccessKeyPermission::FunctionCall(call_perm) => {
+                    let num_bytes = call_perm
+                        .method_names
+                        .iter()
+                        // Account for null-terminating characters.
+                        .map(|name| name.as_bytes().len() as u64 + 1)
+                        .sum::<u64>();
+                    cfg.add_key_cost.function_call_cost.send_fee(sender_is_receiver)
+                        + num_bytes
+                            * cfg
+                                .add_key_cost
+                                .function_call_cost_per_byte
+                                .send_fee(sender_is_receiver)
+                }
+                AccessKeyPermission::FullAccess => {
+                    cfg.add_key_cost.full_access_cost.send_fee(sender_is_receiver)
+                }
+            },
+            DeleteKey(_) => cfg.delete_key_cost.send_fee(sender_is_receiver),
+            DeleteAccount(_) => cfg.delete_account_cost.send_fee(sender_is_receiver),
+        };
+        result = safe_add_gas(result, delta)?;
+    }
+    Ok(result)
+}
+
+pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
+    let cfg = &config.action_creation_config;
+    use Action::*;
+    match action {
+        CreateAccount(_) => cfg.create_account_cost.exec_fee(),
+        DeployContract(DeployContractAction { code }) => {
+            let num_bytes = code.len() as u64;
+            cfg.deploy_contract_cost.exec_fee()
+                + cfg.deploy_contract_cost_per_byte.exec_fee() * num_bytes
         }
-    }
-
-    /// Get the total sum of basic gas cost for given actions
-    pub fn total_basic_gas(
-        &self,
-        actions: &Vec<Action>,
-    ) -> Result<Gas, Box<dyn std::error::Error>> {
-        let mut total_gas: Gas = 0;
-        for action in actions {
-            total_gas = safe_add_gas(total_gas, self.action_gas_cost(action))?;
+        FunctionCall(FunctionCallAction { method_name, args, .. }) => {
+            let num_bytes = method_name.as_bytes().len() as u64 + args.len() as u64;
+            cfg.function_call_cost.exec_fee()
+                + cfg.function_call_cost_per_byte.exec_fee() * num_bytes
         }
-        Ok(total_gas)
+        Transfer(_) => cfg.transfer_cost.exec_fee(),
+        Stake(_) => cfg.stake_cost.exec_fee(),
+        AddKey(AddKeyAction { access_key, .. }) => match &access_key.permission {
+            AccessKeyPermission::FunctionCall(call_perm) => {
+                let num_bytes = call_perm
+                    .method_names
+                    .iter()
+                    // Account for null-terminating characters.
+                    .map(|name| name.as_bytes().len() as u64 + 1)
+                    .sum::<u64>();
+                cfg.add_key_cost.function_call_cost.exec_fee()
+                    + num_bytes * cfg.add_key_cost.function_call_cost_per_byte.exec_fee()
+            }
+            AccessKeyPermission::FullAccess => cfg.add_key_cost.full_access_cost.exec_fee(),
+        },
+        DeleteKey(_) => cfg.delete_key_cost.exec_fee(),
+        DeleteAccount(_) => cfg.delete_account_cost.exec_fee(),
     }
+}
 
-    /// Get the total sum of deposits for given actions
-    pub fn total_deposit(
-        &self,
-        actions: &Vec<Action>,
-    ) -> Result<Balance, Box<dyn std::error::Error>> {
-        let mut total_balance: Balance = 0;
-        for action in actions {
-            total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
-        }
-        Ok(total_balance)
+/// Total sum of gas that would need to be burnt before we start executing the given actions.
+pub fn total_exec_fees(
+    config: &RuntimeFeesConfig,
+    actions: &[Action],
+) -> Result<Gas, Box<dyn std::error::Error>> {
+    let mut result = 0;
+    for action in actions {
+        let delta = exec_fee(&config, action);
+        result = safe_add_gas(result, delta)?;
     }
+    Ok(result)
+}
+/// Get the total sum of deposits for given actions.
+pub fn total_deposit(actions: &[Action]) -> Result<Balance, Box<dyn std::error::Error>> {
+    let mut total_balance: Balance = 0;
+    for action in actions {
+        total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
+    }
+    Ok(total_balance)
+}
 
-    /// Get the total sum of prepaid gas for given actions
-    pub fn total_prepaid_gas(
-        &self,
-        actions: &Vec<Action>,
-    ) -> Result<Gas, Box<dyn std::error::Error>> {
-        let mut total_gas: Gas = 0;
-        for action in actions {
-            total_gas = safe_add_gas(total_gas, action.get_prepaid_gas())?;
-        }
-        Ok(total_gas)
+/// Get the total sum of prepaid gas for given actions.
+pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, Box<dyn std::error::Error>> {
+    let mut total_gas: Gas = 0;
+    for action in actions {
+        total_gas = safe_add_gas(total_gas, action.get_prepaid_gas())?;
     }
-
-    /// Get the total sum of prepaid gas and basic actions gas for given actions
-    pub fn total_gas(&self, actions: &Vec<Action>) -> Result<Gas, Box<dyn std::error::Error>> {
-        safe_add_gas(self.total_basic_gas(actions)?, self.total_prepaid_gas(actions)?)
-    }
-
-    /// Get the cost of the given list of actions
-    pub fn total_cost(
-        &self,
-        gas_price: Balance,
-        actions: &Vec<Action>,
-    ) -> Result<Balance, Box<dyn std::error::Error>> {
-        safe_add_balance(
-            self.total_deposit(actions)?,
-            safe_gas_to_balance(gas_price, self.total_gas(actions)?)?,
-        )
-    }
+    Ok(total_gas)
 }

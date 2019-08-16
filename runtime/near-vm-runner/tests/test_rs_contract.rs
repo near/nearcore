@@ -52,6 +52,7 @@ fn create_context(input: &[u64]) -> VMContext {
         prepaid_gas: 10u64.pow(9),
         random_seed: vec![0, 1, 2],
         free_of_charge: false,
+        output_data_receivers: vec![],
     }
 }
 

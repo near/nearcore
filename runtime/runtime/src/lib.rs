@@ -32,7 +32,10 @@ use near_verifier::{TransactionVerifier, VerificationData};
 use near_vm_logic::ReturnData;
 
 use crate::actions::*;
-use crate::config::RuntimeConfig;
+use crate::config::{
+    exec_fee, safe_add_balance, safe_add_gas, safe_gas_to_balance, total_deposit, total_exec_fees,
+    total_prepaid_gas, total_send_fees, RuntimeConfig,
+};
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
 
@@ -150,14 +153,43 @@ impl Runtime {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(signed_transaction)?
         };
+        let receiver_id = &signed_transaction.transaction.receiver_id;
+        let sender_id = &signed_transaction.transaction.signer_id;
+        let sender_is_receiver = receiver_id == sender_id;
+
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = signed_transaction.transaction.nonce;
-        let gas_price = 1;
-        let total_cost = self
+
+        let mut total_cost_gas: Gas = self
             .config
             .transaction_costs
-            .total_cost(gas_price, &signed_transaction.transaction.actions)?;
+            .action_receipt_creation_config
+            .send_fee(sender_is_receiver);
+        total_cost_gas = safe_add_gas(
+            total_cost_gas,
+            total_send_fees(
+                &self.config.transaction_costs,
+                sender_is_receiver,
+                &signed_transaction.transaction.actions,
+            )?,
+        )?;
+        total_cost_gas = safe_add_gas(
+            total_cost_gas,
+            total_exec_fees(
+                &self.config.transaction_costs,
+                &signed_transaction.transaction.actions,
+            )?,
+        )?;
+        total_cost_gas = safe_add_gas(
+            total_cost_gas,
+            total_prepaid_gas(&signed_transaction.transaction.actions)?,
+        )?;
+        let gas_price = 1;
+        let mut total_cost = safe_gas_to_balance(gas_price, total_cost_gas)?;
+        total_cost =
+            safe_add_balance(total_cost, total_deposit(&signed_transaction.transaction.actions)?)?;
         signer.checked_sub(total_cost)?;
+
         if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
             access_key.permission
         {
@@ -237,10 +269,12 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         input_data: &Vec<Option<Vec<u8>>>,
         action_hash: CryptoHash,
+        is_last_action: bool,
     ) -> ActionResult {
         let mut result = ActionResult::default();
-        result.gas_burnt += self.config.transaction_costs.action_gas_cost(action);
-        result.gas_used += self.config.transaction_costs.action_gas_cost(action);
+        let exec_fees = exec_fee(&self.config.transaction_costs, action);
+        result.gas_burnt += exec_fees;
+        result.gas_used += exec_fees;
         let account_id = &receipt.receiver_id;
         // Account validation
         if let Err(e) = check_account_existence(action, account, account_id) {
@@ -279,6 +313,7 @@ impl Runtime {
                     function_call,
                     &action_hash,
                     &self.config,
+                    is_last_action,
                 );
             }
             Action::Transfer(transfer) => {
@@ -344,8 +379,12 @@ impl Runtime {
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
+        let exec_fee = self.config.transaction_costs.action_receipt_creation_config.exec_fee();
+        result.gas_used = exec_fee;
+        result.gas_burnt = exec_fee;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
+            let is_last_action = action_index + 1 == action_receipt.actions.len();
             result.merge(self.apply_action(
                 action,
                 state_update,
@@ -359,6 +398,7 @@ impl Runtime {
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
                 ),
+                is_last_action,
             ));
             if result.result.is_err() {
                 break;
@@ -474,19 +514,18 @@ impl Runtime {
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
     ) {
-        let total_deposit = self
-            .config
-            .transaction_costs
-            .total_deposit(&action_receipt.actions)
-            .expect("deposits overflow already checked");
-        let total_gas = self
-            .config
-            .transaction_costs
-            .total_gas(&action_receipt.actions)
-            .expect("gas overflow already checked");
+        const OVERFLOW_CHECKED_ERR: &str = "Overflow has already been checked.";
+        let total_deposit = total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
+        let prepaid_gas = total_prepaid_gas(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
+        let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
+            .expect(OVERFLOW_CHECKED_ERR);
+
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
-        let gas_refund =
-            total_gas - (if result.result.is_err() { result.gas_burnt } else { result.gas_used });
+        let gas_refund = if result.result.is_err() {
+            prepaid_gas + exec_gas - result.gas_burnt
+        } else {
+            prepaid_gas + exec_gas - result.gas_used
+        };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {
             // Merging 2 refunds
