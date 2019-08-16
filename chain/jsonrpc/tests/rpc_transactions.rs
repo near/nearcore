@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use actix::{Actor, System};
+use borsh::Serializable;
 use futures::future::Future;
 
-use nbor::Serializable;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};

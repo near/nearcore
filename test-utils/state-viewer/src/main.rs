@@ -2,9 +2,8 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
+use borsh::Deserializable;
 use clap::{App, Arg, SubCommand};
-
-use nbor::Deserializable;
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess};

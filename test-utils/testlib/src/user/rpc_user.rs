@@ -2,8 +2,8 @@ use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 
 use actix::System;
+use borsh::Serializable;
 
-use nbor::Serializable;
 use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::crypto::signature::PublicKey;

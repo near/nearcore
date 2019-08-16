@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::{fmt, io};
 
+use borsh::{Deserializable, Serializable};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
-use nbor::{Deserializable, Serializable};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::crypto::signature::PublicKey;

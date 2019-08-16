@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bencher::Bencher;
+use borsh::{Deserializable, Serializable};
 use chrono::Utc;
 
-use nbor::{Deserializable, Serializable};
 use near_primitives::account::Account;
 use near_primitives::block::Block;
 use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};

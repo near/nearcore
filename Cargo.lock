@@ -2045,22 +2045,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nbor"
-version = "0.1.0"
-dependencies = [
- "nbor-derive 0.1.0",
-]
-
-[[package]]
-name = "nbor-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)",
- "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 0.15.36 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "near"
 version = "0.2.7"
 dependencies = [

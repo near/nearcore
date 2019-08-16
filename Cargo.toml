@@ -9,8 +9,6 @@ edition = "2018"
 [workspace]
 members = [
     "async-utils/",
-    "core/nbor",
-    "core/nbor-derive",
     "core/primitives",
     "core/store",
     "runtime/runtime",

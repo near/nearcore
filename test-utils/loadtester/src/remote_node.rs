@@ -3,11 +3,11 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use borsh::Serializable;
 use futures::Future;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
-use nbor::Serializable;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::rpc::AccessKeyView;

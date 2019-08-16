@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
+use borsh::{BorshDeserialize, BorshSerialize, Deserializable};
 use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
-use nbor::{nbor, Deserializable};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
@@ -20,9 +20,9 @@ use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use near_primitives::utils::{from_timestamp, to_timestamp};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 2;
