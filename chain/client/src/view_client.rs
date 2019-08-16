@@ -8,11 +8,10 @@ use chrono::{DateTime, Utc};
 
 use near_chain::{Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockView, QueryResponse};
-use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, TransactionLog, TransactionResult,
-    TransactionStatus,
+use near_primitives::rpc::{
+    BlockView, FinalTransactionResult, FinalTransactionStatus, QueryResponse,
 };
+use near_primitives::transaction::{TransactionLog, TransactionResult, TransactionStatus};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
@@ -68,7 +67,7 @@ impl ViewClientActor {
         &mut self,
         hash: &CryptoHash,
     ) -> Result<FinalTransactionResult, String> {
-        let transactions = self.get_recursive_transaction_results(hash)?;
+        let mut transactions = self.get_recursive_transaction_results(hash)?;
         let status = if transactions
             .iter()
             .find(|t| &t.result.status == &TransactionStatus::Failed)
@@ -84,7 +83,10 @@ impl ViewClientActor {
         } else {
             FinalTransactionStatus::Completed
         };
-        Ok(FinalTransactionResult { status, transactions })
+        Ok(FinalTransactionResult {
+            status,
+            transactions: transactions.drain(..).map(|t| t.into()).collect(),
+        })
     }
 }
 

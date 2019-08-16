@@ -9,7 +9,7 @@ use crate::crypto::signature::{verify, PublicKey};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::types::{AccountId, Balance, Gas, Nonce, ShardId, StructSignature};
+use crate::types::{AccountId, Balance, Gas, Nonce, StructSignature};
 
 pub type LogEntry = String;
 
@@ -191,38 +191,13 @@ pub enum TransactionStatus {
     Failed,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub enum FinalTransactionStatus {
-    Unknown,
-    Started,
-    Failed,
-    Completed,
-}
-
-impl Default for FinalTransactionStatus {
-    fn default() -> Self {
-        FinalTransactionStatus::Unknown
-    }
-}
-
-impl FinalTransactionStatus {
-    pub fn to_code(&self) -> u64 {
-        match self {
-            FinalTransactionStatus::Completed => 0,
-            FinalTransactionStatus::Failed => 1,
-            FinalTransactionStatus::Started => 2,
-            FinalTransactionStatus::Unknown => std::u64::MAX,
-        }
-    }
-}
-
 impl Default for TransactionStatus {
     fn default() -> Self {
         TransactionStatus::Unknown
     }
 }
 
-#[derive(nbor, PartialEq, Clone, Serialize, Deserialize, Default)]
+#[derive(nbor, PartialEq, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionResult {
     /// Transaction status.
     pub status: TransactionStatus,
@@ -245,63 +220,11 @@ impl fmt::Debug for TransactionResult {
     }
 }
 
-#[derive(PartialEq, Clone, Serialize, Deserialize, Default, Debug)]
+#[derive(PartialEq, Clone, Default, Debug)]
 pub struct TransactionLog {
     /// Hash of a transaction or a receipt that generated this result.
     pub hash: CryptoHash,
     pub result: TransactionResult,
-}
-
-/// Result of transaction and all of subsequent the receipts.
-#[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
-pub struct FinalTransactionResult {
-    /// Status of the whole transaction and it's receipts.
-    pub status: FinalTransactionStatus,
-    /// Transaction results.
-    pub transactions: Vec<TransactionLog>,
-}
-
-impl fmt::Debug for FinalTransactionResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("FinalTransactionResult")
-            .field("status", &self.status)
-            .field("transactions", &format_args!("{}", logging::pretty_vec(&self.transactions)))
-            .finish()
-    }
-}
-
-impl FinalTransactionResult {
-    pub fn final_log(&self) -> String {
-        let mut logs = vec![];
-        for transaction in &self.transactions {
-            for line in &transaction.result.logs {
-                logs.push(line.clone());
-            }
-        }
-        logs.join("\n")
-    }
-
-    pub fn last_result(&self) -> Vec<u8> {
-        for transaction in self.transactions.iter().rev() {
-            if let Some(r) = &transaction.result.result {
-                return r.clone();
-            }
-        }
-        vec![]
-    }
-}
-
-/// Represents address of certain transaction within block
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct TransactionAddress {
-    /// Block hash
-    pub block_hash: CryptoHash,
-    /// Transaction index within the block. If it is a receipt,
-    /// index is the index in the receipt block.
-    pub index: usize,
-    /// Only for receipts. The shard that the receipt
-    /// block is supposed to go
-    pub shard_id: Option<ShardId>,
 }
 
 pub fn verify_transaction_signature(
@@ -376,7 +299,7 @@ mod tests {
                 Action::AddKey(AddKeyAction {
                     public_key,
                     access_key: AccessKey {
-                        nonce: 2,
+                        nonce: 0,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
                             allowance: None,
                             receiver_id: "zzz".to_string(),
@@ -393,7 +316,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "6jaty3HYh35hQUj2PSN4rhVoZXx5EZ1xUBhBgXjko8fa"
+            "244ZQ9cgj3CQ6bWBdytfrJMuMQ1jdXLFGnr4HhvtCTnM"
         );
     }
 }

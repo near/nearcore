@@ -2,7 +2,7 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
-use near_primitives::transaction::FinalTransactionStatus;
+use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::types::Balance;
 
 use crate::node::Node;

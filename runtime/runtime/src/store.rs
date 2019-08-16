@@ -1,6 +1,3 @@
-use std::convert::TryFrom;
-
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::{AccessKeyView, AccountView, PublicKeyView};
 use near_primitives::types::AccountId;
@@ -20,7 +17,7 @@ pub enum StateRecord {
 }
 
 impl StateRecord {
-    pub fn account(account_id: &str, public_key: &str, amount: u128, staked: u128) -> Self {
+    pub fn account(account_id: &str, amount: u128, staked: u128) -> Self {
         StateRecord::Account {
             account_id: account_id.to_string(),
             account: AccountView {

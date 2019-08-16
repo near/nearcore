@@ -4,8 +4,8 @@ use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
 
-use near_primitives::rpc::{BlockView, QueryResponse, StatusResponse};
-use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
+use near_primitives::rpc::{BlockView, FinalTransactionResult, QueryResponse, StatusResponse};
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::BlockIndex;
 
 pub mod message;

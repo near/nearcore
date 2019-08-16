@@ -9,8 +9,9 @@ use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermis
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
+use crate::logging;
 use crate::serialize::{from_base, option_u128_dec_format, to_base, to_base64, u128_dec_format};
-use crate::transaction::{Action, SignedTransaction};
+use crate::transaction::{Action, SignedTransaction, TransactionLog, TransactionResult};
 use crate::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
 };
@@ -525,5 +526,81 @@ impl From<SignedTransaction> for SignedTransactionView {
             signature: signed_tx.signature.into(),
             hash,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub enum FinalTransactionStatus {
+    Unknown,
+    Started,
+    Failed,
+    Completed,
+}
+
+impl Default for FinalTransactionStatus {
+    fn default() -> Self {
+        FinalTransactionStatus::Unknown
+    }
+}
+
+impl FinalTransactionStatus {
+    pub fn to_code(&self) -> u64 {
+        match self {
+            FinalTransactionStatus::Completed => 0,
+            FinalTransactionStatus::Failed => 1,
+            FinalTransactionStatus::Started => 2,
+            FinalTransactionStatus::Unknown => std::u64::MAX,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TransactionLogView {
+    pub hash: CryptoHashView,
+    pub result: TransactionResult,
+}
+
+impl From<TransactionLog> for TransactionLogView {
+    fn from(log: TransactionLog) -> Self {
+        Self { hash: log.hash.into(), result: log.result }
+    }
+}
+
+/// Result of transaction and all of subsequent the receipts.
+#[derive(Serialize, Deserialize)]
+pub struct FinalTransactionResult {
+    /// Status of the whole transaction and it's receipts.
+    pub status: FinalTransactionStatus,
+    /// Transaction results.
+    pub transactions: Vec<TransactionLogView>,
+}
+
+impl fmt::Debug for FinalTransactionResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("FinalTransactionResult")
+            .field("status", &self.status)
+            .field("transactions", &format_args!("{}", logging::pretty_vec(&self.transactions)))
+            .finish()
+    }
+}
+
+impl FinalTransactionResult {
+    pub fn final_log(&self) -> String {
+        let mut logs = vec![];
+        for transaction in &self.transactions {
+            for line in &transaction.result.logs {
+                logs.push(line.clone());
+            }
+        }
+        logs.join("\n")
+    }
+
+    pub fn last_result(&self) -> Vec<u8> {
+        for transaction in self.transactions.iter().rev() {
+            if let Some(r) = &transaction.result.result {
+                return r.clone();
+            }
+        }
+        vec![]
     }
 }

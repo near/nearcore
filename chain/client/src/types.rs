@@ -7,9 +7,9 @@ use chrono::{DateTime, Utc};
 
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{BlockView, QueryResponse};
+use near_primitives::rpc::{BlockView, FinalTransactionResult, QueryResponse};
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
-use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.

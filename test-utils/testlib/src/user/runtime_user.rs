@@ -12,9 +12,9 @@ use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::rpc::{
     AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
 };
+use near_primitives::rpc::{FinalTransactionResult, FinalTransactionStatus};
 use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, SignedTransaction, TransactionLog,
-    TransactionResult, TransactionStatus,
+    SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_store::{Trie, TrieUpdate};
@@ -137,7 +137,7 @@ impl RuntimeUser {
     }
 
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        let transactions = self.get_recursive_transaction_results(hash);
+        let mut transactions = self.get_recursive_transaction_results(hash);
         let status = if transactions
             .iter()
             .find(|t| &t.result.status == &TransactionStatus::Failed)
@@ -153,7 +153,10 @@ impl RuntimeUser {
         } else {
             FinalTransactionStatus::Completed
         };
-        FinalTransactionResult { status, transactions }
+        FinalTransactionResult {
+            status,
+            transactions: transactions.drain(..).map(|t| t.into()).collect(),
+        }
     }
 }
 
