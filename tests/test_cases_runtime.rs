@@ -1,28 +1,34 @@
 #[cfg(test)]
 mod test {
     use near::GenesisConfig;
+    use near_primitives::serialize::to_base64;
+    use near_primitives::utils::key_for_data;
+    use node_runtime::StateRecord;
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
-    use node_runtime::StateRecord;
-    use near_primitives::utils::key_for_data;
-    use near_primitives::serialize::to_base64;
 
     fn create_runtime_node() -> RuntimeNode {
         RuntimeNode::new(&alice_account())
     }
 
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis_config =
-            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        let mut genesis_config = GenesisConfig::legacy_test(
+            vec![&alice_account(), &bob_account(), "carol.near"],
+            1,
+            vec![1],
+        );
         // Set expensive state rent and add alice more money.
         genesis_config.runtime_config.storage_cost_byte_per_block = 100_000_000_000_000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0][0] {
-            StateRecord::Account { account, .. } => { account.amount = 10_000_000_000_000_000_000 },
+            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
             _ => {}
         }
-        genesis_config.records[0].push(StateRecord::Data { key: to_base64(&key_for_data(&bob_account(), b"test")), value: to_base64(b"123") });
+        genesis_config.records[0].push(StateRecord::Data {
+            key: to_base64(&key_for_data(&bob_account(), b"test")),
+            value: to_base64(b"123"),
+        });
         RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
     }
 

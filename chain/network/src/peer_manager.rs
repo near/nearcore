@@ -332,7 +332,7 @@ impl PeerManagerActor {
 
     // TODO: Should broadcast this with evidence in case of *intentional* misbehaviour.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        warn!(target: "network", "Banning peer {:?}", peer_id);
+        info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.active_peers.remove(&peer_id);
         self.routing_table.remove(&peer_id);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");

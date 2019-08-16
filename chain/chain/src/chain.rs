@@ -16,6 +16,7 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, StateSyncInfo};
 use crate::types::{
     Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, ShardFullChunkOrOnePart, Tip,
+    ValidatorSignatureVerificationResult,
 };
 
 /// Maximum number of orphans chain can store.
@@ -267,6 +268,16 @@ impl Chain {
         chain_store_update.save_sync_head(&header_head);
         chain_store_update.commit()?;
         Ok(header_head)
+    }
+
+    pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
+        let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
+
+        // TODO XXX MOO: do basic validation of the block
+        chain_store_update.save_block(block.clone());
+
+        chain_store_update.commit()?;
+        Ok(())
     }
 
     /// Process a block header received during "header first" propagation.
@@ -761,7 +772,6 @@ impl Chain {
             ChunkHash,
             ChunkExtra,
             Vec<u8>,
-            Block,
             (CryptoHash, Vec<ReceiptTransaction>),
             Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
         ),
@@ -791,13 +801,10 @@ impl Chain {
         let incoming_receipts = ChainStoreUpdate::new(&mut self.store)
             .get_incoming_receipts_for_shard(shard_id, hash, &prev_chunk_header)?;
 
-        let block = self.get_block(&hash)?.clone();
-
         Ok((
             prev_chunk_hash.clone(),
             prev_chunk_extra,
             payload,
-            block,
             outgoing_receipts,
             incoming_receipts.clone(),
         ))
@@ -811,7 +818,6 @@ impl Chain {
         prev_chunk_hash: ChunkHash,
         prev_extra: ChunkExtra,
         payload: Vec<u8>,
-        block: Block,
         outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),
         incoming_receipts: Vec<(CryptoHash, Vec<ReceiptTransaction>)>,
     ) -> Result<(), Error> {
@@ -838,8 +844,6 @@ impl Chain {
                 incoming_receipt.1,
             );
         }
-        // TODO MOO XXX: validate block (can't call process_block here since we don't have the previous block)
-        chain_store_update.save_block(block);
         chain_store_update.commit()?;
 
         Ok(())
@@ -1472,7 +1476,8 @@ impl<'a> ChainUpdate<'a> {
             &validator,
             header.hash().as_ref(),
             &header.signature,
-        ) {
+        ) == ValidatorSignatureVerificationResult::Valid
+        {
             Ok(())
         } else {
             Err(ErrorKind::InvalidSignature.into())
@@ -1603,7 +1608,7 @@ impl<'a> ChainUpdate<'a> {
         match self.chain_store_update.block_exists(&header.hash()) {
             Ok(true) => {
                 let head = self.chain_store_update.head()?;
-                if header.height > 50 && header.height < head.height - 50 {
+                if head.height > 50 && header.height < head.height - 50 {
                     // We flag this as an "abusive peer" but only in the case
                     // where we have the full block in our store.
                     // So this is not a particularly exhaustive check.

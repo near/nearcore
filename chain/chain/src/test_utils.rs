@@ -25,7 +25,10 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
-use crate::types::{ApplyTransactionResult, BlockHeader, RuntimeAdapter, Weight};
+use crate::types::{
+    ApplyTransactionResult, BlockHeader, RuntimeAdapter, ValidatorSignatureVerificationResult,
+    Weight,
+};
 use crate::{Chain, ChainGenesis, ValidTransaction};
 use std::cmp::Ordering;
 
@@ -218,16 +221,20 @@ impl RuntimeAdapter for KeyValueRuntime {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> bool {
+    ) -> ValidatorSignatureVerificationResult {
         if let Some(validator) = self
             .validators
             .iter()
             .flatten()
             .find(|&validator_stake| &validator_stake.account_id == account_id)
         {
-            verify(data, signature, &validator.public_key)
+            if verify(data, signature, &validator.public_key) {
+                ValidatorSignatureVerificationResult::Valid
+            } else {
+                ValidatorSignatureVerificationResult::Invalid
+            }
         } else {
-            false
+            ValidatorSignatureVerificationResult::UnknownEpoch
         }
     }
 

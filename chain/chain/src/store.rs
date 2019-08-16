@@ -452,7 +452,7 @@ pub struct ChainStoreUpdate<'a, T> {
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
-    trie_changes: Option<WrappedTrieChanges>,
+    trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     remove_blocks_to_catchup: Vec<CryptoHash>,
     add_state_dl_infos: Vec<StateSyncInfo>,
@@ -476,7 +476,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             tail: None,
             header_head: None,
             sync_head: None,
-            trie_changes: None,
+            trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             add_state_dl_infos: vec![],
@@ -785,7 +785,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     }
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
-        self.trie_changes = Some(trie_changes);
+        self.trie_changes.push(trie_changes);
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -870,7 +870,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         for (hash, tx_result) in self.transaction_results.drain() {
             store_update.set_ser(COL_TRANSACTION_RESULT, hash.as_ref(), &tx_result)?;
         }
-        if let Some(trie_changes) = self.trie_changes {
+        for trie_changes in self.trie_changes {
             trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
