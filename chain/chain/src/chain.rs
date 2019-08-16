@@ -493,7 +493,6 @@ impl Chain {
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
         self.check_orphans(me, hash, block_accepted, block_misses_chunks);
-        self.check_orphans(me, sync_hash, block_accepted, block_misses_chunks);
         Ok(())
     }
 

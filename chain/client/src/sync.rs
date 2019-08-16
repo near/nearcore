@@ -434,13 +434,14 @@ impl StateSync {
         let mut sync_need_restart = HashSet::new();
 
         debug!("MOO run state sync tracking shards: {:?}", tracking_shards);
+        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
 
         let now = Utc::now();
-        let (request_block, have_block) = if !chain.block_exists(&sync_hash)? {
+        let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
             match self.last_time_block_requested {
                 None => (true, false),
                 Some(last_time) => {
-                    error!(target: "sync", "State sync: block request for {} timed out in {} seconds", sync_hash, STATE_SYNC_TIMEOUT);
+                    error!(target: "sync", "State sync: block request for {} timed out in {} seconds", prev_hash, STATE_SYNC_TIMEOUT);
                     (now - last_time >= Duration::seconds(STATE_SYNC_TIMEOUT), false)
                 }
             }

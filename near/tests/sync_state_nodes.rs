@@ -94,8 +94,9 @@ fn sync_state_nodes_multishard() {
     heavy_test(|| {
         init_test_logger();
 
-        let genesis_config =
+        let mut genesis_config =
             GenesisConfig::test_sharded(vec!["test1", "test2", "test3", "test4"], vec![2, 2]);
+        genesis_config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
         let system = System::new("NEAR");
 
@@ -186,16 +187,24 @@ fn sync_state_nodes_multishard() {
                             Ok(Ok(b)) if b.header.height < 101 => {
                                 println!("SECOND STAGE {}", b.header.height)
                             }
-                            Err(_) => return futures::future::err(()),
-                            _ => {}
+                            Ok(Err(e)) => {
+                                println!("SECOND STAGE ERROR1: {:?}", e);
+                                return futures::future::err(());
+                            }
+                            Err(e) => {
+                                println!("SECOND STAGE ERROR2: {:?}", e);
+                                return futures::future::err(());
+                            }
+                            _ => {
+                                assert!(false);
+                            }
                         };
                         futures::future::ok(())
                     }));
-                } else {
                 }
             }),
             100,
-            60000,
+            120000,
         )
         .start();
 
