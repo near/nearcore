@@ -15,7 +15,8 @@ futures = "0.1.25"
 tokio = "0.1"
 serde_json = "1.0.0"
 
-nbor = { path = "../../core/nbor" }
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
 near-primitives = { path = "../../core/primitives" }
 node-runtime = { path = "../../runtime/runtime" }
 testlib = { path = "../testlib" }

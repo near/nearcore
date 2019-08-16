@@ -4,10 +4,10 @@ use std::fmt;
 use std::iter;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use nbor::nbor;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, ShardId, ValidatorId, ValidatorStake,
@@ -264,7 +264,7 @@ pub struct ValidatorEpochConfig {
 }
 
 /// Information about validator seat assignments.
-#[derive(nbor, Default, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Clone, Debug)]
 pub struct ValidatorAssignment {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -317,7 +317,7 @@ impl PartialEq for ValidatorAssignment {
 impl Eq for ValidatorAssignment {}
 
 /// Information per each index about validators.
-#[derive(nbor, Default, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Default, Clone, Debug)]
 pub struct ValidatorIndexInfo {
     pub index: BlockIndex,
     pub prev_hash: CryptoHash,
@@ -676,10 +676,11 @@ impl ValidatorManager {
 
 #[cfg(test)]
 mod test {
-    use crate::test_utils::*;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::get_key_pair_from_seed;
     use near_store::test_utils::create_test_store;
+
+    use crate::test_utils::*;
 
     use super::*;
 

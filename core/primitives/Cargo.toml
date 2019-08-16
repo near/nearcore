@@ -26,7 +26,7 @@ log = "0.4"
 reed-solomon-erasure = "3.1.1"
 jemallocator = { version = "0.3.0", optional = true }
 
-nbor = { path = "../nbor" }
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
 [features]
 default = ["jemallocator"]

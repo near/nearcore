@@ -22,7 +22,8 @@ byteorder = "1.2"
 tempdir = "0.3"
 tokio-signal = "0.2"
 
-nbor = { path = "../../core/nbor" }
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }

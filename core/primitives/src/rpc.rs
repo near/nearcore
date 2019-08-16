@@ -71,39 +71,22 @@ impl From<SecretKeyView> for SecretKey {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SignatureView(Vec<u8>);
-
-impl Serialize for SignatureView {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&to_base(&self.0))
-    }
-}
-
-impl<'de> Deserialize<'de> for SignatureView {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        from_base(&s)
-            .map(|v| SignatureView(v))
-            .map_err(|err| serde::de::Error::custom(err.to_string()))
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureView {
+    key_type: KeyType,
+    #[serde(with = "base_bytes_format")]
+    data: Vec<u8>,
 }
 
 impl From<Signature> for SignatureView {
     fn from(signature: Signature) -> Self {
-        Self(signature.0.as_ref().to_vec())
+        Self { key_type: KeyType::ED25519, data: signature.0.as_ref().to_vec() }
     }
 }
 
 impl From<SignatureView> for Signature {
     fn from(view: SignatureView) -> Self {
-        Signature::try_from(view.0).expect("Failed to get Signature from SignatureView")
+        Signature::try_from(view.data).expect("Failed to get Signature from SignatureView")
     }
 }
 

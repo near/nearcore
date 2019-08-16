@@ -21,8 +21,9 @@ serde = { version = "1.0", features = ["derive"] }
 tokio = "0.1.15"
 uuid = { version = "~0.6", features = ["v4"] }
 
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
 async-utils = { path = "../../async-utils" }
-nbor = { path = "../../core/nbor" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }

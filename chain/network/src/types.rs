@@ -28,7 +28,7 @@ use near_primitives::utils::{from_timestamp, to_timestamp};
 pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Peer id is the public key.
-#[derive(nbor, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -82,7 +82,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(nbor, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -132,7 +132,7 @@ impl TryFrom<&str> for PeerInfo {
 }
 
 /// Peer chain information.
-#[derive(nbor, Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Genesis hash.
     pub genesis: CryptoHash,
@@ -162,7 +162,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(nbor, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
@@ -181,7 +181,7 @@ impl Handshake {
 }
 
 /// Account route description
-#[derive(nbor, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
@@ -189,7 +189,7 @@ pub struct AnnounceAccountRoute {
 }
 
 /// Account announcement information
-#[derive(nbor, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
@@ -255,7 +255,7 @@ impl AnnounceAccount {
     }
 }
 
-#[derive(nbor, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
 
@@ -321,7 +321,7 @@ pub struct NetworkConfig {
 }
 
 /// Status of the known peers.
-#[derive(nbor, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
@@ -330,7 +330,7 @@ pub enum KnownPeerStatus {
 }
 
 /// Information node stores about known peers.
-#[derive(nbor, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
@@ -440,7 +440,7 @@ where
 }
 
 /// Ban reason.
-#[derive(nbor, Debug, Clone, PartialEq, Eq, Copy)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,

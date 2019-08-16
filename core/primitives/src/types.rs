@@ -1,4 +1,4 @@
-use nbor::nbor;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::crypto::aggregate_signature::BlsSignature;
 use crate::crypto::signature::{PublicKey, Signature};
@@ -42,7 +42,7 @@ pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
 /// Stores validator and its stake.
-#[derive(nbor, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,

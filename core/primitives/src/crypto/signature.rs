@@ -119,7 +119,7 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
-impl nbor::Serializable for PublicKey {
+impl borsh::Serializable for PublicKey {
     fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         // TODO: support other curves here.
         writer.write(&vec![0])?;
@@ -128,7 +128,7 @@ impl nbor::Serializable for PublicKey {
     }
 }
 
-impl nbor::Deserializable for PublicKey {
+impl borsh::Deserializable for PublicKey {
     fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES + 1];
         reader.read(&mut bytes)?;
@@ -216,18 +216,26 @@ impl TryFrom<&str> for Signature {
     }
 }
 
-impl nbor::Serializable for Signature {
+impl borsh::Serializable for Signature {
     fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        // TODO: add crypto curve.
+        writer.write(&vec![0])?;
         writer.write(&(self.0).0)?;
         Ok(())
     }
 }
 
-impl nbor::Deserializable for Signature {
+impl borsh::Deserializable for Signature {
     fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
-        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        // TODO: add crypto curve.
+        let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES + 1];
         reader.read(&mut bytes)?;
-        Ok(Signature(sodiumoxide::crypto::sign::ed25519::Signature(bytes)))
+        if bytes[0] != 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unsupported curve"));
+        }
+        let mut array = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
+        array.copy_from_slice(&bytes[1..]);
+        Ok(Signature(sodiumoxide::crypto::sign::ed25519::Signature(array)))
     }
 }
 

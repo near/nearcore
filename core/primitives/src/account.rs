@@ -1,10 +1,10 @@
-use nbor::nbor;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::hash::CryptoHash;
 use crate::types::{AccountId, Balance, BlockIndex, Nonce, StorageUsage};
 
 /// Per account information stored in the state.
-#[derive(nbor, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
     /// The sum of `amount` and `staked` is the total value of the account.
     pub amount: Balance,
@@ -40,7 +40,7 @@ impl Account {
 /// access keys. Access keys allow to act on behalf of the account by restricting transactions
 /// that can be issued.
 /// `account_id,public_key` is a key in the state
-#[derive(nbor, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct AccessKey {
     /// The nonce for this access key.
     /// NOTE: In some cases the access key needs to be recreated. If the new access key reuses the
@@ -59,7 +59,7 @@ impl AccessKey {
 }
 
 /// Defines permissions for AccessKey
-#[derive(nbor, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub enum AccessKeyPermission {
     FunctionCall(FunctionCallPermission),
 
@@ -73,7 +73,7 @@ pub enum AccessKeyPermission {
 /// The permission can limit the allowed balance to be spent on the prepaid gas.
 /// It also restrict the account ID of the receiver for this function call.
 /// It also can restrict the method name for the allowed function calls.
-#[derive(nbor, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct FunctionCallPermission {
     /// Allowance is a balance limit to use by this access key to pay for function call gas and
     /// transaction fees. When this access key is used, both account balance and the allowance is
@@ -90,4 +90,27 @@ pub struct FunctionCallPermission {
     /// function call of one of the given method names.
     /// Empty list means any method name can be used.
     pub method_names: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use borsh::Serializable;
+
+    use crate::hash::hash;
+    use crate::serialize::to_base;
+
+    use super::*;
+
+    #[test]
+    fn test_account_serialization() {
+        let acc = Account {
+            amount: 1_000_000,
+            staked: 1_000_000,
+            code_hash: CryptoHash::default(),
+            storage_usage: 100,
+            storage_paid_at: 1_123_321,
+        };
+        let bytes = acc.try_to_vec().unwrap();
+        assert_eq!(to_base(&hash(&bytes)), "DzpbYEwBoiKa3DRTgK2L8fBq3QRfGSoUkTXrTYxwBt17");
+    }
 }

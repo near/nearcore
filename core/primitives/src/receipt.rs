@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt;
 
-use nbor::nbor;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
@@ -17,7 +17,7 @@ pub struct ReceiptInfo {
     pub result: TransactionResult,
 }
 
-#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -57,13 +57,13 @@ impl Receipt {
     }
 }
 
-#[derive(nbor, Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
-#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     pub signer_id: AccountId,
     pub signer_public_key: PublicKey,
@@ -78,13 +78,13 @@ pub struct ActionReceipt {
     pub actions: Vec<Action>,
 }
 
-#[derive(nbor, Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
     pub data: Option<Vec<u8>>,

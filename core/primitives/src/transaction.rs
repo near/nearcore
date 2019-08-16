@@ -2,7 +2,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use nbor::{nbor, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 
 use crate::account::AccessKey;
 use crate::crypto::signature::{verify, PublicKey};
@@ -13,7 +13,7 @@ use crate::types::{AccountId, Balance, Gas, Nonce, StructSignature};
 
 pub type LogEntry = String;
 
-#[derive(nbor, Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -30,7 +30,7 @@ impl Transaction {
     }
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
     CreateAccount(CreateAccountAction),
     DeployContract(DeployContractAction),
@@ -58,10 +58,10 @@ impl Action {
     }
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     pub code: Vec<u8>,
 }
@@ -74,7 +74,7 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
     pub args: Vec<u8>,
@@ -93,39 +93,39 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
     pub deposit: Balance,
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     pub stake: Balance,
     pub public_key: PublicKey,
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     pub public_key: PublicKey,
     pub access_key: AccessKey,
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     pub public_key: PublicKey,
 }
 
-#[derive(nbor, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
 
-#[derive(nbor, Eq, Debug, Clone)]
-#[nbor_init(init)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone)]
+#[borsh_init(init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: StructSignature,
-    #[nbor_skip]
+    #[borsh_skip]
     hash: CryptoHash,
 }
 
@@ -184,7 +184,9 @@ impl PartialEq for SignedTransaction {
     }
 }
 
-#[derive(nbor, Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize,
+)]
 pub enum TransactionStatus {
     Unknown,
     Completed,
@@ -197,7 +199,7 @@ impl Default for TransactionStatus {
     }
 }
 
-#[derive(nbor, PartialEq, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
 pub struct TransactionResult {
     /// Transaction status.
     pub status: TransactionStatus,
@@ -240,7 +242,7 @@ pub fn verify_transaction_signature(
 mod tests {
     use std::convert::TryFrom;
 
-    use nbor::de::Deserializable;
+    use borsh::Deserializable;
 
     use crate::crypto::signature::{get_key_pair, sign, DEFAULT_SIGNATURE};
     use crate::serialize::to_base;

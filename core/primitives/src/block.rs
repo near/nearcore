@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::prelude::{DateTime, Utc};
 
-use nbor::{nbor, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 
 use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
@@ -12,7 +12,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 
-#[derive(nbor, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlockHeaderInner {
     /// Height of this block since the genesis block (height 0).
     pub height: BlockIndex,
@@ -65,8 +65,8 @@ impl BlockHeaderInner {
     }
 }
 
-#[derive(nbor, Debug, Clone, Eq, PartialEq)]
-#[nbor_init(init)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[borsh_init(init)]
 pub struct BlockHeader {
     /// Inner part of the block header that gets hashed.
     pub inner: BlockHeaderInner,
@@ -75,7 +75,7 @@ pub struct BlockHeader {
     pub signature: Signature,
 
     /// Cached value of hash for this block.
-    #[nbor_skip]
+    #[borsh_skip]
     pub hash: CryptoHash,
 }
 
@@ -144,7 +144,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(nbor, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<SignedTransaction>,
@@ -217,7 +217,9 @@ impl Block {
 }
 
 /// The weight is defined as the number of unique validators approving this fork.
-#[derive(nbor, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default,
+)]
 pub struct Weight {
     num: u64,
 }
