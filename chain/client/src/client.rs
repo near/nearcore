@@ -224,16 +224,16 @@ impl ClientActor {
     fn active_validator(&self) -> Result<bool, Error> {
         let head = self.chain.head()?;
 
+        let account_id = if let Some(bp) = self.block_producer.as_ref() {
+            &bp.account_id
+        } else {
+            return Ok(false);
+        };
+
         let block_proposers = self
             .runtime_adapter
             .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
             .map_err(|e| Error::Other(e.to_string()))?;
-
-        let account_id = &self
-            .block_producer
-            .as_ref()
-            .ok_or(Error::BlockProducer("Called without block producer info.".to_string()))?
-            .account_id;
 
         // I am a validator if I am in the assignment for current epoch and I'm not slashed.
         Ok(block_proposers
@@ -268,55 +268,56 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            // TODO(MarX): Forward transactions to next validators if I'm not a validator.
-            //            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
-            //                Ok(valid_transaction) => {
-            //                    let active_validator = unwrap_or_return!(
-            //                        self.active_validator(),
-            //                        NetworkClientResponses::NoResponse
-            //                    );
-            //
-            //                    if active_validator {
-            //                        self.tx_pool.insert_transaction(valid_transaction);
-            //                        NetworkClientResponses::ValidTx
-            //                    } else {
-            //                        let head = unwrap_or_return!(
-            //                            self.chain.head(),
-            //                            NetworkClientResponses::NoResponse
-            //                        );
-            //
-            //                        let target_height = head.height + 2;
-            //
-            //                        let (epoch_hash, _offset) = unwrap_or_return!(
-            //                            self.runtime_adapter
-            //                                .get_epoch_offset(head.last_block_hash, target_height),
-            //                            NetworkClientResponses::NoResponse
-            //                        );
-            //
-            //                        let account_id = unwrap_or_return!(
-            //                            self.runtime_adapter.get_block_proposer(&epoch_hash, target_height),
-            //                            NetworkClientResponses::NoResponse
-            //                        );
-            //
-            //                        NetworkClientResponses::ForwardTx(account_id, valid_transaction.transaction)
-            //                    }
             NetworkClientMessages::Transaction(tx) => {
                 let runtime_adapter = self.runtime_adapter.clone();
                 let shard_id = runtime_adapter.account_id_to_shard_id(&tx.body.get_originator());
+                let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+
                 if let Ok(chunk_extra) = self.chain.get_latest_chunk_extra(shard_id) {
                     match self.runtime_adapter.validate_tx(shard_id, chunk_extra.state_root, tx) {
                         Ok(valid_transaction) => {
-                            debug!(
-                                "MOO recording a transaction. I'm {:?}, {}",
-                                self.block_producer.as_ref().unwrap().account_id,
-                                shard_id
-                            );
-                            self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                            NetworkClientResponses::ValidTx
+                            let active_validator = unwrap_or_return!(self.active_validator(), {
+                                warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                                NetworkClientResponses::NoResponse
+                            });
+
+                            // If I'm not an active validator I should forward tx to next validators.
+                            if active_validator {
+                                debug!(
+                                    "MOO recording a transaction. I'm {:?}, {}",
+                                    self.block_producer.as_ref().unwrap().account_id,
+                                    shard_id
+                                );
+                                self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                                NetworkClientResponses::ValidTx
+                            } else {
+                                let head = unwrap_or_return!(self.chain.head(), {
+                                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                                    NetworkClientResponses::NoResponse
+                                });
+
+                                // TODO(MarX): How many validators ahead of current time should we forward tx?
+                                let target_height = head.height + 2;
+
+                                let validator = unwrap_or_return!(
+                                    self.runtime_adapter
+                                        .get_block_producer(&head.epoch_id, target_height),
+                                    {
+                                        warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                                        NetworkClientResponses::NoResponse
+                                    }
+                                );
+
+                                NetworkClientResponses::ForwardTx(
+                                    validator,
+                                    valid_transaction.transaction,
+                                )
+                            }
                         }
                         Err(err) => NetworkClientResponses::InvalidTx(err),
                     }
                 } else {
+                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, tx);
                     NetworkClientResponses::NoResponse
                 }
             }
