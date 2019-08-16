@@ -49,7 +49,7 @@ impl User for RpcUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let bytes = transaction.to_vec().unwrap();
+        let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
         Ok(())
@@ -59,7 +59,7 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let bytes = transaction.to_vec().unwrap();
+        let bytes = transaction.try_to_vec().unwrap();
         System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
     }

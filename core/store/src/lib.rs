@@ -58,7 +58,7 @@ impl Store {
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
         match self.storage.get(column, key) {
-            Ok(Some(bytes)) => match T::from_slice(bytes.as_ref()) {
+            Ok(Some(bytes)) => match T::try_from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
                 Err(e) => Err(e),
             },
@@ -112,7 +112,7 @@ impl StoreUpdate {
         key: &[u8],
         value: &T,
     ) -> Result<(), io::Error> {
-        let data = value.to_vec()?;
+        let data = value.try_to_vec()?;
         self.set(column, key, &data);
         Ok(())
     }
@@ -189,17 +189,21 @@ pub fn create_store(path: &str) -> Arc<Store> {
 
 /// Reads an object from Trie.
 pub fn get<T: Deserializable>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| T::from_slice(&data).ok())
+    state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
 }
 
 /// Writes an object into Trie.
 pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
-    value.to_vec().ok().map(|data| state_update.set(key, DBValue::from_vec(data))).or_else(|| None);
+    value
+        .try_to_vec()
+        .ok()
+        .map(|data| state_update.set(key, DBValue::from_vec(data)))
+        .or_else(|| None);
 }
 
 /// Number of bytes the account data structure occupies in the storage.
 pub fn account_storage_size(account: &Account) -> StorageUsage {
-    account.to_vec().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
+    account.try_to_vec().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.

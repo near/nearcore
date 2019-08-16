@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Error, Write};
 
+const DEFAULT_SERIALIZER_CAPACITY: usize = 1024;
+
 /// A data-structure that can be serialized into binary format by NBOR.
 pub trait Serializable {
     fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error>;
 
     /// Serialize this instance into a vector of bytes.
-    fn to_vec(&self) -> Result<Vec<u8>, Error> {
-        let mut result = vec![];
+    fn try_to_vec(&self) -> Result<Vec<u8>, Error> {
+        let mut result = Vec::with_capacity(DEFAULT_SERIALIZER_CAPACITY);
         self.write(&mut result)?;
         Ok(result)
     }

@@ -53,8 +53,8 @@ fn test_simple_struct() {
         lazy: Some(5),
         skipped: Some(6),
     };
-    let encoded_a = a.to_vec().unwrap();
-    let decoded_a = A::from_slice(&encoded_a).unwrap();
+    let encoded_a = a.try_to_vec().unwrap();
+    let decoded_a = A::try_from_slice(&encoded_a).unwrap();
     let expected_a = A {
         x: 1,
         b: B { x: 2, y: 3, c: C::C5(D { x: 1 }) },

@@ -81,7 +81,7 @@ pub struct BlockHeader {
 
 impl BlockHeader {
     pub fn init(&mut self) {
-        self.hash = hash(&self.inner.to_vec().expect("Failed to serialize"));
+        self.hash = hash(&self.inner.try_to_vec().expect("Failed to serialize"));
     }
 
     pub fn new(
@@ -109,7 +109,7 @@ impl BlockHeader {
             total_weight,
             validator_proposal,
         );
-        let hash = hash(&inner.to_vec().expect("Failed to serialize"));
+        let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
     }
 
@@ -126,7 +126,7 @@ impl BlockHeader {
             0.into(),
             vec![],
         );
-        let hash = hash(&inner.to_vec().expect("Failed to serialize"));
+        let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: DEFAULT_SIGNATURE, hash }
     }
 

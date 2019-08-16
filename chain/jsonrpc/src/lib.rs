@@ -100,7 +100,7 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
-    SignedTransaction::from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
+    SignedTransaction::try_from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {

@@ -56,16 +56,16 @@ fn create_account() -> Account {
 fn serialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
     bench.iter(|| {
-        let bytes = t.to_vec().unwrap();
+        let bytes = t.try_to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_tx(bench: &mut Bencher) {
     let t = create_transaction();
-    let bytes = t.to_vec().unwrap();
+    let bytes = t.try_to_vec().unwrap();
     bench.iter(|| {
-        let nt = SignedTransaction::from_slice(&bytes).unwrap();
+        let nt = SignedTransaction::try_from_slice(&bytes).unwrap();
         assert_eq!(nt, t);
     });
 }
@@ -73,16 +73,16 @@ fn deserialize_tx(bench: &mut Bencher) {
 fn serialize_block(bench: &mut Bencher) {
     let b = create_block();
     bench.iter(|| {
-        let bytes = b.to_vec().unwrap();
+        let bytes = b.try_to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_block(bench: &mut Bencher) {
     let b = create_block();
-    let bytes = b.to_vec().unwrap();
+    let bytes = b.try_to_vec().unwrap();
     bench.iter(|| {
-        let nb = Block::from_slice(&bytes).unwrap();
+        let nb = Block::try_from_slice(&bytes).unwrap();
         assert_eq!(nb, b);
     });
 }
@@ -90,16 +90,16 @@ fn deserialize_block(bench: &mut Bencher) {
 fn serialize_account(bench: &mut Bencher) {
     let acc = create_account();
     bench.iter(|| {
-        let bytes = acc.to_vec().unwrap();
+        let bytes = acc.try_to_vec().unwrap();
         assert!(bytes.len() > 0);
     });
 }
 
 fn deserialize_account(bench: &mut Bencher) {
     let acc = create_account();
-    let bytes = acc.to_vec().unwrap();
+    let bytes = acc.try_to_vec().unwrap();
     bench.iter(|| {
-        let nacc = Account::from_slice(&bytes).unwrap();
+        let nacc = Account::try_from_slice(&bytes).unwrap();
         assert_eq!(nacc, acc);
     });
 }

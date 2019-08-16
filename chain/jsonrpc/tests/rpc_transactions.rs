@@ -32,7 +32,7 @@ fn test_send_tx_async() {
         );
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
-        let bytes = tx.to_vec().unwrap();
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
                 .broadcast_tx_async(to_base64(&bytes))
@@ -76,7 +76,7 @@ fn test_send_tx_commit() {
             Arc::new(signer),
             100,
         );
-        let bytes = tx.to_vec().unwrap();
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
                 .broadcast_tx_commit(to_base64(&bytes))

@@ -7,7 +7,7 @@ pub trait Deserializable: Sized {
     fn read<R: Read>(reader: &mut R) -> Result<Self, Error>;
 
     /// Deserialize this instance from a slice of bytes.
-    fn from_slice(v: &[u8]) -> Result<Self, Error> {
+    fn try_from_slice(v: &[u8]) -> Result<Self, Error> {
         let mut c = Cursor::new(v);
         Self::read(&mut c)
     }

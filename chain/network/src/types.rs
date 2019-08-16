@@ -361,7 +361,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, Self::Error> {
-        KnownPeerState::from_slice(&bytes).map_err(|err| err.into())
+        KnownPeerState::try_from_slice(&bytes).map_err(|err| err.into())
     }
 }
 

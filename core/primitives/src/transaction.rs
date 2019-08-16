@@ -25,7 +25,7 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn get_hash(&self) -> CryptoHash {
-        let bytes = self.to_vec().expect("Failed to deserialize");
+        let bytes = self.try_to_vec().expect("Failed to deserialize");
         hash(&bytes)
     }
 }
@@ -312,7 +312,8 @@ mod tests {
             ],
         };
         let signed_tx = SignedTransaction::new(DEFAULT_SIGNATURE, transaction);
-        let new_signed_tx = SignedTransaction::from_slice(&signed_tx.to_vec().unwrap()).unwrap();
+        let new_signed_tx =
+            SignedTransaction::try_from_slice(&signed_tx.try_to_vec().unwrap()).unwrap();
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),

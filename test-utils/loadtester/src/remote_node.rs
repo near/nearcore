@@ -166,7 +166,7 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let bytes = transaction.to_vec().unwrap();
+        let bytes = transaction.try_to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let response = self
             .async_client
@@ -184,7 +184,7 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let bytes = transaction.to_vec().unwrap();
+        let bytes = transaction.try_to_vec().unwrap();
         let url = format!("{}{}", self.url, "/broadcast_tx_sync");
         let result: serde_json::Value = self
             .sync_client

@@ -58,11 +58,11 @@ impl Decoder for Codec {
 }
 
 pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
-    peer_message.to_vec()
+    peer_message.try_to_vec()
 }
 
 pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
-    PeerMessage::from_slice(bytes)
+    PeerMessage::try_from_slice(bytes)
 }
 
 #[cfg(test)]
