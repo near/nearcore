@@ -148,7 +148,8 @@ mod tests {
 
         let query_response = match res {
             Ok(query_response) => query_response,
-            Err(_) => {
+            Err(e) => {
+                println!("Query failed with {:?}", e);
                 *presumable_epoch.write().unwrap() += 1;
                 let connectors_ = connectors.write().unwrap();
                 let connectors1 = connectors.clone();

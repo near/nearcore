@@ -418,6 +418,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         0,
                     ));
                 } else {
+                    assert!(false); // receipts should never be applied twice
                     balance_transfers.push((
                         receipt.originator.clone(),
                         receipt.receiver.clone(),
@@ -476,7 +477,6 @@ impl RuntimeAdapter for KeyValueRuntime {
                         .insert(to.clone(), accounts_mapping.get(&to).unwrap_or(&0) + amount);
                     vec![]
                 } else {
-                    assert_ne!(amount, 0);
                     assert_ne!(nonce, 0);
                     let receipt = ReceiptTransaction::new(
                         from.clone(),

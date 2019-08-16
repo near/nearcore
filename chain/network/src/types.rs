@@ -519,7 +519,6 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                 Ok(PeerMessage::StateResponse(StateResponseInfo {
                     shard_id: state_response.shard_id,
                     hash: state_response.hash.try_into()?,
-                    prev_chunk_hash: ChunkHash(state_response.prev_chunk_hash.try_into()?),
                     prev_chunk_extra: ChunkExtra {
                         state_root: state_response.prev_state_root.try_into()?,
                         validator_proposals: state_response
@@ -677,7 +676,6 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::StateResponse(StateResponseInfo {
                 shard_id,
                 hash,
-                prev_chunk_hash,
                 prev_chunk_extra,
                 payload,
                 outgoing_receipts,
@@ -686,7 +684,6 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                 let state_response = network_proto::StateResponse {
                     shard_id,
                     hash: hash.into(),
-                    prev_chunk_hash: prev_chunk_hash.0.into(),
                     prev_state_root: prev_chunk_extra.state_root.into(),
                     validator_proposals: RepeatedField::from_iter(
                         prev_chunk_extra
@@ -941,7 +938,7 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
@@ -1017,7 +1014,6 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub prev_chunk_hash: ChunkHash,
     pub prev_chunk_extra: ChunkExtra,
     pub payload: Vec<u8>,
     pub outgoing_receipts: (CryptoHash, Vec<ReceiptTransaction>),

@@ -326,18 +326,12 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     hash,
                     self.block_producer.clone().map(|x| x.account_id)
                 );
-                if let Ok((
-                    prev_chunk_hash,
-                    prev_chunk_extra,
-                    payload,
-                    outgoing_receipts,
-                    incoming_receipts,
-                )) = self.chain.state_request(shard_id, hash)
+                if let Ok((prev_chunk_extra, payload, outgoing_receipts, incoming_receipts)) =
+                    self.chain.state_request(shard_id, hash)
                 {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
                         shard_id,
                         hash,
-                        prev_chunk_hash,
                         prev_chunk_extra,
                         payload,
                         outgoing_receipts,
@@ -352,7 +346,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
                 hash,
-                prev_chunk_hash,
                 prev_chunk_extra,
                 payload,
                 outgoing_receipts,
@@ -394,7 +387,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         &self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id,
                         hash,
-                        prev_chunk_hash,
                         prev_chunk_extra,
                         payload,
                         outgoing_receipts,
