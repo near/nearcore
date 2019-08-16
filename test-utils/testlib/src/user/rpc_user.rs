@@ -2,21 +2,21 @@ use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 
 use actix::System;
-use protobuf::Message;
+use borsh::Serializable;
 
-use near_chain::Block;
 use near_client::StatusResponse;
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
+    TransactionResultView, ViewStateResult,
+};
 use near_primitives::serialize::{to_base, to_base64, BaseEncode};
-use near_primitives::transaction::{FinalTransactionResult, SignedTransaction, TransactionResult};
-use near_primitives::types::{AccountId, MerkleHash};
-use near_protos::signed_transaction as transaction_proto;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
 
 use crate::user::User;
 
@@ -40,7 +40,7 @@ impl RpcUser {
 }
 
 impl User for RpcUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         self.query(format!("account/{}", account_id), &[])?.try_into()
     }
 
@@ -49,10 +49,9 @@ impl User for RpcUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let proto: transaction_proto::SignedTransaction = transaction.into();
-        let bytes = to_base64(&proto.write_to_bytes().unwrap());
+        let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_async(bytes))?;
+            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
         Ok(())
     }
 
@@ -60,9 +59,9 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let proto: transaction_proto::SignedTransaction = transaction.into();
-        let bytes = to_base64(&proto.write_to_bytes().unwrap());
-        System::new("actix").block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
+        let bytes = transaction.try_to_vec().unwrap();
+        System::new("actix")
+            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
     }
 
     fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
@@ -74,11 +73,11 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
-    fn get_block(&self, index: u64) -> Option<Block> {
+    fn get_block(&self, index: u64) -> Option<BlockView> {
         System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
         System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
     }
 
@@ -86,7 +85,7 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
-    fn get_state_root(&self) -> MerkleHash {
+    fn get_state_root(&self) -> CryptoHashView {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 
@@ -99,7 +98,7 @@ impl User for RpcUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKeyView>, String> {
         self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
     }
 

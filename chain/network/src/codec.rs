@@ -1,11 +1,9 @@
-use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
 
 use bytes::{BufMut, BytesMut};
-use protobuf::{parse_from_bytes, Message};
 use tokio::codec::{Decoder, Encoder};
 
-use near_protos::network::PeerMessage as ProtoMessage;
+use borsh::{Deserializable, Serializable};
 
 use crate::types::PeerMessage;
 
@@ -59,16 +57,12 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(
-    peer_message: PeerMessage,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let proto: ProtoMessage = peer_message.into();
-    proto.write_to_bytes().map_err(|err| err.into())
+pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+    peer_message.try_to_vec()
 }
 
-pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, Box<dyn std::error::Error>> {
-    let proto: ProtoMessage = parse_from_bytes(bytes)?;
-    proto.try_into()
+pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
+    PeerMessage::try_from_slice(bytes)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
-use near_primitives::account::AccessKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::rpc::{
-    AccountViewCallResult, CallResult, QueryError, QueryResponse, ViewStateResult,
+    AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_primitives::serialize::BaseDecode;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
@@ -12,7 +12,7 @@ pub trait ViewRuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>>;
+    ) -> Result<Account, Box<dyn std::error::Error>>;
 
     fn call_function(
         &self,
@@ -60,7 +60,7 @@ pub fn query_client(
     }
     match path_parts[0] {
         "account" => match adapter.view_account(state_root, &AccountId::from(path_parts[1])) {
-            Ok(r) => Ok(QueryResponse::ViewAccount(r)),
+            Ok(account) => Ok(QueryResponse::ViewAccount(account.into())),
             Err(e) => Err(e),
         },
         "call" => {
@@ -85,9 +85,16 @@ pub fn query_client(
         },
         "access_key" => {
             let result = if path_parts.len() == 2 {
-                adapter
-                    .view_access_keys(state_root, &AccountId::from(path_parts[1]))
-                    .map(|r| QueryResponse::AccessKeyList(r))
+                adapter.view_access_keys(state_root, &AccountId::from(path_parts[1])).map(|r| {
+                    QueryResponse::AccessKeyList(
+                        r.into_iter()
+                            .map(|(public_key, access_key)| AccessKeyInfoView {
+                                public_key: public_key.into(),
+                                access_key: access_key.into(),
+                            })
+                            .collect(),
+                    )
+                })
             } else {
                 adapter
                     .view_access_key(
@@ -95,7 +102,7 @@ pub fn query_client(
                         &AccountId::from(path_parts[1]),
                         &PublicKey::from_base(path_parts[2])?,
                     )
-                    .map(|r| QueryResponse::AccessKey(r))
+                    .map(|r| QueryResponse::AccessKey(r.map(|access_key| access_key.into())))
             };
             match result {
                 Ok(result) => Ok(result),

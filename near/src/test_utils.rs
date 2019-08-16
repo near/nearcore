@@ -10,7 +10,7 @@ pub fn change_stake(stake_changes: Vec<(&str, Balance)>) -> BTreeMap<AccountId, 
 pub fn assignment(
     mut accounts: Vec<(&str, Balance)>,
     block_producers: Vec<usize>,
-    chunk_producers: Vec<Vec<(usize, u64)>>,
+    chunk_producers: Vec<Vec<usize>>,
     fishermen: Vec<(usize, u64)>,
     expected_epoch_start: BlockIndex,
     stake_change: BTreeMap<AccountId, Balance>,
@@ -32,7 +32,7 @@ pub fn assignment(
         validator_to_index,
         block_producers,
         chunk_producers,
-        fishermen,
+        fishermen: fishermen.into_iter().collect(),
         expected_epoch_start,
         stake_change,
     }

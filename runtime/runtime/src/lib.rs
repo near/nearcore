@@ -4,14 +4,12 @@ extern crate log;
 extern crate serde_derive;
 
 use std::collections::{hash_map::Entry, HashMap};
-use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
 
 use near_primitives::account::{AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::from_base64;
@@ -695,29 +693,28 @@ impl Runtime {
         records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
         for record in records {
-            match record {
+            match record.clone() {
                 StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, &account_id, account);
+                    set_account(&mut state_update, &account_id, &account.into());
                 }
                 StateRecord::Data { key, value } => {
                     state_update.set(
-                        from_base64(key).expect("Failed to decode key"),
-                        DBValue::from_vec(from_base64(value).expect("Failed to decode value")),
+                        from_base64(&key).expect("Failed to decode key"),
+                        DBValue::from_vec(from_base64(&value).expect("Failed to decode value")),
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = ContractCode::new(
-                        from_base64(code).expect("Failed to decode wasm from base64"),
+                        from_base64(&code).expect("Failed to decode wasm from base64"),
                     );
-                    set_code(&mut state_update, account_id, &code);
+                    set_code(&mut state_update, &account_id, &code);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(
                         &mut state_update,
-                        account_id,
-                        &PublicKey::try_from(public_key.0.as_str())
-                            .expect("Failed to decode public key"),
-                        access_key,
+                        &account_id,
+                        &public_key.into(),
+                        &access_key.into(),
                     );
                 }
             }

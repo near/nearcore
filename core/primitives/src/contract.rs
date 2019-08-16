@@ -1,6 +1,5 @@
-use crate::hash::{CryptoHash, hash};
+use crate::hash::{hash, CryptoHash};
 
-#[derive(Serialize, Deserialize)]
 pub struct ContractCode {
     pub code: Vec<u8>,
     pub hash: CryptoHash,

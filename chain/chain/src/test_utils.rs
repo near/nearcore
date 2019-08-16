@@ -7,7 +7,7 @@ use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::rpc::QueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
@@ -19,6 +19,7 @@ use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Chain, ValidTransaction};
+use near_primitives::account::Account;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -65,11 +66,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = &self.validators[(header.height as usize) % self.validators.len()];
+        let validator = &self.validators[(header.inner.height as usize) % self.validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
     }
 
     fn get_epoch_block_proposers(
@@ -190,16 +191,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _state_root: MerkleHash,
         _height: BlockIndex,
-        path: &str,
+        _path: &str,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        let path = path.split("/").collect::<Vec<_>>();
-        Ok(QueryResponse::ViewAccount(AccountViewCallResult {
-            account_id: path[1].to_string(),
-            amount: 1000,
-            stake: 0,
-            code_hash: CryptoHash::default(),
-        }))
+        Ok(QueryResponse::ViewAccount(Account::new(1000, CryptoHash::default(), 0).into()))
     }
 
     fn dump_state(

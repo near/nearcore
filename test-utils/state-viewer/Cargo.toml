@@ -7,9 +7,9 @@ edition = "2018"
 [dependencies]
 clap = "2.32.0"
 hex = "0.3"
-protobuf = "2.7"
 
-near-protos = { path = "../../core/protos" }
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }

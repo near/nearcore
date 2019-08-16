@@ -19,10 +19,11 @@ use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::rpc::AccountView;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
@@ -223,8 +224,8 @@ impl NearConfig {
                 block_header_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
+                public_key: network_key_pair.public_key.into(),
+                secret_key: network_key_pair.secret_key.into(),
                 account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
@@ -460,12 +461,18 @@ fn state_records_account_with_key(
     vec![
         StateRecord::Account {
             account_id: account_id.to_string(),
-            account: Account { amount, staked, code_hash, storage_usage: 0, storage_paid_at: 0 },
+            account: AccountView {
+                amount,
+                staked,
+                code_hash: code_hash.into(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            },
         },
         StateRecord::AccessKey {
             account_id: account_id.to_string(),
-            public_key: public_key.to_readable(),
-            access_key: AccessKey::full_access(),
+            public_key: public_key.clone().into(),
+            access_key: AccessKey::full_access().into(),
         },
     ]
 }
@@ -699,7 +706,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {

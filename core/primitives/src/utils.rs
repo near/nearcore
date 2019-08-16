@@ -1,8 +1,7 @@
-use std::convert::{AsRef, TryFrom, TryInto};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use protobuf::{well_known_types::StringValue, RepeatedField, SingularPtrField};
 use regex::Regex;
 
 use lazy_static::lazy_static;
@@ -10,8 +9,12 @@ use lazy_static::lazy_static;
 use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
+use chrono::{DateTime, NaiveDateTime, Utc};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
+/// Number of nano seconds in a second.
+const NS_IN_SECOND: u64 = 1_000_000_000;
 
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
@@ -126,30 +129,6 @@ pub fn is_valid_account_id(account_id: &AccountId) -> bool {
     VALID_ACCOUNT_ID.is_match(account_id)
 }
 
-pub fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
-}
-
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<dyn std::error::Error>> {
-    proto.into_option().ok_or_else(|| "Bad Proto".into())
-}
-
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto_to_result(proto).and_then(TryInto::try_into)
-}
-
-pub fn proto_to_vec<T, U>(proto: RepeatedField<T>) -> Result<Vec<U>, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto.into_iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()
-}
-
 /// A wrapper around Option<T> that provides native Display trait.
 /// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);
@@ -190,3 +169,19 @@ macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
         return $ret;
     }
 }));
+
+/// Converts timestamp in ns into DateTime UTC time.
+pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
+    DateTime::from_utc(
+        NaiveDateTime::from_timestamp(
+            (timestamp / NS_IN_SECOND) as i64,
+            (timestamp % NS_IN_SECOND) as u32,
+        ),
+        Utc,
+    )
+}
+
+/// Converts DateTime UTC time into timestamp in ns.
+pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
+    time.timestamp_nanos() as u64
+}

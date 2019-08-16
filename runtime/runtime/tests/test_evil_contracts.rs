@@ -1,4 +1,4 @@
-use near_primitives::transaction::FinalTransactionStatus;
+use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::types::Gas;
 use testlib::node::{Node, RuntimeNode};
 

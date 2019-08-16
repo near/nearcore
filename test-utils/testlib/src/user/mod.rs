@@ -2,17 +2,19 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use near_chain::Block;
 use near_primitives::account::AccessKey;
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_primitives::rpc::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
+};
+use near_primitives::rpc::{FinalTransactionResult, TransactionResultView};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FinalTransactionResult, FunctionCallAction, SignedTransaction,
-    StakeAction, TransactionResult, TransferAction,
+    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransactionResult,
+    TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
 
@@ -24,7 +26,7 @@ pub mod runtime_user;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 pub trait User {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String>;
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String>;
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
         Ok(self.view_account(account_id)?.amount)
@@ -49,13 +51,13 @@ pub trait User {
 
     fn get_best_block_index(&self) -> Option<u64>;
 
-    fn get_block(&self, index: u64) -> Option<Block>;
+    fn get_block(&self, index: u64) -> Option<BlockView>;
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult;
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView;
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult;
 
-    fn get_state_root(&self) -> MerkleHash;
+    fn get_state_root(&self) -> CryptoHashView;
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo>;
 
@@ -63,7 +65,7 @@ pub trait User {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String>;
+    ) -> Result<Option<AccessKeyView>, String>;
 
     fn signer(&self) -> Arc<dyn EDSigner>;
 
@@ -214,7 +216,7 @@ pub trait AsyncUser: Send + Sync {
     fn view_account(
         &self,
         account_id: &AccountId,
-    ) -> Box<dyn Future<Item = AccountViewCallResult, Error = String>>;
+    ) -> Box<dyn Future<Item = AccountView, Error = String>>;
 
     fn view_balance(
         &self,
