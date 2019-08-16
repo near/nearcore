@@ -155,8 +155,8 @@ impl Runtime {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(signed_transaction)?
         };
-        let receiver_id = signed_transaction.transaction.receiver_id.clone();
-        let sender_id = signed_transaction.transaction.signer_id.clone();
+        let receiver_id = &signed_transaction.transaction.receiver_id;
+        let sender_id = &signed_transaction.transaction.signer_id;
         let sender_is_receiver = receiver_id == sender_id;
 
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);

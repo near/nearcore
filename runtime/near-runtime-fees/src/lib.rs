@@ -1,7 +1,8 @@
 //! Describes the various costs incurred by creating receipts.
 //! We use the following abbreviation for readability:
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
-//!   to no be cross-shard which is cheaper than cross-shard;
+//!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
+//!   receiver it might or might not be a cross-shard communication.
 use serde::{Deserialize, Serialize};
 pub type Gas = u64;
 
