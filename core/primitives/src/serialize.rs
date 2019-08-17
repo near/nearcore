@@ -271,12 +271,12 @@ mod tests {
     fn test_serialize_some() {
         let s = OptionBytesStruct { data: Some(vec![10, 20, 30]) };
         let encoded = serde_json::to_string(&s).unwrap();
-        assert_eq!(encoded, "{\"data\":\"4PM7\"}");
+        assert_eq!(encoded, "{\"data\":\"ChQe\"}");
     }
 
     #[test]
     fn test_deserialize_some() {
-        let encoded = "{\"data\":\"4PM7\"}";
+        let encoded = "{\"data\":\"ChQe\"}";
         let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.data, Some(vec![10, 20, 30]));
     }
