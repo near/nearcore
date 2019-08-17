@@ -7,7 +7,7 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, GasUsage, ShardId};
 use near_store::Store;

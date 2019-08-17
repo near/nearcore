@@ -519,7 +519,18 @@ impl RuntimeAdapter for KeyValueRuntime {
                 new_balances.push(0);
             }
         }
-        let (new_state_root, _) = merklize(&new_balances);
+        let (balances_root, _) = merklize(&new_balances);
+
+        let mut receipt_vec = receipt_nonces.iter().collect::<Vec<_>>();
+        receipt_vec.sort();
+        let (receipts_root, _) = merklize(&receipt_vec);
+
+        let mut tx_vec = tx_nonces.iter().collect::<Vec<_>>();
+        tx_vec.sort();
+        let (tx_root, _) = merklize(&tx_vec);
+
+        let new_state_root = hash_struct(&(balances_root, receipts_root, tx_root));
+
         self.amounts.write().unwrap().insert(new_state_root, accounts_mapping);
         self.receipt_nonces.write().unwrap().insert(new_state_root, receipt_nonces);
         self.tx_nonces.write().unwrap().insert(new_state_root, tx_nonces);
