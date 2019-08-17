@@ -98,7 +98,7 @@ fn receive_network_block() {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 MerkleHash::default(),
                 CryptoHash::default(),
@@ -147,7 +147,7 @@ fn receive_network_block_header() {
             let last_block = res.unwrap().unwrap();
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             let block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 MerkleHash::default(),
                 CryptoHash::default(),
@@ -178,7 +178,7 @@ fn produce_block_with_approvals() {
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    assert!(block.header.approval_sigs.len() > 0);
+                    assert!(block.header.inner.approval_sigs.len() > 0);
                     System::current().stop();
                 }
                 NetworkResponses::NoResponse
@@ -189,7 +189,7 @@ fn produce_block_with_approvals() {
             let signer1 = Arc::new(InMemorySigner::from_seed("test1", "test1"));
             let signer3 = Arc::new(InMemorySigner::from_seed("test3", "test3"));
             let block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 MerkleHash::default(),
                 CryptoHash::default(),
@@ -223,8 +223,8 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                        assert_eq!(header.height, 1);
-                        assert_eq!(header.prev_state_root, MerkleHash::default());
+                        assert_eq!(header.inner.height, 1);
+                        assert_eq!(header.inner.prev_state_root, MerkleHash::default());
                         assert_eq!(*approval, None);
                         System::current().stop();
                     }
@@ -238,7 +238,7 @@ fn invalid_blocks() {
             let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
             // Send invalid state root.
             let block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 hash(&[0]),
                 CryptoHash::default(),
@@ -254,8 +254,8 @@ fn invalid_blocks() {
             ));
             // Send block that builds on invalid one.
             let block2 = Block::produce(
-                &block.header,
-                block.header.height + 1,
+                &block.header.clone().into(),
+                block.header.inner.height + 1,
                 hash(&[1]),
                 CryptoHash::default(),
                 vec![],
@@ -266,7 +266,7 @@ fn invalid_blocks() {
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
             let block3 = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 MerkleHash::default(),
                 CryptoHash::default(),
@@ -296,7 +296,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.height > 3 {
+                        if block.header.inner.height > 3 {
                             System::current().stop();
                         }
                     }

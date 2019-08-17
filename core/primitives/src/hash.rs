@@ -6,8 +6,8 @@ use exonum_sodiumoxide as sodiumoxide;
 use exonum_sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, BaseEncode, Encode};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use crate::serialize::{from_base, to_base, BaseDecode, Encode};
+use std::io::Read;
 
 #[derive(Copy, Clone, PartialOrd, Ord)]
 pub struct CryptoHash(pub Digest);
@@ -46,6 +46,21 @@ impl AsMut<[u8]> for CryptoHash {
 }
 
 impl BaseDecode for CryptoHash {}
+
+impl borsh::Serializable for CryptoHash {
+    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write(&(self.0).0)?;
+        Ok(())
+    }
+}
+
+impl borsh::Deserializable for CryptoHash {
+    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let mut bytes = [0; 32];
+        reader.read(&mut bytes)?;
+        Ok(CryptoHash(Digest(bytes)))
+    }
+}
 
 impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
@@ -104,25 +119,6 @@ impl PartialEq for CryptoHash {
     }
 }
 
-impl Serialize for CryptoHash {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_base())
-    }
-}
-
-impl<'de> Deserialize<'de> for CryptoHash {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Self::from_base(&s).map_err(|err| serde::de::Error::custom(err.to_string()))
-    }
-}
-
 impl Eq for CryptoHash {}
 
 /// Calculates a hash of a bytes slice.
@@ -146,23 +142,24 @@ pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rpc::CryptoHashView;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {
-        hash: CryptoHash,
+        hash: CryptoHashView,
     }
 
     #[test]
     fn test_serialize_success() {
         let hash = hash(&[0, 1, 2]);
-        let s = Struct { hash };
+        let s = Struct { hash: hash.into() };
         let encoded = serde_json::to_string(&s).unwrap();
         assert_eq!(encoded, "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}");
     }
 
     #[test]
     fn test_serialize_default() {
-        let s = Struct { hash: CryptoHash::default() };
+        let s = Struct { hash: CryptoHash::default().into() };
         let encoded = serde_json::to_string(&s).unwrap();
         assert_eq!(encoded, "{\"hash\":\"11111111111111111111111111111111\"}");
     }
@@ -171,21 +168,21 @@ mod tests {
     fn test_deserialize_default() {
         let encoded = "{\"hash\":\"11111111111111111111111111111111\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded.hash, CryptoHash::default());
+        assert_eq!(decoded.hash, CryptoHash::default().into());
     }
 
     #[test]
     fn test_deserialize_success() {
         let encoded = "{\"hash\":\"CjNSmWXTWhC3EhRVtqLhRmWMTkRbU96wUACqxMtV1uGf\"}";
         let decoded: Struct = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded.hash, hash(&[0, 1, 2]));
+        assert_eq!(decoded.hash, hash(&[0, 1, 2]).into());
     }
 
     #[test]
     fn test_deserialize_not_base64() {
         let encoded = "\"---\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }
@@ -194,7 +191,7 @@ mod tests {
     fn test_deserialize_not_crypto_hash() {
         let encoded = "\"CjNSmWXTWhC3ELhRmWMTkRbU96wUACqxMtV1uGf\"";
         match serde_json::from_str(&encoded) {
-            Ok(CryptoHash(_)) => assert!(false, "should have failed"),
+            Ok(CryptoHashView(_)) => assert!(false, "should have failed"),
             Err(_) => (),
         }
     }

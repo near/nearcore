@@ -10,7 +10,7 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, BlockIndex, ValidatorStake};
-use near_primitives::utils::{is_valid_account_id, key_for_access_key};
+use near_primitives::utils::key_for_access_key;
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
@@ -195,7 +195,7 @@ pub(crate) fn action_create_account(
 ) {
     // TODO(#968): Validate new name according to ANS
     *actor_id = receipt.receiver_id.clone();
-    *account = Some(Account::new(vec![], 0, CryptoHash::default(), apply_state.block_index));
+    *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
 }
 
 pub(crate) fn action_deploy_contract(
@@ -237,81 +237,37 @@ pub(crate) fn action_delete_account(
 
 pub(crate) fn action_delete_key(
     state_update: &mut TrieUpdate,
-    account: &mut Option<Account>,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) {
-    let account = account.as_mut().unwrap();
-    let num_keys = account.public_keys.len();
-    account.public_keys.retain(|&x| x != delete_key.public_key);
-    if account.public_keys.len() == num_keys {
-        if get_access_key(state_update, account_id, &delete_key.public_key).is_none() {
-            result.result = Err(format!(
-                "Account {:?} tries to remove a public key that it does not own",
-                account_id
-            )
-            .into());
-            return;
-        }
-        // Remove access key
-        // TODO: No refunds for now
-        state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
+    if get_access_key(state_update, account_id, &delete_key.public_key).is_none() {
+        result.result = Err(format!(
+            "Account {:?} tries to remove an access key that doesn't exist",
+            account_id
+        )
+        .into());
+        return;
     }
+    // Remove access key
+    state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
 }
 
 pub(crate) fn action_add_key(
     state_update: &mut TrieUpdate,
-    account: &mut Option<Account>,
     result: &mut ActionResult,
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) {
-    // TODO: OOPS NO WAY TO ADD NORMAL PUBLIC KEYS
-    let account = account.as_mut().unwrap();
-    let num_keys = account.public_keys.len();
-    account.public_keys.retain(|&x| x != add_key.public_key);
-    if account.public_keys.len() < num_keys {
-        result.result =
-            Err("Cannot add a public key that already exists on the account".to_string().into());
-        return;
-    }
     if get_access_key(state_update, account_id, &add_key.public_key).is_some() {
-        result.result =
-            Err("Cannot add a public key that already used for an access key".to_string().into());
+        result.result = Err(format!(
+            "The public key {:?} is already used for an existing access key",
+            &add_key.public_key
+        )
+        .into());
         return;
     }
-    // TODO: FIX THIS HACK
-    if add_key.access_key.contract_id.is_some() {
-        if account.amount >= add_key.access_key.amount {
-            account.amount -= add_key.access_key.amount;
-        } else {
-            result.result = Err(format!(
-                "Account {:?} tries to create new access key with {} amount, but only has {}",
-                account_id, add_key.access_key.amount, account.amount
-            )
-            .into());
-            return;
-        }
-        if let Some(ref balance_owner) = add_key.access_key.balance_owner {
-            if !is_valid_account_id(balance_owner) {
-                result.result = Err("Invalid account ID for balance owner in the access key"
-                    .to_string()
-                    .into());
-                return;
-            }
-        }
-        if let Some(ref contract_id) = add_key.access_key.contract_id {
-            if !is_valid_account_id(contract_id) {
-                result.result =
-                    Err("Invalid account ID for contract ID in the access key".to_string().into());
-                return;
-            }
-        }
-        set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
-    } else {
-        account.public_keys.push(add_key.public_key.clone());
-    }
+    set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
 }
 
 pub(crate) fn check_actor_permissions(

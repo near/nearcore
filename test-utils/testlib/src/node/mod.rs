@@ -8,7 +8,6 @@ use near::config::{
 };
 use near::NearConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
-use near_primitives::rpc::AccountViewCallResult;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -18,6 +17,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
+use near_primitives::rpc::AccountView;
 
 mod process_node;
 mod runtime_node;
@@ -51,8 +51,12 @@ pub trait Node: Send + Sync {
 
     fn kill(&mut self);
 
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         self.user().view_account(account_id)
+    }
+
+    fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
+        self.user().get_access_key_nonce_for_signer(account_id)
     }
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
@@ -61,10 +65,6 @@ pub trait Node: Send + Sync {
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
         self.user().add_transaction(transaction)
-    }
-
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.user().get_account_nonce(account_id)
     }
 
     fn signer(&self) -> Arc<dyn EDSigner>;
@@ -125,7 +125,7 @@ fn near_configs_to_node_configs(
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
             &genesis_config,
-            network_signers[i].clone().into(),
+            (&network_signers[i]).into(),
             Some(signers[i].clone().into()),
         )))
     }

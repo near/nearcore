@@ -1,8 +1,7 @@
-use std::convert::{AsRef, TryFrom, TryInto};
+use std::convert::AsRef;
 use std::fmt;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use protobuf::{well_known_types::StringValue, RepeatedField, SingularPtrField};
 use regex::Regex;
 
 use lazy_static::lazy_static;
@@ -10,6 +9,12 @@ use lazy_static::lazy_static;
 use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
+use chrono::{DateTime, NaiveDateTime, Utc};
+
+pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
+
+/// Number of nano seconds in a second.
+const NS_IN_SECOND: u64 = 1_000_000_000;
 
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
@@ -21,8 +26,6 @@ pub mod col {
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
 }
 
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
-
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
     let mut key = column.to_vec();
     key.append(&mut account_key.clone().into_bytes());
@@ -31,6 +34,13 @@ fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> 
 
 pub fn key_for_account(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::ACCOUNT, account_key)
+}
+
+pub fn key_for_data(account_id: &AccountId, data: &[u8]) -> Vec<u8> {
+    let mut bytes = key_for_account(account_id);
+    bytes.extend(ACCOUNT_DATA_SEPARATOR);
+    bytes.extend(data);
+    bytes
 }
 
 pub fn prefix_for_access_key(account_id: &AccountId) -> Vec<u8> {
@@ -54,12 +64,6 @@ pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec
 
 pub fn key_for_code(account_key: &AccountId) -> Vec<u8> {
     key_for_column_account_id(col::CODE, account_key)
-}
-
-pub fn key_for_data(account_id: &AccountId, key: &[u8]) -> Vec<u8> {
-    let mut prefix = prefix_for_data(account_id);
-    prefix.extend_from_slice(key);
-    prefix
 }
 
 pub fn key_for_received_data(account_id: &AccountId, data_id: &CryptoHash) -> Vec<u8> {
@@ -124,30 +128,6 @@ pub fn is_valid_account_id(account_id: &AccountId) -> bool {
     VALID_ACCOUNT_ID.is_match(account_id)
 }
 
-pub fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
-}
-
-pub fn proto_to_result<T>(proto: SingularPtrField<T>) -> Result<T, Box<dyn std::error::Error>> {
-    proto.into_option().ok_or_else(|| "Bad Proto".into())
-}
-
-pub fn proto_to_type<T, U>(proto: SingularPtrField<T>) -> Result<U, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto_to_result(proto).and_then(TryInto::try_into)
-}
-
-pub fn proto_to_vec<T, U>(proto: RepeatedField<T>) -> Result<Vec<U>, Box<dyn std::error::Error>>
-where
-    U: TryFrom<T, Error = Box<dyn std::error::Error>>,
-{
-    proto.into_iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()
-}
-
 /// A wrapper around Option<T> that provides native Display trait.
 /// Simplifies propagating automatic Display trait on parent structs.
 pub struct DisplayOption<T>(pub Option<T>);
@@ -188,3 +168,19 @@ macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
         return $ret;
     }
 }));
+
+/// Converts timestamp in ns into DateTime UTC time.
+pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {
+    DateTime::from_utc(
+        NaiveDateTime::from_timestamp(
+            (timestamp / NS_IN_SECOND) as i64,
+            (timestamp % NS_IN_SECOND) as u32,
+        ),
+        Utc,
+    )
+}
+
+/// Converts DateTime UTC time into timestamp in ns.
+pub fn to_timestamp(time: DateTime<Utc>) -> u64 {
+    time.timestamp_nanos() as u64
+}

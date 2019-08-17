@@ -5,12 +5,12 @@ use std::time::Duration;
 use actix::Message;
 use chrono::{DateTime, Utc};
 
-use near_chain::Block;
 use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::QueryResponse;
+use near_primitives::rpc::{
+    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+};
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
-use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -228,7 +228,7 @@ pub enum GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Result<Block, String>;
+    type Result = Result<BlockView, String>;
 }
 
 /// Queries client for given path / data.
@@ -262,5 +262,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResult, String>;
+    type Result = Result<TransactionResultView, String>;
 }

@@ -33,6 +33,7 @@ use near_primitives::rpc::ValidatorInfo;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::from_timestamp;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
@@ -327,7 +328,7 @@ impl Handler<Status> for ClientActor {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let prev_header =
             self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.timestamp.clone();
+        let latest_block_time = prev_header.inner.timestamp.clone();
         let state_root =
             self.chain.get_post_state_root(&head.last_block_hash).map_err(|err| err.to_string())?;
         let validators = self
@@ -343,10 +344,10 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash,
+                latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: state_root.clone(),
-                latest_block_time,
+                latest_state_root: state_root.clone().into(),
+                latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.sync_status.is_syncing(),
             },
         })
@@ -394,8 +395,8 @@ impl ClientActor {
             self.handle_scheduling_block_production(
                 ctx,
                 block.hash(),
-                block.header.height,
-                block.header.height,
+                block.header.inner.height,
+                block.header.inner.height,
             );
         }
 
@@ -406,7 +407,7 @@ impl ClientActor {
             self.tx_pool.reconcile_block(&block);
         }
 
-        self.check_send_announce_account(&block.hash(), block.header.height);
+        self.check_send_announce_account(&block.hash(), block.header.inner.height);
     }
 
     /// Check if client Account Id should be sent and send it.
@@ -432,7 +433,7 @@ impl ClientActor {
         };
 
         if let Ok(epoch_block) = self.chain.get_block(&epoch_hash) {
-            let epoch_height = epoch_block.header.height;
+            let epoch_height = epoch_block.header.inner.height;
 
             if let Some(last_val_announce_height) = self.last_val_announce_height {
                 if last_val_announce_height == epoch_height {
@@ -508,10 +509,10 @@ impl ClientActor {
     fn get_block_approval(&mut self, block: &Block) -> Option<BlockApproval> {
         let (mut epoch_hash, offset) = self
             .runtime_adapter
-            .get_epoch_offset(block.header.epoch_hash, block.header.height + 1)
+            .get_epoch_offset(block.header.inner.epoch_hash, block.header.inner.height + 1)
             .ok()?;
         let next_block_producer_account =
-            self.get_block_proposer(&epoch_hash, block.header.height + 1);
+            self.get_block_proposer(&epoch_hash, block.header.inner.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
@@ -520,7 +521,7 @@ impl ClientActor {
                 if offset == 0 {
                     epoch_hash = self
                         .runtime_adapter
-                        .get_epoch_offset(block.header.prev_hash, block.header.height)
+                        .get_epoch_offset(block.header.inner.prev_hash, block.header.inner.height)
                         .ok()?
                         .0;
                 }
@@ -737,8 +738,8 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.height, peer_id);
-        let prev_hash = block.header.prev_hash;
+        debug!(target: "client", "Received block {} at {} from {}", hash, block.header.inner.height, peer_id);
+        let prev_hash = block.header.inner.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
@@ -773,7 +774,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "Received block header {} at {} from {}", hash, header.height, peer_info);
+        debug!(target: "client", "Received block header {} at {} from {}", hash, header.inner.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.chain.process_block_header(&header);
@@ -844,7 +845,7 @@ impl ClientActor {
         let mut headers = vec![];
         let max_height = self.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height + 1..=max_height {
+        for h in header.inner.height + 1..=max_height {
             if let Ok(header) = self.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -1070,27 +1071,28 @@ impl ClientActor {
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(&header.epoch_hash, &header.hash()) {
-            Ok(validators) => {
-                let position = validators.iter().position(|x| &(x.0) == account_id);
-                if let Some(idx) = position {
-                    if !validators[idx].1 {
-                        idx
+        let position =
+            match self.get_epoch_block_proposers(&header.inner.epoch_hash, &header.hash()) {
+                Ok(validators) => {
+                    let position = validators.iter().position(|x| &(x.0) == account_id);
+                    if let Some(idx) = position {
+                        if !validators[idx].1 {
+                            idx
+                        } else {
+                            return false;
+                        }
                     } else {
                         return false;
                     }
-                } else {
+                }
+                Err(err) => {
+                    error!(target: "client", "Block approval error: {}", err);
                     return false;
                 }
-            }
-            Err(err) => {
-                error!(target: "client", "Block approval error: {}", err);
-                return false;
-            }
-        };
+            };
         // Check signature is correct for given validator.
         if !self.runtime_adapter.check_validator_signature(
-            &header.epoch_hash,
+            &header.inner.epoch_hash,
             account_id,
             hash.as_ref(),
             signature,
@@ -1108,10 +1110,10 @@ impl ClientActor {
         hash: CryptoHash,
     ) -> Result<(Vec<u8>, Vec<Receipt>), near_chain::Error> {
         let header = self.chain.get_block_header(&hash)?;
-        let prev_hash = header.prev_hash;
+        let prev_hash = header.inner.prev_hash;
         let payload = self
             .runtime_adapter
-            .dump_state(shard_id, header.prev_state_root)
+            .dump_state(shard_id, header.inner.prev_state_root)
             .map_err(|err| ErrorKind::Other(err.to_string()))?;
         let receipts = self.chain.get_receipts(&prev_hash)?.clone();
         Ok((payload, receipts))

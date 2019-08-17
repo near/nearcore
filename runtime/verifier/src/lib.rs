@@ -1,6 +1,5 @@
-use near_primitives::account::{AccessKey, Account};
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::crypto::signature::{verify, PublicKey};
-use near_primitives::logging;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::utils::is_valid_account_id;
@@ -10,7 +9,7 @@ pub struct VerificationData {
     pub signer_id: AccountId,
     pub signer: Account,
     pub public_key: PublicKey,
-    pub access_key: Option<AccessKey>,
+    pub access_key: AccessKey,
 }
 
 pub struct TransactionVerifier<'a> {
@@ -34,98 +33,92 @@ impl<'a> TransactionVerifier<'a> {
                 signer_id
             ));
         }
-        let signer = get_account(self.state_update, signer_id);
-        match signer {
-            Some(signer) => {
-                if transaction.nonce <= signer.nonce {
+        let signer = match get_account(self.state_update, signer_id) {
+            Some(signer) => signer,
+            None => {
+                return Err(format!("Signer {:?} does not exist", signer_id));
+            }
+        };
+        let access_key =
+            match get_access_key(self.state_update, &signer_id, &transaction.public_key) {
+                Some(access_key) => access_key,
+                None => {
                     return Err(format!(
-                        "Transaction nonce {} must be larger than originator's nonce {}",
-                        transaction.nonce, signer.nonce,
+                        "Signer {:?} doesn't have access key with the given public_key {:?}",
+                        signer_id, &transaction.public_key,
                     ));
                 }
+            };
 
-                if !is_valid_account_id(&transaction.receiver_id) {
-                    return Err(format!(
-                        "Invalid receiver account ID {:?} according to requirements",
-                        transaction.receiver_id
-                    ));
+        if transaction.nonce <= access_key.nonce {
+            return Err(format!(
+                "Transaction nonce {} must be larger than nonce of the used access key {}",
+                transaction.nonce, access_key.nonce,
+            ));
+        }
+
+        if !is_valid_account_id(&transaction.receiver_id) {
+            return Err(format!(
+                "Invalid receiver account ID {:?} according to requirements",
+                transaction.receiver_id
+            ));
+        }
+
+        let hash = signed_transaction.get_hash();
+        if !verify(hash.as_ref(), &signed_transaction.signature, &transaction.public_key) {
+            return Err(format!(
+                "Transaction is not signed with a public key of the signer {:?}",
+                signer_id,
+            ));
+        }
+
+        // TODO: Calculate transaction cost
+
+        match access_key.permission {
+            AccessKeyPermission::FullAccess => Ok(VerificationData {
+                signer_id: signer_id.clone(),
+                signer,
+                public_key: transaction.public_key.clone(),
+                access_key,
+            }),
+            AccessKeyPermission::FunctionCall(ref function_call_permission) => {
+                if transaction.actions.len() != 1 {
+                    return Err(
+                        "Transaction has more than 1 actions and is using function call access key"
+                            .to_string(),
+                    );
                 }
-
-                let hash = signed_transaction.get_hash();
-                let hash = hash.as_ref();
-                let public_key = signer
-                    .public_keys
-                    .iter()
-                    .find(|key| verify(&hash, &signed_transaction.signature, &key))
-                    .cloned();
-
-                if let Some(public_key) = public_key {
-                    if &public_key != &transaction.public_key {
-                        return Err("Transaction is signed with different public key than given"
-                            .to_string());
+                if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+                    if transaction.receiver_id != function_call_permission.receiver_id {
+                        return Err(format!(
+                            "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
+                            &transaction.receiver_id,
+                            &function_call_permission.receiver_id,
+                        ));
+                    }
+                    if !function_call_permission.method_names.is_empty() {
+                        if function_call_permission
+                            .method_names
+                            .iter()
+                            .find(|method_name| &function_call.method_name == *method_name)
+                            .is_none()
+                        {
+                            return Err(format!(
+                                "Transaction method name {:?} isn't allowed by the access key",
+                                &function_call.method_name
+                            ));
+                        }
                     }
                     Ok(VerificationData {
                         signer_id: signer_id.clone(),
                         signer,
-                        public_key,
-                        access_key: None,
+                        public_key: transaction.public_key.clone(),
+                        access_key,
                     })
                 } else {
-                    let access_key =
-                        get_access_key(self.state_update, &signer_id, &transaction.public_key);
-                    if let Some(access_key) = access_key {
-                        if transaction.actions.len() != 1 {
-                            return Err(
-                                "Transaction has more than 1 actions and is using access key"
-                                    .to_string(),
-                            );
-                        }
-                        if let Some(Action::FunctionCall(ref function_call)) =
-                            transaction.actions.get(0)
-                        {
-                            let access_contract_id =
-                                access_key.contract_id.as_ref().unwrap_or(&signer_id);
-
-                            if &transaction.receiver_id != access_contract_id {
-                                return Err(format!(
-                                    "Access key contract ID {:?} doesn't match TX receiver account ID {:?}",
-                                    access_contract_id,
-                                    &transaction.receiver_id,
-                                ));
-                            }
-                            if let Some(ref access_method_name) = access_key.method_name {
-                                let access_method_name_str =
-                                    std::str::from_utf8(access_method_name).map_err(|_| {
-                                        "Can't convert access_key.method_name to utf8 string"
-                                            .to_string()
-                                    })?;
-                                if &function_call.method_name != access_method_name_str {
-                                    return Err(format!(
-                                        "Transaction method name `{}` doesn't match the access key method name {:?}",
-                                        &function_call.method_name,
-                                        logging::pretty_utf8(access_method_name),
-                                    ));
-                                }
-                            }
-                            Ok(VerificationData {
-                                signer_id: signer_id.clone(),
-                                signer,
-                                public_key: transaction.public_key.clone(),
-                                access_key: Some(access_key),
-                            })
-                        } else {
-                            Err("Access key can only be used with the exactly one FunctionCall action"
-                                .to_string())
-                        }
-                    } else {
-                        Err(format!(
-                            "Transaction is not signed with a public key of the signer {:?}",
-                            signer_id,
-                        ))
-                    }
+                    Err("The used access key requires exactly one FunctionCall action".to_string())
                 }
             }
-            _ => Err(format!("Signer {:?} does not exist", signer_id)),
         }
     }
 }

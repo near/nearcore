@@ -21,7 +21,7 @@ mod test {
             "dan.near".to_string(),
         ]);
         let mut nodes: Vec<_> = nodes
-            .drain(..)
+            .into_iter()
             .map(|cfg| match cfg {
                 NodeConfig::Thread(config) => ThreadNode::new(config),
                 _ => unreachable!(),

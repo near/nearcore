@@ -157,18 +157,18 @@ pub mod vec_base_format {
     }
 }
 
-pub mod option_bytes_format {
+pub mod option_base64_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    use super::{from_base, to_base};
+    use super::{from_base64, to_base64};
 
     pub fn serialize<S>(data: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         if let Some(ref bytes) = data {
-            serializer.serialize_str(&to_base(bytes))
+            serializer.serialize_str(&to_base64(bytes))
         } else {
             serializer.serialize_none()
         }
@@ -180,7 +180,7 @@ pub mod option_bytes_format {
     {
         let s: Option<String> = Option::deserialize(deserializer)?;
         if let Some(s) = s {
-            Ok(Some(from_base(&s).map_err(|err| de::Error::custom(err.to_string()))?))
+            Ok(Some(from_base64(&s).map_err(|err| de::Error::custom(err.to_string()))?))
         } else {
             Ok(None)
         }
@@ -229,13 +229,41 @@ pub mod u128_dec_format {
     }
 }
 
+pub mod option_u128_dec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(data: &Option<u128>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(ref num) = data {
+            serializer.serialize_str(&format!("{}", num))
+        } else {
+            serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u128>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Option<String> = Option::deserialize(deserializer)?;
+        if let Some(s) = s {
+            Ok(Some(u128::from_str_radix(&s, 10).map_err(de::Error::custom)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[derive(Deserialize, Serialize)]
     struct OptionBytesStruct {
-        #[serde(with = "option_bytes_format")]
+        #[serde(with = "option_base64_format")]
         data: Option<Vec<u8>>,
     }
 

@@ -19,9 +19,11 @@ use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::Account;
+use near_primitives::account::AccessKey;
+use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::rpc::AccountView;
 use near_primitives::serialize::{to_base64, u128_dec_format};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
 use near_telemetry::TelemetryConfig;
@@ -222,8 +224,8 @@ impl NearConfig {
                 block_header_fetch_horizon: 50,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
+                public_key: network_key_pair.public_key.into(),
+                secret_key: network_key_pair.secret_key.into(),
                 account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
@@ -336,19 +338,16 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records[0].push(StateRecord::Account {
-                account_id: account.to_string(),
-                account: Account {
-                    nonce: 0,
-                    amount: TESTING_INIT_BALANCE
-                        - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    public_keys: vec![signer.public_key],
+            records[0].extend(
+                state_records_account_with_key(
+                    account,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     code_hash,
-                    staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            });
+                )
+                .into_iter(),
+            );
             records[0].push(StateRecord::Contract {
                 account_id: account.to_string(),
                 code: encoded_test_contract.clone(),
@@ -388,12 +387,16 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.push(StateRecord::account(
-                &account_id,
-                &signer.public_key.to_readable().0,
-                TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-            ));
+            records.extend(
+                state_records_account_with_key(
+                    &account_id,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    CryptoHash::default(),
+                )
+                .into_iter(),
+            );
         }
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -446,6 +449,32 @@ impl From<&str> for GenesisConfig {
 
 fn random_chain_id() -> String {
     format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
+}
+
+fn state_records_account_with_key(
+    account_id: &str,
+    public_key: &PublicKey,
+    amount: u128,
+    staked: u128,
+    code_hash: CryptoHash,
+) -> Vec<StateRecord> {
+    vec![
+        StateRecord::Account {
+            account_id: account_id.to_string(),
+            account: AccountView {
+                amount,
+                staked,
+                code_hash: code_hash.into(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            },
+        },
+        StateRecord::AccessKey {
+            account_id: account_id.to_string(),
+            public_key: public_key.clone().into(),
+            access_key: AccessKey::full_access().into(),
+        },
+    ]
 }
 
 /// Official TestNet configuration.
@@ -545,12 +574,13 @@ pub fn init_configs(
                     public_key: signer.public_key.to_readable(),
                     amount: TESTING_INIT_STAKE,
                 }],
-                records: vec![vec![StateRecord::account(
+                records: vec![state_records_account_with_key(
                     &account_id,
-                    &signer.public_key.to_readable().0,
+                    &signer.public_key,
                     TESTING_INIT_BALANCE,
                     TESTING_INIT_STAKE,
-                )]],
+                    CryptoHash::default(),
+                )],
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -570,12 +600,16 @@ pub fn create_testnet_configs_from_seeds(
         (0..seeds.len()).map(|_| InMemorySigner::from_random()).collect::<Vec<_>>();
     let mut records = vec![vec![]];
     for (i, seed) in seeds.iter().enumerate() {
-        records[0].push(StateRecord::account(
-            seed,
-            &signers[i].public_key.to_readable().0,
-            TESTING_INIT_BALANCE,
-            TESTING_INIT_STAKE,
-        ));
+        records[0].extend(
+            state_records_account_with_key(
+                seed,
+                &signers[i].public_key,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            )
+            .into_iter(),
+        );
     }
     let validators = seeds
         .iter()
@@ -672,7 +706,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {

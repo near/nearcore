@@ -4,16 +4,14 @@ extern crate log;
 extern crate serde_derive;
 
 use std::collections::{hash_map::Entry, HashMap};
-use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
 
-use near_primitives::account::Account;
+use near_primitives::account::{AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
@@ -37,6 +35,7 @@ use crate::actions::*;
 use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
+use std::convert::TryInto;
 
 mod actions;
 pub mod adapter;
@@ -141,26 +140,38 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// node receives signed_transaction, processes it
-    /// and generates the receipt to send to receiver
+    /// Processes signed transaction, charges fees and generates the receipt
     fn apply_signed_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
     ) -> Result<Receipt, Box<dyn std::error::Error>> {
-        let VerificationData { signer_id, mut signer, public_key, .. } = {
+        let VerificationData { signer_id, mut signer, public_key, mut access_key } = {
             let verifier = TransactionVerifier::new(state_update);
             verifier.verify_transaction(signed_transaction)?
         };
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
-        signer.nonce = signed_transaction.transaction.nonce;
+        access_key.nonce = signed_transaction.transaction.nonce;
         let gas_price = 1;
         let total_cost = self
             .config
             .transaction_costs
             .total_cost(gas_price, &signed_transaction.transaction.actions)?;
         signer.checked_sub(total_cost)?;
+        if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
+            access_key.permission
+        {
+            if let Some(ref mut allowance) = function_call_permission.allowance {
+                *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
+                    format!(
+                        "Access Key does not have enough balance {} for transaction costing {}",
+                        allowance, total_cost
+                    )
+                })?;
+            }
+        }
+        set_access_key(state_update, &signer_id, &public_key, &access_key);
 
         if !check_rent(&signer_id, &mut signer, &self.config, apply_state.epoch_length) {
             return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
@@ -278,10 +289,10 @@ impl Runtime {
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
-                action_add_key(state_update, account, &mut result, account_id, add_key);
+                action_add_key(state_update, &mut result, account_id, add_key);
             }
             Action::DeleteKey(delete_key) => {
-                action_delete_key(state_update, account, &mut result, account_id, delete_key);
+                action_delete_key(state_update, &mut result, account_id, delete_key);
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
@@ -316,9 +327,8 @@ impl Runtime {
             .input_data_ids
             .iter()
             .map(|data_id| {
-                let data: Option<Vec<u8>> =
-                    get(state_update, &key_for_received_data(account_id, data_id))
-                        .expect("data should be present in the state");
+                let ReceivedData { data } = get_received_data(state_update, account_id, data_id)
+                    .expect("data should be present in the state");
                 state_update.remove(&key_for_received_data(account_id, data_id));
                 data
             })
@@ -510,7 +520,7 @@ impl Runtime {
                     state_update,
                     account_id,
                     &data_receipt.data_id,
-                    data_receipt.data.clone(),
+                    &ReceivedData { data: data_receipt.data.clone() },
                 );
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
@@ -595,7 +605,7 @@ impl Runtime {
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
-                    set_receipt(state_update, receipt.clone());
+                    set_receipt(state_update, &receipt);
                 }
             }
         };
@@ -673,42 +683,44 @@ impl Runtime {
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
-        let mut postponed_receipts = vec![];
+        let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
-            match record {
+            match record.clone() {
                 StateRecord::Account { account_id, account } => {
-                    set_account(&mut state_update, &account_id, account);
+                    set_account(&mut state_update, &account_id, &account.into());
                 }
                 StateRecord::Data { key, value } => {
                     state_update.set(
-                        from_base64(key).expect("Failed to decode key"),
-                        DBValue::from_vec(from_base64(value).expect("Failed to decode value")),
+                        from_base64(&key).expect("Failed to decode key"),
+                        DBValue::from_vec(from_base64(&value).expect("Failed to decode value")),
                     );
                 }
                 StateRecord::Contract { account_id, code } => {
                     let code = ContractCode::new(
-                        from_base64(code).expect("Failed to decode wasm from base64"),
+                        from_base64(&code).expect("Failed to decode wasm from base64"),
                     );
-                    set_code(&mut state_update, account_id, &code);
+                    set_code(&mut state_update, &account_id, &code);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
                     set_access_key(
                         &mut state_update,
-                        account_id,
-                        &PublicKey::try_from(public_key.0.as_str())
-                            .expect("Failed to decode public key"),
-                        access_key,
+                        &account_id,
+                        &public_key.into(),
+                        &access_key.into(),
                     );
                 }
                 StateRecord::PostponedReceipt(receipt) => {
                     // Delaying processing postponed receipts, until we process all data first
-                    postponed_receipts.push(receipt);
+                    postponed_receipts
+                        .push(receipt.try_into().expect("Failed to convert receipt from view"));
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
-                    let data = data
-                        .as_ref()
-                        .map(|s| from_base64(s).expect("Failed to decode received data"));
-                    set_received_data(&mut state_update, account_id, data_id, data);
+                    set_received_data(
+                        &mut state_update,
+                        &account_id,
+                        &data_id.into(),
+                        &ReceivedData { data },
+                    );
                 }
             }
         }
@@ -739,7 +751,7 @@ impl Runtime {
                     key_for_pending_data_count(account_id, &receipt.receipt_id),
                     &pending_data_count,
                 );
-                set_receipt(&mut state_update, receipt.clone());
+                set_receipt(&mut state_update, &receipt);
             }
         }
 
@@ -771,7 +783,7 @@ mod tests {
     fn test_get_and_set_accounts() {
         let trie = create_trie();
         let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
-        let test_account = Account::new(vec![], 10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
         let get_res = get_account(&state_update, &account_id).unwrap();
@@ -783,7 +795,7 @@ mod tests {
         let trie = create_trie();
         let root = MerkleHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
-        let test_account = Account::new(vec![], 10, hash(&[]), 0);
+        let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
