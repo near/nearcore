@@ -20,8 +20,8 @@ use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
 use near_store::{
-    get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    get_access_key_raw, get_account, set_account, PartialStorage, Store, StoreUpdate, Trie,
+    TrieUpdate, WrappedTrieChanges,
 };
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::query_client;
@@ -253,7 +253,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(vm.get_epoch_offset(parent_hash, block_index)?)
     }
 
-    fn apply_transactions(
+    fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
         state_root: &MerkleHash,
@@ -262,11 +262,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionLog>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+            Option<PartialStorage>,
+        ),
         Box<dyn std::error::Error>,
     > {
-        let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
+        let trie = if generate_storage_proof {
+            Arc::new(self.trie.recording_reads())
+        } else {
+            self.trie.clone()
+        };
+        let mut state_update = TrieUpdate::new(trie.clone(), *state_root);
         {
             let mut vm = self.validator_manager.write().expect(POISONED_LOCK_ERR);
             let (epoch_hash, offset) = vm.get_epoch_offset(*prev_block_hash, block_index)?;
@@ -317,6 +330,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             apply_result.tx_result,
             apply_result.new_receipts,
             apply_result.validator_proposals,
+            trie.recorded_storage(),
         ))
     }
 

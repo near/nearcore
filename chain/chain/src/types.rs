@@ -10,7 +10,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::rpc::QueryResponse;
 use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
-use near_store::{StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -128,7 +128,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        merkle_hash: &MerkleHash,
+        state_root: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -136,6 +136,49 @@ pub trait RuntimeAdapter: Send + Sync {
         transactions: &Vec<SignedTransaction>,
     ) -> Result<
         (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
+        Box<dyn std::error::Error>,
+    > {
+        self.apply_transactions_with_optional_storage_proof(
+            shard_id,
+            state_root,
+            block_index,
+            prev_block_hash,
+            block_hash,
+            receipts,
+            transactions,
+            false,
+        )
+        .map(
+            |(
+                trie_changes,
+                root,
+                tx_results,
+                receipt_result,
+                validator_proposals,
+                _partial_storage,
+            )| (trie_changes, root, tx_results, receipt_result, validator_proposals),
+        )
+    }
+
+    fn apply_transactions_with_optional_storage_proof(
+        &self,
+        shard_id: ShardId,
+        state_root: &MerkleHash,
+        block_index: BlockIndex,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &Vec<Vec<Receipt>>,
+        transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
+    ) -> Result<
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionLog>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+            Option<PartialStorage>,
+        ),
         Box<dyn std::error::Error>,
     >;
 

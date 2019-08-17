@@ -24,6 +24,7 @@ fn setup(input: u64) -> (MockedExternal, VMContext, Config, Vec<PromiseResult>, 
         prepaid_gas: 10u64.pow(15),
         random_seed: vec![0, 1, 2],
         free_of_charge: false,
+        output_data_receivers: vec![],
     };
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests/res/test_contract_rs.wasm");

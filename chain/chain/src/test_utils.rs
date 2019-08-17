@@ -14,7 +14,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
+use near_store::{PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
@@ -153,7 +153,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok((parent_hash, 0))
     }
 
-    fn apply_transactions(
+    fn apply_transactions_with_optional_storage_proof(
         &self,
         _shard_id: ShardId,
         state_root: &MerkleHash,
@@ -162,10 +162,19 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         _receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
     ) -> Result<
-        (WrappedTrieChanges, MerkleHash, Vec<TransactionLog>, ReceiptResult, Vec<ValidatorStake>),
+        (
+            WrappedTrieChanges,
+            MerkleHash,
+            Vec<TransactionLog>,
+            ReceiptResult,
+            Vec<ValidatorStake>,
+            Option<PartialStorage>,
+        ),
         Box<dyn std::error::Error>,
     > {
+        assert!(!generate_storage_proof);
         let mut tx_results = vec![];
         for tx in transactions {
             tx_results.push(TransactionLog {
@@ -184,6 +193,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             tx_results,
             HashMap::default(),
             vec![],
+            None,
         ))
     }
 

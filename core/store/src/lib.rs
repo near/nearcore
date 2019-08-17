@@ -18,8 +18,8 @@ use near_primitives::utils::{
 };
 
 pub use crate::trie::{
-    update::TrieUpdate, update::TrieUpdateIterator, Trie, TrieChanges, TrieIterator,
-    WrappedTrieChanges,
+    update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
+    TrieIterator, WrappedTrieChanges,
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};

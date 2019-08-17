@@ -1,10 +1,14 @@
 use crate::types::Gas;
+use near_runtime_fees::RuntimeFeesConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Hash, Serialize, Deserialize)]
 pub struct Config {
+    /// Fees for creating actions on runtime.
+    pub runtime_fees: RuntimeFeesConfig,
+
     /// Gas cost of a growing memory by single page.
     pub grow_mem_cost: u32,
     /// Gas cost of a regular operation.
@@ -53,6 +57,7 @@ impl Default for Config {
             max_number_registers: 100,
             max_number_logs: 100,
             max_log_len: 500,
+            runtime_fees: Default::default(),
         }
     }
 }
