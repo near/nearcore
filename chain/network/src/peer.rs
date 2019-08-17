@@ -238,7 +238,7 @@ impl Peer {
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockApproval(account_id, hash, signature) => {
-                NetworkClientMessages::BlockApproval(account_id, hash, signature)
+                NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
             }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
             PeerMessage::BlockHeadersRequest(hashes) => {

@@ -984,7 +984,7 @@ pub struct NetworkInfo {
     pub most_weight_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
-    /// Accounts of known block and chunk producers from routing table.  
+    /// Accounts of known block and chunk producers from routing table.
     pub known_producers: Vec<AccountId>,
 }
 
@@ -1033,7 +1033,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.

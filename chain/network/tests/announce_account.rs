@@ -25,6 +25,7 @@ pub fn setup_network_node(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(account_id, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
+    let num_validators = validators.len();
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
@@ -38,7 +39,7 @@ pub fn setup_network_node(
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
-            ClientConfig::test(false, 100),
+            ClientConfig::test(false, 100, num_validators),
             store.clone(),
             chain_genesis,
             runtime,

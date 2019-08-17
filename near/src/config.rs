@@ -241,6 +241,7 @@ impl NearConfig {
                 log_summary_period: Duration::from_secs(10),
                 produce_empty_blocks: config.consensus.produce_empty_blocks,
                 epoch_length: genesis_config.epoch_length,
+                num_block_producers: genesis_config.num_block_producers,
                 announce_account_horizon: genesis_config.epoch_length / 2,
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,

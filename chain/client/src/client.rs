@@ -46,6 +46,7 @@ struct EconConfig {
     gas_price_adjustment_rate: u8,
     max_inflation_rate: u8,
 }
+use cached::{Cached, SizedCache};
 use near_chain::types::ValidatorSignatureVerificationResult;
 use std::cmp::max;
 
@@ -70,6 +71,8 @@ pub struct ClientActor {
     /// Identity that represents this Client at the network level.
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
+    /// Approvals for which we do not have the block yet
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
     /// Set of approvals for the next block.
     approvals: HashMap<usize, Signature>,
     /// Timestamp when last block was received / processed. Used to timeout block production.
@@ -128,6 +131,7 @@ impl ClientActor {
         }
 
         let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
+        let num_block_producers = config.num_block_producers;
 
         Ok(ClientActor {
             config,
@@ -147,6 +151,7 @@ impl ClientActor {
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
             },
+            pending_approvals: SizedCache::with_size(num_block_producers),
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
             header_sync,
@@ -312,8 +317,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockHeader }
                 }
             }
-            NetworkClientMessages::BlockApproval(account_id, hash, signature) => {
-                if self.collect_block_approval(&account_id, &hash, &signature) {
+            NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id) => {
+                if self.collect_block_approval(&account_id, &hash, &signature, &peer_id) {
                     NetworkClientResponses::NoResponse
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
@@ -557,6 +562,17 @@ impl ClientActor {
             if provenance == Provenance::PRODUCED {
                 let _ = self.network_actor.do_send(NetworkRequests::Block { block: block.clone() });
             } else {
+                let approval = self.pending_approvals.cache_get(&block_hash).cloned();
+                if let Some(approval) = approval {
+                    for (account_id, (sig, peer_id)) in approval {
+                        if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
+                            let _ = self.network_actor.do_send(NetworkRequests::BanPeer {
+                                peer_id,
+                                ban_reason: ReasonForBan::BadBlockApproval,
+                            });
+                        }
+                    }
+                }
                 let approval = self.get_block_approval(&block);
                 let _ = self.network_actor.do_send(NetworkRequests::BlockHeaderAnnounce {
                     header: block.header.clone(),
@@ -1676,46 +1692,58 @@ impl ClientActor {
     /// Collects block approvals. Returns false if block approval is invalid.
     fn collect_block_approval(
         &mut self,
-        _account_id: &AccountId,
-        _hash: &CryptoHash,
-        _signature: &Signature,
+        account_id: &AccountId,
+        hash: &CryptoHash,
+        signature: &Signature,
+        peer_id: &PeerId,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
         // TODO: This header is missing, should collect for later? should have better way to verify then.
-        //        let header = unwrap_or_return!(self.chain.get_block_header(&hash), true).clone();
+
+        let header = match self.chain.get_block_header(&hash) {
+            Ok(h) => h.clone(),
+            Err(e) => {
+                if e.is_bad_data() {
+                    return false;
+                }
+                let mut entry =
+                    self.pending_approvals.cache_remove(hash).unwrap_or_else(|| HashMap::new());
+                entry.insert(account_id.clone(), (signature.clone(), *peer_id));
+                self.pending_approvals.cache_set(*hash, entry);
+                return true;
+            }
+        };
 
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        //        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
-        //            Ok(validators) => {
-        //                let position = validators.iter().position(|x| &(x.0) == account_id);
-        //                if let Some(idx) = position {
-        //                    if !validators[idx].1 {
-        //                        idx
-        //                    } else {
-        //                        return false;
-        //                    }
-        //                } else {
-        //                    return false;
-        //                }
-        //            }
-        //            Err(err) => {
-        //                error!(target: "client", "Error: {}", err);
-        //                return false;
-        //            }
-        //        };
-        //        // Check signature is correct for given validator.
-        //        if !self.runtime_adapter.verify_validator_signature(
-        //            &header.epoch_id,
-        //            account_id,
-        //            hash.as_ref(),
-        //            signature,
-        //        ) {
-        //            return false;
-        //        }
-        //        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
-        //        self.approvals.insert(position, signature.clone());
+        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
+            Ok(validators) => {
+                let position = validators.iter().position(|x| &(x.0) == account_id);
+                if let Some(idx) = position {
+                    if !validators[idx].1 {
+                        idx
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            Err(err) => {
+                error!(target: "client", "Error: {}", err);
+                return false;
+            }
+        };
+        // Check signature is correct for given validator.
+        if let ValidatorSignatureVerificationResult::Invalid = self
+            .runtime_adapter
+            .verify_validator_signature(&header.epoch_id, account_id, hash.as_ref(), signature)
+        {
+            return false;
+        }
+        debug!(target: "client", "Received approval for {} from {}", hash, account_id);
+        self.approvals.insert(position, signature.clone());
         true
     }
 }
