@@ -35,6 +35,7 @@ use crate::actions::*;
 use crate::config::RuntimeConfig;
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
+use near_vm_logic::types::PromiseResult;
 use std::convert::TryInto;
 
 mod actions;
@@ -236,7 +237,7 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
-        input_data: &Vec<Option<Vec<u8>>>,
+        promise_results: &[PromiseResult],
         action_hash: CryptoHash,
     ) -> ActionResult {
         let mut result = ActionResult::default();
@@ -274,7 +275,7 @@ impl Runtime {
                     account,
                     receipt,
                     action_receipt,
-                    input_data,
+                    promise_results,
                     &mut result,
                     account_id,
                     function_call,
@@ -323,14 +324,17 @@ impl Runtime {
         };
         let account_id = &receipt.receiver_id;
         // Collecting input data and removing it from the state
-        let input_data = action_receipt
+        let promise_results = action_receipt
             .input_data_ids
             .iter()
             .map(|data_id| {
                 let ReceivedData { data } = get_received_data(state_update, account_id, data_id)
                     .expect("data should be present in the state");
                 state_update.remove(&key_for_received_data(account_id, data_id));
-                data
+                match data {
+                    Some(value) => PromiseResult::Successful(value),
+                    None => PromiseResult::Failed,
+                }
             })
             .collect::<Vec<_>>();
 
@@ -354,7 +358,7 @@ impl Runtime {
                 &mut actor_id,
                 receipt,
                 action_receipt,
-                &input_data,
+                &promise_results,
                 create_nonce_with_nonce(
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
