@@ -72,7 +72,7 @@ pub struct ClientActor {
     /// It is used as part of the messages that identify this client.
     node_id: PeerId,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, (AccountId, Signature, PeerId)>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
     /// Set of approvals for the next block.
     approvals: HashMap<usize, Signature>,
     /// Timestamp when last block was received / processed. Used to timeout block production.
@@ -131,7 +131,7 @@ impl ClientActor {
         }
 
         let info_helper = InfoHelper::new(telemetry_actor, block_producer.clone());
-        let epoch_length = config.epoch_length;
+        let num_block_producers = config.num_block_producers;
 
         Ok(ClientActor {
             config,
@@ -151,7 +151,7 @@ impl ClientActor {
                 sent_bytes_per_sec: 0,
                 known_producers: vec![],
             },
-            pending_approvals: SizedCache::with_size(epoch_length as usize),
+            pending_approvals: SizedCache::with_size(num_block_producers),
             approvals: HashMap::default(),
             last_block_processed: Instant::now(),
             header_sync,
@@ -570,13 +570,15 @@ impl ClientActor {
             if provenance == Provenance::PRODUCED {
                 let _ = self.network_actor.do_send(NetworkRequests::Block { block: block.clone() });
             } else {
-                let approval = self.pending_approvals.cache_remove(&block_hash);
-                if let Some((account_id, sig, peer_id)) = approval {
-                    if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
-                        let _ = self.network_actor.do_send(NetworkRequests::BanPeer {
-                            peer_id,
-                            ban_reason: ReasonForBan::BadBlockApproval,
-                        });
+                let approval = self.pending_approvals.cache_get(&block_hash).cloned();
+                if let Some(approval) = approval {
+                    for (account_id, (sig, peer_id)) in approval {
+                        if !self.collect_block_approval(&account_id, &block_hash, &sig, &peer_id) {
+                            let _ = self.network_actor.do_send(NetworkRequests::BanPeer {
+                                peer_id,
+                                ban_reason: ReasonForBan::BadBlockApproval,
+                            });
+                        }
                     }
                 }
                 let approval = self.get_block_approval(&block);
@@ -1712,8 +1714,10 @@ impl ClientActor {
                 if e.is_bad_data() {
                     return false;
                 }
-                self.pending_approvals
-                    .cache_set(*hash, (account_id.clone(), signature.clone(), *peer_id));
+                let mut entry =
+                    self.pending_approvals.cache_remove(hash).unwrap_or_else(|| HashMap::new());
+                entry.insert(account_id.clone(), (signature.clone(), *peer_id));
+                self.pending_approvals.cache_set(*hash, entry);
                 return true;
             }
         };

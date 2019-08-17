@@ -36,6 +36,7 @@ pub fn setup(
     genesis_time: DateTime<Utc>,
 ) -> (ClientActor, ViewClientActor) {
     let store = create_test_store();
+    let num_validators = validators.iter().map(|x| x.len()).sum();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
@@ -46,7 +47,7 @@ pub fn setup(
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
     let client = ClientActor::new(
-        ClientConfig::test(skip_sync_wait, block_prod_time),
+        ClientConfig::test(skip_sync_wait, block_prod_time, num_validators),
         store,
         chain_genesis,
         runtime,

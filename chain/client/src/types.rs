@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::rpc::QueryResponse;
 pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
 use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
-use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
+use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -98,6 +98,8 @@ pub struct ClientConfig {
     pub produce_empty_blocks: bool,
     /// Epoch length.
     pub epoch_length: BlockIndex,
+    /// Total number of block producers
+    pub num_block_producers: ValidatorId,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
     /// Horizon at which instead of fetching block, fetch full state.
@@ -111,7 +113,11 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    pub fn test(skip_sync_wait: bool, block_prod_time: u64) -> Self {
+    pub fn test(
+        skip_sync_wait: bool,
+        block_prod_time: u64,
+        num_block_producers: ValidatorId,
+    ) -> Self {
         ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
@@ -130,40 +136,12 @@ impl ClientConfig {
             log_summary_period: Duration::from_secs(10),
             produce_empty_blocks: true,
             epoch_length: 10,
+            num_block_producers,
             announce_account_horizon: 5,
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
             block_header_fetch_horizon: 50,
-        }
-    }
-}
-
-impl ClientConfig {
-    pub fn new() -> Self {
-        ClientConfig {
-            version: Default::default(),
-            chain_id: "test".to_string(),
-            rpc_addr: "0.0.0.0:3030".to_string(),
-            min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(2000),
-            block_production_retry_delay: Duration::from_millis(100),
-            block_expected_weight: 1000,
-            skip_sync_wait: false,
-            sync_check_period: Duration::from_secs(10),
-            sync_step_period: Duration::from_millis(10),
-            sync_weight_threshold: 0,
-            sync_height_threshold: 1,
-            min_num_peers: 1,
-            fetch_info_period: Duration::from_millis(100),
-            log_summary_period: Duration::from_secs(10),
-            produce_empty_blocks: true,
-            epoch_length: 10,
-            announce_account_horizon: 5,
-            block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
-            block_header_fetch_horizon: 50,
-            catchup_step_period: Duration::from_millis(50),
         }
     }
 }
