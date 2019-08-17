@@ -6,6 +6,7 @@ use std::sync::Arc;
 use clap::{App, Arg, SubCommand};
 use protobuf::parse_from_bytes;
 
+use ansi_term::Color::Red;
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_network::peer_store::PeerStore;
@@ -19,8 +20,10 @@ use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
 use near_protos::access_key as access_key_proto;
 use near_protos::account as account_proto;
+use near_store::test_utils::create_test_store;
 use near_store::{create_store, DBValue, Store, TrieIterator};
 use node_runtime::StateRecord;
+use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -111,7 +114,7 @@ fn load_trie(
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
-    to_base(&h)[..6].to_string()
+    to_base(&h)[..7].to_string()
 }
 
 fn print_chain(
@@ -123,6 +126,8 @@ fn print_chain(
 ) {
     let mut chain_store = ChainStore::new(store.clone());
     let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let mut account_id_to_blocks = HashMap::new();
+    let mut cur_epoch_id = None;
     for index in start_index..=end_index {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();
@@ -130,8 +135,22 @@ fn print_chain(
                 println!("{: >3} {}", header.height, format_hash(header.hash()));
             } else {
                 let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap();
-                let (epoch_id, _) = runtime.get_epoch_offset(header.prev_hash, index).unwrap();
+                let (epoch_id, offset) = runtime.get_epoch_offset(header.prev_hash, index).unwrap();
+                cur_epoch_id = Some(epoch_id);
+                if offset == 0 {
+                    println!("{:?}", account_id_to_blocks);
+                    account_id_to_blocks = HashMap::new();
+                    println!(
+                        "Epoch {} Validators {:?}",
+                        format_hash(epoch_id),
+                        runtime.get_epoch_block_proposers(&epoch_id, &header.hash()).unwrap()
+                    );
+                }
                 let block_producer = runtime.get_block_proposer(&epoch_id, header.height).unwrap();
+                account_id_to_blocks
+                    .entry(block_producer.clone())
+                    .and_modify(|e| *e += 1)
+                    .or_insert(1);
                 println!(
                     "{: >3} {} | {: >10} | parent: {: >3} {}",
                     header.height,
@@ -141,6 +160,40 @@ fn print_chain(
                     format_hash(parent_header.hash()),
                 );
             }
+        } else {
+            if let Some(epoch_id) = cur_epoch_id {
+                let block_producer = runtime.get_block_proposer(&epoch_id, index).unwrap();
+                println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
+            } else {
+                println!("{: >3} {}", index, Red.bold().paint("MISSING"));
+            }
+        }
+    }
+}
+
+fn replay_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let new_store = create_test_store();
+    let runtime = NightshadeRuntime::new(&home_dir, new_store, near_config.genesis_config.clone());
+    for index in start_index..=end_index {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            runtime
+                .add_validator_proposals(
+                    header.prev_hash,
+                    header.hash(),
+                    header.height,
+                    header.validator_proposal,
+                    vec![],
+                    vec![],
+                )
+                .unwrap();
         }
     }
 }
@@ -183,7 +236,26 @@ fn main() {
                         .required(true)
                         .help("End index of query")
                         .takes_value(true),
-                ),
+                )
+                .help("print chain from start_index to end_index"),
+        )
+        .subcommand(
+            SubCommand::with_name("replay")
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(true)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(true)
+                        .help("End index of query")
+                        .takes_value(true),
+                )
+                .help("replay headers from chain"),
         )
         .get_matches();
 
@@ -225,6 +297,12 @@ fn main() {
                 args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
             let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
             print_chain(store, home_dir, &near_config, start_index, end_index);
+        }
+        ("replay", Some(args)) => {
+            let start_index =
+                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            replay_chain(store, home_dir, &near_config, start_index, end_index);
         }
         (_, _) => unreachable!(),
     }
