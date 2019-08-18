@@ -31,6 +31,7 @@ pub fn setup_network_node(
         store.clone(),
         vec![validators.into_iter().map(Into::into).collect()],
         1,
+        1,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let block_producer = BlockProducer::from(signer.clone());

@@ -13,7 +13,7 @@ use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
-use crate::serialize::{base_format, vec_base_format};
+use crate::serialize::{base_format, u128_dec_format, vec_base_format};
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake};
@@ -55,8 +55,10 @@ pub struct BlockHeader {
     /// Gas limit. Same for all chunks.
     pub gas_limit: GasUsage,
     /// Gas price. Same for all chunks
+    #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     /// Total supply of tokens in the system
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
 
     /// Signature of the block producer.

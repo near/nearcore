@@ -39,6 +39,7 @@ pub struct KeyValueRuntime {
     root: MerkleHash,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
+    num_shards: ShardId,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
     amounts: RwLock<HashMap<MerkleHash, HashMap<AccountId, u128>>>,
@@ -57,13 +58,14 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
 
 impl KeyValueRuntime {
     pub fn new(store: Arc<Store>) -> Self {
-        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1)
+        Self::new_with_validators(store, vec![vec!["test".to_string()]], 1, 1)
     }
 
     pub fn new_with_validators(
         store: Arc<Store>,
         validators: Vec<Vec<AccountId>>,
         validator_groups: u64,
+        num_shards: ShardId,
     ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut initial_amounts = HashMap::new();
@@ -98,6 +100,7 @@ impl KeyValueRuntime {
                 })
                 .collect(),
             validator_groups,
+            num_shards,
             amounts: RwLock::new(amounts),
             receipt_nonces: RwLock::new(HashMap::new()),
             tx_nonces: RwLock::new(HashMap::new()),
@@ -277,12 +280,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 
     fn num_shards(&self) -> ShardId {
-        let ret = self.validators.iter().map(|x| x.len()).min().unwrap();
-        if ret < 64 || ret % 4 != 0 {
-            ret as ShardId
-        } else {
-            (ret / 4) as ShardId
-        }
+        self.num_shards
     }
 
     fn num_total_parts(&self, parent_hash: &CryptoHash) -> usize {

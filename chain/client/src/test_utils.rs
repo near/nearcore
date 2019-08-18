@@ -20,6 +20,7 @@ use near_chain::ChainGenesis;
 use futures::future;
 use futures::future::Future;
 use near_network::types::{NetworkInfo, PeerChainInfo};
+use near_primitives::types::ShardId;
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
@@ -29,6 +30,7 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 pub fn setup(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
+    num_shards: ShardId,
     account_id: &str,
     skip_sync_wait: bool,
     block_prod_time: u64,
@@ -41,6 +43,7 @@ pub fn setup(
         store.clone(),
         validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
         validator_groups,
+        num_shards,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
     let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
@@ -83,8 +86,16 @@ pub fn setup_mock(
             Box::new(Some(resp))
         }))
         .start();
-        let (client, view_client) =
-            setup(vec![validators], 1, account_id, skip_sync_wait, 100, pm.recipient(), Utc::now());
+        let (client, view_client) = setup(
+            vec![validators],
+            1,
+            1,
+            account_id,
+            skip_sync_wait,
+            100,
+            pm.recipient(),
+            Utc::now(),
+        );
         *view_client_addr1.write().unwrap() = Some(view_client.start());
         client
     });
@@ -113,6 +124,7 @@ pub fn setup_mock_all_validators(
     let mut locked_connectors = connectors.write().unwrap();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
+    let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as ShardId;
 
     for account_id in validators.iter().flatten().cloned() {
         let view_client_addr = Arc::new(RwLock::new(None));
@@ -282,6 +294,7 @@ pub fn setup_mock_all_validators(
             let (client, view_client) = setup(
                 validators_clone1.clone(),
                 validator_groups,
+                num_shards,
                 account_id,
                 skip_sync_wait,
                 block_prod_time,

@@ -1241,7 +1241,7 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.gas_limit;
 
                     // Apply block to runtime.
-                    debug!(target: "chain",
+                    info!(target: "chain",
                         "[APPLY CHUNK] {:?} PREV BLOCK HASH: {:?}, BLOCK HASH: {:?} ROOT: {:?} SHARD ID: {:?}; WILL BE USING {} TXS and {} RECEIPTS",
                         chunk_header.height_included,
                         chunk_header.prev_block_hash,
