@@ -17,6 +17,7 @@ use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_primitives::types::{AccountId, Balance, Nonce};
 use near_primitives::views::{QueryResponse, ValidatorInfo};
+use testlib::fees_utils::*;
 
 lazy_static! {
     static ref HEAVY_TESTS_LOCK: Mutex<()> = Mutex::new(());
@@ -267,6 +268,8 @@ fn test_validator_join() {
             TESTING_INIT_STAKE,
             test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
         );
+        let stake_cost = stake_cost();
+
         actix::spawn(
             test_nodes[1]
                 .client
@@ -305,7 +308,7 @@ fn test_validator_join() {
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
                                         if result.staked == 0
-                                            && result.amount == TESTING_INIT_BALANCE
+                                            && result.amount == TESTING_INIT_BALANCE - stake_cost
                                         {
                                             done1_copy2.store(true, Ordering::SeqCst);
                                         }
@@ -325,7 +328,9 @@ fn test_validator_join() {
                                     QueryResponse::ViewAccount(result) => {
                                         if result.staked == TESTING_INIT_STAKE
                                             && result.amount
-                                                == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                == TESTING_INIT_BALANCE
+                                                    - TESTING_INIT_STAKE
+                                                    - stake_cost
                                         {
                                             done2_copy2.store(true, Ordering::SeqCst);
                                         }

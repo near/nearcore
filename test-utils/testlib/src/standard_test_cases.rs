@@ -5,6 +5,7 @@ use near_primitives::hash::hash;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalTransactionStatus;
 
+use crate::fees_utils::*;
 use crate::node::Node;
 use crate::runtime_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
@@ -165,8 +166,12 @@ pub fn test_upload_contract(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let transaction_result =
-        node_user.create_account(account_id.clone(), eve_account(), node.signer().public_key(), 10);
+    let transaction_result = node_user.create_account(
+        account_id.clone(),
+        eve_account(),
+        node.signer().public_key(),
+        10000,
+    );
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
 
@@ -201,6 +206,7 @@ pub fn test_send_money(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = 10;
+    let transfer_cost = transfer_cost();
     let transaction_result = node_user.send_money(account_id.clone(), bob_account(), money_used);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
@@ -212,7 +218,7 @@ pub fn test_send_money(node: impl Node) {
     assert_eq!(
         result1.unwrap(),
         AccountView {
-            amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE,
+            amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE - transfer_cost,
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
@@ -261,6 +267,8 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let node_user = node.user();
     let root = node_user.get_state_root();
     let money_used = 10;
+    // Successful atomic transfer has the same cost as failed atomic transfer.
+    let transfer_cost = transfer_cost();
     let transaction_result = node_user.send_money(account_id.clone(), eve_account(), money_used);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 3);
@@ -269,7 +277,7 @@ pub fn test_refund_on_send_money_to_non_existent_account(node: impl Node) {
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.staked),
-        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - transfer_cost, TESTING_INIT_STAKE)
     );
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
     let result2 = node_user.view_account(&eve_account());
@@ -288,6 +296,8 @@ pub fn test_create_account(node: impl Node) {
         money_used,
     );
 
+    let create_account_cost = create_account_transfer_full_key_cost();
+
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root = node_user.get_state_root();
@@ -297,7 +307,10 @@ pub fn test_create_account(node: impl Node) {
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.staked),
-        (TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE - create_account_cost,
+            TESTING_INIT_STAKE
+        )
     );
 
     let result2 = node_user.view_account(&eve_account()).unwrap();
@@ -315,11 +328,15 @@ pub fn test_create_account_again(node: impl Node) {
         node.signer().public_key(),
         money_used,
     );
+    let create_account_cost = create_account_transfer_full_key_cost();
 
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.staked),
-        (TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE - create_account_cost,
+            TESTING_INIT_STAKE
+        )
     );
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
@@ -339,10 +356,21 @@ pub fn test_create_account_again(node: impl Node) {
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 2);
 
+    // Additional cost for trying to create an account with repeated name. Will fail after
+    // the first action.
+    let additional_cost = create_account_transfer_full_key_cost_fail_on_create_account();
+
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.staked),
-        (TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+        (
+            TESTING_INIT_BALANCE
+                - money_used
+                - TESTING_INIT_STAKE
+                - create_account_cost
+                - additional_cost,
+            TESTING_INIT_STAKE
+        )
     );
 }
 
@@ -392,6 +420,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         node.signer().public_key(),
         money_used,
     );
+    let create_account_cost = create_account_transfer_full_key_cost_fail_on_create_account();
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
@@ -401,7 +430,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
     let result1 = node_user.view_account(account_id).unwrap();
     assert_eq!(
         (result1.amount, result1.staked),
-        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE, TESTING_INIT_STAKE)
+        (TESTING_INIT_BALANCE - TESTING_INIT_STAKE - create_account_cost, TESTING_INIT_STAKE)
     );
 
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -574,10 +603,11 @@ pub fn test_add_access_key_with_allowance(node: impl Node) {
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
+    let add_access_key_cost = add_key_cost(0);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, initial_balance);
+    assert_eq!(account.amount, initial_balance - add_access_key_cost);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
     let view_access_key = node_user.get_access_key(account_id, &signer2.public_key).unwrap();
@@ -598,9 +628,11 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     let signer2 = InMemorySigner::from_random();
     let account = node_user.view_account(account_id).unwrap();
     let initial_balance = account.amount;
+    let add_access_key_cost = add_key_cost(0);
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
 
     let root = node_user.get_state_root();
+    let delete_access_key_cost = delete_key_cost();
     let transaction_result = node_user.delete_key(account_id.clone(), signer2.public_key.clone());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
@@ -608,7 +640,7 @@ pub fn test_delete_access_key_with_allowance(node: impl Node) {
     assert_ne!(new_root, root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, initial_balance);
+    assert_eq!(account.amount, initial_balance - add_access_key_cost - delete_access_key_cost);
 
     assert!(node_user.get_access_key(&account_id, &node.signer().public_key()).unwrap().is_some());
     assert!(node_user.get_access_key(&account_id, &signer2.public_key).unwrap().is_none());
@@ -629,10 +661,12 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     add_access_key(&node, node_user.as_ref(), &access_key, &signer2);
     node_user.set_signer(signer2.clone());
 
+    let method_name = "run_test";
+    let function_call_cost = function_call_cost(method_name.as_bytes().len() as u64);
     let gas = 1000000;
     let root = node_user.get_state_root();
     let transaction_result =
-        node_user.function_call(account_id.clone(), bob_account(), "run_test", vec![], gas, 0);
+        node_user.function_call(account_id.clone(), bob_account(), method_name, vec![], gas, 0);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
@@ -645,7 +679,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
             AccessKey {
                 nonce: 1,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(FUNCTION_CALL_AMOUNT - gas as Balance),
+                    allowance: Some(FUNCTION_CALL_AMOUNT - gas as Balance - function_call_cost),
                     receiver_id: bob_account(),
                     method_names: vec![],
                 }),
@@ -731,6 +765,7 @@ pub fn test_increase_stake(node: impl Node) {
     let root = node_user.get_state_root();
     let account_id = &node.account_id().unwrap();
     let amount_staked = TESTING_INIT_STAKE + 1;
+    let stake_cost = stake_cost();
     let transaction_result =
         node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
@@ -740,7 +775,7 @@ pub fn test_increase_stake(node: impl Node) {
     assert_ne!(root, new_root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - 1 - stake_cost);
     assert_eq!(account.staked, amount_staked)
 }
 
@@ -751,13 +786,14 @@ pub fn test_decrease_stake(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let transaction_result =
         node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
+    let stake_cost = stake_cost();
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
     let new_root = node_user.get_state_root();
     assert_ne!(root, new_root);
 
     let account = node_user.view_account(account_id).unwrap();
-    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE - stake_cost);
     assert_eq!(account.staked, TESTING_INIT_STAKE);
 }
 
@@ -802,6 +838,7 @@ pub fn test_delete_account(node: impl Node) {
     assert!(node_user.view_state(&bob_account(), b"").unwrap().values.len() > 0);
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
     let bobs_amount = node_user.view_account(&bob_account()).unwrap().amount;
+    let delete_account_cost = delete_account_cost();
     let transaction_result = node_user.delete_account(alice_account(), bob_account());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 3);
@@ -811,20 +848,21 @@ pub fn test_delete_account(node: impl Node) {
     // Receive back reward the balance of the bob's account.
     assert_eq!(
         node_user.view_account(&node.account_id().unwrap()).unwrap().amount,
-        initial_amount + bobs_amount
+        initial_amount + bobs_amount - delete_account_cost
     );
 }
 
 pub fn test_delete_account_fail(node: impl Node) {
     let node_user = node.user();
     let initial_amount = node_user.view_account(&node.account_id().unwrap()).unwrap().amount;
+    let delete_account_cost = delete_account_cost();
     let transaction_result = node_user.delete_account(alice_account(), bob_account());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 2);
     assert!(node.user().view_account(&bob_account()).is_ok());
     assert_eq!(
         node.user().view_account(&node.account_id().unwrap()).unwrap().amount,
-        initial_amount
+        initial_amount - delete_account_cost
     );
 }
 

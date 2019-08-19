@@ -2076,6 +2076,7 @@ dependencies = [
  "serde_derive 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "testlib 0.1.0",
  "tokio 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -3482,6 +3483,7 @@ dependencies = [
  "near-client 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-primitives 0.1.0",
+ "near-runtime-fees 0.1.0",
  "near-store 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",

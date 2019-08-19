@@ -162,11 +162,13 @@ impl Runtime {
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = signed_transaction.transaction.nonce;
 
-        let mut total_cost_gas: Gas = self
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(sender_is_receiver);
+        let mut total_cost_gas: Gas = safe_add_gas(
+            self.config
+                .transaction_costs
+                .action_receipt_creation_config
+                .send_fee(sender_is_receiver),
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
         total_cost_gas = safe_add_gas(
             total_cost_gas,
             total_send_fees(
@@ -522,16 +524,14 @@ impl Runtime {
         let total_deposit = total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
         let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
-            .expect(OVERFLOW_CHECKED_ERR);
+            .expect(OVERFLOW_CHECKED_ERR)
+            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
 
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
-        let total_gas = prepaid_gas
-            + exec_gas
-            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
         let gas_refund = if result.result.is_err() {
-            total_gas - result.gas_burnt
+            prepaid_gas + exec_gas - result.gas_burnt
         } else {
-            total_gas - result.gas_used
+            prepaid_gas + exec_gas - result.gas_used
         };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {

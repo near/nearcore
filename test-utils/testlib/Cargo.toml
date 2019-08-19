@@ -31,6 +31,7 @@ near-chain = { path = "../../chain/chain" }
 near-client = { path = "../../chain/client" }
 near-jsonrpc = { path = "../../chain/jsonrpc" }
 near = { path = "../../near" }
+near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 
 [dependencies.reqwest]
 version = "0.9"
