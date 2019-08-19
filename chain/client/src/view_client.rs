@@ -8,11 +8,11 @@ use chrono::{DateTime, Utc};
 
 use near_chain::{Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{
+use near_primitives::transaction::{TransactionResult, TransactionStatus};
+use near_primitives::views::{
     BlockView, FinalTransactionResult, FinalTransactionStatus, QueryResponse, TransactionLogView,
     TransactionResultView,
 };
-use near_primitives::transaction::{TransactionResult, TransactionStatus};
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};

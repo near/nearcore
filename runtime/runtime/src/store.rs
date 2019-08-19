@@ -1,7 +1,8 @@
-use near_primitives::receipt::ReceiptView;
-use near_primitives::rpc::{AccessKeyView, AccountView, CryptoHashView, PublicKeyView};
 use near_primitives::serialize::option_base64_format;
 use near_primitives::types::AccountId;
+use near_primitives::views::{
+    AccessKeyView, AccountView, CryptoHashView, PublicKeyView, ReceiptView,
+};
 
 /// Record in the state storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]

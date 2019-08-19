@@ -4,6 +4,7 @@ extern crate log;
 extern crate serde_derive;
 
 use std::collections::{hash_map::Entry, HashMap};
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
@@ -39,7 +40,6 @@ use crate::config::{
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
 use near_vm_logic::types::PromiseResult;
-use std::convert::TryInto;
 
 mod actions;
 pub mod adapter;
@@ -525,10 +525,13 @@ impl Runtime {
             .expect(OVERFLOW_CHECKED_ERR);
 
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let total_gas = prepaid_gas
+            + exec_gas
+            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt
+            total_gas - result.gas_burnt
         } else {
-            prepaid_gas + exec_gas - result.gas_used
+            total_gas - result.gas_used
         };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {

@@ -7,12 +7,12 @@ use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::rpc::QueryResponse;
 use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
 use near_store::{PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 

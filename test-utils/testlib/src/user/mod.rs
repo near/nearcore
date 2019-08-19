@@ -7,16 +7,16 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
-};
-use near_primitives::rpc::{FinalTransactionResult, TransactionResultView};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransactionResult,
     TransferAction,
 };
 use near_primitives::types::{AccountId, Balance, Gas, MerkleHash};
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ViewStateResult,
+};
+use near_primitives::views::{FinalTransactionResult, TransactionResultView};
 
 pub use crate::user::runtime_user::RuntimeUser;
 

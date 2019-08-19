@@ -6,9 +6,9 @@ use std::time::Instant;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::ViewStateResult;
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
+use near_primitives::views::ViewStateResult;
 use near_store::{get_access_key, get_account, TrieUpdate};
 use near_vm_logic::{Config, ReturnData, VMContext};
 
