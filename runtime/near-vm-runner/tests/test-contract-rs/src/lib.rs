@@ -282,17 +282,6 @@ pub fn sum_n() {
     }
 }
 
-fn build_string(n: u64) -> String {
-    let mut result = "".to_string();
-    for i in (0..20).rev() {
-        result += &result.clone();
-        if (n >> i) & 1 != 0 {
-            result += "a";
-        }
-    }
-    result
-}
-
 #[no_mangle]
 pub fn insert_strings() {
     unsafe {
@@ -309,9 +298,9 @@ pub fn insert_strings() {
         to.copy_from_slice(&data[size_of::<u64>()..]);
         let from = u64::from_le_bytes(from);
         let to = u64::from_le_bytes(to);
-        let s = build_string(to);
+        let s = vec![b'a'; to as usize];
         for i in from..to {
-            let mut key = s.as_bytes()[(to - i) as usize..].to_vec();
+            let mut key = s[(to - i) as usize..].to_vec();
             key.push(b'b');
             let value = b"x";
             storage_write(
@@ -341,9 +330,9 @@ pub fn delete_strings() {
         to.copy_from_slice(&data[size_of::<u64>()..]);
         let from = u64::from_le_bytes(from);
         let to = u64::from_le_bytes(to);
-        let s = build_string(to);
+        let s = vec![b'a'; to as usize];
         for i in from..to {
-            let mut key = s.as_bytes()[(to - i) as usize..].to_vec();
+            let mut key = s[(to - i) as usize..].to_vec();
             key.push(b'b');
             storage_remove(key.len() as u64, key.as_ptr() as u64, 0);
         }
