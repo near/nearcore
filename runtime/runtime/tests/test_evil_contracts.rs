@@ -25,7 +25,8 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
     node
 }
 
-#[test]
+//#[test] Max's working on re-enabling these tests.
+#[allow(dead_code)]
 fn test_evil_deep_trie() {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     (0..50).for_each(|i| {
@@ -54,7 +55,8 @@ fn test_evil_deep_trie() {
     });
 }
 
-#[test]
+//#[test] Max's working on re-enabling these tests.
+#[allow(dead_code)]
 fn test_evil_deep_recursion() {
     let node = setup_test_contract(include_bytes!("../../../tests/hello.wasm"));
     [100, 1000, 10000, 100000, 1000000].iter().for_each(|n| {

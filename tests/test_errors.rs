@@ -51,6 +51,8 @@ fn test_check_tx_error_log() {
 fn test_deliver_tx_error_log() {
     let node = start_node();
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+
+    let cost = testlib::fees_utils::create_account_transfer_full_key_cost();
     let tx = SignedTransaction::from_actions(
         1,
         "alice.near".to_string(),
@@ -69,6 +71,9 @@ fn test_deliver_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap();
     assert_eq!(
         tx_result.transactions[0].result.logs[0],
-        "Runtime error: Sender does not have enough balance 999999950000000 for operation costing 1000000000000001"
+        format!(
+        "Runtime error: Sender does not have enough balance 999999950000000 for operation costing {}",
+            TESTING_INIT_BALANCE + 1 + cost
+        )
     );
 }
