@@ -43,7 +43,8 @@ impl Generator {
 
     /// Returns transactions that deploy test contract to an every account used by the node.
     pub fn deploy_test_contract(node: &Arc<RwLock<RemoteNode>>) -> Vec<SignedTransaction> {
-        let wasm_binary: &[u8] = include_bytes!("../../../tests/hello.wasm");
+        let wasm_binary: &[u8] =
+            include_bytes!("../../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
         let mut res = vec![];
         let mut node = node.write().unwrap();
         for ind in 0..node.signers.len() {
