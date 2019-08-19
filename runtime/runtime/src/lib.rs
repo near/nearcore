@@ -518,7 +518,8 @@ impl Runtime {
         let total_deposit = total_deposit(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
         let prepaid_gas = total_prepaid_gas(&action_receipt.actions).expect(OVERFLOW_CHECKED_ERR);
         let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
-            .expect(OVERFLOW_CHECKED_ERR);
+            .expect(OVERFLOW_CHECKED_ERR)
+            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
 
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
