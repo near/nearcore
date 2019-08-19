@@ -98,3 +98,16 @@ impl fmt::Debug for DataReceipt {
             .finish()
     }
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+pub struct ReceivedData {
+    pub data: Option<Vec<u8>>,
+}
+
+impl fmt::Debug for ReceivedData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ReceivedData")
+            .field("data", &format_args!("{}", logging::pretty_result(&self.data)))
+            .finish()
+    }
+}

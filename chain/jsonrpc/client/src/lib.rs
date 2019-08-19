@@ -4,10 +4,10 @@ use actix_web::client::Client;
 use futures::Future;
 use serde::Serialize;
 
-use near_primitives::rpc::{
+use near_primitives::types::BlockIndex;
+use near_primitives::views::{
     BlockView, FinalTransactionResult, QueryResponse, StatusResponse, TransactionResultView,
 };
-use near_primitives::types::BlockIndex;
 
 pub mod message;
 use crate::message::{from_slice, Message};

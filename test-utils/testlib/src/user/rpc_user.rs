@@ -10,13 +10,13 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
-    TransactionResultView, ViewStateResult,
-};
 use near_primitives::serialize::{to_base, to_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
+    TransactionResultView, ViewStateResult,
+};
 
 use crate::user::User;
 

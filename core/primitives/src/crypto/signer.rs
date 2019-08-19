@@ -11,8 +11,8 @@ use rand::Rng;
 
 use crate::crypto::aggregate_signature::BlsPublicKey;
 use crate::crypto::signature::{get_key_pair, sign, verify, PublicKey, SecretKey, Signature};
-use crate::rpc::{PublicKeyView, SecretKeyView};
 use crate::types::{AccountId, PartialSignature};
+use crate::views::{PublicKeyView, SecretKeyView};
 
 /// Trait to abstract the signer account.
 pub trait AccountSigner: Sync + Send {

@@ -9,13 +9,13 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::rpc::{
+use near_primitives::transaction::{SignedTransaction, TransactionStatus};
+use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CryptoHashView, TransactionLogView,
     TransactionResultView, ViewStateResult,
 };
-use near_primitives::rpc::{FinalTransactionResult, FinalTransactionStatus};
-use near_primitives::transaction::{SignedTransaction, TransactionStatus};
-use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::views::{FinalTransactionResult, FinalTransactionStatus};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;

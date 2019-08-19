@@ -76,7 +76,7 @@ pub(crate) fn action_function_call(
     account: &mut Option<Account>,
     receipt: &Receipt,
     action_receipt: &ActionReceipt,
-    input_data: &Vec<Option<Vec<u8>>>,
+    promise_results: &[PromiseResult],
     result: &mut ActionResult,
     account_id: &AccountId,
     function_call: &FunctionCallAction,
@@ -121,14 +121,6 @@ pub(crate) fn action_function_call(
         output_data_receivers,
     };
 
-    let promise_results = input_data
-        .iter()
-        .map(|res| match res {
-            Some(res) => PromiseResult::Successful(res.clone()),
-            None => PromiseResult::Failed,
-        })
-        .collect::<Vec<_>>();
-
     let (outcome, err) = near_vm_runner::run(
         code.hash.as_ref().to_vec(),
         &code.code,
@@ -136,7 +128,7 @@ pub(crate) fn action_function_call(
         &mut runtime_ext,
         context,
         &config.wasm_config,
-        &promise_results,
+        promise_results,
     );
     if let Some(err) = err {
         result.result =

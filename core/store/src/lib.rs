@@ -13,13 +13,16 @@ use near_primitives::crypto::signature::PublicKey;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
-    key_for_access_key, key_for_account, key_for_code, prefix_for_access_key, prefix_for_data,
+    key_for_access_key, key_for_account, key_for_code, key_for_postponed_receipt,
+    key_for_received_data, prefix_for_access_key, prefix_for_data,
 };
 
 pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{Receipt, ReceivedData};
 
 pub mod test_utils;
 mod trie;
@@ -220,6 +223,36 @@ pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Acc
 
 pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
     get(state_update, &key_for_account(key))
+}
+
+pub fn set_received_data(
+    state_update: &mut TrieUpdate,
+    account_id: &AccountId,
+    data_id: &CryptoHash,
+    data: &ReceivedData,
+) {
+    set(state_update, key_for_received_data(account_id, data_id), data);
+}
+
+pub fn get_received_data(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    data_id: &CryptoHash,
+) -> Option<ReceivedData> {
+    get(state_update, &key_for_received_data(account_id, data_id))
+}
+
+pub fn set_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    let key = key_for_postponed_receipt(&receipt.receiver_id, &receipt.receipt_id);
+    set(state_update, key, receipt);
+}
+
+pub fn get_receipt(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+    receipt_id: &CryptoHash,
+) -> Option<Receipt> {
+    get(state_update, &key_for_postponed_receipt(account_id, receipt_id))
 }
 
 pub fn set_access_key(

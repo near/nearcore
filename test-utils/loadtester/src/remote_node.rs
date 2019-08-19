@@ -10,10 +10,10 @@ use reqwest::Client as SyncClient;
 
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::rpc::AccessKeyView;
 use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
+use near_primitives::views::AccessKeyView;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.

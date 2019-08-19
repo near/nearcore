@@ -21,7 +21,7 @@ pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::message as message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::FinalTransactionStatus;
+use near_primitives::views::FinalTransactionStatus;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;

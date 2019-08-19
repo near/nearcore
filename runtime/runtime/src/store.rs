@@ -1,6 +1,8 @@
-use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{AccessKeyView, AccountView, PublicKeyView};
+use near_primitives::serialize::option_base64_format;
 use near_primitives::types::AccountId;
+use near_primitives::views::{
+    AccessKeyView, AccountView, CryptoHashView, PublicKeyView, ReceiptView,
+};
 
 /// Record in the state storage.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -13,20 +15,13 @@ pub enum StateRecord {
     Contract { account_id: AccountId, code: String },
     /// Access key associated with some account.
     AccessKey { account_id: AccountId, public_key: PublicKeyView, access_key: AccessKeyView },
-    // TODO: DATA
-}
-
-impl StateRecord {
-    pub fn account(account_id: &str, amount: u128, staked: u128) -> Self {
-        StateRecord::Account {
-            account_id: account_id.to_string(),
-            account: AccountView {
-                amount,
-                staked,
-                code_hash: CryptoHash::default().into(),
-                storage_usage: 0,
-                storage_paid_at: 0,
-            },
-        }
-    }
+    /// Postponed Action Receipt.
+    PostponedReceipt(ReceiptView),
+    /// Received data from DataReceipt encoded in base64 for the given account_id and data_id.
+    ReceivedData {
+        account_id: AccountId,
+        data_id: CryptoHashView,
+        #[serde(with = "option_base64_format")]
+        data: Option<Vec<u8>>,
+    },
 }

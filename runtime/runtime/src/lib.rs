@@ -4,6 +4,7 @@ extern crate log;
 extern crate serde_derive;
 
 use std::collections::{hash_map::Entry, HashMap};
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
@@ -11,7 +12,7 @@ use kvdb::DBValue;
 use near_primitives::account::{AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
     Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
@@ -25,8 +26,8 @@ use near_primitives::utils::{
     key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
 };
 use near_store::{
-    get, get_account, set, set_access_key, set_account, set_code, StoreUpdate, TrieChanges,
-    TrieUpdate,
+    get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
+    set_receipt, set_received_data, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
 use near_vm_logic::ReturnData;
@@ -38,6 +39,7 @@ use crate::config::{
 };
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
+use near_vm_logic::types::PromiseResult;
 
 mod actions;
 pub mod adapter;
@@ -267,7 +269,7 @@ impl Runtime {
         actor_id: &mut AccountId,
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
-        input_data: &Vec<Option<Vec<u8>>>,
+        promise_results: &[PromiseResult],
         action_hash: CryptoHash,
         is_last_action: bool,
     ) -> ActionResult {
@@ -307,7 +309,7 @@ impl Runtime {
                     account,
                     receipt,
                     action_receipt,
-                    input_data,
+                    promise_results,
                     &mut result,
                     account_id,
                     function_call,
@@ -357,15 +359,17 @@ impl Runtime {
         };
         let account_id = &receipt.receiver_id;
         // Collecting input data and removing it from the state
-        let input_data = action_receipt
+        let promise_results = action_receipt
             .input_data_ids
             .iter()
             .map(|data_id| {
-                let data: Option<Vec<u8>> =
-                    get(state_update, &key_for_received_data(account_id, data_id))
-                        .expect("data should be present in the state");
+                let ReceivedData { data } = get_received_data(state_update, account_id, data_id)
+                    .expect("data should be present in the state");
                 state_update.remove(&key_for_received_data(account_id, data_id));
-                data
+                match data {
+                    Some(value) => PromiseResult::Successful(value),
+                    None => PromiseResult::Failed,
+                }
             })
             .collect::<Vec<_>>();
 
@@ -393,7 +397,7 @@ impl Runtime {
                 &mut actor_id,
                 receipt,
                 action_receipt,
-                &input_data,
+                &promise_results,
                 create_nonce_with_nonce(
                     &receipt.receipt_id,
                     u64::max_value() - action_index as u64,
@@ -521,10 +525,13 @@ impl Runtime {
             .expect(OVERFLOW_CHECKED_ERR);
 
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
+        let total_gas = prepaid_gas
+            + exec_gas
+            + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt
+            total_gas - result.gas_burnt
         } else {
-            prepaid_gas + exec_gas - result.gas_used
+            total_gas - result.gas_used
         };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {
@@ -555,10 +562,11 @@ impl Runtime {
             ReceiptEnum::Data(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
-                set(
+                set_received_data(
                     state_update,
-                    key_for_received_data(account_id, &data_receipt.data_id),
-                    &data_receipt.data,
+                    account_id,
+                    &data_receipt.data_id,
+                    &ReceivedData { data: data_receipt.data.clone() },
                 );
                 // Check if there is already a receipt that was postponed and was awaiting for the
                 // given data_id.
@@ -582,9 +590,8 @@ impl Runtime {
                         // Removing pending data count form the state.
                         state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
                         // Fetching the receipt itself.
-                        let ready_receipt =
-                            get(state_update, &key_for_postponed_receipt(account_id, &receipt_id))
-                                .expect("pending receipt should be in the state");
+                        let ready_receipt = get_receipt(state_update, account_id, &receipt_id)
+                            .expect("pending receipt should be in the state");
                         // Removing the receipt from the state.
                         state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
@@ -614,12 +621,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get::<Option<Vec<u8>>>(
-                        state_update,
-                        &key_for_received_data(account_id, data_id),
-                    )
-                    .is_none()
-                    {
+                    if get_received_data(state_update, account_id, data_id).is_none() {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -649,11 +651,7 @@ impl Runtime {
                         &pending_data_count,
                     );
                     // Save the receipt itself into the state.
-                    set(
-                        state_update,
-                        key_for_postponed_receipt(account_id, &receipt.receipt_id),
-                        receipt,
-                    );
+                    set_receipt(state_update, &receipt);
                 }
             }
         };
@@ -731,6 +729,7 @@ impl Runtime {
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
     ) -> (StoreUpdate, MerkleHash) {
+        let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
             match record.clone() {
                 StateRecord::Account { account_id, account } => {
@@ -756,8 +755,52 @@ impl Runtime {
                         &access_key.into(),
                     );
                 }
+                StateRecord::PostponedReceipt(receipt) => {
+                    // Delaying processing postponed receipts, until we process all data first
+                    postponed_receipts
+                        .push(receipt.try_into().expect("Failed to convert receipt from view"));
+                }
+                StateRecord::ReceivedData { account_id, data_id, data } => {
+                    set_received_data(
+                        &mut state_update,
+                        &account_id,
+                        &data_id.into(),
+                        &ReceivedData { data },
+                    );
+                }
             }
         }
+        // Processing postponed receipts after we stored all received data
+        for receipt in postponed_receipts {
+            let account_id = &receipt.receiver_id;
+            let action_receipt = match &receipt.receipt {
+                ReceiptEnum::Action(a) => a,
+                _ => panic!("Expected action receipt"),
+            };
+            // Logic similar to `apply_receipt`
+            let mut pending_data_count = 0;
+            for data_id in &action_receipt.input_data_ids {
+                if get_received_data(&state_update, account_id, data_id).is_none() {
+                    pending_data_count += 1;
+                    set(
+                        &mut state_update,
+                        key_for_postponed_receipt_id(account_id, data_id),
+                        &receipt.receipt_id,
+                    )
+                }
+            }
+            if pending_data_count == 0 {
+                panic!("Postponed receipt should have pending data")
+            } else {
+                set(
+                    &mut state_update,
+                    key_for_pending_data_count(account_id, &receipt.receipt_id),
+                    &pending_data_count,
+                );
+                set_receipt(&mut state_update, &receipt);
+            }
+        }
+
         for (account_id, _, amount) in validators {
             let mut account: Account =
                 get_account(&state_update, account_id).expect("account must exist");

@@ -15,10 +15,10 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::rpc::{QueryResponse, ViewStateResult};
 use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_primitives::utils::prefix_for_access_key;
+use near_primitives::views::{QueryResponse, ViewStateResult};
 use near_store::{
     get_access_key_raw, get_account, set_account, PartialStorage, Store, StoreUpdate, Trie,
     TrieUpdate, WrappedTrieChanges,

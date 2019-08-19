@@ -1,5 +1,5 @@
-use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::types::Gas;
+use near_primitives::views::FinalTransactionStatus;
 use testlib::node::{Node, RuntimeNode};
 
 const FUNCTION_CALL_GAS_AMOUNT: Gas = 1_000_000_000;
