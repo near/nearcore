@@ -17,7 +17,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
-use near_primitives::rpc::AccountView;
+use near_primitives::views::AccountView;
 
 mod process_node;
 mod runtime_node;

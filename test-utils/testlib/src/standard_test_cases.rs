@@ -2,8 +2,8 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
-use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::types::Balance;
+use near_primitives::views::FinalTransactionStatus;
 
 use crate::fees_utils::*;
 use crate::node::Node;
@@ -11,7 +11,7 @@ use crate::runtime_utils::{
     alice_account, bob_account, default_code_hash, encode_int, eve_account,
 };
 use crate::user::User;
-use near_primitives::rpc::AccountView;
+use near_primitives::views::AccountView;
 use std::sync::Arc;
 
 /// The amount to send with function call.

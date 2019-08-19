@@ -18,13 +18,12 @@ const NS_IN_SECOND: u64 = 1_000_000_000;
 
 pub mod col {
     pub const ACCOUNT: &[u8] = &[0];
-    pub const CALLBACK: &[u8] = &[1];
-    pub const CODE: &[u8] = &[2];
-    pub const ACCESS_KEY: &[u8] = &[3];
-    pub const RECEIVED_DATA: &[u8] = &[4];
-    pub const POSTPONED_RECEIPT_ID: &[u8] = &[5];
-    pub const PENDING_DATA_COUNT: &[u8] = &[6];
-    pub const POSTPONED_RECEIPT: &[u8] = &[7];
+    pub const CODE: &[u8] = &[1];
+    pub const ACCESS_KEY: &[u8] = &[2];
+    pub const RECEIVED_DATA: &[u8] = &[3];
+    pub const POSTPONED_RECEIPT_ID: &[u8] = &[4];
+    pub const PENDING_DATA_COUNT: &[u8] = &[5];
+    pub const POSTPONED_RECEIPT: &[u8] = &[6];
 }
 
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {

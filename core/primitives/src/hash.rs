@@ -142,7 +142,7 @@ pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::CryptoHashView;
+    use crate::views::CryptoHashView;
 
     #[derive(Deserialize, Serialize)]
     struct Struct {

@@ -8,10 +8,10 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::rpc::FinalTransactionStatus;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
+use near_primitives::views::FinalTransactionStatus;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]

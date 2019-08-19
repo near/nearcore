@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use chrono::{DateTime, Utc};
@@ -10,12 +10,15 @@ use crate::block::{Block, BlockHeader, BlockHeaderInner};
 use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
 use crate::logging;
+use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
-    base_bytes_format, from_base, from_base64, option_u128_dec_format, to_base, to_base64,
-    u128_dec_format,
+    base_bytes_format, from_base, from_base64, option_base64_format, option_u128_dec_format,
+    to_base, to_base64, u128_dec_format,
 };
 use crate::transaction::{
-    Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, LogEntry, SignedTransaction, StakeAction,
+    TransactionLog, TransactionResult, TransactionStatus, TransferAction,
 };
 use crate::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
@@ -410,7 +413,7 @@ impl From<Block> for BlockView {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ActionView {
     CreateAccount,
     DeployContract {
@@ -453,7 +456,7 @@ impl From<Action> for ActionView {
             }
             Action::FunctionCall(action) => ActionView::FunctionCall {
                 method_name: action.method_name,
-                args: to_base(&action.args),
+                args: to_base64(&action.args),
                 gas: action.gas,
                 deposit: action.deposit,
             },
@@ -472,6 +475,41 @@ impl From<Action> for ActionView {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
         }
+    }
+}
+
+impl TryFrom<ActionView> for Action {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(action_view: ActionView) -> Result<Self, Self::Error> {
+        Ok(match action_view {
+            ActionView::CreateAccount => Action::CreateAccount(CreateAccountAction {}),
+            ActionView::DeployContract { code } => {
+                Action::DeployContract(DeployContractAction { code: from_base64(&code)? })
+            }
+            ActionView::FunctionCall { method_name, args, gas, deposit } => {
+                Action::FunctionCall(FunctionCallAction {
+                    method_name,
+                    args: from_base64(&args)?,
+                    gas,
+                    deposit,
+                })
+            }
+            ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
+            ActionView::Stake { stake, public_key } => {
+                Action::Stake(StakeAction { stake, public_key: public_key.into() })
+            }
+            ActionView::AddKey { public_key, access_key } => Action::AddKey(AddKeyAction {
+                public_key: public_key.into(),
+                access_key: access_key.into(),
+            }),
+            ActionView::DeleteKey { public_key } => {
+                Action::DeleteKey(DeleteKeyAction { public_key: public_key.into() })
+            }
+            ActionView::DeleteAccount { beneficiary_id } => {
+                Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+        })
     }
 }
 
@@ -637,5 +675,114 @@ impl From<ValidatorStakeView> for ValidatorStake {
             public_key: view.public_key.into(),
             amount: view.amount,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReceiptView {
+    pub predecessor_id: AccountId,
+    pub receiver_id: AccountId,
+    pub receipt_id: CryptoHashView,
+
+    pub receipt: ReceiptEnumView,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DataReceiverView {
+    pub data_id: CryptoHashView,
+    pub receiver_id: AccountId,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ReceiptEnumView {
+    Action {
+        signer_id: AccountId,
+        signer_public_key: PublicKeyView,
+        #[serde(with = "u128_dec_format")]
+        gas_price: Balance,
+        output_data_receivers: Vec<DataReceiverView>,
+        input_data_ids: Vec<CryptoHashView>,
+        actions: Vec<ActionView>,
+    },
+    Data {
+        data_id: CryptoHashView,
+        #[serde(with = "option_base64_format")]
+        data: Option<Vec<u8>>,
+    },
+}
+
+impl From<Receipt> for ReceiptView {
+    fn from(receipt: Receipt) -> Self {
+        ReceiptView {
+            predecessor_id: receipt.predecessor_id,
+            receiver_id: receipt.receiver_id,
+            receipt_id: receipt.receipt_id.into(),
+            receipt: match receipt.receipt {
+                ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
+                    signer_id: action_receipt.signer_id,
+                    signer_public_key: action_receipt.signer_public_key.into(),
+                    gas_price: action_receipt.gas_price,
+                    output_data_receivers: action_receipt
+                        .output_data_receivers
+                        .into_iter()
+                        .map(|data_receiver| DataReceiverView {
+                            data_id: data_receiver.data_id.into(),
+                            receiver_id: data_receiver.receiver_id,
+                        })
+                        .collect(),
+                    input_data_ids: action_receipt
+                        .input_data_ids
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    actions: action_receipt.actions.into_iter().map(Into::into).collect(),
+                },
+                ReceiptEnum::Data(data_receipt) => ReceiptEnumView::Data {
+                    data_id: data_receipt.data_id.into(),
+                    data: data_receipt.data,
+                },
+            },
+        }
+    }
+}
+
+impl TryFrom<ReceiptView> for Receipt {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(receipt_view: ReceiptView) -> Result<Self, Self::Error> {
+        Ok(Receipt {
+            predecessor_id: receipt_view.predecessor_id,
+            receiver_id: receipt_view.receiver_id,
+            receipt_id: receipt_view.receipt_id.into(),
+            receipt: match receipt_view.receipt {
+                ReceiptEnumView::Action {
+                    signer_id,
+                    signer_public_key,
+                    gas_price,
+                    output_data_receivers,
+                    input_data_ids,
+                    actions,
+                } => ReceiptEnum::Action(ActionReceipt {
+                    signer_id,
+                    signer_public_key: signer_public_key.into(),
+                    gas_price,
+                    output_data_receivers: output_data_receivers
+                        .into_iter()
+                        .map(|data_receiver_view| DataReceiver {
+                            data_id: data_receiver_view.data_id.into(),
+                            receiver_id: data_receiver_view.receiver_id,
+                        })
+                        .collect(),
+                    input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
+                    actions: actions
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?,
+                }),
+                ReceiptEnumView::Data { data_id, data } => {
+                    ReceiptEnum::Data(DataReceipt { data_id: data_id.into(), data })
+                }
+            },
+        })
     }
 }

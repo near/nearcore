@@ -1,10 +1,10 @@
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
-use near_primitives::rpc::{
-    AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
-};
 use near_primitives::serialize::BaseDecode;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::views::{
+    AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
+};
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
