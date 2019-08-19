@@ -10,7 +10,9 @@ use near_primitives::transaction::{
     FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, BlockIndex, ValidatorStake};
-use near_primitives::utils::key_for_access_key;
+use near_primitives::utils::{
+    is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
+};
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
@@ -192,8 +194,19 @@ pub(crate) fn action_create_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
+    result: &mut ActionResult,
 ) {
-    // TODO(#968): Validate new name according to ANS
+    let account_id = &receipt.receiver_id;
+    if !is_valid_top_level_account_id(account_id)
+        && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
+    {
+        result.result = Err(format!(
+            "The new account_id {:?} can't be created by {:?}",
+            account_id, &receipt.predecessor_id
+        )
+        .into());
+        return;
+    }
     *actor_id = receipt.receiver_id.clone();
     *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
 }
