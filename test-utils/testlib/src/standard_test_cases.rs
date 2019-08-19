@@ -382,11 +382,11 @@ pub fn test_create_account_failure_invalid_name(node: impl Node) {
     let root = node_user.get_state_root();
     let money_used = 10;
     for invalid_account_name in [
-        "eve",                               // too short
-        "Alice.near",                        // capital letter
-        "alice(near)",                       // brackets are invalid
-        "long_of_the_name_for_real_is_hard", // too long
-        "qq@qq*qq",                          // * is invalid
+        "e",                                                                 // too short
+        "Alice.near",                                                        // capital letter
+        "alice(near)",                                                       // brackets are invalid
+        "qq@qq*qq",                                                          // * is invalid
+        "01234567890123456789012345678901234567890123456789012345678901234", // too long
     ]
     .iter()
     {
