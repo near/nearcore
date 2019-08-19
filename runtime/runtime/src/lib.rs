@@ -160,11 +160,13 @@ impl Runtime {
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = signed_transaction.transaction.nonce;
 
-        let mut total_cost_gas: Gas = self
-            .config
-            .transaction_costs
-            .action_receipt_creation_config
-            .send_fee(sender_is_receiver);
+        let mut total_cost_gas: Gas = safe_add_gas(
+            self.config
+                .transaction_costs
+                .action_receipt_creation_config
+                .send_fee(sender_is_receiver),
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
         total_cost_gas = safe_add_gas(
             total_cost_gas,
             total_send_fees(

@@ -394,11 +394,21 @@ impl<'a> VMLogic<'a> {
         let mut use_gas = runtime_fees_cfg
             .action_receipt_creation_config
             .send_fee(sir)
+            .checked_add(runtime_fees_cfg.action_receipt_creation_config.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?
             .checked_add(function_call_cost.send_fee(sir))
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(function_call_cost.exec_fee())
             .ok_or(HostError::IntegerOverflow)?
             .checked_add(
                 num_bytes
                     .checked_mul(function_call_cost.send_fee(sir))
+                    .ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?
+            .checked_add(
+                num_bytes
+                    .checked_mul(function_call_cost.exec_fee())
                     .ok_or(HostError::IntegerOverflow)?,
             )
             .ok_or(HostError::IntegerOverflow)?
