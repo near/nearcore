@@ -305,7 +305,8 @@ fn test_validator_join() {
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
                                         if result.staked == 0
-                                            && result.amount == TESTING_INIT_BALANCE
+                                            && result.amount <= TESTING_INIT_BALANCE
+                                            && result.amount > 0
                                         {
                                             done1_copy2.store(true, Ordering::SeqCst);
                                         }
@@ -325,7 +326,7 @@ fn test_validator_join() {
                                     QueryResponse::ViewAccount(result) => {
                                         if result.staked == TESTING_INIT_STAKE
                                             && result.amount
-                                                == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                <= TESTING_INIT_BALANCE - TESTING_INIT_STAKE
                                         {
                                             done2_copy2.store(true, Ordering::SeqCst);
                                         }
