@@ -1,8 +1,9 @@
-import { context, storage, ContractPromise, ContractPromiseResult, near } from "./near";
+// @nearfile
+import { context, storage, ContractPromise, near } from "near-runtime-ts";
 
-import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model.near";
+import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model";
 
-import { u128 } from "./bignum/integer/u128";
+import { u128 } from "bignum";
 
 export function hello(name: string): string {
 
