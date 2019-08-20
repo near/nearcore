@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, IteratorIndex, ReceiptIndex, StorageUsage};
+use crate::types::{AccountId, Balance, Gas, IteratorIndex, ReceiptIndex};
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -68,8 +68,6 @@ pub trait External {
         attached_deposit: Balance,
         prepaid_gas: Gas,
     ) -> Result<ReceiptIndex>;
-
-    fn storage_usage(&self) -> StorageUsage;
 }
 
 impl std::fmt::Display for ExternalError {

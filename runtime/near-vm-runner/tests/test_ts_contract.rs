@@ -19,6 +19,7 @@ fn create_context(input: &[u8]) -> VMContext {
         input: Vec::from(input),
         block_index: 0,
         account_balance: 0,
+        storage_usage: 0, // it's not actually 0 and storage_remove will overflow but we don't use it
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(9),
         random_seed: vec![0, 1, 2],

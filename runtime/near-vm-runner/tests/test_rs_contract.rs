@@ -48,6 +48,7 @@ fn create_context(input: &[u64]) -> VMContext {
         input,
         block_index: 0,
         account_balance: 0,
+        storage_usage: 0,
         attached_deposit: 0,
         prepaid_gas: 10u64.pow(9),
         random_seed: vec![0, 1, 2],

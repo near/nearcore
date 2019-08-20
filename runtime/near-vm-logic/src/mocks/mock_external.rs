@@ -129,10 +129,6 @@ impl External for MockedExternal {
         self.next_receipt_index += 1;
         Ok(res)
     }
-
-    fn storage_usage(&self) -> u64 {
-        unimplemented!()
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

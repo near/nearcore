@@ -332,10 +332,10 @@ impl Runtime {
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
-                action_add_key(state_update, &mut result, account_id, add_key);
+                action_add_key(state_update, account, &mut result, account_id, add_key);
             }
             Action::DeleteKey(delete_key) => {
-                action_delete_key(state_update, &mut result, account_id, delete_key);
+                action_delete_key(state_update, account, &mut result, account_id, delete_key);
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(

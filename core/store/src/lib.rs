@@ -204,17 +204,9 @@ pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: 
         .or_else(|| None);
 }
 
-/// Number of bytes the account data structure occupies in the storage.
-pub fn account_storage_size(account: &Account) -> StorageUsage {
-    account.try_to_vec().map(|bytes| bytes.len() as StorageUsage).unwrap_or(0)
-}
-
 /// Number of bytes account and all of it's other data occupies in the storage.
 pub fn total_account_storage(account_id: &AccountId, account: &Account) -> StorageUsage {
-    // The number of bytes the account occupies in the Trie.
-    let meta_storage =
-        key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
-    account.storage_usage + meta_storage
+    account.storage_usage
 }
 
 pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
@@ -277,9 +269,7 @@ pub fn get_access_key_raw(state_update: &TrieUpdate, key: &[u8]) -> Option<Acces
 }
 
 pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &ContractCode) {
-    state_update
-        .set(key_for_code(account_id), DBValue::from_vec(code.code.clone()))
-        .or_else(|| None);
+    state_update.set(key_for_code(account_id), DBValue::from_vec(code.code.clone()));
 }
 
 pub fn get_code(state_update: &TrieUpdate, account_id: &AccountId) -> Option<ContractCode> {
