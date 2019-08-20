@@ -28,7 +28,7 @@ fn cost_per_block(
     account_id: &AccountId,
     account: &Account,
     runtime_config: &RuntimeConfig,
-) -> u128 {
+) -> Balance {
     let account_length_cost_per_block = if account_id.len() > 10 {
         0
     } else {
