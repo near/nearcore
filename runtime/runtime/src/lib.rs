@@ -299,7 +299,7 @@ impl Runtime {
         }
         match action {
             Action::CreateAccount(_) => {
-                action_create_account(apply_state, account, actor_id, receipt);
+                action_create_account(apply_state, account, actor_id, receipt, &mut result);
             }
             Action::DeployContract(deploy_contract) => {
                 action_deploy_contract(state_update, account, &account_id, deploy_contract);

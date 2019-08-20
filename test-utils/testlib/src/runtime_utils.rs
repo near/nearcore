@@ -19,8 +19,8 @@ pub fn alice_account() -> AccountId {
 pub fn bob_account() -> AccountId {
     "bob.near".to_string()
 }
-pub fn eve_account() -> AccountId {
-    "eve.near".to_string()
+pub fn eve_dot_alice_account() -> AccountId {
+    "eve.alice.near".to_string()
 }
 
 pub fn default_code_hash() -> CryptoHash {

@@ -20,6 +20,10 @@ pub struct RuntimeConfig {
     pub transaction_costs: RuntimeFeesConfig,
     /// Config of wasm operations.
     pub wasm_config: Config,
+    /// The baseline cost to store account_id of short length per block.
+    /// The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
+    /// This value represents `1,000` above adjusted to use per block.
+    pub account_length_baseline_cost_per_block: Balance,
 }
 
 pub fn safe_gas_to_balance(

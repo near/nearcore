@@ -9,8 +9,10 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, BlockIndex, ValidatorStake};
-use near_primitives::utils::key_for_access_key;
+use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
+use near_primitives::utils::{
+    is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
+};
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
@@ -22,12 +24,30 @@ use std::sync::Arc;
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
 
+fn cost_per_block(
+    account_id: &AccountId,
+    account: &Account,
+    runtime_config: &RuntimeConfig,
+) -> Balance {
+    let account_length_cost_per_block = if account_id.len() > 10 {
+        0
+    } else {
+        runtime_config.account_length_baseline_cost_per_block
+            / 3_u128.pow(account_id.len() as u32 - 2)
+    };
+
+    let storage_cost_per_block = (total_account_storage(account_id, account) as u128)
+        * runtime_config.storage_cost_byte_per_block;
+
+    account_length_cost_per_block + storage_cost_per_block
+}
+
 /// Returns true if the account has enough balance to pay storage rent for at least required number of blocks.
 /// Validators must have at least enough for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
 /// regular users - `poke_threshold` blocks.
 pub(crate) fn check_rent(
     account_id: &AccountId,
-    account: &mut Account,
+    account: &Account,
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
 ) -> bool {
@@ -36,9 +56,8 @@ pub(crate) fn check_rent(
     } else {
         runtime_config.poke_threshold
     };
-    let buffer_amount = (buffer_length as u128)
-        * (total_account_storage(account_id, account) as u128)
-        * runtime_config.storage_cost_byte_per_block;
+    let buffer_amount =
+        (buffer_length as u128) * cost_per_block(account_id, account, runtime_config);
     account.amount >= buffer_amount
 }
 
@@ -47,11 +66,10 @@ pub(crate) fn apply_rent(
     account_id: &AccountId,
     account: &mut Account,
     block_index: BlockIndex,
-    config: &RuntimeConfig,
+    runtime_config: &RuntimeConfig,
 ) {
     let charge = ((block_index - account.storage_paid_at) as u128)
-        * (total_account_storage(account_id, account) as u128)
-        * config.storage_cost_byte_per_block;
+        * cost_per_block(account_id, account, runtime_config);
     account.amount = account.amount.saturating_sub(charge);
     account.storage_paid_at = block_index;
 }
@@ -192,8 +210,19 @@ pub(crate) fn action_create_account(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     receipt: &Receipt,
+    result: &mut ActionResult,
 ) {
-    // TODO(#968): Validate new name according to ANS
+    let account_id = &receipt.receiver_id;
+    if !is_valid_top_level_account_id(account_id)
+        && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
+    {
+        result.result = Err(format!(
+            "The new account_id {:?} can't be created by {:?}",
+            account_id, &receipt.predecessor_id
+        )
+        .into());
+        return;
+    }
     *actor_id = receipt.receiver_id.clone();
     *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
 }
