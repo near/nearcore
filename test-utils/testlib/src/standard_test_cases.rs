@@ -825,35 +825,43 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
 }
 
 /// Account must have enough rent to pay for next `poke_threshold` blocks.
+/// `bob.near` is not wealthy enough.
 pub fn test_fail_not_enough_rent(node: impl Node) {
-    let node_user = node.user();
-    let _ = node_user.create_account(
-        alice_account(),
-        eve_dot_alice_account(),
-        node.signer().public_key(),
-        10,
-    );
-    let transaction_result = node_user.send_money(eve_dot_alice_account(), alice_account(), 10);
+    let mut node_user = node.user();
+    let account_id = bob_account();
+    let signer = Arc::new(InMemorySigner::from_seed(&account_id, &account_id));
+    node_user.set_signer(signer);
+    let transaction_result = node_user.send_money(account_id, alice_account(), 10);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 1);
 }
 
 /// Account must have enough rent to pay for next 4 x `epoch_length` blocks (otherwise can not stake).
-pub fn test_stake_fail_not_enough_rent(node: impl Node) {
+fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance: Balance) {
     let node_user = node.user();
-    let _ = node_user.create_account(
+    let new_account_id = "b0b_near".to_string();
+    let transaction_result = node_user.create_account(
         alice_account(),
-        eve_dot_alice_account(),
+        new_account_id.clone(),
         node.signer().public_key(),
-        134_000_000_000_000_010,
+        initial_balance,
     );
-    let transaction_result =
-        node_user.stake(eve_dot_alice_account(), node.signer().public_key(), 5);
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
+    assert_eq!(transaction_result.transactions.len(), 2);
+    let transaction_result = node_user.stake(new_account_id.clone(), node.signer().public_key(), 5);
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 2);
 }
 
-pub fn test_delete_account(node: impl Node) {
+pub fn test_stake_fail_not_enough_rent_for_storage(node: impl Node) {
+    test_stake_fail_not_enough_rent_with_balance(node, 134_000_000_000_000_010);
+}
+
+pub fn test_stake_fail_not_enough_rent_for_account_id(node: impl Node) {
+    test_stake_fail_not_enough_rent_with_balance(node, TESTING_INIT_BALANCE * 2);
+}
+
+pub fn test_delete_account_low_balance(node: impl Node) {
     let node_user = node.user();
     // There is some data attached to the account.
     assert!(node_user.view_state(&bob_account(), b"").unwrap().values.len() > 0);
