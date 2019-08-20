@@ -7,8 +7,6 @@ target
 /test-utils/ganache/storage
 /node/service/storage
 /keystore/
-/tests/hello.wasm
-/tests/hello/package-lock.json
 /chain/client/tmp_bench
 testdir/
 

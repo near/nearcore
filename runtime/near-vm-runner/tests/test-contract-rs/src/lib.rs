@@ -1,16 +1,7 @@
-#![no_std]
-
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-use core::panic::PanicInfo;
-
-#[panic_handler]
-fn panic_handler(_info: &PanicInfo) -> ! {
-    loop {}
-}
-
-use core::mem::size_of;
+use std::mem::size_of;
 
 #[allow(unused)]
 extern "C" {
@@ -211,7 +202,7 @@ pub fn benchmark_storage_8b() {
 #[inline]
 fn generate_data(data: &mut [u8]) {
     for i in 0..data.len() {
-        data[i] = (i % core::u8::MAX as usize) as u8;
+        data[i] = (i % std::u8::MAX as usize) as u8;
     }
 }
 
@@ -288,5 +279,87 @@ pub fn sum_n() {
 
         let data = sum.to_le_bytes();
         value_return(data.len() as u64, data.as_ptr() as u64);
+    }
+}
+
+#[no_mangle]
+pub fn insert_strings() {
+    unsafe {
+        input(0);
+        if register_len(0) != 2 * size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; 2 * size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+
+        let mut from = [0u8; size_of::<u64>()];
+        let mut to = [0u8; size_of::<u64>()];
+        from.copy_from_slice(&data[..size_of::<u64>()]);
+        to.copy_from_slice(&data[size_of::<u64>()..]);
+        let from = u64::from_le_bytes(from);
+        let to = u64::from_le_bytes(to);
+        let s = vec![b'a'; to as usize];
+        for i in from..to {
+            let mut key = s[(to - i) as usize..].to_vec();
+            key.push(b'b');
+            let value = b"x";
+            storage_write(
+                key.len() as u64,
+                key.as_ptr() as u64,
+                value.len() as u64,
+                value.as_ptr() as u64,
+                0,
+            );
+        }
+    }
+}
+
+#[no_mangle]
+pub fn delete_strings() {
+    unsafe {
+        input(0);
+        if register_len(0) != 2 * size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; 2 * size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+
+        let mut from = [0u8; size_of::<u64>()];
+        let mut to = [0u8; size_of::<u64>()];
+        from.copy_from_slice(&data[..size_of::<u64>()]);
+        to.copy_from_slice(&data[size_of::<u64>()..]);
+        let from = u64::from_le_bytes(from);
+        let to = u64::from_le_bytes(to);
+        let s = vec![b'a'; to as usize];
+        for i in from..to {
+            let mut key = s[(to - i) as usize..].to_vec();
+            key.push(b'b');
+            storage_remove(key.len() as u64, key.as_ptr() as u64, 0);
+        }
+    }
+}
+
+#[no_mangle]
+pub fn recurse() {
+    unsafe {
+        input(0);
+        if register_len(0) != size_of::<u64>() as u64 {
+            panic()
+        }
+        let data = [0u8; size_of::<u64>()];
+        read_register(0, data.as_ptr() as u64);
+        let n = u64::from_le_bytes(data);
+        let res = internal_recurse(n);
+        let data = res.to_le_bytes();
+        value_return(data.len() as u64, data.as_ptr() as u64);
+    }
+}
+
+#[no_mangle]
+fn internal_recurse(n: u64) -> u64 {
+    if n == 0 {
+        n
+    } else {
+        internal_recurse(n - 1) + 1
     }
 }
