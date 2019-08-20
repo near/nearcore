@@ -26,3 +26,4 @@ tempdir = "0.3.7"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
+testlib = { path = "../../test-utils/testlib" }
