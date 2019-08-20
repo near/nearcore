@@ -52,6 +52,7 @@ fn add_blocks(
 
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
+#[ignore]
 fn sync_nodes() {
     init_test_logger();
 
@@ -97,6 +98,7 @@ fn sync_nodes() {
 
 /// Clients connect and then one of them becomes in front. The other one must then sync to it.
 #[test]
+#[ignore]
 fn sync_after_sync_nodes() {
     init_test_logger();
 
@@ -154,6 +156,7 @@ fn sync_after_sync_nodes() {
 /// Starts one validation node, it reduces it's stake to 1/2 of the stake.
 /// Second node starts after 1s, needs to catchup & state sync and then make sure it's
 #[test]
+#[ignore]
 fn sync_state_stake_change() {
     // init_test_logger();
     init_integration_logger();
