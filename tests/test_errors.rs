@@ -72,7 +72,7 @@ fn test_deliver_tx_error_log() {
     assert_eq!(
         tx_result.transactions[0].result.logs[0],
         format!(
-        "Runtime error: Sender does not have enough balance 999999950000000 for operation costing {}",
+        "Runtime error: Sender alice.near does not have enough balance 999999950000000 for operation costing {}",
             TESTING_INIT_BALANCE + 1 + cost
         )
     );

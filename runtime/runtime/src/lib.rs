@@ -192,7 +192,12 @@ impl Runtime {
         let mut total_cost = safe_gas_to_balance(gas_price, total_cost_gas)?;
         total_cost =
             safe_add_balance(total_cost, total_deposit(&signed_transaction.transaction.actions)?)?;
-        signer.checked_sub(total_cost)?;
+        signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
+            format!(
+                "Sender {} does not have enough balance {} for operation costing {}",
+                signer_id, signer.amount, total_cost
+            )
+        })?;
 
         if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
             access_key.permission
@@ -200,8 +205,8 @@ impl Runtime {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                     format!(
-                        "Access Key does not have enough balance {} for transaction costing {}",
-                        allowance, total_cost
+                        "Access Key {}:{} does not have enough balance {} for transaction costing {}",
+                        signer_id, public_key, allowance, total_cost
                     )
                 })?;
             }

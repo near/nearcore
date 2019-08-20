@@ -22,17 +22,6 @@ impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockIndex) -> Self {
         Account { amount, staked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
-
-    /// Try debiting the balance by the given amount.
-    pub fn checked_sub(&mut self, amount: Balance) -> Result<(), String> {
-        self.amount = self.amount.checked_sub(amount).ok_or_else(|| {
-            format!(
-                "Sender does not have enough balance {} for operation costing {}",
-                self.amount, amount
-            )
-        })?;
-        Ok(())
-    }
 }
 
 /// Access key provides limited access to an account. Each access key belongs to some account and
