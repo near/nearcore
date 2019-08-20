@@ -9,7 +9,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
 };
-use near_primitives::types::{AccountId, BlockIndex, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
