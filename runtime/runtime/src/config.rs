@@ -1,5 +1,6 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
+use near_primitives::serialize::u128_dec_format;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction,
 };
@@ -12,6 +13,7 @@ use near_vm_logic::Config;
 #[serde(default)]
 pub struct RuntimeConfig {
     /// The cost to store one byte of storage per block.
+    #[serde(with = "u128_dec_format")]
     pub storage_cost_byte_per_block: Balance,
     /// The minimum number of blocks of storage rent an account has to maintain to prevent forced deletion.
     pub poke_threshold: BlockIndex,
@@ -23,6 +25,7 @@ pub struct RuntimeConfig {
     /// The baseline cost to store account_id of short length per block.
     /// The original formula in NEP#0006 is `1,000 / (3 ^ (account_id.length - 2))` for cost per year.
     /// This value represents `1,000` above adjusted to use per block.
+    #[serde(with = "u128_dec_format")]
     pub account_length_baseline_cost_per_block: Balance,
 }
 
