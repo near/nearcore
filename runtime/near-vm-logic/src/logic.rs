@@ -876,16 +876,19 @@ impl<'a> VMLogic<'a> {
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let evicted = self.ext.storage_set(&key, &value)?;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match evicted {
             Some(old_value) => {
-                self.current_storage_usage -= old_value.len() as u64;
-                self.current_storage_usage += value.len() as u64;
+                self.current_storage_usage -=
+                    (old_value.len() as u64) * storage_config.value_cost_per_byte;
+                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
                 Self::internal_write_register(registers, config, register_id, &old_value)?;
                 Ok(1)
             }
             None => {
-                self.current_storage_usage += value.len() as u64;
-                self.current_storage_usage += key_len;
+                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
+                self.current_storage_usage += key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage += storage_config.data_record_cost;
                 Ok(0)
             }
         }
@@ -936,10 +939,13 @@ impl<'a> VMLogic<'a> {
         }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let removed = ext.storage_remove(&key)?;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match removed {
             Some(value) => {
-                self.current_storage_usage -= value.len() as u64;
-                self.current_storage_usage -= key_len;
+                self.current_storage_usage -=
+                    (value.len() as u64) * storage_config.value_cost_per_byte;
+                self.current_storage_usage -= key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage -= storage_config.data_record_cost;
                 Self::internal_write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }

@@ -14,6 +14,7 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
+use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
@@ -226,7 +227,9 @@ pub(crate) fn action_create_account(
         return;
     }
     *actor_id = receipt.receiver_id.clone();
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
     *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
+    account.as_mut().unwrap().storage_usage = storage_config.account_cost;
 }
 
 pub(crate) fn action_deploy_contract(
@@ -238,8 +241,10 @@ pub(crate) fn action_deploy_contract(
     let account = account.as_mut().unwrap();
     let code = ContractCode::new(deploy_contract.code.clone());
     let prev_code = get_code(state_update, account_id);
-    account.storage_usage -= prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
-    account.storage_usage += code.code.len() as u64;
+    let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage -= prev_code_length * storage_config.code_cost_per_byte;
+    account.storage_usage += (code.code.len() as u64) * storage_config.code_cost_per_byte;
     account.code_hash = code.get_hash();
     set_code(state_update, &account_id, &code);
 }
@@ -289,9 +294,13 @@ pub(crate) fn action_delete_key(
     }
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
-    account.storage_usage -= (delete_key.public_key.as_ref().len()
-        + access_key.unwrap().try_to_vec().ok().unwrap_or_default().len())
-        as u64;
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage -=
+        (delete_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage -= (access_key.unwrap().try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.value_cost_per_byte;
+    account.storage_usage -= storage_config.data_record_cost;
 }
 
 pub(crate) fn action_add_key(
@@ -311,9 +320,13 @@ pub(crate) fn action_add_key(
         return;
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
-    account.storage_usage += (add_key.public_key.as_ref().len()
-        + add_key.access_key.try_to_vec().ok().unwrap_or_default().len())
-        as u64;
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage +=
+        (add_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage += (add_key.access_key.try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.value_cost_per_byte;
+    account.storage_usage += storage_config.data_record_cost;
 }
 
 pub(crate) fn check_actor_permissions(

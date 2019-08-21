@@ -42,6 +42,8 @@ pub struct RuntimeFeesConfig {
     pub data_receipt_creation_config: DataReceiptCreationConfig,
     /// Describes the cost of creating a certain action, `Action`. Includes all variants.
     pub action_creation_config: ActionCreationConfig,
+
+    pub storage_usage_config: StorageUsageConfig,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -96,6 +98,20 @@ pub struct AccessKeyCreationConfig {
     pub function_call_cost_per_byte: Fee,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct StorageUsageConfig {
+    /// Base storage usage for an account
+    pub account_cost: Gas,
+    /// Base cost for a k/v record
+    pub data_record_cost: Gas,
+    /// Cost per byte of key
+    pub key_cost_per_byte: Gas,
+    /// Cost per byte of value
+    pub value_cost_per_byte: Gas,
+    /// Cost per byte of contract code
+    pub code_cost_per_byte: Gas,
+}
+
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
         Self {
@@ -119,6 +135,13 @@ impl Default for RuntimeFeesConfig {
                 },
                 delete_key_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
                 delete_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+            },
+            storage_usage_config: StorageUsageConfig {
+                account_cost: 100,
+                data_record_cost: 40,
+                key_cost_per_byte: 1,
+                value_cost_per_byte: 1,
+                code_cost_per_byte: 1,
             },
         }
     }

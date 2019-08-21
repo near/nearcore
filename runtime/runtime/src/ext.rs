@@ -91,6 +91,7 @@ impl<'a> External for RuntimeExt<'a> {
     fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        self.trie_update.remove(&storage_key);
         Ok(evicted)
     }
 

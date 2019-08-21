@@ -20,14 +20,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(amount: Balance, code_hash: CryptoHash, storage_paid_at: BlockIndex) -> Self {
-        let account_storage_overhead = 100;
-        Account {
-            amount,
-            staked: 0,
-            code_hash,
-            storage_usage: account_storage_overhead,
-            storage_paid_at,
-        }
+        Account { amount, staked: 0, code_hash, storage_usage: 0, storage_paid_at }
     }
 }
 
