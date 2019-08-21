@@ -12,6 +12,7 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use testlib::test_helpers::heavy_test;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -93,9 +94,10 @@ fn check_account_id_propagation(
 
         WaitOrTimeout::new(
             Box::new(move |_| {
-                for (pm, count) in peer_managers.iter() {
+                for (i, (pm, count)) in peer_managers.iter().enumerate() {
                     let pm = pm.clone();
                     let count = count.clone();
+                    let account_ids_copy = accounts_id.clone();
 
                     let counters: Vec<_> =
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
@@ -106,6 +108,7 @@ fn check_account_id_propagation(
                                 if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
                                     res.unwrap()
                                 {
+                                    println!("Routes of {}: {:?}", account_ids_copy[i], routes);
                                     if routes.unwrap().len() == total_nodes {
                                         count.fetch_add(1, Ordering::Relaxed);
 
@@ -133,60 +136,76 @@ fn check_account_id_propagation(
 
 #[test]
 fn two_nodes() {
-    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 2000);
+    heavy_test(|| {
+        check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 5000);
+    });
 }
 
 #[test]
 fn three_nodes_clique() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
-        vec![vec![1, 2], vec![0, 2], vec![0, 1]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3"],
+            vec![vec![1, 2], vec![0, 2], vec![0, 1]],
+            5000,
+        );
+    });
 }
 
 #[test]
 fn three_nodes_path() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
-        vec![vec![1], vec![0, 2], vec![1]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3"],
+            vec![vec![1], vec![0, 2], vec![1]],
+            5000,
+        );
+    });
 }
 
 #[test]
 fn four_nodes_star() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
+            5000,
+        );
+    });
 }
 
 #[test]
+#[ignore]
 fn four_nodes_path() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+            5000,
+        );
+    });
 }
 
 #[test]
 #[should_panic]
 fn four_nodes_disconnected() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![0], vec![3], vec![2]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![0], vec![3], vec![2]],
+            5000,
+        );
+    });
 }
 
 #[test]
+#[ignore]
 fn four_nodes_directed() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![], vec![1], vec![2]],
-        2000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![], vec![1], vec![2]],
+            5000,
+        );
+    });
 }

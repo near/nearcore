@@ -320,7 +320,7 @@ impl BlockSync {
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
-        let mut hashes_to_request = hashes
+        let hashes_to_request = hashes
             .iter()
             .filter(|x| !chain.get_block(x).is_ok() && !chain.is_orphan(x))
             .take(block_count)
@@ -335,12 +335,12 @@ impl BlockSync {
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
             let mut peers_iter = most_weight_peers.iter().cycle();
-            for hash in hashes_to_request.drain(..) {
+            for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
                     if self
                         .network_recipient
                         .do_send(NetworkRequests::BlockRequest {
-                            hash: hash.clone(),
+                            hash: *hash,
                             peer_id: peer.peer_info.id.clone(),
                         })
                         .is_ok()
@@ -378,7 +378,7 @@ impl BlockSync {
 
         // Account for broadcast adding few blocks to orphans during.
         if self.blocks_requested < BLOCK_REQUEST_BROADCAST_OFFSET {
-            // debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
+            debug!(target: "sync", "Block sync: No pending block requests, requesting more.");
             return Ok(true);
         }
 
@@ -417,7 +417,7 @@ impl StateSync {
         let header_head = chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.state_fetch_horizon {
-            sync_hash = chain.get_block_header(&sync_hash)?.prev_hash;
+            sync_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash;
         }
         Ok(sync_hash)
     }
@@ -465,9 +465,8 @@ impl StateSync {
 
             // Get header we were syncing into.
             let header = chain.get_block_header(&sync_hash)?;
-            let hash = header.prev_hash;
+            let hash = header.inner.prev_hash;
             let prev_header = chain.get_block_header(&hash)?;
-            let height = prev_header.height;
             let tip = Tip::from_header(prev_header);
             // Update related heads now.
             let mut chain_store_update = chain.mut_store().store_update();
@@ -476,7 +475,7 @@ impl StateSync {
             chain_store_update.commit()?;
 
             // Check if thare are any orphans unlocked by this state sync.
-            chain.check_orphans(height + 1, |_, _, _| {});
+            chain.check_orphans(hash, |_, _, _| {});
 
             *sync_status = SyncStatus::BodySync { current_height: 0, highest_height: 0 };
             self.prev_state_sync.clear();

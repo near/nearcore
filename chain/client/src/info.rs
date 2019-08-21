@@ -145,7 +145,7 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
         SyncStatus::BodySync { current_height, highest_height } => {
             let percent =
                 if *highest_height == 0 { 0 } else { current_height * 100 / highest_height };
-            format!("#{:>8} Downloading blocks {}%", head.height, percent)
+            format!("#{:>8} Downloading blocks {}%", current_height, percent)
         }
         SyncStatus::StateSync(_sync_hash, shard_statuses) => {
             let mut res = String::from("State ");

@@ -1,10 +1,9 @@
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
 
+use borsh::Deserializable;
 use clap::{App, Arg, SubCommand};
-use protobuf::parse_from_bytes;
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess};
@@ -12,13 +11,11 @@ use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{from_base64, to_base64, Decode};
+use near_primitives::receipt::{Receipt, ReceivedData};
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::test_utils::init_integration_logger;
-use near_primitives::transaction::Callback;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
-use near_protos::access_key as access_key_proto;
-use near_protos::account as account_proto;
 use near_store::{create_store, DBValue, Store, TrieIterator};
 use node_runtime::StateRecord;
 
@@ -37,33 +34,48 @@ fn to_printable(blob: &[u8]) -> String {
     }
 }
 
-fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
+fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
     let column = &key[0..1];
     match column {
         col::ACCOUNT => {
             let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]);
             if separator.is_some() {
-                StateRecord::Data { key: to_base64(&key), value: to_base64(&value) }
+                Some(StateRecord::Data { key: to_base64(&key), value: to_base64(&value) })
             } else {
-                let proto: account_proto::Account = parse_from_bytes(&value).unwrap();
-                let account: Account = proto.try_into().unwrap();
-                StateRecord::Account { account_id: to_printable(&key[1..]), account }
+                let account = Account::try_from_slice(&value).unwrap();
+                Some(StateRecord::Account {
+                    account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
+                    account: account.into(),
+                })
             }
         }
-        col::CALLBACK => {
-            let callback: Callback = Decode::decode(&value).unwrap();
-            StateRecord::Callback { id: key[1..].to_vec(), callback }
-        }
-        col::CODE => {
-            StateRecord::Contract { account_id: to_printable(&key[1..]), code: to_base64(&value) }
-        }
+        col::CODE => Some(StateRecord::Contract {
+            account_id: String::from_utf8(key[1..].to_vec()).unwrap(),
+            code: to_base64(&value),
+        }),
         col::ACCESS_KEY => {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
-            let proto: access_key_proto::AccessKey = parse_from_bytes(&value).unwrap();
-            let access_key: AccessKey = proto.try_into().unwrap();
-            let account_id = to_printable(&key[1..separator]);
+            let access_key = AccessKey::try_from_slice(&value).unwrap();
+            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
             let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
-            StateRecord::AccessKey { account_id, public_key: public_key.to_readable(), access_key }
+            Some(StateRecord::AccessKey {
+                account_id,
+                public_key: public_key.into(),
+                access_key: access_key.into(),
+            })
+        }
+        col::RECEIVED_DATA => {
+            let data = ReceivedData::try_from_slice(&value).unwrap().data;
+            let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
+            let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
+            let data_id = CryptoHash::try_from(&key[(separator + 1)..]).unwrap();
+            Some(StateRecord::ReceivedData { account_id, data_id: data_id.into(), data })
+        }
+        col::POSTPONED_RECEIPT_ID => None,
+        col::PENDING_DATA_COUNT => None,
+        col::POSTPONED_RECEIPT => {
+            let receipt = Receipt::try_from_slice(&value).unwrap();
+            Some(StateRecord::PostponedReceipt(receipt.into()))
         }
         _ => unreachable!(),
     }
@@ -71,10 +83,10 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> StateRecord {
 
 fn print_state_entry(key: Vec<u8>, value: DBValue) {
     match kv_to_state_record(key, value) {
-        StateRecord::Account { account_id, account } => {
+        Some(StateRecord::Account { account_id, account }) => {
             println!("Account {:?}: {:?}", account_id, account)
         }
-        StateRecord::Data { key, value } => {
+        Some(StateRecord::Data { key, value }) => {
             let key = from_base64(&key).unwrap();
             let separator = (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
             let account_id = to_printable(&key[1..separator]);
@@ -86,13 +98,24 @@ fn print_state_entry(key: Vec<u8>, value: DBValue) {
                 to_printable(&from_base64(&value).unwrap())
             );
         }
-        StateRecord::Callback { id, callback } => {
-            println!("Callback {}: {:?}", to_printable(&id), callback)
+        Some(StateRecord::Contract { account_id, code: _ }) => {
+            println!("Code for {:?}: ...", account_id)
         }
-        StateRecord::Contract { account_id, code: _ } => println!("Code for {:?}: ...", account_id),
-        StateRecord::AccessKey { account_id, public_key, access_key } => {
+        Some(StateRecord::AccessKey { account_id, public_key, access_key }) => {
             println!("Access key {:?},{:?}: {:?}", account_id, public_key, access_key)
         }
+        Some(StateRecord::ReceivedData { account_id, data_id, data }) => {
+            println!(
+                "Received data {:?},{:?}: {:?}",
+                account_id,
+                data_id,
+                data.map(|v| to_printable(&v))
+            );
+        }
+        Some(StateRecord::PostponedReceipt(receipt)) => {
+            println!("Postponed receipt {:?}", receipt);
+        }
+        None => (),
     }
 }
 
@@ -107,7 +130,7 @@ fn load_trie(
     let head = chain_store.head().unwrap();
     let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
     let state_root = chain_store.get_post_state_root(&head.last_block_hash).unwrap();
-    (runtime, *state_root, last_header.height)
+    (runtime, *state_root, last_header.inner.height)
 }
 
 fn main() {
@@ -164,7 +187,9 @@ fn main() {
             let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
             for item in trie {
                 let (key, value) = item.unwrap();
-                near_config.genesis_config.records[0].push(kv_to_state_record(key, value));
+                if let Some(sr) = kv_to_state_record(key, value) {
+                    near_config.genesis_config.records[0].push(sr);
+                }
             }
             near_config.genesis_config.write_to_file(&output_path);
         }

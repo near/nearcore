@@ -20,11 +20,11 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = "0.1.15"
 uuid = { version = "~0.6", features = ["v4"] }
-protobuf = { version = "2.7", features = ["with-bytes"] }
+
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
 async-utils = { path = "../../async-utils" }
 near-primitives = { path = "../../core/primitives" }
-near-protos = { path = "../../core/protos" }
 near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 near-client = { path = "../client" }

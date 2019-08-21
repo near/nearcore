@@ -62,6 +62,7 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
+    use crate::fees_utils::transfer_cost;
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
     use crate::runtime_utils::{alice_account, bob_account};
@@ -71,6 +72,7 @@ mod tests {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
         node_user.send_money(alice_account(), bob_account(), 1);
+        let transfer_cost = transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
@@ -80,7 +82,7 @@ mod tests {
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
-        assert_eq!(alice2, alice1 - 1);
+        assert_eq!(alice2, alice1 - 1 - transfer_cost);
         assert_eq!(bob2, bob1 + 1);
     }
 

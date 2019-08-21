@@ -211,7 +211,6 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
-        debug!(target: "network", "Received {:?} message from {}", msg, self.peer_info);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => {
@@ -224,17 +223,17 @@ impl Peer {
             PeerMessage::Block(block) => {
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, block.header.height);
+                self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
                 self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, block.header.total_weight);
+                    max(self.chain_info.total_weight, block.header.inner.total_weight);
                 NetworkClientMessages::Block(block, peer_id, self.tracker.has_request(block_hash))
             }
             PeerMessage::BlockHeaderAnnounce(header) => {
                 let block_hash = header.hash();
                 self.tracker.push_received(block_hash);
-                self.chain_info.height = max(self.chain_info.height, header.height);
+                self.chain_info.height = max(self.chain_info.height, header.inner.height);
                 self.chain_info.total_weight =
-                    max(self.chain_info.total_weight, header.total_weight);
+                    max(self.chain_info.total_weight, header.inner.total_weight);
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {

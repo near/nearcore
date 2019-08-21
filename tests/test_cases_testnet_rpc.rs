@@ -21,7 +21,7 @@ mod test {
             "dan.near".to_string(),
         ]);
         let mut nodes: Vec<_> = nodes
-            .drain(..)
+            .into_iter()
             .map(|cfg| match cfg {
                 NodeConfig::Thread(config) => ThreadNode::new(config),
                 _ => unreachable!(),
@@ -190,11 +190,6 @@ mod test {
     #[test]
     fn test_delete_access_key_with_owner_refund_testnet() {
         run_testnet_test!(test_delete_access_key_with_owner_refund);
-    }
-
-    #[test]
-    fn test_delete_access_key_with_bob_refund_testnet() {
-        run_testnet_test!(test_delete_access_key_with_bob_refund);
     }
 
     #[test]

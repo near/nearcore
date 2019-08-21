@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use actix::{Actor, System};
+use borsh::Serializable;
 use futures::future::Future;
-use protobuf::Message;
 
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
@@ -8,8 +10,8 @@ use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::{FinalTransactionStatus, TransactionBody};
-use near_protos::signed_transaction as transaction_proto;
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::views::FinalTransactionStatus;
 
 /// Test sending transaction via json rpc without waiting.
 #[test]
@@ -21,13 +23,19 @@ fn test_send_tx_async() {
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
-        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            Arc::new(signer),
+            100,
+        );
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
-        let proto: transaction_proto::SignedTransaction = tx.into();
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
-                .broadcast_tx_async(to_base64(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_async(to_base64(&bytes))
                 .map_err(|_| ())
                 .map(move |result| assert_eq!(tx_hash, result)),
         );
@@ -61,11 +69,17 @@ fn test_send_tx_commit() {
 
         let mut client = new_client(&format!("http://{}", addr));
         let signer = InMemorySigner::from_seed("test1", "test1");
-        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
-        let proto: transaction_proto::SignedTransaction = tx.into();
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            Arc::new(signer),
+            100,
+        );
+        let bytes = tx.try_to_vec().unwrap();
         actix::spawn(
             client
-                .broadcast_tx_commit(to_base64(&proto.write_to_bytes().unwrap()))
+                .broadcast_tx_commit(to_base64(&bytes))
                 .map_err(|why| {
                     System::current().stop();
                     panic!(why);

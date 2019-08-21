@@ -1,5 +1,5 @@
 use crate::crypto::group_signature::GroupSignature;
-use crate::hash::{hash_struct, CryptoHash};
+use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::types::MerkleHash;
 use reed_solomon_erasure::{ReedSolomon, Shard};
@@ -19,19 +19,18 @@ pub struct MainChainLocalBlock {
     pub body: Option<MainChainBlockBody>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Clone)]
 pub struct ShardChunkHeader {
     pub prev_block_hash: CryptoHash,
     pub encoded_merkle_root: CryptoHash,
     pub height: u64,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Default)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
 
-#[derive(Serialize)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,
@@ -47,7 +46,7 @@ impl EncodedShardChunkBody {
             }
         }
 
-        return fetched_parts;
+        fetched_parts
     }
 
     pub fn reconstruct(&mut self, data_shards: usize, parity_shards: usize) {
@@ -82,6 +81,6 @@ impl EncodedShardChunk {
     }
 
     pub fn chunk_hash(&self) -> CryptoHash {
-        hash_struct(self)
+        hash(&[0])
     }
 }

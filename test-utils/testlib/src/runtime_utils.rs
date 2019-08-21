@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use byteorder::{ByteOrder, LittleEndian};
@@ -17,13 +19,15 @@ pub fn alice_account() -> AccountId {
 pub fn bob_account() -> AccountId {
     "bob.near".to_string()
 }
-pub fn eve_account() -> AccountId {
-    "eve.near".to_string()
+pub fn eve_dot_alice_account() -> AccountId {
+    "eve.alice.near".to_string()
 }
 
 pub fn default_code_hash() -> CryptoHash {
-    let genesis_wasm = include_bytes!("../../../runtime/wasm/runtest/res/wasm_with_mem.wasm");
-    hash(genesis_wasm)
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    let genesis_wasm = fs::read(path).unwrap();
+    hash(&genesis_wasm)
 }
 
 pub fn get_runtime_and_trie_from_genesis(

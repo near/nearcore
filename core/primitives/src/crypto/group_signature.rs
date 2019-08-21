@@ -1,13 +1,10 @@
 use core::fmt;
-use std::convert::TryFrom;
-
-use near_protos::types as types_proto;
 
 use crate::crypto::aggregate_signature::{
     BlsAggregatePublicKey, BlsAggregateSignature, BlsPublicKey, BlsSignature,
 };
 use crate::logging::pretty_hash;
-use crate::serialize::{base_format, BaseDecode, BaseEncode};
+use crate::serialize::{base_format, BaseEncode};
 use crate::types::{PartialSignature, ValidatorMask};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -15,26 +12,6 @@ pub struct GroupSignature {
     #[serde(with = "base_format")]
     pub signature: BlsSignature,
     pub authority_mask: ValidatorMask,
-}
-
-impl TryFrom<types_proto::GroupSignature> for GroupSignature {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: types_proto::GroupSignature) -> Result<Self, Self::Error> {
-        BaseDecode::from_base(&proto.signature)
-            .map(|signature| GroupSignature { signature, authority_mask: proto.authority_mask })
-            .map_err(|e| format!("cannot decode signature {:?}", e).into())
-    }
-}
-
-impl From<GroupSignature> for types_proto::GroupSignature {
-    fn from(signature: GroupSignature) -> Self {
-        types_proto::GroupSignature {
-            signature: BaseEncode::to_base(&signature.signature),
-            authority_mask: signature.authority_mask,
-            ..Default::default()
-        }
-    }
 }
 
 impl fmt::Debug for GroupSignature {

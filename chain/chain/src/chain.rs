@@ -7,7 +7,8 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{ReceiptTransaction, TransactionResult};
+use near_primitives::receipt::Receipt;
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
@@ -32,13 +33,19 @@ pub struct Orphan {
 
 pub struct OrphanBlockPool {
     orphans: HashMap<CryptoHash, Orphan>,
-    height_idx: HashMap<u64, Vec<CryptoHash>>,
+    height_idx: HashMap<BlockIndex, Vec<CryptoHash>>,
+    prev_hash_idx: HashMap<CryptoHash, Vec<CryptoHash>>,
     evicted: usize,
 }
 
 impl OrphanBlockPool {
     fn new() -> OrphanBlockPool {
-        OrphanBlockPool { orphans: HashMap::default(), height_idx: HashMap::default(), evicted: 0 }
+        OrphanBlockPool {
+            orphans: HashMap::default(),
+            height_idx: HashMap::default(),
+            prev_hash_idx: HashMap::default(),
+            evicted: 0,
+        }
     }
 
     fn len(&self) -> usize {
@@ -50,8 +57,12 @@ impl OrphanBlockPool {
     }
 
     fn add(&mut self, orphan: Orphan) {
-        let height_hashes = self.height_idx.entry(orphan.block.header.height).or_insert(vec![]);
+        let height_hashes =
+            self.height_idx.entry(orphan.block.header.inner.height).or_insert(vec![]);
         height_hashes.push(orphan.block.hash());
+        let prev_hash_entries =
+            self.prev_hash_idx.entry(orphan.block.header.inner.prev_hash).or_insert(vec![]);
+        prev_hash_entries.push(orphan.block.hash());
         self.orphans.insert(orphan.block.hash(), orphan);
 
         if self.orphans.len() > MAX_ORPHAN_SIZE {
@@ -75,6 +86,8 @@ impl OrphanBlockPool {
                 }
             }
             self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+            self.prev_hash_idx
+                .retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
 
             self.evicted += old_len - self.orphans.len();
         }
@@ -84,10 +97,19 @@ impl OrphanBlockPool {
         self.orphans.contains_key(hash)
     }
 
-    pub fn remove_by_height(&mut self, height: BlockIndex) -> Option<Vec<Orphan>> {
-        self.height_idx
-            .remove(&height)
-            .map(|hs| hs.iter().filter_map(|h| self.orphans.remove(h)).collect())
+    pub fn remove_by_prev_hash(&mut self, prev_hash: CryptoHash) -> Option<Vec<Orphan>> {
+        let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
+        let ret = self.prev_hash_idx.remove(&prev_hash).map(|hs| {
+            hs.iter()
+                .filter_map(|h| {
+                    removed_hashes.insert(h.clone());
+                    self.orphans.remove(h)
+                })
+                .collect()
+        });
+        self.height_idx.retain(|_, ref mut xs| xs.iter().any(|x| !removed_hashes.contains(&x)));
+
+        ret
     }
 }
 
@@ -155,8 +177,10 @@ impl Chain {
                             vec![],
                         )
                         .map_err(|err| ErrorKind::Other(err.to_string()))?;
-                    store_update
-                        .save_post_state_root(&genesis.hash(), &genesis.header.prev_state_root);
+                    store_update.save_post_state_root(
+                        &genesis.hash(),
+                        &genesis.header.inner.prev_state_root,
+                    );
                     store_update.save_post_validator_proposals(&genesis.hash(), vec![]);
                     store_update.save_block_header(genesis.header.clone());
                     store_update.save_block(genesis.clone());
@@ -215,10 +239,10 @@ impl Chain {
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
-        let height = block.header.height;
+        let hash = block.hash();
         let res = self.process_block_single(block, provenance, block_accepted);
         if res.is_ok() {
-            if let Some(new_res) = self.check_orphans(height + 1, block_accepted) {
+            if let Some(new_res) = self.check_orphans(hash, block_accepted) {
                 return Ok(Some(new_res));
             }
         }
@@ -250,13 +274,13 @@ impl Chain {
         let mut oldest_height = 0;
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
-            if header.height <= block_head.height {
+            if header.inner.height <= block_head.height {
                 if self.is_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
 
-            oldest_height = header.height;
+            oldest_height = header.inner.height;
             hashes.push(header.hash());
             current = self.get_previous_header(&header).map(|h| h.clone());
         }
@@ -270,7 +294,7 @@ impl Chain {
 
     /// Returns if given block header on the current chain.
     fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let chain_header = self.get_header_by_height(header.height)?;
+        let chain_header = self.get_header_by_height(header.inner.height)?;
         if chain_header.hash() == header.hash() {
             Ok(())
         } else {
@@ -282,7 +306,7 @@ impl Chain {
     pub fn find_common_header(&mut self, hashes: &Vec<CryptoHash>) -> Option<BlockHeader> {
         for hash in hashes {
             if let Ok(header) = self.get_block_header(&hash).map(|h| h.clone()) {
-                if let Ok(header_at_height) = self.get_header_by_height(header.height) {
+                if let Ok(header_at_height) = self.get_header_by_height(header.inner.height) {
                     if header.hash() == header_at_height.hash() {
                         return Some(header);
                     }
@@ -361,7 +385,7 @@ impl Chain {
                         target: "chain",
                         "Block {} at {} is unfit at this time: {}",
                         block.hash(),
-                        block.header.height,
+                        block.header.inner.height,
                         msg
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
@@ -372,50 +396,44 @@ impl Chain {
     }
 
     /// Check for orphans, once a block is successfully added.
-    pub fn check_orphans<F>(&mut self, mut height: BlockIndex, block_accepted: F) -> Option<Tip>
+    pub fn check_orphans<F>(&mut self, prev_hash: CryptoHash, block_accepted: F) -> Option<Tip>
     where
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
-        let initial_height = height;
+        let mut queue = vec![prev_hash];
+        let mut queue_idx = 0;
 
-        let mut orphan_accepted = false;
         let mut maybe_new_head = None;
 
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: at {}, # orphans {}", height, self.orphans.len());
-        loop {
-            if let Some(orphans) = self.orphans.remove_by_height(height) {
+        debug!(target: "chain", "Check orphans: from {}, # orphans {}", prev_hash, self.orphans.len());
+        while queue_idx < queue.len() {
+            if let Some(orphans) = self.orphans.remove_by_prev_hash(queue[queue_idx]) {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
+                    let block_hash = orphan.block.hash();
                     let res =
                         self.process_block_single(orphan.block, orphan.provenance, block_accepted);
                     match res {
                         Ok(maybe_tip) => {
                             maybe_new_head = maybe_tip;
-                            orphan_accepted = true;
+                            queue.push(block_hash);
                         }
                         Err(err) => {
-                            debug!(target: "chain", "Orphan declined: {}", err);
+                            debug!(target: "chain", "Orphan declined: {:?}", err);
                         }
                     }
                 }
-
-                if orphan_accepted {
-                    // Accepted a block, so should check if there are now new orphans unlocked.
-                    height += 1;
-                    continue;
-                }
             }
-            break;
+            queue_idx += 1;
         }
 
-        if initial_height != height {
+        if queue.len() > 1 {
             debug!(
-                target: "chain",
-                "Check orphans: {} blocks accepted since height {}, remaining # orphans {}",
-                height - initial_height,
-                initial_height,
-                self.orphans.len(),
+            target: "chain",
+            "Check orphans: {} blocks accepted, remaining # orphans {}",
+            queue.len() - 1,
+            self.orphans.len(),
             );
         }
 
@@ -427,11 +445,11 @@ impl Chain {
         shard_id: ShardId,
         hash: CryptoHash,
         payload: Vec<u8>,
-        receipts: Vec<ReceiptTransaction>,
+        receipts: Vec<Receipt>,
     ) -> Result<(), Error> {
         // TODO(1046): update this with any required changes for chunks support.
         let header = self.get_block_header(&hash)?;
-        let (prev_hash, state_root) = (header.prev_hash, header.prev_state_root);
+        let (prev_hash, state_root) = (header.inner.prev_hash, header.inner.prev_state_root);
 
         // Save state in the runtime, will also check it's validity.
         self.runtime_adapter
@@ -520,7 +538,7 @@ impl Chain {
 
     /// Get receipts stored for the given hash.
     #[inline]
-    pub fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<ReceiptTransaction>, Error> {
+    pub fn get_receipts(&mut self, hash: &CryptoHash) -> Result<&Vec<Receipt>, Error> {
         self.store.get_receipts(hash)
     }
 
@@ -608,7 +626,7 @@ impl<'a> ChainUpdate<'a> {
     /// based on this. We will update these once we get the block back after
     /// requesting it.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.height);
+        debug!(target: "chain", "Process block header: {} at {}", header.hash(), header.inner.height);
 
         self.check_header_known(header)?;
         self.validate_header(header, &Provenance::NONE)?;
@@ -630,14 +648,14 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<Option<Tip>, Error> {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, tx: {}", block.hash(), block.header.height, block.header.approval_sigs.len(), block.transactions.len());
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, tx: {}", block.hash(), block.header.inner.height, block.header.inner.approval_sigs.len(), block.transactions.len());
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;
 
         // Delay hitting the db for current chain head until we know this block is not already known.
         let head = self.chain_store_update.head()?;
-        let is_next = block.header.prev_hash == head.last_block_hash;
+        let is_next = block.header.inner.prev_hash == head.last_block_hash;
 
         // First real I/O expense.
         self.check_header_signature(&block.header)?;
@@ -658,22 +676,21 @@ impl<'a> ChainUpdate<'a> {
 
         // Check that state root we computed from previous block matches recorded in this block.
         let state_root = self.chain_store_update.get_post_state_root(&prev_hash)?;
-        if &block.header.prev_state_root != state_root {
+        if &block.header.inner.prev_state_root != state_root {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
         // Retrieve receipts from the previous block.
         let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
-        let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
 
         // Apply block to runtime.
-        let (trie_changes, state_root, mut tx_results, new_receipts, validator_proposals) = self
+        let (trie_changes, state_root, tx_results, new_receipts, validator_proposals) = self
             .runtime_adapter
             .apply_transactions(
                 0,
-                &block.header.prev_state_root,
-                block.header.height,
-                &block.header.prev_hash,
+                &block.header.inner.prev_state_root,
+                block.header.inner.height,
+                &block.header.inner.prev_hash,
                 &block.header.hash(),
                 &vec![receipts.clone()], // TODO: currently only taking into account one shard.
                 &block.transactions,
@@ -688,9 +705,9 @@ impl<'a> ChainUpdate<'a> {
         // If block checks out, record validator proposals for given block.
         self.runtime_adapter
             .add_validator_proposals(
-                block.header.prev_hash,
+                block.header.inner.prev_hash,
                 block.hash(),
-                block.header.height,
+                block.header.inner.height,
                 validator_proposals,
                 vec![],
                 vec![],
@@ -704,15 +721,8 @@ impl<'a> ChainUpdate<'a> {
         self.chain_store_update
             .save_receipt(&block.hash(), new_receipts.get(&0).unwrap_or(&vec![]).to_vec());
         // Save receipt and transaction results.
-        for (i, tx_result) in tx_results.drain(..).enumerate() {
-            if i < receipt_hashes.len() {
-                self.chain_store_update.save_transaction_result(&receipt_hashes[i], tx_result);
-            } else {
-                self.chain_store_update.save_transaction_result(
-                    &block.transactions[i - receipt_hashes.len()].get_hash(),
-                    tx_result,
-                );
-            }
+        for tx_result in tx_results.into_iter() {
+            self.chain_store_update.save_transaction_result(&tx_result.hash, tx_result.result);
         }
 
         // Add validated block to the db, even if it's not the selected fork.
@@ -739,10 +749,10 @@ impl<'a> ChainUpdate<'a> {
     /// Process incoming block headers for syncing.
     fn sync_block_headers(&mut self, mut headers: Vec<BlockHeader>) -> Result<Option<Tip>, Error> {
         // Sort headers by heights if they are out of order.
-        headers.sort_by(|left, right| left.height.cmp(&right.height));
+        headers.sort_by(|left, right| left.inner.height.cmp(&right.inner.height));
 
         let _first_header = if let Some(header) = headers.first() {
-            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height);
+            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.inner.height);
             header
         } else {
             return Ok(None);
@@ -763,10 +773,10 @@ impl<'a> ChainUpdate<'a> {
                 // Add validator proposals for given header.
                 self.runtime_adapter
                     .add_validator_proposals(
-                        header.prev_hash,
+                        header.inner.prev_hash,
                         header.hash(),
-                        header.height,
-                        header.validator_proposal.clone(),
+                        header.inner.height,
+                        header.inner.validator_proposals.clone(),
                         vec![],
                         vec![],
                     )
@@ -787,10 +797,10 @@ impl<'a> ChainUpdate<'a> {
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
         let validator = self
             .runtime_adapter
-            .get_block_proposer(&header.epoch_hash, header.height)
+            .get_block_proposer(&header.inner.epoch_hash, header.inner.height)
             .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
         if self.runtime_adapter.check_validator_signature(
-            &header.epoch_hash,
+            &header.inner.epoch_hash,
             &validator,
             header.hash().as_ref(),
             &header.signature,
@@ -807,8 +817,8 @@ impl<'a> ChainUpdate<'a> {
         provenance: &Provenance,
     ) -> Result<(), Error> {
         // Refuse blocks from the too distant future.
-        if header.timestamp > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
-            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp).into());
+        if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
+            return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
         }
 
         // First I/O cost, delay as much as possible.
@@ -818,17 +828,19 @@ impl<'a> ChainUpdate<'a> {
 
         // Prevent time warp attacks and some timestamp manipulations by forcing strict
         // time progression.
-        if header.timestamp <= prev_header.timestamp {
-            return Err(
-                ErrorKind::InvalidBlockPastTime(prev_header.timestamp, header.timestamp).into()
-            );
+        if header.inner.timestamp <= prev_header.inner.timestamp {
+            return Err(ErrorKind::InvalidBlockPastTime(
+                prev_header.timestamp(),
+                header.timestamp(),
+            )
+            .into());
         }
         // If this is not the block we produced (hence trust in it) - validates block
         // producer, confirmation signatures and returns new total weight.
         if *provenance != Provenance::PRODUCED {
             let prev_header = self.get_previous_header(header)?.clone();
             let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
-            if weight != header.total_weight {
+            if weight != header.inner.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());
             }
         }
@@ -839,7 +851,7 @@ impl<'a> ChainUpdate<'a> {
     /// Update the header head if this header has most work.
     fn update_header_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
-        if header.total_weight > header_head.total_weight {
+        if header.inner.total_weight > header_head.total_weight {
             let tip = Tip::from_header(header);
             self.chain_store_update.save_header_head(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
@@ -857,7 +869,7 @@ impl<'a> ChainUpdate<'a> {
         // if we made a fork with more work than the head (which should also be true
         // when extending the head), update it
         let head = self.chain_store_update.head()?;
-        if block.header.total_weight > head.total_weight {
+        if block.header.inner.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip);
@@ -907,12 +919,12 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Check if this block is ini the store already.
+    /// Check if this block is in the store already.
     fn check_known_store(&self, header: &BlockHeader) -> Result<(), Error> {
         match self.chain_store_update.block_exists(&header.hash()) {
             Ok(true) => {
                 let head = self.chain_store_update.head()?;
-                if header.height > 50 && header.height < head.height - 50 {
+                if header.inner.height > 50 && header.inner.height < head.height - 50 {
                     // We flag this as an "abusive peer" but only in the case
                     // where we have the full block in our store.
                     // So this is not a particularly exhaustive check.

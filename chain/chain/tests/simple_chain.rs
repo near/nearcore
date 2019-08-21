@@ -35,6 +35,20 @@ fn build_chain_with_orhpans() {
         let block = Block::empty(&blocks[i - 1].header, signer.clone());
         blocks.push(block);
     }
+    let block = Block::produce(
+        &blocks[blocks.len() - 1].header,
+        10,
+        blocks[blocks.len() - 1].header.inner.prev_state_root,
+        blocks[blocks.len() - 1].header.inner.epoch_hash,
+        vec![],
+        HashMap::default(),
+        vec![],
+        signer.clone(),
+    );
+    assert_eq!(
+        chain.process_block(block, Provenance::PRODUCED, |_, _, _| {}).unwrap_err().kind(),
+        ErrorKind::Orphan
+    );
     assert_eq!(
         chain
             .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
@@ -50,7 +64,7 @@ fn build_chain_with_orhpans() {
         ErrorKind::Orphan
     );
     let res = chain.process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {});
-    assert_eq!(res.unwrap().unwrap().height, 3);
+    assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain
             .process_block(blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {})
@@ -93,5 +107,5 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(b4, Provenance::PRODUCED, |_, _, _| {}).is_ok());
     assert!(chain.process_block(b5, Provenance::PRODUCED, |_, _, _| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height, 5);
+    assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
 }

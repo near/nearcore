@@ -7,13 +7,18 @@ mod test {
     use std::thread;
     use std::time::Duration;
 
-    use near_primitives::transaction::TransactionBody;
+    use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
     use testlib::node::{create_nodes, sample_queryable_node, sample_two_nodes, Node, NodeConfig};
     use testlib::test_helpers::{heavy_test, wait, wait_for_catchup};
 
     fn warmup() {
-        Command::new("cargo").args(&["build", "-p", "near"]).spawn().expect("warmup failed").wait().unwrap();
+        Command::new("cargo")
+            .args(&["build", "-p", "near"])
+            .spawn()
+            .expect("warmup failed")
+            .wait()
+            .unwrap();
     }
 
     // DISCLAIMER. These tests are very heavy and somehow manage to interfere with each other.
@@ -31,15 +36,13 @@ mod test {
         nodes[k]
             .read()
             .unwrap()
-            .add_transaction(
-                TransactionBody::send_money(
-                    nonces[from],
-                    account_names[from].as_str(),
-                    account_names[to].as_str(),
-                    1000,
-                )
-                .sign(&*nodes[from].read().unwrap().signer()),
-            )
+            .add_transaction(SignedTransaction::send_money(
+                nonces[from],
+                account_names[from].clone(),
+                account_names[to].clone(),
+                nodes[from].read().unwrap().signer(),
+                1000,
+            ))
             .unwrap();
     }
 
@@ -76,8 +79,13 @@ mod test {
         let mut expected_balances = vec![0; num_nodes];
         let mut nonces = vec![1; num_nodes];
         for i in 0..num_nodes {
+            nonces[i] = nodes[0]
+                .read()
+                .unwrap()
+                .get_access_key_nonce_for_signer(&account_names[i])
+                .unwrap()
+                + 1;
             let account = nodes[0].read().unwrap().view_account(&account_names[i]).unwrap();
-            nonces[i] = account.nonce + 1;
             expected_balances[i] = account.amount;
         }
         let trial_duration = 60000;
