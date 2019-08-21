@@ -3,12 +3,20 @@ name = "near-vm-logic"
 version = "0.2.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
+license = "Apache-2.0"
+readme = "README.md"
+categories = ["wasm"]
+repository = "https://github.com/nearprotocol/nearcore"
+homepage = "https://github.com/nearprotocol/nearcore"
+description = """
+This crate implements the specification of the interface that Near blockchain exposes to the smart contracts.
+"""
 
 [dependencies]
 bs58 = "0.2.2"
 exonum_sodiumoxide = "0.0.20"
 serde = { version = "1.0", features = ["derive"] }
-near-runtime-fees = { path = "../near-runtime-fees" }
+near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.0" }
 
 [[test]]
 name = "test_registers"
