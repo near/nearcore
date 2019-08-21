@@ -13,7 +13,7 @@ This crate implements the specification of the interface that Near blockchain ex
 """
 
 [dependencies]
-cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
+near-cached = "0.8.0"
 wasmer-runtime = { version = "0.5.7", features = ["singlepass"] }
 near-vm-logic = { path="../near-vm-logic", version = "0.2.0"}
 pwasm-utils = "0.7.0"
