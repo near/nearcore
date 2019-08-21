@@ -595,46 +595,11 @@ pub fn create_testnet_configs_from_seeds(
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
     let num_validators = seeds.len() - num_non_validators;
     let signers =
-        seeds.iter().map(|seed| InMemorySigner::new(seed.to_string())).collect::<Vec<_>>();
+        seeds.iter().map(|seed| InMemorySigner::from_seed(seed, seed)).collect::<Vec<_>>();
     let network_signers =
         (0..seeds.len()).map(|_| InMemorySigner::from_random()).collect::<Vec<_>>();
-    let mut records = vec![vec![]];
-    for (i, seed) in seeds.iter().enumerate() {
-        records[0].extend(
-            state_records_account_with_key(
-                seed,
-                &signers[i].public_key,
-                TESTING_INIT_BALANCE,
-                TESTING_INIT_STAKE,
-                CryptoHash::default(),
-            )
-            .into_iter(),
-        );
-    }
-    let validators = seeds
-        .iter()
-        .enumerate()
-        .take(seeds.len() - num_non_validators)
-        .map(|(i, seed)| AccountInfo {
-            account_id: seed.to_string(),
-            public_key: signers[i].public_key.to_readable(),
-            amount: TESTING_INIT_STAKE,
-        })
-        .collect::<Vec<_>>();
-    let genesis_config = GenesisConfig {
-        protocol_version: PROTOCOL_VERSION,
-        genesis_time: Utc::now(),
-        chain_id: random_chain_id(),
-        num_block_producers: num_validators,
-        block_producers_per_shard: vec![num_validators],
-        avg_fisherman_per_shard: vec![0],
-        dynamic_resharding: false,
-        epoch_length: FAST_EPOCH_LENGTH,
-        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
-        runtime_config: Default::default(),
-        validators,
-        records,
-    };
+    let genesis_config =
+        GenesisConfig::legacy_test(seeds.iter().map(|x| x.as_str()).collect(), num_validators);
     let mut configs = vec![];
     let first_node_port = open_port();
     for i in 0..seeds.len() {

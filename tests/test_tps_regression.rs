@@ -36,8 +36,8 @@ mod test {
         let receiver_acc = nodes[money_receiver].read().unwrap().account_id().unwrap();
         let transaction = SignedTransaction::send_money(
             nonce,
-            sender_acc.as_str(),
-            receiver_acc.as_str(),
+            sender_acc,
+            receiver_acc,
             nodes[money_sender].read().unwrap().signer(),
             1,
         );
@@ -82,7 +82,7 @@ mod test {
         timeout: Duration,
         test_prefix: &str,
     ) {
-        let mut nodes = create_nodes(num_nodes, test_prefix);
+        let nodes = create_nodes(num_nodes, test_prefix);
 
         let nodes: Vec<Arc<RwLock<dyn Node>>> =
             nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();

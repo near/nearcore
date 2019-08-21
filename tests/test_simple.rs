@@ -10,7 +10,7 @@ mod test {
     fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
         init_integration_logger();
 
-        let mut nodes = create_nodes(num_nodes, test_prefix);
+        let nodes = create_nodes(num_nodes, test_prefix);
         let nodes: Vec<_> = nodes.into_iter().map(|cfg| Node::new_sharable(cfg)).collect();
         let account_names: Vec<_> =
             nodes.iter().map(|node| node.read().unwrap().account_id().unwrap()).collect();

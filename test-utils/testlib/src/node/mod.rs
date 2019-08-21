@@ -1,17 +1,14 @@
-use std::path::PathBuf;
+use std::panic;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::{fs, panic};
 
 use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
 use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
-use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
-use node_runtime::StateRecord;
 
 pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
@@ -139,23 +136,21 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
-    let code = to_base64(&fs::read(path).unwrap());
-    let (configs, signers, network_signers, mut genesis_config) =
+    let (configs, signers, network_signers, genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 0, true);
-    for seed in seeds {
-        for records in genesis_config.records.iter_mut() {
-            for record in records.iter_mut() {
-                if let StateRecord::Account { account_id, account } = record {
-                    if account_id == &seed {
-                        account.code_hash = hash(code);
-                    }
-                }
-            }
-            records.push(StateRecord::Contract { account_id: seed.clone(), code: to_base64(code) });
-        }
-    }
+    //    for seed in seeds {
+    //        for records in genesis_config.records.iter_mut() {
+    //            for record in records.iter_mut() {
+    //                if let StateRecord::Account { account_id, account } = record {
+    //                    if account_id == &seed {
+    //                        account.code_hash = hash(&code).into();
+    //                    }
+    //                }
+    //            }
+    //            records
+    //                .push(StateRecord::Contract { account_id: seed.clone(), code: to_base64(&code) });
+    //        }
+    //    }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
 

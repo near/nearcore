@@ -423,6 +423,7 @@ pub fn test_create_account_failure_already_exists(node: impl Node) {
         money_used,
     );
     let create_account_cost = create_account_transfer_full_key_cost_fail_on_create_account();
+
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 3);
     let new_root = node_user.get_state_root();
