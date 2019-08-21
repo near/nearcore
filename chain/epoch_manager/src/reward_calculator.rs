@@ -32,6 +32,9 @@ impl RewardCalculator {
         let epoch_protocol_treasury =
             epoch_total_reward * self.protocol_reward_percentage as u128 / 100;
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
+        if num_validators == 0 {
+            return res;
+        }
         let epoch_per_validator_reward =
             (epoch_total_reward - epoch_protocol_treasury) / num_validators as u128;
         for (account_id, (num_blocks, expected_num_blocks)) in validator_online_ratio {

@@ -47,6 +47,8 @@ pub struct BlockHeader {
     pub total_weight: Weight,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
+    /// Mask for new chunks included in the block
+    pub chunk_mask: Vec<bool>,
     /// Epoch start hash of the previous epoch.
     /// Used for retrieving validator information
     pub epoch_id: EpochId,
@@ -81,6 +83,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         mut validator_proposal: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
         epoch_id: EpochId,
         gas_used: GasUsage,
         gas_limit: GasUsage,
@@ -101,6 +104,7 @@ impl BlockHeader {
             validator_proposal: RepeatedField::from_iter(
                 validator_proposal.drain(..).map(std::convert::Into::into),
             ),
+            chunk_mask,
             epoch_id: epoch_id.0.into(),
             gas_used,
             gas_limit,
@@ -121,6 +125,7 @@ impl BlockHeader {
         approval_sigs: Vec<Signature>,
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
+        chunk_mask: Vec<bool>,
         epoch_id: EpochId,
         gas_used: GasUsage,
         gas_limit: GasUsage,
@@ -138,6 +143,7 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            chunk_mask,
             epoch_id,
             gas_used,
             gas_limit,
@@ -171,6 +177,7 @@ impl BlockHeader {
             vec![],
             vec![],
             0.into(),
+            vec![],
             vec![],
             EpochId::default(),
             0,
@@ -226,6 +233,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
+        let chunk_mask = body.chunk_mask;
         let epoch_id = EpochId(body.epoch_id.try_into()?);
         Ok(BlockHeader {
             height,
@@ -237,6 +245,7 @@ impl TryFrom<chain_proto::BlockHeader> for BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
+            chunk_mask,
             epoch_id,
             gas_used: body.gas_used,
             gas_limit: body.gas_limit,
@@ -265,6 +274,7 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
                 validator_proposal: RepeatedField::from_iter(
                     header.validator_proposal.drain(..).map(std::convert::Into::into),
                 ),
+                chunk_mask: header.chunk_mask,
                 epoch_id: header.epoch_id.0.into(),
                 gas_used: header.gas_used,
                 gas_limit: header.gas_limit,
@@ -279,9 +289,6 @@ impl From<BlockHeader> for chain_proto::BlockHeader {
         }
     }
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Bytes(Vec<u8>);
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Block {
@@ -356,11 +363,16 @@ impl Block {
         let mut validator_proposals = vec![];
         let mut gas_used = 0;
         let mut gas_limit = 0;
+        // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
+        let mut chunk_mask = vec![];
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.validator_proposal);
                 gas_used += chunk.gas_used;
                 gas_limit += chunk.gas_limit;
+                chunk_mask.push(true);
+            } else {
+                chunk_mask.push(false);
             }
         }
 
@@ -390,6 +402,7 @@ impl Block {
                 approval_sigs,
                 total_weight,
                 validator_proposals,
+                chunk_mask,
                 epoch_id,
                 gas_used,
                 gas_limit,
