@@ -961,7 +961,7 @@ mod tests {
                     1,
                     h[0],
                     vec![],
-                    vec![true],
+                    vec![],
                     slashed,
                     0,
                     DEFAULT_GAS_PRICE,
@@ -986,6 +986,7 @@ mod tests {
         record_block(&mut epoch_manager, h[4], h[5], 5, vec![]);
 
         let epoch_id = epoch_manager.get_epoch_id(&h[5]).unwrap();
+        assert_eq!(epoch_id.0, h[2]);
         assert_eq!(
             epoch_manager.get_epoch_info(&epoch_id).unwrap(),
             &epoch_info(

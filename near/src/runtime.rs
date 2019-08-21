@@ -97,7 +97,6 @@ impl NightshadeRuntime {
     fn update_validator_accounts(
         &self,
         shard_id: ShardId,
-        _state_root: &MerkleHash,
         block_hash: &CryptoHash,
         state_update: &mut TrieUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -429,13 +428,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
             println!("block index: {}", block_index);
-            self.update_validator_accounts(
-                shard_id,
-                state_root,
-                prev_block_hash,
-                &mut state_update,
-            )
-            .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
+            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
+                .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
             state_update.commit();
         }
 
@@ -1305,12 +1299,10 @@ mod test {
         let account = env.view_account(&block_producers[0].account_id);
         assert_eq!(account.stake, TESTING_INIT_STAKE + per_epoch_per_validator_reward - 1);
 
-        for _ in 10..13 {
+        for _ in 10..14 {
             env.step(vec![vec![], vec![]], vec![true, true]);
         }
         let account = env.view_account(&block_producers[3].account_id);
         assert_eq!(account.stake, 0);
-        let account = env.view_account(&block_producers[0].account_id);
-        assert_eq!(account.stake, TESTING_INIT_STAKE - 1);
     }
 }
