@@ -47,11 +47,12 @@ for value in q['records'][0]:
                 'AccessKey': {
                     'access_key': {
                         'nonce': nonce,
-                        'permission': {
-                            'FullAccess': True,
-                        }
+                        'permission': 'FullAccess'
                     },
-                    'public_key': public_key,
+                    'public_key': {
+                        'key_type': 'ED25519',
+                        'data': public_key
+                    },
                     'account_id': account_id
                 }
             })
