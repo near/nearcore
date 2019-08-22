@@ -430,7 +430,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             println!("block index: {}", block_index);
             self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
                 .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
-            state_update.commit();
         }
 
         let apply_state = ApplyState {
