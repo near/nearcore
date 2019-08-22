@@ -1,4 +1,4 @@
-use near_cached::{cached_key, SizedCache};
+use cached::{cached_key, SizedCache};
 use wasmer_runtime;
 
 use crate::errors::VMError;
