@@ -1,4 +1,4 @@
-use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey};
+use crate::types::{AccountId, Balance, BlockIndex, Gas, PublicKey, StorageUsage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -27,6 +27,8 @@ pub struct VMContext {
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.
     pub account_balance: Balance,
+    /// The account's storage usage before the contract execution
+    pub storage_usage: StorageUsage,
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
     pub attached_deposit: Balance,

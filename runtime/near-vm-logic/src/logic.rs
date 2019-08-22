@@ -29,6 +29,8 @@ pub struct VMLogic<'a> {
     /// Keeping track of the current account balance, which can decrease when we create promises
     /// and attach balance to them.
     current_account_balance: Balance,
+    /// Storage usage of the current account at the moment
+    current_storage_usage: StorageUsage,
     /// The amount of gas that was irreversibly used for contract execution.
     burnt_gas: Gas,
     /// `burnt_gas` + gas that was attached to the promises.
@@ -78,6 +80,7 @@ impl<'a> VMLogic<'a> {
         memory: &'a mut dyn MemoryLike,
     ) -> Self {
         let current_account_balance = context.account_balance + context.attached_deposit;
+        let current_storage_usage = context.storage_usage;
         Self {
             ext,
             context,
@@ -85,6 +88,7 @@ impl<'a> VMLogic<'a> {
             promise_results,
             memory,
             current_account_balance,
+            current_storage_usage,
             burnt_gas: 0,
             used_gas: 0,
             return_data: ReturnData::None,
@@ -310,12 +314,12 @@ impl<'a> VMLogic<'a> {
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
     /// invocation. This includes:
     /// * The data written with storage_* functions during current and previous execution;
-    /// * The bytes needed to store the account protobuf and the access keys of the given account.
+    /// * The bytes needed to store the access keys of the given account.
+    /// * The contract code size
+    /// * A small fixed overhead for account metadata.
     ///
-    /// TODO: Include the storage of the account proto and all access keys. Implement once
-    /// https://github.com/nearprotocol/NEPs/pull/8 is complete.
     pub fn storage_usage(&self) -> Result<StorageUsage> {
-        Ok(self.ext.storage_usage())
+        Ok(self.current_storage_usage)
     }
 
     // #################
@@ -872,12 +876,21 @@ impl<'a> VMLogic<'a> {
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let value = Self::memory_get(*memory, value_ptr, value_len)?;
         let evicted = self.ext.storage_set(&key, &value)?;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match evicted {
-            Some(value) => {
-                Self::internal_write_register(registers, config, register_id, &value)?;
+            Some(old_value) => {
+                self.current_storage_usage -=
+                    (old_value.len() as u64) * storage_config.value_cost_per_byte;
+                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
+                Self::internal_write_register(registers, config, register_id, &old_value)?;
                 Ok(1)
             }
-            None => Ok(0),
+            None => {
+                self.current_storage_usage += value_len * storage_config.value_cost_per_byte;
+                self.current_storage_usage += key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage += storage_config.data_record_cost;
+                Ok(0)
+            }
         }
     }
 
@@ -926,8 +939,13 @@ impl<'a> VMLogic<'a> {
         }
         let key = Self::memory_get(*memory, key_ptr, key_len)?;
         let removed = ext.storage_remove(&key)?;
+        let storage_config = &config.runtime_fees.storage_usage_config;
         match removed {
             Some(value) => {
+                self.current_storage_usage -=
+                    (value.len() as u64) * storage_config.value_cost_per_byte;
+                self.current_storage_usage -= key_len * storage_config.key_cost_per_byte;
+                self.current_storage_usage -= storage_config.data_record_cost;
                 Self::internal_write_register(registers, config, register_id, &value)?;
                 Ok(1)
             }
@@ -1037,6 +1055,7 @@ impl<'a> VMLogic<'a> {
     pub fn outcome(self) -> VMOutcome {
         VMOutcome {
             balance: self.current_account_balance,
+            storage_usage: self.storage_usage().unwrap(),
             return_data: self.return_data,
             burnt_gas: self.burnt_gas,
             used_gas: self.used_gas,
@@ -1048,6 +1067,7 @@ impl<'a> VMLogic<'a> {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct VMOutcome {
     pub balance: Balance,
+    pub storage_usage: StorageUsage,
     pub return_data: ReturnData,
     pub burnt_gas: Gas,
     pub used_gas: Gas,

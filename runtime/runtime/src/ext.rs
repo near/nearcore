@@ -77,18 +77,22 @@ impl<'a> RuntimeExt<'a> {
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        Ok(self.trie_update.set(storage_key, DBValue::from_slice(value)))
+        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        self.trie_update.set(storage_key, DBValue::from_slice(value));
+        Ok(evicted)
     }
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         let value = self.trie_update.get(&storage_key);
-        Ok(value.map(|buf| buf.to_vec()))
+        Ok(value.map(|buf| buf.into_vec()))
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        Ok(self.trie_update.remove(&storage_key))
+        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        self.trie_update.remove(&storage_key);
+        Ok(evicted)
     }
 
     fn storage_has_key(&mut self, key: &[u8]) -> Result<bool, ExternalError> {
@@ -185,9 +189,5 @@ impl<'a> External for RuntimeExt<'a> {
         let new_receipt_index = self.action_receipts.len() as u64;
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
-    }
-
-    fn storage_usage(&self) -> u64 {
-        unimplemented!()
     }
 }

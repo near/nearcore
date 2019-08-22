@@ -1,6 +1,7 @@
 use crate::config::RuntimeConfig;
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use borsh::ser::Serializable;
 use near_primitives::account::Account;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -13,6 +14,7 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorStake};
 use near_primitives::utils::{
     is_valid_sub_account_id, is_valid_top_level_account_id, key_for_access_key,
 };
+use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
     TrieUpdate,
@@ -132,6 +134,7 @@ pub(crate) fn action_function_call(
         input: function_call.args.clone(),
         block_index: apply_state.block_index,
         account_balance: account.amount,
+        storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed: action_hash.as_ref().to_vec(),
@@ -159,7 +162,7 @@ pub(crate) fn action_function_call(
     let outcome = outcome.unwrap();
     result.logs.extend(outcome.logs.into_iter());
     account.amount = outcome.balance;
-    // account.storage_usage = outcome.storage_usage;
+    account.storage_usage = outcome.storage_usage;
     result.gas_burnt += outcome.burnt_gas;
     result.gas_used += outcome.used_gas;
     result.result = Ok(outcome.return_data);
@@ -224,7 +227,9 @@ pub(crate) fn action_create_account(
         return;
     }
     *actor_id = receipt.receiver_id.clone();
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
     *account = Some(Account::new(0, CryptoHash::default(), apply_state.block_index));
+    account.as_mut().unwrap().storage_usage = storage_config.account_cost;
 }
 
 pub(crate) fn action_deploy_contract(
@@ -233,8 +238,14 @@ pub(crate) fn action_deploy_contract(
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
 ) {
+    let account = account.as_mut().unwrap();
     let code = ContractCode::new(deploy_contract.code.clone());
-    account.as_mut().unwrap().code_hash = code.get_hash();
+    let prev_code = get_code(state_update, account_id);
+    let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage -= prev_code_length * storage_config.code_cost_per_byte;
+    account.storage_usage += (code.code.len() as u64) * storage_config.code_cost_per_byte;
+    account.code_hash = code.get_hash();
     set_code(state_update, &account_id, &code);
 }
 
@@ -266,11 +277,14 @@ pub(crate) fn action_delete_account(
 
 pub(crate) fn action_delete_key(
     state_update: &mut TrieUpdate,
+    account: &mut Option<Account>,
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
 ) {
-    if get_access_key(state_update, account_id, &delete_key.public_key).is_none() {
+    let account = account.as_mut().unwrap();
+    let access_key = get_access_key(state_update, account_id, &delete_key.public_key);
+    if access_key.is_none() {
         result.result = Err(format!(
             "Account {:?} tries to remove an access key that doesn't exist",
             account_id
@@ -280,14 +294,23 @@ pub(crate) fn action_delete_key(
     }
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage -=
+        (delete_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage -= (access_key.unwrap().try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.value_cost_per_byte;
+    account.storage_usage -= storage_config.data_record_cost;
 }
 
 pub(crate) fn action_add_key(
     state_update: &mut TrieUpdate,
+    account: &mut Option<Account>,
     result: &mut ActionResult,
     account_id: &AccountId,
     add_key: &AddKeyAction,
 ) {
+    let account = account.as_mut().unwrap();
     if get_access_key(state_update, account_id, &add_key.public_key).is_some() {
         result.result = Err(format!(
             "The public key {:?} is already used for an existing access key",
@@ -297,6 +320,13 @@ pub(crate) fn action_add_key(
         return;
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
+    let storage_config = RuntimeFeesConfig::default().storage_usage_config;
+    account.storage_usage +=
+        (add_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage += (add_key.access_key.try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.value_cost_per_byte;
+    account.storage_usage += storage_config.data_record_cost;
 }
 
 pub(crate) fn check_actor_permissions(

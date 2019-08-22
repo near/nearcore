@@ -113,6 +113,7 @@ impl TrieViewer {
                     input: args.to_owned(),
                     block_index,
                     account_balance: account.amount,
+                    storage_usage: account.storage_usage,
                     attached_deposit: 0,
                     prepaid_gas: 0,
                     random_seed: root.as_ref().into(),

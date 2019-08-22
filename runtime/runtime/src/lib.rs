@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use kvdb::DBValue;
 
-use near_primitives::account::{AccessKeyPermission, Account};
+use borsh::ser::Serializable;
+use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
@@ -24,6 +25,7 @@ use near_primitives::types::{
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_pending_data_count,
     key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
+    ACCOUNT_DATA_SEPARATOR,
 };
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
@@ -39,6 +41,8 @@ use crate::config::{
 };
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
+use near_primitives::crypto::signature::PublicKey;
+use near_runtime_fees::RuntimeFeesConfig;
 use near_vm_logic::types::PromiseResult;
 
 mod actions;
@@ -332,10 +336,10 @@ impl Runtime {
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
-                action_add_key(state_update, &mut result, account_id, add_key);
+                action_add_key(state_update, account, &mut result, account_id, add_key);
             }
             Action::DeleteKey(delete_key) => {
-                action_delete_key(state_update, &mut result, account_id, delete_key);
+                action_delete_key(state_update, account, &mut result, account_id, delete_key);
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
@@ -727,6 +731,51 @@ impl Runtime {
         })
     }
 
+    fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
+        let mut result = HashMap::new();
+        let config = RuntimeFeesConfig::default().storage_usage_config;
+        for record in records {
+            let account_and_storage = match record {
+                StateRecord::Account { account_id, account: _ } => {
+                    Some((account_id.clone(), config.account_cost))
+                }
+                StateRecord::Data { key, value } => {
+                    let key = from_base64(key).expect("Failed to decode key");
+                    let value = from_base64(value).expect("Failed to decode value");
+                    let separator =
+                        (1..key.len()).find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0]).unwrap();
+                    let account_id = &key[1..separator];
+                    let account_id =
+                        String::from_utf8(account_id.to_vec()).expect("Invalid account id");
+                    let data_key = &key[(separator + 1)..];
+                    let storage_usage = config.data_record_cost
+                        + config.key_cost_per_byte * (data_key.len() as u64)
+                        + config.value_cost_per_byte * (value.len() as u64);
+                    Some((account_id, storage_usage))
+                }
+                StateRecord::Contract { account_id, code } => {
+                    let code = from_base64(&code).expect("Failed to decode wasm from base64");
+                    Some((account_id.clone(), config.code_cost_per_byte * (code.len() as u64)))
+                }
+                StateRecord::AccessKey { account_id, public_key, access_key } => {
+                    let public_key: PublicKey = public_key.clone().into();
+                    let access_key: AccessKey = access_key.clone().into();
+                    let storage_usage = config.data_record_cost
+                        + config.key_cost_per_byte * (public_key.as_ref().len() as u64)
+                        + config.value_cost_per_byte
+                            * (access_key.try_to_vec().ok().unwrap_or_default().len() as u64);
+                    Some((account_id.clone(), storage_usage))
+                }
+                StateRecord::PostponedReceipt(_) => None,
+                StateRecord::ReceivedData { .. } => None,
+            };
+            if let Some((account, storage_usage)) = account_and_storage {
+                *result.entry(account).or_default() += storage_usage;
+            }
+        }
+        result
+    }
+
     /// Balances are account, publickey, initial_balance, initial_tx_stake
     pub fn apply_genesis_state(
         &self,
@@ -774,6 +823,11 @@ impl Runtime {
                     );
                 }
             }
+        }
+        for (account_id, storage_usage) in self.compute_storage_usage(records) {
+            let mut account = get_account(&state_update, &account_id).expect("account must exist");
+            account.storage_usage = storage_usage;
+            set_account(&mut state_update, &account_id, &account);
         }
         // Processing postponed receipts after we stored all received data
         for receipt in postponed_receipts {

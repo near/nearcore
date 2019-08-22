@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::convert::identity;
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -33,11 +32,11 @@ impl TrieUpdate {
             self.trie.get(&self.root, key).map(DBValue::from_vec)
         }
     }
-    pub fn set(&mut self, key: Vec<u8>, value: DBValue) -> Option<Vec<u8>> {
-        self.prospective.insert(key, Some(value.into_vec())).and_then(identity)
+    pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
+        self.prospective.insert(key, Some(value.into_vec()));
     }
-    pub fn remove(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-        self.prospective.insert(key.to_vec(), None).and_then(identity)
+    pub fn remove(&mut self, key: &[u8]) {
+        self.prospective.insert(key.to_vec(), None);
     }
 
     pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), Box<dyn std::error::Error>> {

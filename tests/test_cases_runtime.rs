@@ -20,7 +20,7 @@ mod test {
         genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0][0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000_000,
             _ => {}
         }
         genesis_config.records[0].push(StateRecord::Data {
