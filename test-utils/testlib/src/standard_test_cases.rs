@@ -223,7 +223,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 0,
+            storage_usage: 254499,
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -234,7 +234,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 0,
+            storage_usage: 254499,
         }
     );
 }
@@ -854,7 +854,7 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
 }
 
 pub fn test_stake_fail_not_enough_rent_for_storage(node: impl Node) {
-    test_stake_fail_not_enough_rent_with_balance(node, 134_000_000_000_000_010);
+    test_stake_fail_not_enough_rent_with_balance(node, 1_000_000_000_000_000_010);
 }
 
 pub fn test_stake_fail_not_enough_rent_for_account_id(node: impl Node) {
