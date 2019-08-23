@@ -1,3 +1,7 @@
+extern crate sodiumoxide;
+
+use sodiumoxide::crypto::secret_box;
+
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -45,6 +49,151 @@ pub struct KeyFile {
     #[serde(with = "base_format")]
     pub secret_key: SecretKey,
 }
+
+impl KeyFile {
+    fn write_to_file(&self, path: &Path) {
+        let mut file = File::create(path).expect("Failed to create / write a key file.");
+        let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
+        if let Err(err) = file.write_all(str.as_bytes()) {
+            panic!("Failed to write a key file {}", err);
+        }
+    }
+
+    fn from_file(path: &Path) -> Self {
+        let mut file = File::open(path).expect("Could not open key file.");
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Could not read from key file.");
+        serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
+    }
+}
+
+
+pub struct PasswordInput {
+    pub content: Vec<u8>,
+    pub length: usize,
+    pub max_length: u32
+}
+
+impl PasswordInput {
+    pub fn enter_from_console() -> Self {  
+        const MAX_LENGTH = 32u32;
+        println!("Enter a password for a secret key: ");
+        let mut input = String::new(); 
+        let _ = std::io::stdin().read_line(&mut input).expect("Could not read from stdin");
+        PasswordInput {
+            input.into_bytes(), //shoud i use trim() here?
+            input.len(),
+            MAX_LENGTH
+        }
+    }
+
+    pub fn exceed_max_length(&self) -> bool {
+       self.length > self.max_length as usize
+    }
+     
+     // xsalsa20poly1305 restricts key size to 32
+    // https://github.com/sodiumoxide/sodiumoxide/blob/master/src/crypto/secretbox/xsalsa20poly1305.rs#L50
+    pub fn pad_content(&self) -> Vec<u8> {
+        const KEYBYTES_LENGTH: usize = 32 as usize;
+        if self.length == KEYBYTES_LENGTH {
+            self.content
+        }
+        let mut result = self.content.clone() 
+        let padlen = KEYBYTES_LENGTH - self.len;
+        let pad_vec = vec![0u8, padlen];
+        result.extend(pad_vec.iter().cloned());
+        result
+    }
+
+}   
+
+trait Operation {
+    fn encrypt(&self, m: &[u8], k: &[u8]) -> Vec<u8>;
+    fn decrypt(&self, c: &[u8], k: &[u8]) -> Vec<u8>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SodiumoxideSecretBox {
+    nonce: secretbox::Nonce,
+    encrypted: bool
+}
+
+
+impl SodiumoxideSecretBox {
+    pub fn new() -> Self {
+        let nonce = secretbox::gen_nonce();
+        let encrypted = false;
+        SodiumoxideSecretBox { nonce, encrypted }
+    }
+}
+
+impl Operation for SodiumoxideSecretBox  {
+    fn encrypt(&self, m: &[u8], k: &[u8]) -> Vec<u8> {
+        self.encrypted = true;
+        secretbox::seal(m, &self.nonce, k)
+    }
+
+    fn decrypt(&self, c: &[u8], k: &[u8]) -> Vec<u8> {
+        secretbox::open(c, &self.nonce, &k)
+    }
+}
+
+fn process_password_input() -> Result<Vec<u8>, Error> {
+    let password_input = PasswordInput::enter_from_console();
+    if password_input.exceed_max_length() {
+        Err((Error::new(ErrorKind::InvalidInput, "Input is too long"))
+    }
+    //  if user didn't enter password - don't encrypt or decrypt
+    if password_input.length == 0 {
+        Err((Error::new(ErrorKind::InvalidInput, "No text entered"))
+    }
+    Ok(password_input.pad_content())
+}
+
+fn serialize_keyfile(key_store_path: &Path, public_key : PublicKey, secret_key: SecretKey, encrypted_sk: Vec<u8>) {
+    let key_file = KeyFile { public_key, secret_key, encrypted_sk}; 
+    keyfile.write_to_file(key_store_path);
+}
+
+fn encrypt_keyfile_secretkey(key_store_path: &Path, public_key: PublicKey, secret_key: SecretKey,
+  ssb: &SodiumoxideSecretBox) -> Result<(), Error> {
+    let encryption_key = process_password_input()?;
+    let secretkey_vec = Vec<u8>::from(&secret_key);
+    let encrypted_sk = ssb.encrypt(&secretkey_vec, &encryption_key);
+    serialize_keyfile(key_store_path, public_key, secret_key, encrypted_sk);
+    Ok(())
+}
+
+// pr key_store_path: &Path, ssb: &SodiumoxideSecretBox  ?
+fn process_serialized_file(key_store_path: &Path, ssb: &SodiumoxideSecretBox) -> Result<(), Error>  
+{
+    let keyfile = KeyFile::from_file(key_store_path); 
+    if ssb.encrypted{  
+        loop {
+            let decryption_key = process_password_input()?;
+            let plaintext = ssb.decrypt(&keyfile.encrypted_sk, &decryption_key)
+            // #TODO ensure thsat decrypted secret key matches the default one
+            // decrypts the private key and uses it to sign the blocks, more guidance needed
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub fn perform_encryption(key_store_path: &Path, home_dir: &Path, public_key: PublicKey,
+    secret_key: SecretKey ) -> Result<(), Error> {
+    let encrypted_sk  = vec![0u8, 16];
+    serialize_keyfile(&key_store_path, public_key, secret_key.clone(), encrypted_sk);
+    let ssb = SodiumoxideSecretBox::new();
+
+    if home_dir.join("config.json").exists() {
+        process_serialized_file(key_store_path, &ssb)?;
+    } else {
+        encrypt_keyfile_secretkey(key_store_path, public_key, secret_key, &ssb)?;
+    }
+    Ok(())
+}
+
 
 pub fn write_key_file(
     key_store_path: &Path,
