@@ -121,7 +121,9 @@ impl NightshadeRuntime {
                     );
                     assert!(
                         account.stake >= max_of_stakes,
-                        "FATAL: staking invariant does not hold"
+                        "FATAL: staking invariant does not hold. Account stake {} is less than maximum of stakes {} in the past three epochs",
+                        account.stake,
+                        max_of_stakes
                     );
                     let return_stake = account.stake - max_of_stakes;
                     account.stake -= return_stake;
