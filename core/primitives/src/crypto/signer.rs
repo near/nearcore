@@ -1,10 +1,11 @@
 extern crate sodiumoxide;
 
 use sodiumoxide::crypto::secret_box;
+use sodiumoxide::crypto::secretbox::xsalsa20poly1305::Key;
 
 use std::fs;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Write, Error};
 use std::path::Path;
 use std::process;
 use std::sync::Arc;
@@ -67,7 +68,6 @@ impl KeyFile {
     }
 }
 
-
 pub struct PasswordInput {
     pub content: Vec<u8>,
     pub length: usize,
@@ -104,12 +104,11 @@ impl PasswordInput {
         result.extend(pad_vec.iter().cloned());
         result
     }
-
 }   
 
 trait Operation {
-    fn encrypt(&self, m: &[u8], k: &[u8]) -> Vec<u8>;
-    fn decrypt(&self, c: &[u8], k: &[u8]) -> Vec<u8>;
+    fn encrypt(&self, m: &[u8], k: &Key) -> Vec<u8>;
+    fn decrypt(&self, c: &[u8], k: &Key) -> Vec<u8>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,27 +117,36 @@ struct SodiumoxideSecretBox {
     encrypted: bool
 }
 
-
 impl SodiumoxideSecretBox {
     pub fn new() -> Self {
         let nonce = secretbox::gen_nonce();
         let encrypted = false;
         SodiumoxideSecretBox { nonce, encrypted }
     }
+    //need to be tested
+    pub fn gen_key(bytes: &[u8]) -> Result<Key, Error> {
+       Key::from_slice(bytes)
+            .map(Ok)
+            .unwrap_or_else(|| {
+                Err((Error::new(ErrorKind::InvalidInput,
+                    "Failed to create key from slice".to_string(),
+                ))
+        })
+    }
 }
 
 impl Operation for SodiumoxideSecretBox  {
-    fn encrypt(&self, m: &[u8], k: &[u8]) -> Vec<u8> {
+    fn encrypt(&self, m: &[u8], k: &Key) -> Vec<u8> {
         self.encrypted = true;
-        secretbox::seal(m, &self.nonce, k)
+        secretbox::seal(m, &self.nonce, &k)
     }
 
-    fn decrypt(&self, c: &[u8], k: &[u8]) -> Vec<u8> {
+    fn decrypt(&self, c: &[u8], k: &Key) -> Vec<u8> {
         secretbox::open(c, &self.nonce, &k)
     }
 }
 
-fn process_password_input() -> Result<Vec<u8>, Error> {
+fn process_password_input() -> Result<Key, Error> {
     let password_input = PasswordInput::enter_from_console();
     if password_input.exceed_max_length() {
         Err((Error::new(ErrorKind::InvalidInput, "Input is too long"))
@@ -147,7 +155,9 @@ fn process_password_input() -> Result<Vec<u8>, Error> {
     if password_input.length == 0 {
         Err((Error::new(ErrorKind::InvalidInput, "No text entered"))
     }
-    Ok(password_input.pad_content())
+    let padded_content = password_input.pad_content()
+    let key = SodiumoxideSecretBox::gen_key(&padded_content)?;
+    Ok(key)
 }
 
 fn serialize_keyfile(key_store_path: &Path, public_key : PublicKey, secret_key: SecretKey, encrypted_sk: Vec<u8>) {
