@@ -20,6 +20,7 @@ message BlockHeaderBody {
     uint64 gas_limit = 12;
     Uint128 gas_price = 13;
     Uint128 total_supply = 14;
+    repeated bool chunk_mask = 15;
 }
 
 message BlockHeader {
