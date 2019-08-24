@@ -1,11 +1,9 @@
-extern crate exonum_sodiumoxide as sodiumoxide;
-
 use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
 
-pub use exonum_sodiumoxide::crypto::sign::ed25519::Seed;
+pub use sodiumoxide::crypto::sign::ed25519::Seed;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode};

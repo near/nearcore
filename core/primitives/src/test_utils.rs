@@ -1,10 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use log::LevelFilter;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
+use sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 
 use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::crypto::signature::{PublicKey, SecretKey};

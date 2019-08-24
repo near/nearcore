@@ -1,6 +1,5 @@
 extern crate bincode;
 extern crate byteorder;
-extern crate exonum_sodiumoxide;
 #[cfg(jemallocator)]
 extern crate jemallocator;
 extern crate pairing;
