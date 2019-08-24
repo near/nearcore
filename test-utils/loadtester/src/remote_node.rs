@@ -10,10 +10,12 @@ use reqwest::Client as SyncClient;
 
 use near_primitives::crypto::signature::PublicKey;
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
+use std::convert::TryInto;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
@@ -214,6 +216,16 @@ impl RemoteNode {
             .as_str()
             .ok_or(VALUE_NOT_STR_ERR)?
             .parse()?)
+    }
+
+    pub fn get_current_block_hash(&self) -> Result<CryptoHash, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        let response: serde_json::Value = self.sync_client.post(url.as_str()).send()?.json()?;
+        Ok(response["result"]["sync_info"]["latest_block_hash"]
+            .as_str()
+            .ok_or(VALUE_NOT_STR_ERR)?
+            .to_string()
+            .try_into()?)
     }
 
     // This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6

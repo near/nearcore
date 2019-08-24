@@ -10,6 +10,8 @@ use near_primitives::transaction::{
 use std::sync::Arc;
 use testlib::node::{Node, ThreadNode};
 
+const TRANSACTION_VALIDITY_PERIOD: u64 = 10;
+
 fn start_node() -> ThreadNode {
     init_integration_logger();
     let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1);
@@ -25,6 +27,7 @@ fn start_node() -> ThreadNode {
 fn test_check_tx_error_log() {
     let node = start_node();
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let block_hash = node.user().get_best_block_hash().unwrap();
     let tx = SignedTransaction::from_actions(
         1,
         "bob.near".to_string(),
@@ -38,6 +41,8 @@ fn test_check_tx_error_log() {
                 access_key: AccessKey::full_access(),
             }),
         ],
+        block_hash,
+        TRANSACTION_VALIDITY_PERIOD,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
@@ -51,7 +56,7 @@ fn test_check_tx_error_log() {
 fn test_deliver_tx_error_log() {
     let node = start_node();
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
-
+    let block_hash = node.user().get_best_block_hash().unwrap();
     let cost = testlib::fees_utils::create_account_transfer_full_key_cost();
     let tx = SignedTransaction::from_actions(
         1,
@@ -66,6 +71,8 @@ fn test_deliver_tx_error_log() {
                 access_key: AccessKey::full_access(),
             }),
         ],
+        block_hash,
+        TRANSACTION_VALIDITY_PERIOD,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap();

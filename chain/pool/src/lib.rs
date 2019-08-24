@@ -82,6 +82,7 @@ mod tests {
     use near_primitives::transaction::SignedTransaction;
 
     use crate::TransactionPool;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
     use std::sync::Arc;
 
@@ -98,6 +99,8 @@ mod tests {
                     "bob.near".to_string(),
                     signer.clone(),
                     i as Balance,
+                    CryptoHash::default(),
+                    1,
                 )
             })
             .collect();

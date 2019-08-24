@@ -681,7 +681,21 @@ impl<'a> ChainUpdate<'a> {
         }
 
         // Retrieve receipts from the previous block.
-        let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
+        let receipts = self.chain_store_update.get_receipts(&prev_hash)?.clone();
+        // TODO: consider changing the signature of apply_transactions to avoid the clone here
+        let transactions = block
+            .transactions
+            .iter()
+            .filter(|&t| {
+                match self.chain_store_update.get_block_header(&t.transaction.block_hash) {
+                    Ok(h) => {
+                        block.header.inner.height - h.inner.height <= t.transaction.validity_period
+                    }
+                    _ => false,
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>();
 
         // Apply block to runtime.
         let (trie_changes, state_root, tx_results, new_receipts, validator_proposals) = self
@@ -692,8 +706,8 @@ impl<'a> ChainUpdate<'a> {
                 block.header.inner.height,
                 &block.header.inner.prev_hash,
                 &block.header.hash(),
-                &vec![receipts.clone()], // TODO: currently only taking into account one shard.
-                &block.transactions,
+                &vec![receipts], // TODO: currently only taking into account one shard.
+                &transactions,
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 

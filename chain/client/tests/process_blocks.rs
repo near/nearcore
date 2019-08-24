@@ -11,10 +11,11 @@ use near_client::GetBlock;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::block::BlockHeader;
 use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::MerkleHash;
 
@@ -46,9 +47,9 @@ fn produce_two_blocks() {
 #[test]
 fn produce_blocks_with_tx() {
     let count = Arc::new(AtomicUsize::new(0));
-    init_test_logger();
+    init_integration_logger();
     System::run(|| {
-        let (client, _) = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test"],
             "test",
             true,
@@ -62,16 +63,23 @@ fn produce_blocks_with_tx() {
                 NetworkResponses::NoResponse
             }),
         );
-        client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
-            DEFAULT_SIGNATURE,
-            Transaction {
-                signer_id: "".to_string(),
-                public_key: PublicKey::empty(),
-                nonce: 0,
-                receiver_id: "".to_string(),
-                actions: vec![],
-            },
-        )));
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+            let header: BlockHeader = res.unwrap().unwrap().header.into();
+            let block_hash = header.hash;
+            client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
+                DEFAULT_SIGNATURE,
+                Transaction {
+                    signer_id: "".to_string(),
+                    public_key: PublicKey::empty(),
+                    nonce: 0,
+                    receiver_id: "".to_string(),
+                    block_hash,
+                    validity_period: 10,
+                    actions: vec![],
+                },
+            )));
+            future::ok(())
+        }))
     })
     .unwrap();
 }

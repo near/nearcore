@@ -9,7 +9,7 @@ use crate::crypto::signature::{verify, PublicKey};
 use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::types::{AccountId, Balance, Gas, Nonce, StructSignature};
+use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce, StructSignature};
 
 pub type LogEntry = String;
 
@@ -19,6 +19,10 @@ pub struct Transaction {
     pub public_key: PublicKey,
     pub nonce: Nonce,
     pub receiver_id: AccountId,
+    /// The hash of the block in the blockchain on top of which the given transaction is valid.
+    pub block_hash: CryptoHash,
+    /// The number of blocks from the given block hash the given transaction is valid.
+    pub validity_period: BlockIndex,
 
     pub actions: Vec<Action>,
 }
@@ -150,9 +154,19 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: Arc<dyn EDSigner>,
         actions: Vec<Action>,
+        block_hash: CryptoHash,
+        validity_period: BlockIndex,
     ) -> Self {
-        Transaction { nonce, signer_id, public_key: signer.public_key(), receiver_id, actions }
-            .sign(&*signer)
+        Transaction {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            validity_period,
+            actions,
+        }
+        .sign(&*signer)
     }
 
     pub fn send_money(
@@ -161,6 +175,8 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: Arc<dyn EDSigner>,
         deposit: Balance,
+        block_hash: CryptoHash,
+        validity_period: BlockIndex,
     ) -> SignedTransaction {
         Self::from_actions(
             nonce,
@@ -168,6 +184,8 @@ impl SignedTransaction {
             receiver_id,
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
+            validity_period,
         )
     }
 }
@@ -260,6 +278,8 @@ mod tests {
                 public_key,
                 nonce: 0,
                 receiver_id: "".to_string(),
+                block_hash: Default::default(),
+                validity_period: 0,
                 actions: vec![],
             },
         );
@@ -287,6 +307,8 @@ mod tests {
             public_key,
             nonce: 1,
             receiver_id: "123".to_string(),
+            block_hash: Default::default(),
+            validity_period: 0,
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
@@ -319,7 +341,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "244ZQ9cgj3CQ6bWBdytfrJMuMQ1jdXLFGnr4HhvtCTnM"
+            "BsmCFTN5HYeCorkSSncr3CmDXZLXwaCjy9yL7fYvX2KR"
         );
     }
 }

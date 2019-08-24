@@ -24,6 +24,7 @@ pub mod rpc_user;
 pub mod runtime_user;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const TRANSACTION_VALIDITY_PERIOD: u64 = 10;
 
 pub trait User {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String>;
@@ -51,6 +52,8 @@ pub trait User {
 
     fn get_best_block_index(&self) -> Option<u64>;
 
+    fn get_best_block_hash(&self) -> Option<CryptoHash>;
+
     fn get_block(&self, index: u64) -> Option<BlockView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView;
@@ -77,12 +80,15 @@ pub trait User {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> FinalTransactionResult {
+        let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
             self.signer(),
             actions,
+            block_hash,
+            TRANSACTION_VALIDITY_PERIOD,
         );
         self.commit_transaction(signed_transaction).unwrap()
     }

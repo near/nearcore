@@ -17,6 +17,7 @@ use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
 use std::time::Duration;
+use testlib::genesis_hash;
 
 /// Utility to generate genesis header from config for testing purposes.
 fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
@@ -160,6 +161,7 @@ fn sync_state_stake_change() {
 
     let mut genesis_config = GenesisConfig::test(vec!["test1"]);
     genesis_config.epoch_length = 5;
+    let genesis_hash = genesis_hash(&genesis_config);
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -172,7 +174,6 @@ fn sync_state_stake_change() {
     near2.client_config.skip_sync_wait = false;
 
     let system = System::new("NEAR");
-
     let unstake_transaction = SignedTransaction::from_actions(
         1,
         "test1".to_string(),
@@ -182,7 +183,10 @@ fn sync_state_stake_change() {
             stake: TESTING_INIT_STAKE / 2,
             public_key: near1.block_producer.as_ref().unwrap().signer.public_key(),
         })],
+        genesis_hash,
+        100,
     );
+
     let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
     let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
     let (client1, view_client1) = start_with_config(dir1.path(), near1);

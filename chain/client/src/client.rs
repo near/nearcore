@@ -864,6 +864,17 @@ impl ClientActor {
             .get_post_state_root(&head.last_block_hash)
             .map_err(|err| err.to_string())?
             .clone();
+        match self.chain.get_block_header(&tx.transaction.block_hash) {
+            Ok(h) => {
+                if head.height - h.inner.height > tx.transaction.validity_period {
+                    return Err(format!(
+                        "Transaction based on height {} has expired at height {}",
+                        h.inner.height, head.height
+                    ));
+                }
+            }
+            Err(e) => return Err(e.to_string()),
+        }
         self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 
