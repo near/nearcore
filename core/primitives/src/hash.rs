@@ -2,8 +2,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use exonum_sodiumoxide as sodiumoxide;
-use exonum_sodiumoxide::crypto::hash::sha256::Digest;
+use sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
 use crate::serialize::{from_base, to_base, BaseDecode, Encode};
