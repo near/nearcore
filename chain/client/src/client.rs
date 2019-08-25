@@ -629,7 +629,12 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.get_block_proposer(&head.epoch_hash, next_height)?;
+        let (epoch_hash, _) = self
+            .runtime_adapter
+            .get_epoch_offset(head.last_block_hash, next_height)
+            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
+
+        let next_block_proposer = self.get_block_proposer(&epoch_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
