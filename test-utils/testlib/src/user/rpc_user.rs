@@ -5,12 +5,11 @@ use actix::System;
 use borsh::Serializable;
 
 use near_client::StatusResponse;
+use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::serialize::{to_base, to_base64, BaseEncode};
+use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
@@ -21,12 +20,12 @@ use near_primitives::views::{
 use crate::user::User;
 
 pub struct RpcUser {
-    signer: Arc<dyn EDSigner>,
+    signer: Arc<dyn Signer>,
     client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {
-    pub fn new(addr: &str, signer: Arc<dyn EDSigner>) -> RpcUser {
+    pub fn new(addr: &str, signer: Arc<dyn Signer>) -> RpcUser {
         RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
     }
 
@@ -99,14 +98,14 @@ impl User for RpcUser {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), &[])?.try_into()
+        self.query(format!("access_key/{}/{}", account_id, public_key), &[])?.try_into()
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<EDSigner>) {
+    fn set_signer(&mut self, signer: Arc<Signer>) {
         self.signer = signer;
     }
 }

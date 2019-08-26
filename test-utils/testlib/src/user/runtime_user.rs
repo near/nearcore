@@ -5,8 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tempdir::TempDir;
 
 use lazy_static::lazy_static;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
+use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::transaction::{SignedTransaction, TransactionStatus};
@@ -41,7 +40,7 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub signer: Arc<dyn EDSigner>,
+    pub signer: Arc<dyn Signer>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
@@ -57,11 +56,7 @@ lazy_static! {
 }
 
 impl RuntimeUser {
-    pub fn new(
-        account_id: &str,
-        signer: Arc<dyn EDSigner>,
-        client: Arc<RwLock<MockClient>>,
-    ) -> Self {
+    pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
         let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
             signer,
@@ -236,11 +231,11 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 
-    fn set_signer(&mut self, signer: Arc<dyn EDSigner>) {
+    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
         self.signer = signer;
     }
 }

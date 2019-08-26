@@ -3,10 +3,10 @@ use chrono::{DateTime, Utc};
 use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
@@ -30,7 +30,7 @@ pub fn setup_network_node(
         store.clone(),
         validators.into_iter().map(Into::into).collect(),
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 

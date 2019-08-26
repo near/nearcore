@@ -1,5 +1,5 @@
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
-use near_primitives::crypto::signature::{verify, PublicKey};
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::utils::is_valid_account_id;
@@ -44,7 +44,7 @@ impl<'a> TransactionVerifier<'a> {
                 Some(access_key) => access_key,
                 None => {
                     return Err(format!(
-                        "Signer {:?} doesn't have access key with the given public_key {:?}",
+                        "Signer {:?} doesn't have access key with the given public_key {}",
                         signer_id, &transaction.public_key,
                     ));
                 }
@@ -65,7 +65,7 @@ impl<'a> TransactionVerifier<'a> {
         }
 
         let hash = signed_transaction.get_hash();
-        if !verify(hash.as_ref(), &signed_transaction.signature, &transaction.public_key) {
+        if !signed_transaction.signature.verify(hash.as_ref(), &transaction.public_key) {
             return Err(format!(
                 "Transaction is not signed with a public key of the signer {:?}",
                 signer_id,

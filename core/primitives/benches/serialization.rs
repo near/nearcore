@@ -8,10 +8,9 @@ use bencher::Bencher;
 use borsh::{Deserializable, Serializable};
 use chrono::Utc;
 
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::Block;
-use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, SignedTransaction, Transaction, TransferAction};
 use near_primitives::types::MerkleHash;
@@ -22,10 +21,10 @@ fn create_transaction() -> SignedTransaction {
         actions.push(Action::Transfer(TransferAction { deposit: 1_000_000_000 }));
     }
     SignedTransaction::new(
-        DEFAULT_SIGNATURE,
+        Signature::empty(KeyType::ED25519),
         Transaction {
             signer_id: "123213123123".to_string(),
-            public_key: PublicKey::empty(),
+            public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
             receiver_id: "1231231232131".to_string(),
             actions,
@@ -36,7 +35,7 @@ fn create_transaction() -> SignedTransaction {
 fn create_block() -> Block {
     let transactions = (0..1000).map(|_| create_transaction()).collect::<Vec<_>>();
     let genesis = Block::genesis(MerkleHash::default(), Utc::now());
-    let signer = Arc::new(InMemorySigner::from_random());
+    let signer = Arc::new(InMemorySigner::from_random("".to_string(), KeyType::ED25519));
     Block::produce(
         &genesis.header,
         10,

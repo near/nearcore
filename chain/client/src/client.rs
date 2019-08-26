@@ -1,6 +1,7 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in done in this actor as well (at the moment).
 
+use std::cmp::max;
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
@@ -11,6 +12,7 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
+use borsh::Serializable;
 use chrono::{DateTime, Utc};
 use futures::Future;
 use log::{debug, error, info, warn};
@@ -19,6 +21,7 @@ use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ErrorKind, Provenance, RuntimeAdapter,
     ValidTransaction,
 };
+use near_crypto::Signature;
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan,
 };
@@ -26,7 +29,6 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_pool::TransactionPool;
-use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::SignedTransaction;
@@ -43,7 +45,6 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use std::cmp::max;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -169,14 +170,20 @@ impl ClientActor {
                 if let Ok(previous_hash) = previous_hash {
                     let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
 
-                    let real_current_hash =
-                        &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+                    let real_current_hash = &hash(
+                        [
+                            previous_hash.as_ref(),
+                            peer_id.try_to_vec().expect("Failed to serialize").as_ref(),
+                        ]
+                        .concat()
+                        .as_slice(),
+                    );
 
                     if real_current_hash != current_hash {
                         return Err(ReasonForBan::InvalidHash);
                     }
 
-                    if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
+                    if signature.verify(current_hash.as_ref(), &peer_id.public_key()) {
                         Ok(previous_hash)
                     } else {
                         Err(ReasonForBan::InvalidSignature)
@@ -474,8 +481,8 @@ impl ClientActor {
     fn sign_announce_account(&self, epoch: CryptoHash) -> Result<(CryptoHash, Signature), ()> {
         if let Some(block_producer) = self.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
-                &block_producer.account_id,
-                &self.node_id,
+                block_producer.account_id.clone(),
+                self.node_id,
                 epoch,
             );
             let signature = block_producer.signer.sign(hash.as_ref());

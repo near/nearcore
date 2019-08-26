@@ -3,11 +3,10 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::{verify, Signature};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signature};
+use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::test_utils::get_public_key_from_seed;
 use near_primitives::transaction::{
     SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
@@ -19,7 +18,6 @@ use near_store::{PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedT
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
 use crate::{Chain, ValidTransaction};
-use near_primitives::account::Account;
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -44,7 +42,7 @@ impl KeyValueRuntime {
                 .iter()
                 .map(|account_id| ValidatorStake {
                     account_id: account_id.clone(),
-                    public_key: get_public_key_from_seed(account_id),
+                    public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                     amount: 1_000_000,
                 })
                 .collect(),
@@ -110,7 +108,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .iter()
             .find(|&validator_stake| &validator_stake.account_id == account_id)
         {
-            verify(data, signature, &validator.public_key)
+            signature.verify(data, &validator.public_key)
         } else {
             false
         }
@@ -229,6 +227,6 @@ pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }

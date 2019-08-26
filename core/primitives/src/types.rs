@@ -1,28 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::PublicKey;
 
-use crate::crypto::aggregate_signature::BlsSignature;
-use crate::crypto::signature::{PublicKey, Signature};
 use crate::hash::CryptoHash;
 
-/// Public key alias. Used to human readable public key.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct ReadablePublicKey(pub String);
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct ReadableBlsPublicKey(pub String);
 /// Account identifier. Provides access to user's state.
 pub type AccountId = String;
-// TODO: Separate cryptographic hash from the hashmap hash.
-/// Signature of a struct, i.e. signature of the struct's hash. It is a simple signature, not to be
-/// confused with the multisig.
-pub type StructSignature = Signature;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = usize;
 /// Mask which validators participated in multi sign.
 pub type ValidatorMask = Vec<bool>;
-/// Part of the signature.
-pub type PartialSignature = BlsSignature;
 /// StorageUsage is used to count the amount of storage used by a contract.
 pub type StorageUsage = u64;
 /// StorageUsageChange is used to count the storage usage within a single contract call.

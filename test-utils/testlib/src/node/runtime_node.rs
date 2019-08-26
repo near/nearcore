@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use near::GenesisConfig;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
@@ -22,7 +22,7 @@ impl RuntimeNode {
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
-        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+        let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
         let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
@@ -43,7 +43,7 @@ impl Node for RuntimeNode {
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 

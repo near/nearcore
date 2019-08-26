@@ -1,9 +1,10 @@
 use std::collections::{BTreeSet, HashSet};
-use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
+use borsh::Deserializable;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::{debug, error, info};
@@ -11,8 +12,8 @@ use log::{debug, error, info};
 use near_chain::{
     BlockHeader, Error, ErrorKind, ReceiptResult, RuntimeAdapter, ValidTransaction, Weight,
 };
+use near_crypto::{PublicKey, Signature};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{SignedTransaction, TransactionLog};
@@ -71,8 +72,11 @@ impl NightshadeRuntime {
                     .iter()
                     .map(|account_info| ValidatorStake {
                         account_id: account_info.account_id.clone(),
-                        public_key: PublicKey::try_from(account_info.public_key.0.as_str())
-                            .unwrap(),
+                        public_key: account_info
+                            .public_key
+                            .clone()
+                            .try_into()
+                            .expect("Failed to deserialize"),
                         amount: account_info.amount,
                     })
                     .collect(),
@@ -188,7 +192,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         if let Ok(validators) = vm.get_validators(*epoch_hash) {
             if let Some(idx) = validators.validator_to_index.get(account_id) {
                 let staking_key = &validators.validators[*idx].public_key;
-                return verify(data, signature, staking_key);
+                return signature.verify(data, staking_key);
             }
         }
         false
@@ -439,7 +443,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
                     let public_key = &key[prefix.len()..];
                     let access_key = get_access_key_raw(&state_update, &key)
                         .ok_or("Missing key from iterator")?;
-                    PublicKey::try_from(public_key)
+                    PublicKey::try_from_slice(public_key)
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
                 })
@@ -465,7 +469,8 @@ mod test {
 
     use near_chain::RuntimeAdapter;
     use near_client::BlockProducer;
-    use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+    use near_crypto::{InMemorySigner, KeyType, Signer};
+    use near_primitives::account::AccessKey;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::transaction::{
@@ -478,9 +483,7 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::test_utils::*;
-
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_primitives::account::AccessKey;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         SignedTransaction::from_actions(
@@ -545,8 +548,10 @@ mod test {
         let (store_update, state_roots) = nightshade.genesis_state();
         store_update.commit().unwrap();
         let mut state_root = state_roots[0];
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemorySigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10) = (
             hash(&[0]),
             hash(&[1]),
@@ -605,7 +610,7 @@ mod test {
 
         let new_account = format!("test{}", num_nodes + 1);
         let new_validator: BlockProducer =
-            InMemorySigner::from_seed(&new_account, &new_account).into();
+            InMemorySigner::from_seed(&new_account, KeyType::ED25519, &new_account).into();
         let create_account_transaction = SignedTransaction::from_actions(
             2,
             block_producers[0].account_id.clone(),
@@ -728,8 +733,10 @@ mod test {
         let (store_update, state_roots) = nightshade.genesis_state();
         store_update.commit().unwrap();
         let mut state_root = state_roots[0];
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemorySigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (h0, h1, h2, h3, h4, h5, h6) =
             (hash(&[0]), hash(&[1]), hash(&[2]), hash(&[3]), hash(&[4]), hash(&[5]), hash(&[6]));
         let staking_transaction = stake(1, &block_producers[0], TESTING_INIT_STAKE - 1);
@@ -834,8 +841,10 @@ mod test {
         let (store_update, state_roots) = nightshade.genesis_state();
         store_update.commit().unwrap();
         let mut state_root = state_roots[0];
-        let block_producers: Vec<_> =
-            validators.iter().map(|id| InMemorySigner::from_seed(id, id).into()).collect();
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
         let (h0, h1, h2, h3, h4, h5, h6, h7, h8) = (
             hash(&[0]),
             hash(&[1]),
@@ -964,7 +973,7 @@ mod test {
         let (store_update, _) = nightshade.genesis_state();
         store_update.commit().unwrap();
         let data = [0; 32];
-        let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
         assert!(nightshade.check_validator_signature(
             &CryptoHash::default(),
@@ -987,7 +996,7 @@ mod test {
         let (store_update, _) = nightshade.genesis_state();
         store_update.commit().unwrap();
         let data = [0; 32];
-        let signer = InMemorySigner::from_seed(&validators[0], &validators[0]);
+        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
         assert!(!nightshade.check_validator_signature(
             &CryptoHash::default(),

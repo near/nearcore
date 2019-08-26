@@ -676,8 +676,8 @@ impl ValidatorManager {
 
 #[cfg(test)]
 mod test {
+    use near_crypto::{KeyType, SecretKey};
     use near_primitives::hash::hash;
-    use near_primitives::test_utils::get_key_pair_from_seed;
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::*;
@@ -685,8 +685,11 @@ mod test {
     use super::*;
 
     fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
-        let (public_key, _) = get_key_pair_from_seed(account_id);
-        ValidatorStake::new(account_id.to_string(), public_key, amount)
+        ValidatorStake::new(
+            account_id.to_string(),
+            SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+            amount,
+        )
     }
 
     fn config(

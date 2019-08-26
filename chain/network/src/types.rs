@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::convert::From;
-use std::convert::{Into, TryFrom, TryInto};
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
@@ -8,16 +8,14 @@ use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
-use borsh::{BorshDeserialize, BorshSerialize, Deserializable};
+use borsh::{BorshDeserialize, BorshSerialize, Deserializable, Serializable};
 use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
+use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::logging::pretty_str;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::BaseEncode;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -39,7 +37,7 @@ impl PeerId {
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
-        (&peer_id.0).into()
+        peer_id.0.try_to_vec().unwrap()
     }
 }
 
@@ -53,19 +51,13 @@ impl TryFrom<Vec<u8>> for PeerId {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(bytes.try_into()?))
-    }
-}
-
-impl std::convert::AsRef<[u8]> for PeerId {
-    fn as_ref(&self) -> &[u8] {
-        &(self.0).0[..]
+        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
     }
 }
 
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.0.as_ref());
+        state.write(&self.0.try_to_vec().unwrap());
     }
 }
 
@@ -77,7 +69,7 @@ impl fmt::Display for PeerId {
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", pretty_str(&self.0.to_base(), 4))
+        write!(f, "{}", self.0)
     }
 }
 
@@ -120,7 +112,7 @@ impl TryFrom<&str> for PeerInfo {
             return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
         }
         Ok(PeerInfo {
-            id: PublicKey::try_from(chunks[0])?.into(),
+            id: PeerId(ReadablePublicKey::new(chunks[0]).try_into()?),
             addr: Some(
                 chunks[1].parse().map_err(|err| {
                     format!("Invalid ip address format for {}: {}", chunks[1], err)
@@ -180,6 +172,13 @@ impl Handshake {
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
+struct AnnounceAccountRouteHeader {
+    pub account_id: AccountId,
+    pub peer_id: PeerId,
+    pub epoch_id: CryptoHash,
+}
+
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
@@ -220,17 +219,18 @@ impl AnnounceAccount {
     }
 
     pub fn build_header_hash(
-        account_id: &AccountId,
-        peer_id: &PeerId,
+        account_id: AccountId,
+        peer_id: PeerId,
         epoch: CryptoHash,
     ) -> CryptoHash {
-        hash([account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat().as_slice())
+        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id: epoch };
+        hash(&header.try_to_vec().unwrap())
     }
 
     pub fn header_hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(
-            &self.account_id,
-            &self.route.first().unwrap().peer_id,
+            self.account_id.clone(),
+            self.route.first().unwrap().peer_id,
             self.epoch,
         )
     }
@@ -249,8 +249,9 @@ impl AnnounceAccount {
 
     pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
         let last_hash = self.route.last().unwrap().hash;
-        let new_hash = hash([last_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
-        let signature = sign(new_hash.as_ref(), secret_key);
+        let new_hash =
+            hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
+        let signature = secret_key.sign(new_hash.as_ref());
         self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
     }
 }

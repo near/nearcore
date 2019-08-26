@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use futures::Future;
 
+use near_crypto::{PublicKey, Signer};
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
 use near_primitives::transaction::{
@@ -67,9 +66,9 @@ pub trait User {
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, String>;
 
-    fn signer(&self) -> Arc<dyn EDSigner>;
+    fn signer(&self) -> Arc<dyn Signer>;
 
-    fn set_signer(&mut self, signer: Arc<dyn EDSigner>);
+    fn set_signer(&mut self, signer: Arc<dyn Signer>);
 
     fn sign_and_commit_actions(
         &self,

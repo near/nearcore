@@ -49,10 +49,7 @@ for value in q['records'][0]:
                         'nonce': nonce,
                         'permission': 'FullAccess'
                     },
-                    'public_key': {
-                        'key_type': 'ED25519',
-                        'data': public_key
-                    },
+                    'public_key': 'ed25519:%s' % public_key,
                     'account_id': account_id
                 }
             })
@@ -74,6 +71,7 @@ for value in q['records'][0]:
         new_records.append(value)
     else:
         new_records.append(value)
+
 q['records'][0] = new_records
 q['protocol_version'] = 3
 q['runtime_config']['storage_cost_byte_per_block'] = "1"
