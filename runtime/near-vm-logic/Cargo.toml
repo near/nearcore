@@ -25,5 +25,9 @@ required-features = ["mocks"]
 
 
 [features]
+default = ["std"]
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
 mocks = []
+
+# Implementation of the logic is included by default, but is not needed for the Rust smart contracts.
+logic_impl = []
