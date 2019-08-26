@@ -37,7 +37,7 @@ impl PeerId {
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
-        peer_id.0.try_to_vec().expect("Failed to serialize")
+        peer_id.0.try_to_vec().unwrap()
     }
 }
 
@@ -57,7 +57,7 @@ impl TryFrom<Vec<u8>> for PeerId {
 
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0.try_to_vec().expect("Failed to serialize"));
+        state.write(&self.0.try_to_vec().unwrap());
     }
 }
 
@@ -224,7 +224,7 @@ impl AnnounceAccount {
         epoch: CryptoHash,
     ) -> CryptoHash {
         let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id: epoch };
-        hash(&header.try_to_vec().expect("Failed to serialize"))
+        hash(&header.try_to_vec().unwrap())
     }
 
     pub fn header_hash(&self) -> CryptoHash {
@@ -249,11 +249,8 @@ impl AnnounceAccount {
 
     pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
         let last_hash = self.route.last().unwrap().hash;
-        let new_hash = hash(
-            [last_hash.as_ref(), peer_id.try_to_vec().expect("Failed to serialize").as_ref()]
-                .concat()
-                .as_slice(),
-        );
+        let new_hash =
+            hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
         let signature = secret_key.sign(new_hash.as_ref());
         self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
     }
