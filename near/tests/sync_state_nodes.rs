@@ -7,9 +7,9 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::GetBlock;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 
@@ -46,7 +46,7 @@ fn sync_state_nodes() {
 
     let mut blocks = vec![];
     let mut prev = &genesis_header;
-    let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+    let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
     for _ in 0..=100 {
         let block = Block::empty(prev, signer.clone());
         let _ = client1.do_send(NetworkClientMessages::Block(

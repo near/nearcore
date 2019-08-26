@@ -23,6 +23,8 @@ dirs = "1.0.5"
 lazy_static = "1.3"
 
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
+near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
 near-store = { path = "../core/store" }
 node-runtime = { path = "../runtime/runtime" }

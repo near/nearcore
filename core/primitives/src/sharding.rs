@@ -1,13 +1,11 @@
-use crate::crypto::group_signature::GroupSignature;
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::{merklize, MerklePath};
+use crate::merkle::MerklePath;
 use crate::types::MerkleHash;
 use reed_solomon_erasure::{ReedSolomon, Shard};
 
 pub struct MainChainBlockHeader {
     pub prev_block_hash: CryptoHash,
     pub height: u64,
-    pub signature: GroupSignature,
 }
 
 pub struct MainChainBlockBody {
@@ -55,7 +53,9 @@ impl EncodedShardChunkBody {
     }
 
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
-        merklize(&self.parts.iter().map(|x| x.as_ref().unwrap()).collect::<Vec<_>>())
+        // TODO: MOO
+        // merklize(&self.parts.iter().map(|x| x.as_ref().unwrap()).collect::<Vec<_>>())
+        (MerkleHash::default(), vec![])
     }
 }
 

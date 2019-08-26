@@ -7,9 +7,9 @@ pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
 use kvdb_rocksdb::{Database, DatabaseConfig};
 
+use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
@@ -205,7 +205,7 @@ pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: 
 }
 
 /// Number of bytes account and all of it's other data occupies in the storage.
-pub fn total_account_storage(account_id: &AccountId, account: &Account) -> StorageUsage {
+pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> StorageUsage {
     account.storage_usage
 }
 

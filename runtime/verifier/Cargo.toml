@@ -6,5 +6,6 @@ edition = "2018"
 
 [dependencies]
 
+near-crypto = { path = "../../core/crypto"}
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store"}

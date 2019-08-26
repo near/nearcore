@@ -9,6 +9,7 @@ edition = "2018"
 [workspace]
 members = [
     "async-utils/",
+    "core/crypto",
     "core/primitives",
     "core/store",
     "runtime/runtime",
@@ -22,7 +23,6 @@ members = [
     "chain/network",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
-    "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",
@@ -38,6 +38,7 @@ serde_json = "1.0.0"
 reqwest = "0.9"
 futures = "0.1.25"
 
+near-crypto = { path = "./core/crypto" }
 near-primitives = { path = "./core/primitives" }
 near-store = { path = "./core/store" }
 
@@ -49,7 +50,6 @@ near-network = { path = "./chain/network" }
 near = { path = "./near"}
 
 testlib = { path = "./test-utils/testlib" }
-keystore = { path = "./test-utils/keystore" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -58,9 +58,6 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 [profile.bench]
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
-
-[profile.dev.overrides.pairing]
-opt-level = 3 # pairing library is too slow to use in debug
 
 [profile.dev.overrides.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug

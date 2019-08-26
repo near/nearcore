@@ -5,11 +5,9 @@ use actix::{Actor, AsyncContext, Context, System};
 use futures::future::Future;
 use tokio::timer::Delay;
 
-use near_primitives::crypto::signature::get_key_pair;
-use near_primitives::test_utils::get_key_pair_from_seed;
-
 use crate::types::{NetworkConfig, PeerInfo};
 use futures::future;
+use near_crypto::{KeyType, SecretKey};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -23,7 +21,8 @@ pub fn open_port() -> u16 {
 impl NetworkConfig {
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let (public_key, secret_key) = get_key_pair_from_seed(seed);
+        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
+        let public_key = secret_key.public_key();
         NetworkConfig {
             public_key,
             secret_key,
@@ -45,7 +44,7 @@ impl NetworkConfig {
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
-        let (id, _) = get_key_pair_from_seed(peer_seed);
+        let id = SecretKey::from_seed(KeyType::ED25519, peer_seed).public_key();
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
@@ -54,7 +53,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
 impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
-        let (id, _) = get_key_pair();
+        let id = SecretKey::from_random(KeyType::ED25519).public_key();
         PeerInfo { id: id.into(), addr: None, account_id: None }
     }
 }

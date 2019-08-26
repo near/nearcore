@@ -16,6 +16,8 @@ cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef6860
 log = "0.4"
 
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
+near-crypto = { path = "../crypto" }
 near-primitives = { path = "../primitives" }
 
 [dev-dependencies]

@@ -1,10 +1,10 @@
+use near_crypto::{PublicKey, ReadablePublicKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::serialize::BaseDecode;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
+use std::convert::TryInto;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -100,7 +100,7 @@ pub fn query_client(
                     .view_access_key(
                         state_root,
                         &AccountId::from(path_parts[1]),
-                        &PublicKey::from_base(path_parts[2])?,
+                        &ReadablePublicKey::new(path_parts[2]).try_into()?,
                     )
                     .map(|r| QueryResponse::AccessKey(r.map(|access_key| access_key.into())))
             };

@@ -7,9 +7,10 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
+use borsh::ser::Serializable;
 use kvdb::DBValue;
 
-use borsh::ser::Serializable;
+use near_crypto::{PublicKey, ReadablePublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -19,19 +20,20 @@ use near_primitives::transaction::{
     Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ReadablePublicKey, ShardId,
-    ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
 };
 use near_primitives::utils::{
     account_to_shard_id, create_nonce_with_nonce, key_for_pending_data_count,
     key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
     ACCOUNT_DATA_SEPARATOR,
 };
+use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
     set_receipt, set_received_data, StoreUpdate, TrieChanges, TrieUpdate,
 };
 use near_verifier::{TransactionVerifier, VerificationData};
+use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 
 use crate::actions::*;
@@ -41,9 +43,6 @@ use crate::config::{
 };
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
-use near_primitives::crypto::signature::PublicKey;
-use near_runtime_fees::RuntimeFeesConfig;
-use near_vm_logic::types::PromiseResult;
 
 mod actions;
 pub mod adapter;
@@ -761,7 +760,8 @@ impl Runtime {
                     let public_key: PublicKey = public_key.clone().into();
                     let access_key: AccessKey = access_key.clone().into();
                     let storage_usage = config.data_record_cost
-                        + config.key_cost_per_byte * (public_key.as_ref().len() as u64)
+                        + config.key_cost_per_byte
+                            * (public_key.try_to_vec().ok().unwrap_or_default().len() as u64)
                         + config.value_cost_per_byte
                             * (access_key.try_to_vec().ok().unwrap_or_default().len() as u64);
                     Some((account_id.clone(), storage_usage))

@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 use chrono::prelude::{DateTime, Utc};
 
-use borsh::{BorshDeserialize, BorshSerialize, Serializable};
+use near_crypto::{KeyType, PublicKey, Signature, Signer};
 
-use crate::crypto::signature::{verify, PublicKey, Signature, DEFAULT_SIGNATURE};
-use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::transaction::SignedTransaction;
 use crate::types::{BlockIndex, MerkleHash, ValidatorStake};
@@ -29,7 +28,7 @@ pub struct BlockHeaderInner {
     pub timestamp: u64,
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
-    /// Approval signatures.
+    /// Approval signatures for previous block.
     pub approval_sigs: Vec<Signature>,
     /// Total weight.
     pub total_weight: Weight,
@@ -95,7 +94,7 @@ impl BlockHeader {
         total_weight: Weight,
         validator_proposal: Vec<ValidatorStake>,
         epoch_hash: CryptoHash,
-        signer: Arc<dyn EDSigner>,
+        signer: Arc<dyn Signer>,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -127,7 +126,7 @@ impl BlockHeader {
             vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: DEFAULT_SIGNATURE, hash }
+        Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -136,7 +135,7 @@ impl BlockHeader {
 
     /// Verifies that given public key produced the block.
     pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
-        verify(self.hash.as_ref(), &self.signature, public_key)
+        self.signature.verify(self.hash.as_ref(), public_key)
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
@@ -165,7 +164,7 @@ impl Block {
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         validator_proposal: Vec<ValidatorStake>,
-        signer: Arc<dyn EDSigner>,
+        signer: Arc<dyn Signer>,
     ) -> Self {
         // TODO: merkelize transactions.
         let tx_root = CryptoHash::default();
@@ -202,7 +201,7 @@ impl Block {
     }
 
     // for tests
-    pub fn empty(prev: &BlockHeader, signer: Arc<dyn EDSigner>) -> Self {
+    pub fn empty(prev: &BlockHeader, signer: Arc<dyn Signer>) -> Self {
         Block::produce(
             prev,
             prev.inner.height + 1,

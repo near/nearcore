@@ -2,8 +2,8 @@ use std::borrow::Borrow;
 use std::fmt;
 
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_crypto::{KeyType, PublicKey};
 
-use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::transaction::{Action, TransactionResult, TransferAction};
@@ -17,7 +17,7 @@ pub struct ReceiptInfo {
     pub result: TransactionResult,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -47,7 +47,7 @@ impl Receipt {
 
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: system_account(),
-                signer_public_key: PublicKey::empty(),
+                signer_public_key: PublicKey::empty(KeyType::ED25519),
                 gas_price: 0,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
@@ -57,13 +57,13 @@ impl Receipt {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     pub signer_id: AccountId,
     pub signer_public_key: PublicKey,
