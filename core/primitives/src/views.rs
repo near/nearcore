@@ -5,15 +5,16 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use near_crypto::{PublicKey, Signature};
+
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::crypto::signature::{PublicKey, SecretKey, Signature};
 use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
-    base_bytes_format, from_base, from_base64, option_base64_format, option_u128_dec_format,
-    to_base, to_base64, u128_dec_format,
+    from_base, from_base64, option_base64_format, option_u128_dec_format, to_base, to_base64,
+    u128_dec_format,
 };
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -23,75 +24,6 @@ use crate::transaction::{
 use crate::types::{
     AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
 };
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub enum KeyType {
-    ED25519 = 0,
-}
-
-#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct PublicKeyView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl fmt::Display for PublicKeyView {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}:{}", self.key_type, to_base(&self.data))
-    }
-}
-
-impl From<PublicKey> for PublicKeyView {
-    fn from(public_key: PublicKey) -> Self {
-        Self { key_type: KeyType::ED25519, data: public_key.0.as_ref().to_vec() }
-    }
-}
-
-impl From<PublicKeyView> for PublicKey {
-    fn from(view: PublicKeyView) -> Self {
-        Self::try_from(view.data).expect("Failed to get PublicKey from PublicKeyView")
-    }
-}
-
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SecretKeyView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl From<SecretKey> for SecretKeyView {
-    fn from(secret_key: SecretKey) -> Self {
-        Self { key_type: KeyType::ED25519, data: secret_key.0[..].to_vec() }
-    }
-}
-
-impl From<SecretKeyView> for SecretKey {
-    fn from(view: SecretKeyView) -> Self {
-        TryFrom::<&[u8]>::try_from(view.data.as_ref())
-            .expect("Failed to get SecretKeyView from SecretKey")
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignatureView {
-    key_type: KeyType,
-    #[serde(with = "base_bytes_format")]
-    data: Vec<u8>,
-}
-
-impl From<Signature> for SignatureView {
-    fn from(signature: Signature) -> Self {
-        Self { key_type: KeyType::ED25519, data: signature.0.as_ref().to_vec() }
-    }
-}
-
-impl From<SignatureView> for Signature {
-    fn from(view: SignatureView) -> Self {
-        Signature::try_from(view.data).expect("Failed to get Signature from SignatureView")
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CryptoHashView(pub Vec<u8>);
@@ -245,7 +177,7 @@ pub struct QueryError {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AccessKeyInfoView {
-    pub public_key: PublicKeyView,
+    pub public_key: PublicKey,
     pub access_key: AccessKeyView,
 }
 
@@ -333,10 +265,10 @@ pub struct BlockHeaderView {
     pub tx_root: CryptoHashView,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<SignatureView>,
+    pub approval_sigs: Vec<Signature>,
     pub total_weight: u64,
     pub validator_proposals: Vec<ValidatorStakeView>,
-    pub signature: SignatureView,
+    pub signature: Signature,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -433,14 +365,14 @@ pub enum ActionView {
     Stake {
         #[serde(with = "u128_dec_format")]
         stake: Balance,
-        public_key: PublicKeyView,
+        public_key: PublicKey,
     },
     AddKey {
-        public_key: PublicKeyView,
+        public_key: PublicKey,
         access_key: AccessKeyView,
     },
     DeleteKey {
-        public_key: PublicKeyView,
+        public_key: PublicKey,
     },
     DeleteAccount {
         beneficiary_id: AccountId,
@@ -516,11 +448,11 @@ impl TryFrom<ActionView> for Action {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignedTransactionView {
     signer_id: AccountId,
-    public_key: PublicKeyView,
+    public_key: PublicKey,
     nonce: Nonce,
     receiver_id: AccountId,
     actions: Vec<ActionView>,
-    signature: SignatureView,
+    signature: Signature,
     hash: CryptoHashView,
 }
 
@@ -653,7 +585,7 @@ impl FinalTransactionResult {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
-    pub public_key: PublicKeyView,
+    pub public_key: PublicKey,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }
@@ -697,7 +629,7 @@ pub struct DataReceiverView {
 pub enum ReceiptEnumView {
     Action {
         signer_id: AccountId,
-        signer_public_key: PublicKeyView,
+        signer_public_key: PublicKey,
         #[serde(with = "u128_dec_format")]
         gas_price: Balance,
         output_data_receivers: Vec<DataReceiverView>,

@@ -1,6 +1,6 @@
-use crate::hash::{hash, hash_struct};
-use crate::serialize::Encode;
+use crate::hash::hash;
 use crate::types::MerkleHash;
+use borsh::Serializable;
 
 pub type MerklePath = Vec<(MerkleHash, Direction)>;
 
@@ -17,13 +17,19 @@ fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
 }
 
 /// Merklize an array of items. If the array is empty, returns hash of 0
-pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
+pub fn merklize<T: Serializable>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     if arr.is_empty() {
         return (MerkleHash::default(), vec![]);
     }
     let mut len = (arr.len() as u32).next_power_of_two();
     let mut hashes: Vec<_> = (0..len)
-        .map(|i| if i < arr.len() as u32 { hash_struct(&arr[i as usize]) } else { hash_struct(&0) })
+        .map(|i| {
+            if i < arr.len() as u32 {
+                hash(&arr[i as usize].try_to_vec().expect("Failed to serialize"))
+            } else {
+                hash(&vec![0])
+            }
+        })
         .collect();
     // degenerate case
     if len == 1 {
@@ -69,8 +75,8 @@ pub fn merklize<T: Encode>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 }
 
 /// Verify merkle path for given item and corresponding path.
-pub fn verify_path<T: Encode>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
-    let mut hash = hash_struct(item);
+pub fn verify_path<T: Serializable>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
+    let mut hash = hash(&item.try_to_vec().expect("Failed to serialize"));
     for (h, d) in path {
         match d {
             Direction::Left => {

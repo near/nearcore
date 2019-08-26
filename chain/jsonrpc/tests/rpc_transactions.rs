@@ -4,10 +4,10 @@ use actix::{Actor, System};
 use borsh::Serializable;
 use futures::future::Future;
 
+use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
@@ -22,7 +22,7 @@ fn test_send_tx_async() {
         let (_view_client_addr, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
-        let signer = InMemorySigner::from_seed("test1", "test1");
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
             "test1".to_string(),
@@ -68,7 +68,7 @@ fn test_send_tx_commit() {
         let (_view_client_addr, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
-        let signer = InMemorySigner::from_seed("test1", "test1");
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
             "test1".to_string(),

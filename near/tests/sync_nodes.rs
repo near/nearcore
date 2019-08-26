@@ -1,22 +1,22 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix::{Actor, Addr, System};
+use futures::future;
 use futures::future::Future;
 use tempdir::TempDir;
 
-use futures::future;
 use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, BlockHeader, Chain};
 use near_client::{ClientActor, GetBlock};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
-use std::time::Duration;
 
 /// Utility to generate genesis header from config for testing purposes.
 fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
@@ -70,7 +70,7 @@ fn sync_nodes() {
     let dir1 = TempDir::new("sync_nodes_1").unwrap();
     let (client1, _) = start_with_config(dir1.path(), near1);
 
-    let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+    let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
     let _ = add_blocks(&genesis_header, client1, 11, signer);
 
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
@@ -118,7 +118,7 @@ fn sync_after_sync_nodes() {
     let dir2 = TempDir::new("sync_nodes_2").unwrap();
     let (_, view_client2) = start_with_config(dir2.path(), near2);
 
-    let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+    let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
     let last_block = add_blocks(&genesis_header, client1.clone(), 11, signer.clone());
 
     let next_step = Arc::new(AtomicBool::new(false));

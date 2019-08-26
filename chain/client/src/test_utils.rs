@@ -5,10 +5,9 @@ use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use chrono::Utc;
 
 use near_chain::test_utils::KeyValueRuntime;
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::InMemorySigner;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 
@@ -28,7 +27,7 @@ pub fn setup(
         store.clone(),
         validators.into_iter().map(Into::into).collect(),
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let genesis_time = Utc::now();
     let telemetry = TelemetryActor::default().start();
     let view_client =
@@ -38,7 +37,7 @@ pub fn setup(
         store,
         genesis_time,
         runtime,
-        PublicKey::empty().into(),
+        PublicKey::empty(KeyType::ED25519).into(),
         recipient,
         Some(signer.into()),
         telemetry,
@@ -103,6 +102,6 @@ pub fn setup_no_network(
 
 impl BlockProducer {
     pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, seed)).into()
+        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
     }
 }

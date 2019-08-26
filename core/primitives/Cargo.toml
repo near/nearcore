@@ -18,7 +18,6 @@ serde_derive = "1.0"
 sha2 = "0.8.0"
 serde_json = "1.0"
 serde_cbor = "0.10"
-pairing = { git = "https://github.com/nearprotocol/pairing.git", rev = "f009a9f54c1c1149cea4ee3e6e58ed71d72bb2e9" }
 rand = "0.6"
 rand_xorshift = "0.1"
 env_logger = "0.6.0"
@@ -28,15 +27,13 @@ jemallocator = { version = "0.3.0", optional = true }
 
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
+near-crypto = { path = "../crypto" }
+
 [features]
 default = ["jemallocator"]
 
 [dev-dependencies]
 bencher = "0.1.5"
-
-[[bench]]
-name = "bls"
-harness = false
 
 [[bench]]
 name = "serialization"

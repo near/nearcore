@@ -7,9 +7,9 @@ use clap::{App, Arg, SubCommand};
 
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
 use near_chain::{ChainStore, ChainStoreAccess};
+use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::{from_base64, to_base64};
@@ -59,7 +59,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
             let access_key = AccessKey::try_from_slice(&value).unwrap();
             let account_id = String::from_utf8(key[1..separator].to_vec()).unwrap();
-            let public_key = PublicKey::try_from(&key[(separator + 1)..]).unwrap();
+            let public_key = PublicKey::try_from_slice(&key[(separator + 1)..]).unwrap();
             Some(StateRecord::AccessKey {
                 account_id,
                 public_key: public_key.into(),

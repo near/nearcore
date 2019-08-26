@@ -1,13 +1,14 @@
+use std::sync::Arc;
+
 use near::config::TESTING_INIT_BALANCE;
 use near::{load_test_config, GenesisConfig};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::open_port;
 use near_primitives::account::AccessKey;
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
-use std::sync::Arc;
 use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
@@ -24,7 +25,7 @@ fn start_node() -> ThreadNode {
 #[test]
 fn test_check_tx_error_log() {
     let node = start_node();
-    let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let tx = SignedTransaction::from_actions(
         1,
         "bob.near".to_string(),
@@ -43,14 +44,14 @@ fn test_check_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
         tx_result,
-        "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Signer \\\"bob.near\\\" doesn\\'t have access key with the given public_key `22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV`\")) }".to_string()
+        "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Signer \\\"bob.near\\\" doesn\\'t have access key with the given public_key ed25519:22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV\")) }".to_string()
     );
 }
 
 #[test]
 fn test_deliver_tx_error_log() {
     let node = start_node();
-    let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+    let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
 
     let cost = testlib::fees_utils::create_account_transfer_full_key_cost();
     let tx = SignedTransaction::from_actions(
