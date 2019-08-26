@@ -16,7 +16,7 @@ This crate implements the specification of the interface that Near blockchain ex
 bs58 = "0.2.2"
 sodiumoxide = "0.2.2"
 serde = { version = "1.0", features = ["derive"] }
-near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.0" }
+near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.1" }
 
 [[test]]
 name = "test_registers"

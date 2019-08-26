@@ -2202,7 +2202,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2251,7 +2251,7 @@ name = "near-vm-logic"
 version = "0.2.1"
 dependencies = [
  "bs58 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-runtime-fees 0.2.0",
+ "near-runtime-fees 0.2.1",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
  "sodiumoxide 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2339,7 +2339,7 @@ dependencies = [
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-primitives 0.1.0",
- "near-runtime-fees 0.2.0",
+ "near-runtime-fees 0.2.1",
  "near-store 0.1.0",
  "near-verifier 0.1.0",
  "near-vm-logic 0.2.1",
@@ -3468,7 +3468,7 @@ dependencies = [
  "near-client 0.1.0",
  "near-jsonrpc 0.1.0",
  "near-primitives 0.1.0",
- "near-runtime-fees 0.2.0",
+ "near-runtime-fees 0.2.1",
  "near-store 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
