@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
-use actix::System;
+use actix::{Actor, System};
 use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
-use near_client::GetBlock;
-use near_network::test_utils::wait_or_panic;
+use near_client::{GetBlock, TxStatus};
+use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
@@ -18,6 +18,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::MerkleHash;
+use near_primitives::views::FinalTransactionStatus;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]

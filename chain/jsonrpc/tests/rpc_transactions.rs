@@ -4,14 +4,16 @@ use actix::{Actor, System};
 use borsh::Serializable;
 use futures::future::Future;
 
+use futures::future;
 use near_client::GetBlock;
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
 use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::views::FinalTransactionStatus;
 
@@ -110,6 +112,89 @@ fn test_send_tx_commit() {
                     System::current().stop();
                 })
         }));
+        wait_or_panic(10000);
+    })
+    .unwrap();
+}
+
+/// Test that expired transaction should be rejected
+#[test]
+fn test_expired_tx() {
+    init_integration_logger();
+    System::run(|| {
+        let (view_client, addr) = start_all(true);
+
+        let block_hash = Arc::new(Mutex::new(None));
+
+        WaitOrTimeout::new(
+            Box::new(move |_| {
+                let block_hash = block_hash.clone();
+                let mut client = new_client(&format!("http://{}", addr));
+                actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+                    let header: BlockHeader = res.unwrap().unwrap().header.into();
+                    let hash = block_hash.lock().unwrap().clone();
+                    if let Some(block_hash) = hash {
+                        let signer = InMemorySigner::from_seed("test1", "test1");
+                        let tx = SignedTransaction::send_money(
+                            1,
+                            "test1".to_string(),
+                            "test2".to_string(),
+                            Arc::new(signer),
+                            100,
+                            block_hash,
+                            0,
+                        );
+                        let bytes = tx.try_to_vec().unwrap();
+                        actix::spawn(
+                            client
+                                .broadcast_tx_commit(to_base64(&bytes))
+                                .map_err(|_| {
+                                    System::current().stop();
+                                })
+                                .map(|_| ()),
+                        );
+                    } else {
+                        *block_hash.lock().unwrap() = Some(header.hash);
+                    };
+                    future::ok(())
+                }));
+            }),
+            100,
+            1000,
+        )
+        .start();
+    })
+    .unwrap();
+}
+
+/// Test sending transaction based on a different fork should be rejected
+#[test]
+fn test_replay_protection() {
+    init_test_logger();
+
+    System::run(|| {
+        let (_, addr) = start_all(true);
+
+        let mut client = new_client(&format!("http://{}", addr));
+        let signer = InMemorySigner::from_seed("test1", "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test2".to_string(),
+            Arc::new(signer),
+            100,
+            hash(&[1]),
+            10,
+        );
+        let bytes = tx.try_to_vec().unwrap();
+        actix::spawn(
+            client
+                .broadcast_tx_commit(to_base64(&bytes))
+                .map_err(|_| {
+                    System::current().stop();
+                })
+                .map(move |_| panic!("transaction should not succeed")),
+        );
         wait_or_panic(10000);
     })
     .unwrap();

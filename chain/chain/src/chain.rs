@@ -680,22 +680,21 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
+        if block.transactions.iter().any(|t| {
+            match self.chain_store_update.get_block_header(&t.transaction.block_hash) {
+                Ok(h) => block.header.inner.height - h.inner.height > t.transaction.validity_period,
+                _ => true,
+            }
+        }) {
+            return Err(ErrorKind::InvalidStatePayload(
+                "Block contains transactions that are either expired or from a different fork"
+                    .to_string(),
+            )
+            .into());
+        }
+
         // Retrieve receipts from the previous block.
         let receipts = self.chain_store_update.get_receipts(&prev_hash)?.clone();
-        // TODO: consider changing the signature of apply_transactions to avoid the clone here
-        let transactions = block
-            .transactions
-            .iter()
-            .filter(|&t| {
-                match self.chain_store_update.get_block_header(&t.transaction.block_hash) {
-                    Ok(h) => {
-                        block.header.inner.height - h.inner.height <= t.transaction.validity_period
-                    }
-                    _ => false,
-                }
-            })
-            .cloned()
-            .collect::<Vec<_>>();
 
         // Apply block to runtime.
         let (trie_changes, state_root, tx_results, new_receipts, validator_proposals) = self
@@ -707,7 +706,7 @@ impl<'a> ChainUpdate<'a> {
                 &block.header.inner.prev_hash,
                 &block.header.hash(),
                 &vec![receipts], // TODO: currently only taking into account one shard.
-                &transactions,
+                &block.transactions,
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
