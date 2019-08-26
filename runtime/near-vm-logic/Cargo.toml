@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -25,9 +25,6 @@ required-features = ["mocks"]
 
 
 [features]
-default = ["logic_impl"]
+default = []
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
-mocks = []
-
-# Implementation of the logic is included by default, but is not needed for the Rust smart contracts.
-logic_impl = ["sodiumoxide"]
+mocks = ["sodiumoxide"]

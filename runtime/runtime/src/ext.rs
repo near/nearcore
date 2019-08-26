@@ -190,4 +190,9 @@ impl<'a> External for RuntimeExt<'a> {
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
     }
+
+    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
+        let value_hash = sodiumoxide::crypto::hash::sha256::hash(&value);
+        Ok(value_hash.as_ref().to_vec())
+    }
 }
