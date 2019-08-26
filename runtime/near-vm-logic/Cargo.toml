@@ -25,7 +25,7 @@ required-features = ["mocks"]
 
 
 [features]
-default = ["std"]
+default = ["logic_impl"]
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
 mocks = []
 
