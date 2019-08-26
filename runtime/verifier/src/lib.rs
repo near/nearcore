@@ -44,7 +44,7 @@ impl<'a> TransactionVerifier<'a> {
                 Some(access_key) => access_key,
                 None => {
                     return Err(format!(
-                        "Signer {:?} doesn't have access key with the given public_key {:?}",
+                        "Signer {:?} doesn't have access key with the given public_key {}",
                         signer_id, &transaction.public_key,
                     ));
                 }

@@ -44,7 +44,7 @@ fn test_check_tx_error_log() {
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
         tx_result,
-        "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Signer \\\"bob.near\\\" doesn\\'t have access key with the given public_key `22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV`\")) }".to_string()
+        "RpcError { code: -32000, message: \"Server error\", data: Some(String(\"Signer \\\"bob.near\\\" doesn\\'t have access key with the given public_key ed25519:22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV\")) }".to_string()
     );
 }
 
