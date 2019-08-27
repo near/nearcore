@@ -352,6 +352,11 @@ impl AnnounceAccount {
         self.route.last().unwrap().peer_id
     }
 
+    /// Peer Id of the originator of this announcement.
+    pub fn original_peer_id(&self) -> PeerId {
+        self.route.first().unwrap().peer_id
+    }
+
     pub fn num_hops(&self) -> usize {
         self.route.len() - 1
     }

@@ -528,11 +528,14 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
-        // If this is an announcement of our account id.
-        if announce_account.peer_id() == self.peer_id {
-            assert_eq!(announce_account.num_hops(), 0);
-            let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-            self.broadcast_message(ctx, msg);
+        // If this is an announcement from our account id.
+        if announce_account.original_peer_id() == self.peer_id {
+            // Check that this announcement doesn't contain any other hop.
+            // We must avoid cycle in the routes.
+            if announce_account.num_hops() == 0 {
+                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
+                self.broadcast_message(ctx, msg);
+            }
         } else {
             // Check that we don't belong to this route.
             if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
