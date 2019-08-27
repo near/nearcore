@@ -57,7 +57,7 @@ pub struct BlockInfo {
     pub epoch_id: EpochId,
 
     pub proposals: Vec<ValidatorStake>,
-    pub validator_mask: Vec<bool>,
+    pub chunk_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
     pub gas_used: GasUsage,
     pub gas_price: Balance,
@@ -79,7 +79,7 @@ impl BlockInfo {
             index,
             prev_hash,
             proposals,
-            validator_mask,
+            chunk_mask: validator_mask,
             slashed,
             gas_used,
             gas_price,

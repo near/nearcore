@@ -33,10 +33,12 @@ pub fn setup_network_node(
 
     let boot_nodes = boot_nodes.iter().map(|(acc_id, port)| (acc_id.as_str(), *port)).collect();
     config.boot_nodes = convert_boot_nodes(boot_nodes);
+    let num_validators = validators.len();
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
         vec![validators.into_iter().map(Into::into).collect()],
+        1,
         1,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
@@ -46,7 +48,7 @@ pub fn setup_network_node(
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
-            ClientConfig::test(false, 100),
+            ClientConfig::test(false, 100, num_validators),
             store.clone(),
             chain_genesis,
             runtime,

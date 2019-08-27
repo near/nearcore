@@ -75,7 +75,11 @@ pub trait ChainStoreAccess {
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
     /// Get chunk extra info for given chunk hash.
-    fn get_chunk_extra(&mut self, h: &ChunkHash) -> Result<&ChunkExtra, Error>;
+    fn get_chunk_extra(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&ChunkExtra, Error>;
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
     /// Returns hash of the block on the main chain for given height.
@@ -352,10 +356,19 @@ impl ChainStoreAccess for ChainStore {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_chunk_extra(&mut self, h: &ChunkHash) -> Result<&ChunkExtra, Error> {
+    fn get_chunk_extra(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&ChunkExtra, Error> {
         option_to_not_found(
-            read_with_cache(&*self.store, COL_CHUNK_EXTRA, &mut self.chunk_extras, h.as_ref()),
-            &format!("CHUNK EXTRA: {}", h.0),
+            read_with_cache(
+                &*self.store,
+                COL_CHUNK_EXTRA,
+                &mut self.chunk_extras,
+                hash_struct(&(block_hash, shard_id)).as_ref(),
+            ),
+            &format!("CHUNK EXTRA: {}:{}", block_hash, shard_id),
         )
     }
 
@@ -443,7 +456,7 @@ pub struct ChainStoreUpdate<'a, T> {
     blocks: HashMap<CryptoHash, Block>,
     deleted_blocks: HashSet<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
-    chunk_extras: HashMap<ChunkHash, ChunkExtra>,
+    chunk_extras: HashMap<(CryptoHash, ShardId), ChunkExtra>,
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptTransaction>>,
@@ -581,11 +594,15 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     }
 
     /// Get state root hash after applying header with given hash.
-    fn get_chunk_extra(&mut self, hash: &ChunkHash) -> Result<&ChunkExtra, Error> {
-        if let Some(chunk_extra) = self.chunk_extras.get(hash) {
+    fn get_chunk_extra(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<&ChunkExtra, Error> {
+        if let Some(chunk_extra) = self.chunk_extras.get(&(block_hash.clone(), shard_id)) {
             Ok(chunk_extra)
         } else {
-            self.chain_store.get_chunk_extra(hash)
+            self.chain_store.get_chunk_extra(block_hash, shard_id)
         }
     }
 
@@ -724,8 +741,13 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     }
 
     /// Save post applying block state root.
-    pub fn save_chunk_extra(&mut self, hash: &ChunkHash, chunk_extra: ChunkExtra) {
-        self.chunk_extras.insert(hash.clone(), chunk_extra);
+    pub fn save_chunk_extra(
+        &mut self,
+        block_hash: &CryptoHash,
+        shard_id: ShardId,
+        chunk_extra: ChunkExtra,
+    ) {
+        self.chunk_extras.insert((block_hash.clone(), shard_id), chunk_extra);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -839,9 +861,13 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                 .set_ser(COL_BLOCK_HEADER, hash.as_ref(), &header)
                 .map_err::<Error, _>(|e| e.into())?;
         }
-        for (hash, chunk_extra) in self.chunk_extras.drain() {
+        for (block_hash_and_shard_id, chunk_extra) in self.chunk_extras.drain() {
             store_update
-                .set_ser(COL_CHUNK_EXTRA, hash.as_ref(), &chunk_extra)
+                .set_ser(
+                    COL_CHUNK_EXTRA,
+                    hash_struct(&block_hash_and_shard_id).as_ref(),
+                    &chunk_extra,
+                )
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (height, hash) in self.block_index.drain() {

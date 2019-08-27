@@ -764,6 +764,7 @@ impl Runtime {
             }
             Err(s) => {
                 state_update.rollback();
+                println!("runtime error: {}", s);
                 result.logs.push(format!("Runtime error: {}", s));
                 result.status = TransactionStatus::Failed;
             }

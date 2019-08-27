@@ -207,6 +207,7 @@ fn sync_state_stake_change() {
 
         let mut genesis_config = GenesisConfig::test(vec!["test1"]);
         genesis_config.epoch_length = 5;
+        genesis_config.validator_kickout_threshold = 80;
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);

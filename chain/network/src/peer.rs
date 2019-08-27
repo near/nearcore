@@ -265,7 +265,7 @@ impl Peer {
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => match routed_message.body {
                 RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
-                    NetworkClientMessages::BlockApproval(account_id, hash, signature)
+                    NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
                 }
                 RoutedMessageBody::ForwardTx(transaction) => {
                     NetworkClientMessages::Transaction(transaction)

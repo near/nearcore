@@ -56,14 +56,13 @@ message StateResponseReceipts {
 message StateResponse {
     uint64 shard_id = 1;
     bytes hash = 2;
-    bytes prev_chunk_hash = 3;
-    bytes prev_state_root = 4;
-    uint64 prev_gas_used = 5;
-    uint64 prev_gas_limit = 6;
-    repeated ValidatorStake validator_proposals = 7;
-    bytes payload = 8;
-    StateResponseReceipts outgoing_receipts = 10;
-    repeated StateResponseReceipts incoming_receipts = 11;
+    bytes prev_state_root = 3;
+    uint64 prev_gas_used = 4;
+    uint64 prev_gas_limit = 5;
+    repeated ValidatorStake validator_proposals = 6;
+    bytes payload = 7;
+    StateResponseReceipts outgoing_receipts = 8;
+    repeated StateResponseReceipts incoming_receipts = 9;
 }
 
 message ChunkPartRequest{
