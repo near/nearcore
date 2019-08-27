@@ -10,6 +10,7 @@ use lazy_static::lazy_static;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
+use near_crypto::Signer;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::crypto::signer::EDSigner;
@@ -46,7 +47,7 @@ fn stake_transaction(
     nonce: Nonce,
     signer_id: AccountId,
     stake: Balance,
-    signer: Arc<dyn EDSigner>,
+    signer: Arc<dyn Signer>,
     block_hash: CryptoHash,
 ) -> SignedTransaction {
     SignedTransaction::from_actions(

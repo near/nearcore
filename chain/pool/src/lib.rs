@@ -74,23 +74,27 @@ impl TransactionPool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
     use near_chain::ValidTransaction;
-    use near_primitives::crypto::signer::InMemorySigner;
+    use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
 
     use crate::TransactionPool;
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
-    use std::sync::Arc;
+
+    use crate::TransactionPool;
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
     /// orders them correctly.
     #[test]
     fn test_order_nonce() {
-        let signer = Arc::new(InMemorySigner::from_seed("alice.near", "alice.near"));
+        let signer =
+            Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
         let mut transactions: Vec<_> = (1..10)
             .map(|i| {
                 SignedTransaction::send_money(

@@ -2,11 +2,10 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use exonum_sodiumoxide as sodiumoxide;
-use exonum_sodiumoxide::crypto::hash::sha256::Digest;
+use sodiumoxide::crypto::hash::sha256::Digest;
 
 use crate::logging::pretty_hash;
-use crate::serialize::{from_base, to_base, BaseDecode, Encode};
+use crate::serialize::{from_base, to_base, BaseDecode};
 use std::io::Read;
 
 #[derive(Copy, Clone, PartialOrd, Ord)]
@@ -133,10 +132,6 @@ impl Eq for CryptoHash {}
 /// ```
 pub fn hash(data: &[u8]) -> CryptoHash {
     CryptoHash(sodiumoxide::crypto::hash::sha256::hash(data))
-}
-
-pub fn hash_struct<T: Encode>(obj: &T) -> CryptoHash {
-    hash(&obj.encode().expect("Serialization failed"))
 }
 
 #[cfg(test)]

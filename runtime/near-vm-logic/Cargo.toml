@@ -14,7 +14,7 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 bs58 = "0.2.2"
-exonum_sodiumoxide = "0.0.20"
+sodiumoxide = "0.2.2"
 serde = { version = "1.0", features = ["derive"] }
 near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.0" }
 

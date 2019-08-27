@@ -1,15 +1,16 @@
 use std::convert::AsRef;
 use std::fmt;
 
+use borsh::Serializable;
 use byteorder::{LittleEndian, WriteBytesExt};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 
 use lazy_static::lazy_static;
+use near_crypto::PublicKey;
 
-use crate::crypto::signature::PublicKey;
 use crate::hash::{hash, CryptoHash};
 use crate::types::{AccountId, ShardId};
-use chrono::{DateTime, NaiveDateTime, Utc};
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -60,7 +61,7 @@ pub fn prefix_for_data(account_id: &AccountId) -> Vec<u8> {
 pub fn key_for_access_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
     let mut key = key_for_column_account_id(col::ACCESS_KEY, account_id);
     key.extend_from_slice(col::ACCESS_KEY);
-    key.extend_from_slice(public_key.as_ref());
+    key.extend_from_slice(&public_key.try_to_vec().expect("Failed to serialize public key"));
     key
 }
 

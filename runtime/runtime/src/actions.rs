@@ -129,7 +129,10 @@ pub(crate) fn action_function_call(
     let context = VMContext {
         current_account_id: account_id.clone(),
         signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt.signer_public_key.as_ref().to_vec(),
+        signer_account_pk: action_receipt
+            .signer_public_key
+            .try_to_vec()
+            .expect("Failed to serialize"),
         predecessor_account_id: receipt.predecessor_id.clone(),
         input: function_call.args.clone(),
         block_index: apply_state.block_index,
@@ -295,8 +298,9 @@ pub(crate) fn action_delete_key(
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
     let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage -=
-        (delete_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage -= (delete_key.public_key.try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.key_cost_per_byte;
     account.storage_usage -= (access_key.unwrap().try_to_vec().ok().unwrap_or_default().len()
         as u64)
         * storage_config.value_cost_per_byte;
@@ -321,8 +325,9 @@ pub(crate) fn action_add_key(
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
     let storage_config = RuntimeFeesConfig::default().storage_usage_config;
-    account.storage_usage +=
-        (add_key.public_key.as_ref().len() as u64) * storage_config.key_cost_per_byte;
+    account.storage_usage += (add_key.public_key.try_to_vec().ok().unwrap_or_default().len()
+        as u64)
+        * storage_config.key_cost_per_byte;
     account.storage_usage += (add_key.access_key.try_to_vec().ok().unwrap_or_default().len()
         as u64)
         * storage_config.value_cost_per_byte;

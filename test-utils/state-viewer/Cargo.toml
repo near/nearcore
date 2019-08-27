@@ -10,6 +10,7 @@ hex = "0.3"
 
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
+near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }

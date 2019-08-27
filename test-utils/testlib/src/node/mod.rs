@@ -7,7 +7,7 @@ use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_crypto::{InMemorySigner, Signer};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -67,7 +67,7 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner>;
+    fn signer(&self) -> Arc<dyn Signer>;
 
     fn is_running(&self) -> bool;
 

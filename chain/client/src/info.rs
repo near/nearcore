@@ -99,7 +99,7 @@ impl InfoHelper {
             try_sign_json(
                 json!({
                     "account_id": self.block_producer.clone().map(|bp| bp.account_id).unwrap_or("".to_string()),
-                    "node_id": to_base(&node_id),
+                    "node_id": format!("{}", node_id),
                     "status": display_sync_status(&sync_status, &head),
                     "latest_block_hash": to_base(&head.last_block_hash),
                     "latest_block_height": head.height,
@@ -123,7 +123,7 @@ fn try_sign_json(
     let mut signature = "".to_string();
     if let Some(bp) = block_producer {
         if let Ok(s) = serde_json::to_string(&value) {
-            signature = to_base(&bp.signer.sign(s.as_bytes()));
+            signature = format!("{}", bp.signer.sign(s.as_bytes()));
         }
     }
     value["signature"] = signature.into();

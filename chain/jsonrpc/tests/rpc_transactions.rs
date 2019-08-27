@@ -6,6 +6,7 @@ use futures::future::Future;
 
 use futures::future;
 use near_client::GetBlock;
+use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
@@ -35,7 +36,7 @@ fn test_send_tx_async() {
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
-            let signer = InMemorySigner::from_seed("test1", "test1");
+            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
                 1,
                 "test1".to_string(),
@@ -90,7 +91,7 @@ fn test_send_tx_commit() {
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
-            let signer = InMemorySigner::from_seed("test1", "test1");
+            let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
             let tx = SignedTransaction::send_money(
                 1,
                 "test1".to_string(),

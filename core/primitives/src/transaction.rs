@@ -4,16 +4,16 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 
+use near_crypto::{PublicKey, Signature, Signer};
+
 use crate::account::AccessKey;
-use crate::crypto::signature::{verify, PublicKey};
-use crate::crypto::signer::EDSigner;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce, StructSignature};
+use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
 
 pub type LogEntry = String;
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Transaction {
     pub signer_id: AccountId,
     pub public_key: PublicKey,
@@ -34,7 +34,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
 pub enum Action {
     CreateAccount(CreateAccountAction),
     DeployContract(DeployContractAction),
@@ -62,10 +62,10 @@ impl Action {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct CreateAccountAction {}
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct DeployContractAction {
     pub code: Vec<u8>,
 }
@@ -78,7 +78,7 @@ impl fmt::Debug for DeployContractAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub struct FunctionCallAction {
     pub method_name: String,
     pub args: Vec<u8>,
@@ -97,29 +97,29 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct TransferAction {
     pub deposit: Balance,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StakeAction {
     pub stake: Balance,
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AddKeyAction {
     pub public_key: PublicKey,
     pub access_key: AccessKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteKeyAction {
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
@@ -128,13 +128,13 @@ pub struct DeleteAccountAction {
 #[borsh_init(init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,
-    pub signature: StructSignature,
+    pub signature: Signature,
     #[borsh_skip]
     hash: CryptoHash,
 }
 
 impl SignedTransaction {
-    pub fn new(signature: StructSignature, transaction: Transaction) -> Self {
+    pub fn new(signature: Signature, transaction: Transaction) -> Self {
         let mut signed_tx = Self { signature, transaction, hash: CryptoHash::default() };
         signed_tx.init();
         signed_tx
@@ -152,7 +152,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: Arc<dyn EDSigner>,
+        signer: Arc<dyn Signer>,
         actions: Vec<Action>,
         block_hash: CryptoHash,
         validity_period: BlockIndex,
@@ -173,7 +173,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: Arc<dyn EDSigner>,
+        signer: Arc<dyn Signer>,
         deposit: Balance,
         block_hash: CryptoHash,
         validity_period: BlockIndex,
@@ -202,9 +202,7 @@ impl PartialEq for SignedTransaction {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Hash, Debug, PartialEq, Eq, Clone, Serialize, Deserialize,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TransactionStatus {
     Unknown,
     Completed,
@@ -253,24 +251,25 @@ pub fn verify_transaction_signature(
 ) -> bool {
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
-    public_keys.iter().any(|key| verify(&hash, &transaction.signature, &key))
+    public_keys.iter().any(|key| transaction.signature.verify(&hash, &key))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
+    use std::convert::TryInto;
 
     use borsh::Deserializable;
 
-    use crate::crypto::signature::{get_key_pair, sign, DEFAULT_SIGNATURE};
+    use near_crypto::{InMemorySigner, KeyType, ReadablePublicKey, Signature};
+
+    use crate::account::{AccessKeyPermission, FunctionCallPermission};
     use crate::serialize::to_base;
 
     use super::*;
-    use crate::account::{AccessKeyPermission, FunctionCallPermission};
 
     #[test]
     fn test_verify_transaction() {
-        let (public_key, private_key) = get_key_pair();
+        let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
         let mut transaction = SignedTransaction::new(
             DEFAULT_SIGNATURE,
             Transaction {
@@ -284,24 +283,26 @@ mod tests {
             },
         );
         transaction.signature = sign(&transaction.hash.as_ref(), &private_key);
-        let (wrong_public_key, _) = get_key_pair();
+        let wrong_public_key = PublicKey::from_seed(KeyType::ED25519, "wrong");
         let valid_keys = vec![public_key, wrong_public_key];
         assert!(verify_transaction_signature(&transaction, &valid_keys));
 
         let invalid_keys = vec![wrong_public_key];
         assert!(!verify_transaction_signature(&transaction, &invalid_keys));
 
-        //let bytes = transaction.encode().unwrap();
-        // let new_tx = SignedTransaction::decode(&bytes).unwrap().into();
-        //assert!(verify_transaction_signature(&new_tx, &valid_keys));
+        let bytes = transaction.try_to_vec().unwrap();
+        let decoded_tx = SignedTransaction::try_from_slice(&bytes).unwrap();
+        assert!(verify_transaction_signature(&decoded_tx, &valid_keys));
     }
 
     /// This test is change checker for a reason - we don't expect transaction format to change.
     /// If it does - you MUST update all of the dependencies: like nearlib and other clients.
     #[test]
     fn test_serialize_transaction() {
-        let public_key =
-            PublicKey::try_from("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV").unwrap();
+        let public_key: PublicKey =
+            ReadablePublicKey::new("22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV")
+                .try_into()
+                .unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
             public_key,
@@ -335,7 +336,7 @@ mod tests {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id: "123".to_string() }),
             ],
         };
-        let signed_tx = SignedTransaction::new(DEFAULT_SIGNATURE, transaction);
+        let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
         let new_signed_tx =
             SignedTransaction::try_from_slice(&signed_tx.try_to_vec().unwrap()).unwrap();
 

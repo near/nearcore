@@ -3,8 +3,10 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use borsh::Serializable;
+
+use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::crypto::signature::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use near_primitives::utils::{is_valid_account_id, prefix_for_data};
@@ -92,7 +94,7 @@ impl TrieViewer {
         let code = get_code_with_cache(&state_update, contract_id, &account)?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
-        let public_key = PublicKey::empty();
+        let public_key = PublicKey::empty(KeyType::ED25519);
         let (outcome, err) = match get_account(&state_update, &contract_id) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
@@ -108,7 +110,7 @@ impl TrieViewer {
                 let context = VMContext {
                     current_account_id: contract_id.clone(),
                     signer_account_id: originator_id.clone(),
-                    signer_account_pk: public_key.as_ref().to_vec(),
+                    signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
                     predecessor_account_id: originator_id.clone(),
                     input: args.to_owned(),
                     block_index,

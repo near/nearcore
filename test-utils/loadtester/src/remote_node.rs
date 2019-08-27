@@ -8,9 +8,10 @@ use futures::Future;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
-use near_primitives::crypto::signature::PublicKey;
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::from_base;
 use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
@@ -102,7 +103,7 @@ impl RemoteNode {
         let url = format!("http://{}", addr);
         let signers: Vec<_> = signers_accs
             .iter()
-            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), s.as_str())))
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
             .collect();
         let nonces = vec![0; signers.len()];
         let async_client = Arc::new(
@@ -149,7 +150,7 @@ impl RemoteNode {
         let response: serde_json::Value = self
             .sync_client
             .post(url.as_str())
-            .form(&[("path", format!("\"access_key/{}/{}\"", account_id, public_key.to_base()))])
+            .form(&[("path", format!("\"access_key/{}/{}\"", account_id, public_key))])
             .send()?
             .json()?;
         let bytes =

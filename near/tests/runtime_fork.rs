@@ -5,7 +5,7 @@ use tempdir::TempDir;
 
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, Chain, Provenance};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
@@ -18,7 +18,7 @@ fn runtime_hanldle_fork() {
     let tmp_dir = TempDir::new("handle_fork").unwrap();
     let store = create_store(&get_store_path(tmp_dir.path()));
     let genesis_config = GenesisConfig::testing_spec(2, 1);
-    let signer = Arc::new(InMemorySigner::from_seed("near.0", "near.0"));
+    let signer = Arc::new(InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0"));
     let runtime =
         Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
 

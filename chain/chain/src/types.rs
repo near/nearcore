@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::crypto::signature::Signature;
-use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{SignedTransaction, TransactionLog};
@@ -247,7 +246,7 @@ pub struct BlockApproval {
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn EDSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -259,14 +258,14 @@ mod tests {
 
     use chrono::Utc;
 
-    use near_primitives::crypto::signer::InMemorySigner;
+    use near_crypto::{InMemorySigner, KeyType};
 
     use super::*;
 
     #[test]
     fn test_block_produce() {
         let genesis = Block::genesis(MerkleHash::default(), Utc::now());
-        let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
         let b1 = Block::produce(
             &genesis.header,
             1,
@@ -279,7 +278,8 @@ mod tests {
         );
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
-        let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
+        let other_signer =
+            Arc::new(InMemorySigner::from_seed("other2", KeyType::ED25519, "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::produce(

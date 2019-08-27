@@ -1,9 +1,7 @@
 extern crate bincode;
 extern crate byteorder;
-extern crate exonum_sodiumoxide;
 #[cfg(jemallocator)]
 extern crate jemallocator;
-extern crate pairing;
 extern crate rand;
 extern crate regex;
 extern crate serde;
@@ -18,7 +16,7 @@ static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 pub mod account;
 pub mod block;
 pub mod contract;
-pub mod crypto;
+//pub mod crypto;
 pub mod hash;
 pub mod logging;
 pub mod merkle;

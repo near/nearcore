@@ -8,6 +8,8 @@ use futures::{future, Future};
 use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
 use near_client::{GetBlock, TxStatus};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
+use near_network::test_utils::wait_or_panic;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
@@ -68,7 +70,7 @@ fn produce_blocks_with_tx() {
             let header: BlockHeader = res.unwrap().unwrap().header.into();
             let block_hash = header.hash;
             client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
-                DEFAULT_SIGNATURE,
+                Signature::empty(KeyType::ED25519),
                 Transaction {
                     signer_id: "".to_string(),
                     public_key: PublicKey::empty(),
@@ -105,7 +107,7 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
+            let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -154,7 +156,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -195,8 +197,8 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemorySigner::from_seed("test1", "test1"));
-            let signer3 = Arc::new(InMemorySigner::from_seed("test3", "test3"));
+            let signer1 = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+            let signer3 = Arc::new(InMemorySigner::from_seed("test3", KeyType::ED25519, "test3"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -244,7 +246,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
             // Send invalid state root.
             let block = Block::produce(
                 &last_block.header.clone().into(),
