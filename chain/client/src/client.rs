@@ -296,6 +296,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                                 NetworkClientResponses::ValidTx
                             } else {
+                                // TODO(MarX): Forward tx even if I am a validator.
                                 let head = unwrap_or_return!(self.chain.head(), {
                                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
                                     NetworkClientResponses::NoResponse
@@ -816,8 +817,6 @@ impl ClientActor {
 
         debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_validator_announce_height);
 
-        // TODO MOO XXX: only announce if will be a validator in the next epoch.
-        // TODO MOO WTF: currently, it will still resend this every epoch.
         if let Some(last_validator_announce_height) = self.last_validator_announce_height {
             if last_validator_announce_height >= epoch_start_height {
                 // This announcement was already done!
@@ -832,6 +831,7 @@ impl ClientActor {
             if validators.iter().any(|(account_id, _)| (account_id == &block_producer.account_id)) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
+                self.last_validator_announce_time = Some(now);
                 let (hash, signature) = self.sign_announce_account(&next_epoch_id).unwrap();
 
                 actix::spawn(
