@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use near_chain::test_utils::setup;
+use near_chain::test_utils::{setup, setup_with_tx_validity_period};
 use near_chain::{Block, ErrorKind, Provenance};
 use near_crypto::{KeyType, Signature, Signer};
 use near_primitives::hash::{hash, CryptoHash};
@@ -115,7 +115,7 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn test_apply_expired_tx() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, signer) = setup_with_tx_validity_period(0);
     let b1 = Block::empty(chain.genesis(), signer.clone());
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -125,7 +125,6 @@ fn test_apply_expired_tx() {
             nonce: 0,
             receiver_id: "".to_string(),
             block_hash: b1.hash(),
-            validity_period: 0,
             actions: vec![],
         },
     );
@@ -156,7 +155,6 @@ fn test_tx_wrong_fork() {
             nonce: 0,
             receiver_id: "".to_string(),
             block_hash: hash(&[2]),
-            validity_period: 10,
             actions: vec![],
         },
     );

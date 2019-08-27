@@ -102,7 +102,6 @@ mod tests {
                     signer.clone(),
                     i as Balance,
                     CryptoHash::default(),
-                    1,
                 )
             })
             .collect();

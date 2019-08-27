@@ -120,6 +120,7 @@ pub struct Chain {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     genesis: BlockHeader,
+    transaction_validity_period: BlockIndex,
 }
 
 impl Chain {
@@ -127,6 +128,7 @@ impl Chain {
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         genesis_time: DateTime<Utc>,
+        transaction_validity_period: BlockIndex,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
@@ -206,6 +208,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             genesis: genesis.header,
+            transaction_validity_period,
         })
     }
 
@@ -222,8 +225,12 @@ impl Chain {
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -251,8 +258,12 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         chain_update.sync_block_headers(headers)?;
         chain_update.commit()
     }
@@ -343,8 +354,12 @@ impl Chain {
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let prev_head = self.store.head()?;
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -604,6 +619,7 @@ struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
+    transaction_validity_period: BlockIndex,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -611,9 +627,10 @@ impl<'a> ChainUpdate<'a> {
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
+        transaction_validity_period: BlockIndex,
     ) -> Self {
         let chain_store_update = store.store_update();
-        ChainUpdate { runtime_adapter, chain_store_update, orphans }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans, transaction_validity_period }
     }
 
     /// Commit changes to the chain into the database.
@@ -684,7 +701,7 @@ impl<'a> ChainUpdate<'a> {
             !check_tx_history(
                 self.chain_store_update.get_block_header(&t.transaction.block_hash).ok(),
                 block.header.inner.height,
-                t,
+                self.transaction_validity_period,
             )
         }) {
             return Err(ErrorKind::InvalidStatePayload(

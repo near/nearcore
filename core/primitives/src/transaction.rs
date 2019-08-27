@@ -22,8 +22,6 @@ pub struct Transaction {
     pub receiver_id: AccountId,
     /// The hash of the block in the blockchain on top of which the given transaction is valid.
     pub block_hash: CryptoHash,
-    /// The number of blocks from the given block hash the given transaction is valid.
-    pub validity_period: BlockIndex,
 
     pub actions: Vec<Action>,
 }
@@ -156,7 +154,6 @@ impl SignedTransaction {
         signer: Arc<dyn Signer>,
         actions: Vec<Action>,
         block_hash: CryptoHash,
-        validity_period: BlockIndex,
     ) -> Self {
         Transaction {
             nonce,
@@ -164,7 +161,6 @@ impl SignedTransaction {
             public_key: signer.public_key(),
             receiver_id,
             block_hash,
-            validity_period,
             actions,
         }
         .sign(&*signer)
@@ -177,7 +173,6 @@ impl SignedTransaction {
         signer: Arc<dyn Signer>,
         deposit: Balance,
         block_hash: CryptoHash,
-        validity_period: BlockIndex,
     ) -> SignedTransaction {
         Self::from_actions(
             nonce,
@@ -186,7 +181,6 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
-            validity_period,
         )
     }
 }
@@ -260,10 +254,10 @@ pub fn verify_transaction_signature(
 pub fn check_tx_history(
     base_header: Option<&BlockHeader>,
     current_height: BlockIndex,
-    transaction: &SignedTransaction,
+    validity_period: BlockIndex,
 ) -> bool {
     if let Some(base_header) = base_header {
-        current_height - base_header.inner.height <= transaction.transaction.validity_period
+        current_height - base_header.inner.height <= validity_period
     } else {
         false
     }
@@ -291,7 +285,6 @@ mod tests {
             nonce: 0,
             receiver_id: "".to_string(),
             block_hash: Default::default(),
-            validity_period: 0,
             actions: vec![],
         }
         .sign(&signer);
@@ -321,7 +314,6 @@ mod tests {
             nonce: 1,
             receiver_id: "123".to_string(),
             block_hash: Default::default(),
-            validity_period: 0,
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
@@ -354,7 +346,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "BsmCFTN5HYeCorkSSncr3CmDXZLXwaCjy9yL7fYvX2KR"
+            "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
     }
 }

@@ -1,8 +1,9 @@
-use near::{get_store_path, GenesisConfig, NightshadeRuntime};
-use near_chain::RuntimeAdapter;
-use near_primitives::block::Block;
+use near::{GenesisConfig, NightshadeRuntime};
+use near_chain::Chain;
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_store::create_store;
+use near_store::test_utils::create_test_store;
+use std::sync::Arc;
 use tempdir::TempDir;
 
 pub mod actix_utils;
@@ -15,9 +16,18 @@ pub mod user;
 
 /// Compute genesis hash from genesis config.
 pub fn genesis_hash(genesis_config: &GenesisConfig) -> CryptoHash {
-    let tmp_dir = TempDir::new("tmp").unwrap();
-    let store = create_store(&get_store_path(tmp_dir.path()));
-    let runtime = NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone());
-    let (_, state_roots) = runtime.genesis_state();
-    Block::genesis(state_roots[0], genesis_config.genesis_time).hash()
+    genesis_header(&genesis_config).hash
+}
+
+/// Utility to generate genesis header from config for testing purposes.
+pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
+    let dir = TempDir::new("unused").unwrap();
+    let store = create_test_store();
+    let genesis_time = genesis_config.genesis_time.clone();
+    let runtime =
+        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config.clone()));
+    let chain =
+        Chain::new(store, runtime, genesis_time, genesis_config.transaction_validity_period)
+            .unwrap();
+    chain.genesis().clone()
 }

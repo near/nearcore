@@ -224,9 +224,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+    setup_with_tx_validity_period(100)
+}
+
+pub fn setup_with_tx_validity_period(
+    validity: BlockIndex,
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
+    let chain = Chain::new(store, runtime.clone(), Utc::now(), validity).unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }

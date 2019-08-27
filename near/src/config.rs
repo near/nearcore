@@ -64,6 +64,9 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
+/// Number of blocks for which a given transaction is valid
+pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
+
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
@@ -221,6 +224,7 @@ impl NearConfig {
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
+                transaction_validity_period: genesis_config.transaction_validity_period,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key.into(),
@@ -314,6 +318,8 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
     pub records: Vec<Vec<StateRecord>>,
+    /// Number of blocks for which a given transaction is valid
+    pub transaction_validity_period: u64,
 }
 
 impl GenesisConfig {
@@ -362,6 +368,7 @@ impl GenesisConfig {
             runtime_config: Default::default(),
             validators,
             records,
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         }
     }
 
@@ -407,6 +414,7 @@ impl GenesisConfig {
             runtime_config: Default::default(),
             validators,
             records: vec![records],
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         }
     }
 
@@ -577,6 +585,7 @@ pub fn init_configs(
                     TESTING_INIT_STAKE,
                     CryptoHash::default(),
                 )],
+                transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -633,6 +642,7 @@ pub fn create_testnet_configs_from_seeds(
         runtime_config: Default::default(),
         validators,
         records,
+        transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -745,6 +755,7 @@ mod tests {
             "validator_kickout_threshold": 0.9,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],
+            "transaction_validity_period": 100,
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(

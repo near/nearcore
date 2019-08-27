@@ -497,7 +497,6 @@ mod test {
             })],
             // runtime does not validate block history
             CryptoHash::default(),
-            10,
         )
     }
 
@@ -628,7 +627,6 @@ mod test {
                 }),
             ],
             CryptoHash::default(),
-            10,
         );
         let staking_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
 

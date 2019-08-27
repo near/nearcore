@@ -98,7 +98,12 @@ impl ClientActor {
         telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&genesis_time);
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        let chain = Chain::new(
+            store,
+            runtime_adapter.clone(),
+            genesis_time,
+            config.transaction_validity_period,
+        )?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
@@ -874,7 +879,7 @@ impl ClientActor {
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
             head.height,
-            &tx,
+            self.config.transaction_validity_period,
         ) {
             return Err("Transaction has either expired or is from a different fork".to_string());
         }

@@ -11,8 +11,6 @@ use near_primitives::transaction::{
 };
 use testlib::node::{Node, ThreadNode};
 
-const TRANSACTION_VALIDITY_PERIOD: u64 = 10;
-
 fn start_node() -> ThreadNode {
     init_integration_logger();
     let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1);
@@ -43,7 +41,6 @@ fn test_check_tx_error_log() {
             }),
         ],
         block_hash,
-        TRANSACTION_VALIDITY_PERIOD,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap_err();
@@ -73,7 +70,6 @@ fn test_deliver_tx_error_log() {
             }),
         ],
         block_hash,
-        TRANSACTION_VALIDITY_PERIOD,
     );
 
     let tx_result = node.user().commit_transaction(tx).unwrap();

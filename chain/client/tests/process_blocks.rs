@@ -73,7 +73,6 @@ fn produce_blocks_with_tx() {
                     nonce: 0,
                     receiver_id: "".to_string(),
                     block_hash,
-                    validity_period: 10,
                     actions: vec![],
                 },
             )));

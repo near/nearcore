@@ -8,7 +8,7 @@ use futures::future;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::test_utils::start_all;
+use near_jsonrpc::test_utils::{start_all, start_all_with_validity_period};
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::hash;
@@ -26,7 +26,6 @@ fn test_send_tx_async() {
         let (view_client, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr.clone()));
-        let validity_period = 10;
 
         let tx_hash2 = Arc::new(Mutex::new(None));
         let tx_hash2_1 = tx_hash2.clone();
@@ -43,7 +42,6 @@ fn test_send_tx_async() {
                 Arc::new(signer),
                 100,
                 block_hash,
-                validity_period,
             );
             let bytes = tx.try_to_vec().unwrap();
             let tx_hash: String = (&tx.get_hash()).into();
@@ -98,7 +96,6 @@ fn test_send_tx_commit() {
                 Arc::new(signer),
                 100,
                 block_hash,
-                10,
             );
             let bytes = tx.try_to_vec().unwrap();
             client
@@ -122,7 +119,7 @@ fn test_send_tx_commit() {
 fn test_expired_tx() {
     init_integration_logger();
     System::run(|| {
-        let (view_client, addr) = start_all(true);
+        let (view_client, addr) = start_all_with_validity_period(true, 0);
 
         let block_hash = Arc::new(Mutex::new(None));
 
@@ -144,7 +141,6 @@ fn test_expired_tx() {
                                 Arc::new(signer),
                                 100,
                                 block_hash,
-                                0,
                             );
                             let bytes = tx.try_to_vec().unwrap();
                             actix::spawn(
@@ -187,7 +183,6 @@ fn test_replay_protection() {
             Arc::new(signer),
             100,
             hash(&[1]),
-            10,
         );
         let bytes = tx.try_to_vec().unwrap();
         actix::spawn(

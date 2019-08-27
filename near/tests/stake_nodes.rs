@@ -56,7 +56,6 @@ fn stake_transaction(
         signer.clone(),
         vec![Action::Stake(StakeAction { stake, public_key: signer.public_key() })],
         block_hash,
-        100,
     )
 }
 

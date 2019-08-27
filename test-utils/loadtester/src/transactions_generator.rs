@@ -7,7 +7,6 @@ use near_primitives::transaction::{
 };
 
 use crate::remote_node::RemoteNode;
-const TRANSACTION_VALIDITY_PERIOD: u64 = 30;
 
 #[derive(Clone, Copy)]
 pub enum TransactionType {
@@ -40,15 +39,7 @@ impl Generator {
             }
         };
 
-        SignedTransaction::send_money(
-            nonce,
-            acc_from,
-            acc_to,
-            signer_from.clone(),
-            1,
-            block_hash,
-            TRANSACTION_VALIDITY_PERIOD,
-        )
+        SignedTransaction::send_money(nonce, acc_from, acc_to, signer_from.clone(), 1, block_hash)
     }
 
     /// Returns transactions that deploy test contract to an every account used by the node.
@@ -71,7 +62,6 @@ impl Generator {
                 signer.clone(),
                 vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
                 block_hash,
-                TRANSACTION_VALIDITY_PERIOD,
             ));
         }
         res
@@ -106,7 +96,6 @@ impl Generator {
                 deposit: 1,
             })],
             block_hash,
-            TRANSACTION_VALIDITY_PERIOD,
         )
     }
 
@@ -138,7 +127,6 @@ impl Generator {
                 deposit: 1,
             })],
             block_hash,
-            TRANSACTION_VALIDITY_PERIOD,
         )
     }
 }

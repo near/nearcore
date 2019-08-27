@@ -23,7 +23,6 @@ pub mod rpc_user;
 pub mod runtime_user;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
-const TRANSACTION_VALIDITY_PERIOD: u64 = 10;
 
 pub trait User {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String>;
@@ -87,7 +86,6 @@ pub trait User {
             self.signer(),
             actions,
             block_hash,
-            TRANSACTION_VALIDITY_PERIOD,
         );
         self.commit_transaction(signed_transaction).unwrap()
     }
