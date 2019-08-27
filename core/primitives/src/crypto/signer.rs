@@ -78,7 +78,7 @@ impl PasswordInput {
         println!("Enter a password for a secret key: ");
         let mut input = String::new();
         let _ = std::io::stdin().read_line(&mut input).expect("Could not read from stdin");
-        let byte_input = input.as_bytes();
+        let byte_input = input.trim().as_bytes().to_vec();
         let input_len = input.len();
         PasswordInput { byte_input, input_len, MAX_LENGTH }
     }

@@ -5,26 +5,26 @@ use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
-use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
+use actix_web::{http, middleware, web, App, Error as HttpError, HttpResponse, HttpServer};
 use borsh::Deserializable;
-use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
+use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
 use async_utils::{delay, timeout};
-use message::{Request, RpcError};
 use message::Message;
+use message::{Request, RpcError};
 use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
 pub use near_jsonrpc_client as client;
-use near_jsonrpc_client::message as message;
+use near_jsonrpc_client::message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
-use near_primitives::views::FinalTransactionStatus;
-use near_primitives::serialize::{BaseEncode, from_base, from_base64};
+use near_primitives::serialize::{from_base, from_base64, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;
+use near_primitives::views::FinalTransactionStatus;
 
 pub mod test_utils;
 
@@ -100,7 +100,8 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
-    SignedTransaction::try_from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
+    SignedTransaction::try_from_slice(&bytes)
+        .map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {
@@ -156,7 +157,8 @@ impl JsonRpcHandler {
     async fn send_tx_commit(&self, params: Option<Value>) -> Result<Value, RpcError> {
         let tx = parse_tx(params)?;
         let tx_hash = tx.get_hash();
-        let result = self.client_addr
+        let result = self
+            .client_addr
             .send(NetworkClientMessages::Transaction(tx))
             .map_err(|err| RpcError::server_error(Some(err.to_string())))
             .compat()
@@ -165,10 +167,12 @@ impl JsonRpcHandler {
             NetworkClientResponses::ValidTx => {
                 timeout(self.polling_config.polling_timeout, async {
                     loop {
-                        let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
+                        let final_tx =
+                            self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                         if let Ok(Ok(ref tx)) = final_tx {
                             match tx.status {
-                                FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
+                                FinalTransactionStatus::Started
+                                | FinalTransactionStatus::Unknown => {}
                                 _ => {
                                     break jsonify(final_tx);
                                 }
@@ -177,12 +181,12 @@ impl JsonRpcHandler {
                         let _ = delay(self.polling_config.polling_interval).await;
                     }
                 })
-                    .await
-                    .map_err(|_| RpcError::server_error(Some("send_tx_commit has timed out.".to_owned())))?
-            },
-            NetworkClientResponses::InvalidTx(err) => {
-                Err(RpcError::server_error(Some(err)))
+                .await
+                .map_err(|_| {
+                    RpcError::server_error(Some("send_tx_commit has timed out.".to_owned()))
+                })?
             }
+            NetworkClientResponses::InvalidTx(err) => Err(RpcError::server_error(Some(err))),
             _ => unreachable!(),
         }
     }
@@ -228,7 +232,9 @@ fn rpc_handler(
     response.boxed().compat()
 }
 
-fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = HttpResponse, Error = HttpError> {
+fn status_handler(
+    handler: web::Data<JsonRpcHandler>,
+) -> impl Future<Item = HttpResponse, Error = HttpError> {
     let response = async move {
         match handler.status().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
