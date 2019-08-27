@@ -8,7 +8,7 @@ mod codec;
 mod peer;
 mod peer_manager;
 pub mod peer_store;
-pub mod types;
 mod rate_counter;
+pub mod types;
 
 pub mod test_utils;
