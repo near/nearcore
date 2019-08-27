@@ -145,14 +145,16 @@ export function callPromise(args: PromiseArgs): void {
   let promise = ContractPromise.create(
       args.receiver,
       args.methodName,
-      inputArgs.encode(),
+      inputArgs.encode().serialize(),
       new u128(args.balance));
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     let callbackBalance = args.callbackBalance as u64;
+
     promise = promise.then(
+        args.receiver,
         args.callback,
-        inputArgs.encode(),
+        inputArgs.encode().serialize(),
         new u128(callbackBalance));
   }
   promise.returnAsResult();
@@ -163,7 +165,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let allRes = Array.create<MyContractPromiseResult>(contractResults.length);
   for (let i = 0; i < contractResults.length; ++i) {
     allRes[i] = new MyContractPromiseResult();
-    allRes[i].ok = contractResults[i].success;
+    allRes[i].ok = (contractResults[i].status == 1);
     if (allRes[i].ok && contractResults[i].buffer != null && contractResults[i].buffer.length > 0) {
       allRes[i].r = MyCallbackResult.decode(contractResults[i].buffer);
     }
@@ -172,7 +174,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
     rs: allRes,
     n: context.contractName,
   };
-  let bytes = result.encode();
+  let bytes = result.encode().serialize();
   storage.setBytes("lastResult", bytes);
   return result;
 }
@@ -180,4 +182,3 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
 export function getLastResult(): MyCallbackResult {
   return MyCallbackResult.decode(storage.getBytes("lastResult"));
 }
-
