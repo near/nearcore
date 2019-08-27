@@ -1,3 +1,4 @@
+// @nearfile
 export class PromiseArgs {
     receiver: string;
     methodName: string;
