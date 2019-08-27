@@ -220,7 +220,7 @@ impl ClientActor {
         }
     }
 
-    /// Determine if I am a validator in current epoch.
+    /// Determine if I am a validator in current epoch for specified shard.
     fn active_validator(&self) -> Result<bool, Error> {
         let head = self.chain.head()?;
 
@@ -300,8 +300,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 let target_height = head.height + 2;
 
                                 let validator = unwrap_or_return!(
-                                    self.runtime_adapter
-                                        .get_block_producer(&head.epoch_id, target_height),
+                                    self.runtime_adapter.get_chunk_producer(
+                                        &head.epoch_id,
+                                        target_height,
+                                        shard_id
+                                    ),
                                     {
                                         warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
                                         NetworkClientResponses::NoResponse
