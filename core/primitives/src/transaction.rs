@@ -7,6 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
+use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
 use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
@@ -252,6 +253,20 @@ pub fn verify_transaction_signature(
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
     public_keys.iter().any(|key| transaction.signature.verify(&hash, &key))
+}
+
+/// Check whether transaction is valid in terms of block history based on the block header that
+/// the transaction points to
+pub fn check_tx_history(
+    base_header: Option<&BlockHeader>,
+    current_height: BlockIndex,
+    transaction: &SignedTransaction,
+) -> bool {
+    if let Some(base_header) = base_header {
+        current_height - base_header.inner.height <= transaction.transaction.validity_period
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]

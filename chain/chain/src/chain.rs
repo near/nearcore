@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::TransactionResult;
+use near_primitives::transaction::{check_tx_history, TransactionResult};
 use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
@@ -681,10 +681,11 @@ impl<'a> ChainUpdate<'a> {
         }
 
         if block.transactions.iter().any(|t| {
-            match self.chain_store_update.get_block_header(&t.transaction.block_hash) {
-                Ok(h) => block.header.inner.height - h.inner.height > t.transaction.validity_period,
-                _ => true,
-            }
+            !check_tx_history(
+                self.chain_store_update.get_block_header(&t.transaction.block_hash).ok(),
+                block.header.inner.height,
+                t,
+            )
         }) {
             return Err(ErrorKind::InvalidStatePayload(
                 "Block contains transactions that are either expired or from a different fork"
