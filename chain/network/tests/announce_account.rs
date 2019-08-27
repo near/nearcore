@@ -149,6 +149,7 @@ fn check_account_id_propagation(
     .unwrap();
 }
 
+// TODO(MarX): Wrap all this tests with heavy (Similar commit already merged in staging)
 #[test]
 fn two_nodes() {
     check_account_id_propagation(
@@ -230,7 +231,7 @@ fn circle() {
         .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
         .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
 }
 
 #[test]
@@ -246,7 +247,7 @@ fn star_2_connections() {
         })
         .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
 }
 
 #[test]
@@ -259,5 +260,5 @@ fn circle_extra_connection() {
         .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
         .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 3000);
+    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
 }
