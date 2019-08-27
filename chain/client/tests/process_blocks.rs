@@ -1,26 +1,22 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-use actix::{Actor, System};
+use actix::System;
 use futures::{future, Future};
 
 use near_chain::{Block, BlockApproval};
 use near_client::test_utils::setup_mock;
-use near_client::{GetBlock, TxStatus};
+use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_network::test_utils::wait_or_panic;
-use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
-use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::MerkleHash;
-use near_primitives::views::FinalTransactionStatus;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -73,7 +69,7 @@ fn produce_blocks_with_tx() {
                 Signature::empty(KeyType::ED25519),
                 Transaction {
                     signer_id: "".to_string(),
-                    public_key: PublicKey::empty(),
+                    public_key: PublicKey::empty(KeyType::ED25519),
                     nonce: 0,
                     receiver_id: "".to_string(),
                     block_hash,

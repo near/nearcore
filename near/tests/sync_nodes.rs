@@ -17,7 +17,6 @@ use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
 use near_store::test_utils::create_test_store;
-use std::time::Duration;
 use testlib::genesis_hash;
 
 /// Utility to generate genesis header from config for testing purposes.

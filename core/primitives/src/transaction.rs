@@ -270,21 +270,18 @@ mod tests {
     #[test]
     fn test_verify_transaction() {
         let signer = InMemorySigner::from_random("test".to_string(), KeyType::ED25519);
-        let mut transaction = SignedTransaction::new(
-            DEFAULT_SIGNATURE,
-            Transaction {
-                signer_id: "".to_string(),
-                public_key,
-                nonce: 0,
-                receiver_id: "".to_string(),
-                block_hash: Default::default(),
-                validity_period: 0,
-                actions: vec![],
-            },
-        );
-        transaction.signature = sign(&transaction.hash.as_ref(), &private_key);
+        let transaction = Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: Default::default(),
+            validity_period: 0,
+            actions: vec![],
+        }
+        .sign(&signer);
         let wrong_public_key = PublicKey::from_seed(KeyType::ED25519, "wrong");
-        let valid_keys = vec![public_key, wrong_public_key];
+        let valid_keys = vec![signer.public_key(), wrong_public_key];
         assert!(verify_transaction_signature(&transaction, &valid_keys));
 
         let invalid_keys = vec![wrong_public_key];

@@ -11,7 +11,6 @@ use near_jsonrpc::client::new_client;
 use near_jsonrpc::test_utils::start_all;
 use near_network::test_utils::{wait_or_panic, WaitOrTimeout};
 use near_primitives::block::BlockHeader;
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
 use near_primitives::serialize::to_base64;
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
@@ -135,25 +134,28 @@ fn test_expired_tx() {
                     let header: BlockHeader = res.unwrap().unwrap().header.into();
                     let hash = block_hash.lock().unwrap().clone();
                     if let Some(block_hash) = hash {
-                        let signer = InMemorySigner::from_seed("test1", "test1");
-                        let tx = SignedTransaction::send_money(
-                            1,
-                            "test1".to_string(),
-                            "test2".to_string(),
-                            Arc::new(signer),
-                            100,
-                            block_hash,
-                            0,
-                        );
-                        let bytes = tx.try_to_vec().unwrap();
-                        actix::spawn(
-                            client
-                                .broadcast_tx_commit(to_base64(&bytes))
-                                .map_err(|_| {
-                                    System::current().stop();
-                                })
-                                .map(|_| ()),
-                        );
+                        if block_hash != header.hash {
+                            let signer =
+                                InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+                            let tx = SignedTransaction::send_money(
+                                1,
+                                "test1".to_string(),
+                                "test2".to_string(),
+                                Arc::new(signer),
+                                100,
+                                block_hash,
+                                0,
+                            );
+                            let bytes = tx.try_to_vec().unwrap();
+                            actix::spawn(
+                                client
+                                    .broadcast_tx_commit(to_base64(&bytes))
+                                    .map_err(|_| {
+                                        System::current().stop();
+                                    })
+                                    .map(|_| ()),
+                            );
+                        }
                     } else {
                         *block_hash.lock().unwrap() = Some(header.hash);
                     };
@@ -177,7 +179,7 @@ fn test_replay_protection() {
         let (_, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
-        let signer = InMemorySigner::from_seed("test1", "test1");
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         let tx = SignedTransaction::send_money(
             1,
             "test1".to_string(),

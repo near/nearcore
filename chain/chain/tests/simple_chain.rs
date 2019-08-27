@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
-use near_primitives::crypto::signature::{PublicKey, DEFAULT_SIGNATURE};
+use near_crypto::{KeyType, Signature, Signer};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
@@ -118,10 +118,10 @@ fn test_apply_expired_tx() {
     let (mut chain, _, signer) = setup();
     let b1 = Block::empty(chain.genesis(), signer.clone());
     let tx = SignedTransaction::new(
-        DEFAULT_SIGNATURE,
+        Signature::empty(KeyType::ED25519),
         Transaction {
             signer_id: "".to_string(),
-            public_key: PublicKey::empty(),
+            public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
             block_hash: b1.hash(),
@@ -149,10 +149,10 @@ fn test_tx_wrong_fork() {
     let (mut chain, _, signer) = setup();
     let b1 = Block::empty(chain.genesis(), signer.clone());
     let tx = SignedTransaction::new(
-        DEFAULT_SIGNATURE,
+        Signature::empty(KeyType::ED25519),
         Transaction {
             signer_id: "".to_string(),
-            public_key: PublicKey::empty(),
+            public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
             block_hash: hash(&[2]),

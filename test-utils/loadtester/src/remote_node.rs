@@ -9,10 +9,8 @@ use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::from_base;
-use near_primitives::serialize::{from_base, BaseEncode};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;

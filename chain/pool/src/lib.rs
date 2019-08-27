@@ -87,8 +87,6 @@ mod tests {
     use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
 
-    use crate::TransactionPool;
-
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
     /// orders them correctly.
     #[test]
