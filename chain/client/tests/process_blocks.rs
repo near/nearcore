@@ -352,7 +352,7 @@ fn client_sync_headers() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        wait_or_panic(1000);
+        wait_or_panic(2000);
     })
     .unwrap();
 }
