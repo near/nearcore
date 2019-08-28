@@ -36,13 +36,15 @@ const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 const STATE_SYNC_TIMEOUT: i64 = 10;
 
 /// Adapter to allow to test Header/Body/State sync without actix.
-pub trait SyncNetworkAdapter {
+pub trait SyncNetworkAdapter: Sync + Send {
     fn send(&self, msg: NetworkRequests);
 }
 
 pub struct SyncNetworkRecipient {
     network_recipient: Recipient<NetworkRequests>,
 }
+
+unsafe impl Sync for SyncNetworkRecipient {}
 
 impl SyncNetworkRecipient {
     pub fn new(network_recipient: Recipient<NetworkRequests>) -> Box<Self> {
