@@ -39,7 +39,7 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::info::InfoHelper;
-use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync};
+use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync, SyncNetworkRecipient};
 use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
@@ -106,9 +106,15 @@ impl ClientActor {
         )?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(network_actor.clone());
-        let block_sync = BlockSync::new(network_actor.clone(), config.block_fetch_horizon);
-        let state_sync = StateSync::new(network_actor.clone(), config.state_fetch_horizon);
+        let header_sync = HeaderSync::new(SyncNetworkRecipient::new(network_actor.clone()));
+        let block_sync = BlockSync::new(
+            SyncNetworkRecipient::new(network_actor.clone()),
+            config.block_fetch_horizon,
+        );
+        let state_sync = StateSync::new(
+            SyncNetworkRecipient::new(network_actor.clone()),
+            config.state_fetch_horizon,
+        );
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
