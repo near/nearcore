@@ -47,6 +47,7 @@ pub struct BlockHeader {
     pub validator_proposal: Vec<ValidatorStake>,
     /// Epoch start hash of the previous epoch.
     /// Used for retrieving validator information
+    #[serde(with = "base_format")]
     pub epoch_hash: CryptoHash,
 
     /// Signature of the block producer.
