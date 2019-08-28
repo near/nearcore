@@ -208,6 +208,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;

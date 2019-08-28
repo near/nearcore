@@ -552,6 +552,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         state_root: MerkleHash,
         _height: BlockIndex,
+        _block_hash: &CryptoHash,
         path: Vec<&str>,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {

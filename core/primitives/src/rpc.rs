@@ -7,7 +7,7 @@ use crate::account::AccessKey;
 use crate::crypto::signature::PublicKey;
 use crate::hash::CryptoHash;
 use crate::serialize::{base_format, u128_dec_format, vec_base_format};
-use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, Version};
+use crate::types::{AccountId, Balance, BlockIndex, MerkleHash, Nonce, ValidatorStake, Version};
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct AccountViewCallResult {
@@ -49,6 +49,7 @@ pub enum QueryResponse {
     Error(QueryError),
     AccessKey(Option<AccessKey>),
     AccessKeyList(Vec<(PublicKey, AccessKey)>),
+    Validators(EpochValidatorInfo),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -67,6 +68,17 @@ pub struct StatusSyncInfo {
 pub struct ValidatorInfo {
     pub account_id: AccountId,
     pub is_slashed: bool,
+}
+
+/// Information about this epoch validators and next epoch validators
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EpochValidatorInfo {
+    /// Validators for the current epoch
+    pub current_validators: Vec<ValidatorStake>,
+    /// Validators for the next epoch
+    pub next_validators: Vec<ValidatorStake>,
+    /// Proposals in the current epoch
+    pub current_proposals: Vec<ValidatorStake>,
 }
 
 // TODO: add more information to status.

@@ -90,16 +90,25 @@ impl Handler<Query> for ViewClientActor {
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let path_parts: Vec<&str> = msg.path.split('/').collect();
-        let account_id = AccountId::from(path_parts[1]);
-        let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-        let state_root = self
-            .chain
-            .get_chunk_extra(&head.last_block_hash, shard_id)
-            .map_err(|_e| "Failed to fetch the chunk while executing request")?
-            .state_root;
+        if path_parts.is_empty() {
+            return Err("At least one query parameter is required".to_string());
+        }
+        let state_root = {
+            if path_parts[0] == "validators" && path_parts.len() == 1 {
+                // for querying validators we don't need state root
+                CryptoHash::default()
+            } else {
+                let account_id = AccountId::from(path_parts[1]);
+                let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
+                self.chain
+                    .get_chunk_extra(&head.last_block_hash, shard_id)
+                    .map_err(|_e| "Failed to fetch the chunk while executing request")?
+                    .state_root
+            }
+        };
 
         self.runtime_adapter
-            .query(state_root, head.height, path_parts, &msg.data)
+            .query(state_root, head.height, &head.last_block_hash, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }

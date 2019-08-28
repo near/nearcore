@@ -536,7 +536,7 @@ impl GenesisConfig {
 
 impl From<&str> for GenesisConfig {
     fn from(config: &str) -> Self {
-        let config: GenesisConfig =
+        let mut config: GenesisConfig =
             serde_json::from_str(config).expect("Failed to deserialize the genesis config.");
         if config.protocol_version != PROTOCOL_VERSION {
             panic!(format!(
@@ -544,6 +544,8 @@ impl From<&str> for GenesisConfig {
                 config.protocol_version, PROTOCOL_VERSION
             ));
         }
+        let total_supply = get_initial_supply(&config.records);
+        config.total_supply = total_supply;
         config
     }
 }
@@ -811,4 +813,16 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
     let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
     let block_producer = BlockProducer::from(signer.clone());
     NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::config::testnet_genesis;
+
+    /// make sure testnet genesis can be deserialized
+    #[test]
+    fn test_deserialize_state() {
+        let genesis_config = testnet_genesis();
+        assert!(genesis_config.total_supply > 0);
+    }
 }
