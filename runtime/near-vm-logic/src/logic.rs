@@ -369,10 +369,10 @@ impl<'a> VMLogic<'a> {
     /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
     /// the limit with `MemoryAccessViolation`.
     pub fn sha256(&mut self, value_len: u64, value_ptr: u64, register_id: u64) -> Result<()> {
-        let Self { memory, registers, config, .. } = self;
+        let Self { memory, registers, config, ext, .. } = self;
         let value = Self::memory_get(*memory, value_ptr, value_len)?;
-        let value_hash = sodiumoxide::crypto::hash::sha256::hash(&value);
-        Self::internal_write_register(registers, config, register_id, value_hash.as_ref())
+        let value_hash = ext.sha256(&value)?;
+        Self::internal_write_register(registers, config, register_id, &value_hash)
     }
 
     // ################
