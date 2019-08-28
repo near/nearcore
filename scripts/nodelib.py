@@ -78,7 +78,12 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
 
     print("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
-        account_id = input("Enter your account ID (leave empty if not going to be a validator): ")
+        prompt = "Enter your account ID"
+        if not is_local:
+          prompt += " (leave empty if not going to be a validator): "
+        else:
+          prompt += " "
+        account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
     if is_local:
         local_init(home_dir, is_release, init_flags)
