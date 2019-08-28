@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 sodiumoxide = "0.2.2"
-bs58 = { git = "https://github.com/ilblackdragon/bs58-rs", rev = "46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b" }
+bs58 = "0.2.4"
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 serde = "1.0"
 serde_derive = "1.0"
