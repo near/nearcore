@@ -100,13 +100,8 @@ impl Handler<Query> for ViewClientActor {
             } else {
                 let account_id = AccountId::from(path_parts[1]);
                 let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
-                let head_block = self
-                    .chain
-                    .get_block(&head.last_block_hash)
-                    .map_err(|_e| "Failed to fetch head block while executing request")?;
-                let chunk_hash = head_block.chunks[shard_id as usize].chunk_hash().clone();
                 self.chain
-                    .get_chunk_extra(&chunk_hash)
+                    .get_chunk_extra(&head.last_block_hash, shard_id)
                     .map_err(|_e| "Failed to fetch the chunk while executing request")?
                     .state_root
             }

@@ -20,8 +20,8 @@ fn test_send_tx_async() {
         let (_view_client_addr, addr) = start_all(true);
 
         let mut client = new_client(&format!("http://{}", addr));
-        let signer = InMemorySigner::from_seed("test1", "test1");
-        let tx = TransactionBody::send_money(1, "test1", "test2", 100).sign(&signer);
+        let signer = InMemorySigner::from_seed("test2", "test2");
+        let tx = TransactionBody::send_money(1, "test2", "test1", 100).sign(&signer);
         let tx_hash: String = (&tx.get_hash()).into();
         let tx_hash2 = tx_hash.clone();
         let proto: transaction_proto::SignedTransaction = tx.into();

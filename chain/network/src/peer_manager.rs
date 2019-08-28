@@ -189,7 +189,7 @@ impl PeerManagerActor {
     }
 
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
-        info!(target: "network", "Banning peer {:?}", peer_id);
+        info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.active_peers.remove(&peer_id);
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
@@ -384,11 +384,17 @@ impl PeerManagerActor {
             .spawn(ctx);
     }
 
-    fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
+    fn announce_account(
+        &mut self,
+        ctx: &mut Context<Self>,
+        mut announce_account: AnnounceAccount,
+        force: bool,
+    ) {
         // If this is a new account send an announcement to random set of peers.
-        if self.routing_table.update(&announce_account).is_new() {
-            if announce_account.header().peer_id != self.peer_id {
+        if self.routing_table.update(&announce_account).is_new() || force {
+            if announce_account.peer_id_sender() != self.peer_id {
                 // If this announcement was not sent by this peer, add peer information
+                assert!(!force);
                 announce_account.extend(self.peer_id, &self.config.secret_key);
             }
 
@@ -431,7 +437,7 @@ impl PeerManagerActor {
             //                "Unknown account {} in routing table: {:?}",
             //                account_id, self.routing_table
             //            ));
-            warn!(target: "network", "Unknown account {} in routing table.", account_id);
+            warn!(target: "network", "Unknown account {} in routing table. Known accounts: {:?}", account_id, self.routing_table.account_peers.keys());
         }
     }
 }
@@ -533,8 +539,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 self.ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::AnnounceAccount(announce_account) => {
-                self.announce_account(ctx, announce_account);
+            NetworkRequests::AnnounceAccount(announce_account, force) => {
+                self.announce_account(ctx, announce_account, force);
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkPartRequest { account_id, part_request } => {
@@ -545,11 +551,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkOnePartRequest { account_id, part_request } => {
+            NetworkRequests::ChunkOnePartRequest { account_id, one_part_request } => {
                 self.send_message_to_account(
                     ctx,
                     account_id,
-                    SendMessage { message: PeerMessage::ChunkOnePartRequest(part_request) },
+                    SendMessage { message: PeerMessage::ChunkOnePartRequest(one_part_request) },
                 );
                 NetworkResponses::NoResponse
             }

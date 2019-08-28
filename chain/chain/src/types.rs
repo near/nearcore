@@ -3,7 +3,7 @@ use std::collections::HashMap;
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::crypto::signature::Signature;
 use near_primitives::crypto::signer::EDSigner;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{CryptoHash, hash_struct};
 use near_primitives::rpc::QueryResponse;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
@@ -63,6 +63,13 @@ pub enum ShardFullChunkOrOnePart<'a> {
     NoChunk,
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub enum ValidatorSignatureVerificationResult {
+    Valid,
+    Invalid,
+    UnknownEpoch,
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
@@ -102,7 +109,7 @@ pub trait RuntimeAdapter: Send + Sync {
         account_id: &AccountId,
         data: &[u8],
         signature: &Signature,
-    ) -> bool;
+    ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
     fn verify_chunk_header_signature(&self, header: &ShardChunkHeader) -> Result<bool, Error>;
@@ -221,6 +228,26 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: MerkleHash,
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Build receipts hashes.
+    fn build_receipts_hashes(
+        &self,
+        receipts: &Vec<ReceiptTransaction>,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        let mut receipts_hashes = vec![];
+        for shard_id in 0..self.num_shards() {
+            // importance to save the same order while filtering
+            let shard_receipts: Vec<ReceiptTransaction> = receipts
+                .iter()
+                .filter(|&receipt| {
+                    self.account_id_to_shard_id(&receipt.receiver) == shard_id
+                })
+                .cloned()
+                .collect();
+            receipts_hashes.push(hash_struct(&shard_receipts));
+        }
+        Ok(receipts_hashes)
+    }
 }
 
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
@@ -296,7 +323,13 @@ mod tests {
         let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
-        let b2 = Block::empty_with_approvals(&b1, 2, approvals, signer.clone());
+        let b2 = Block::empty_with_approvals(
+            &b1,
+            2,
+            approvals,
+            signer.clone(),
+            b1.header.epoch_id.clone(),
+        );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.total_weight.to_num(), 3);
     }
