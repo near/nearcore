@@ -65,11 +65,18 @@ message StateResponse {
     repeated StateResponseReceipts incoming_receipts = 9;
 }
 
-message ChunkPartRequest{
+message ChunkPartRequest {
     uint64 shard_id = 1;
     bytes chunk_hash = 2;
     uint64 height = 3;
     uint64 part_id = 4;
+}
+message ChunkOnePartRequest {
+    uint64 shard_id = 1;
+    bytes chunk_hash = 2;
+    uint64 height = 3;
+    uint64 part_id = 4;
+    string recipient = 5;
 }
 message ChunkPart {
     uint64 shard_id = 1;
@@ -86,6 +93,7 @@ message ChunkOnePart {
     bytes part = 5;
     repeated ReceiptTransaction receipts = 6;
     bytes merkle_path = 7;
+    repeated bytes receipts_proofs = 8;
 }
 
 message AnnounceAccountRoute {
@@ -118,7 +126,7 @@ message PeerMessage {
         AnnounceAccount announce_account = 13;
 
         ChunkPartRequest chunk_part_request = 14;
-        ChunkPartRequest chunk_one_part_request = 15;
+        ChunkOnePartRequest chunk_one_part_request = 15;
         ChunkPart chunk_part = 16;
         ChunkOnePart chunk_header_and_part = 17;
     }

@@ -196,13 +196,13 @@ pub fn setup_mock_all_validators(
                         }
                         NetworkRequests::ChunkOnePartRequest {
                             account_id: their_account_id,
-                            part_request,
+                            one_part_request,
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkOnePartRequest(
-                                            part_request.clone(),
+                                            one_part_request.clone(),
                                             my_key_pair.id,
                                         ),
                                     );

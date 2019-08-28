@@ -54,6 +54,8 @@ pub struct ShardChunkHeader {
     pub gas_used: GasUsage,
     /// Gas limit voted by validators.
     pub gas_limit: GasUsage,
+    /// Receipts merkle root.
+    pub receipts_root: CryptoHash,
     /// Validator proposals.
     pub validator_proposal: Vec<ValidatorStake>,
 
@@ -72,6 +74,7 @@ impl ShardChunkHeader {
             self.height_created,
             self.gas_used,
             self.gas_limit,
+            self.receipts_root,
             self.validator_proposal.clone(),
             self.shard_id,
         )))
@@ -92,6 +95,7 @@ impl TryFrom<chain_proto::ShardChunkHeader> for ShardChunkHeader {
             shard_id: proto.shard_id,
             gas_used: proto.gas_used,
             gas_limit: proto.gas_limit,
+            receipts_root: proto.receipts_root.try_into()?,
             validator_proposal: proto
                 .validator_proposal
                 .into_iter()
@@ -114,6 +118,7 @@ impl From<ShardChunkHeader> for chain_proto::ShardChunkHeader {
             shard_id: header.shard_id,
             gas_used: header.gas_used,
             gas_limit: header.gas_limit,
+            receipts_root: header.receipts_root.into(),
             validator_proposal: RepeatedField::from_iter(
                 header.validator_proposal.drain(..).map(std::convert::Into::into),
             ),
@@ -142,6 +147,7 @@ pub struct ChunkOnePart {
     pub part_id: u64,
     pub part: Box<[u8]>,
     pub receipts: Vec<ReceiptTransaction>,
+    pub receipts_proofs: Vec<MerklePath>,
     pub merkle_path: MerklePath,
 }
 
@@ -188,6 +194,7 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         gas_used: GasUsage,
         gas_limit: GasUsage,
+        receipts_root: CryptoHash,
         validator_proposal: Vec<ValidatorStake>,
 
         encoded_length: u64,
@@ -211,6 +218,7 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
+            receipts_root,
             validator_proposal,
             signature: DEFAULT_SIGNATURE,
         };

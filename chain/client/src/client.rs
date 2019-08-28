@@ -27,6 +27,7 @@ use near_network::{
 };
 use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::merklize;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -954,6 +955,21 @@ impl ClientActor {
             last_header.height_included,
         )?;
 
+        // receipts proofs root is calculating here
+        //
+        // for each subset of incoming_receipts_into_shard_i_from_the_current_one
+        // we calculate hash here and save it
+        // and then hash all of them into a single receipts root
+        //
+        // we check validity in two ways:
+        // 1. someone who cares about shard will download all the receipts
+        // and checks that receipts_root equals to all receipts hashed
+        // 2. anyone who just asks for one's incoming receipts
+        // will receive a piece of incoming receipts only
+        // with merkle receipts proofs which can be checked locally
+        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
+        let (receipts_root, _) = merklize(&receipts_hashes);
+
         let encoded_chunk = self
             .shards_mgr
             .create_encoded_shard_chunk(
@@ -966,6 +982,7 @@ impl ClientActor {
                 chunk_extra.validator_proposals.clone(),
                 &transactions,
                 &receipts,
+                receipts_root,
                 block_producer.signer.clone(),
             )
             .map_err(|_e| {

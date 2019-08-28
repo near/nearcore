@@ -319,6 +319,7 @@ impl Block {
                 shard_id: i,
                 gas_used: 0,
                 gas_limit: initial_gas_limit,
+                receipts_root: CryptoHash::default(),
                 validator_proposal: vec![],
                 signature: DEFAULT_SIGNATURE,
             })
