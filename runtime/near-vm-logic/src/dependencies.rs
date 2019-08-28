@@ -68,6 +68,8 @@ pub trait External {
         attached_deposit: Balance,
         prepaid_gas: Gas,
     ) -> Result<ReceiptIndex>;
+
+    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
 }
 
 impl std::fmt::Display for ExternalError {

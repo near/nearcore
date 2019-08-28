@@ -1,6 +1,6 @@
 [package]
 name = "near-vm-logic"
-version = "0.2.0"
+version = "0.2.3"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -14,9 +14,9 @@ This crate implements the specification of the interface that Near blockchain ex
 
 [dependencies]
 bs58 = "0.2.2"
-sodiumoxide = "0.2.2"
+sodiumoxide = { version = "0.2.2", optional = true }
 serde = { version = "1.0", features = ["derive"] }
-near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.0" }
+near-runtime-fees = { path = "../near-runtime-fees", version = "0.2.1" }
 
 [[test]]
 name = "test_registers"
@@ -25,5 +25,6 @@ required-features = ["mocks"]
 
 
 [features]
+default = []
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
-mocks = []
+mocks = ["sodiumoxide"]
