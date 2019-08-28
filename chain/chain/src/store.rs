@@ -533,7 +533,6 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     // Usually ChainStoreUpdate has some uncommitted changes
     // and chain_store don't have access to them until they become committed.
     // Make sure you're doing it right.
-    //
     pub fn get_chain_store(
         &mut self,
     ) -> &mut T {

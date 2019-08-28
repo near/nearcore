@@ -959,15 +959,14 @@ impl ClientActor {
         //
         // for each subset of incoming_receipts_into_shard_i_from_the_current_one
         // we calculate hash here and save it
-        // and then hash all of them into only receipts_root
+        // and then hash all of them into a single receipts root
         //
         // we check validity in two ways:
         // 1. someone who cares about shard will download all the receipts
         // and checks that receipts_root equals to all receipts hashed
         // 2. anyone who just asks for one's incoming receipts
         // will receive a piece of incoming receipts only
-        // with merkle receipts proofs which can be checked easily
-        //
+        // with merkle receipts proofs which can be checked locally
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
 

@@ -1228,9 +1228,8 @@ impl<'a> ChainUpdate<'a> {
                         return Err(ErrorKind::InvalidStateRoot.into());
                     }
 
-                    // It's safe here to get get_chain_store
+                    // It's safe here to use ChainStore instead of ChainStoreUpdate
                     // because we're asking prev_chunk_header for already committed block
-                    //
                     let (_, outgoing_receipts) = self
                         .chain_store_update
                         .get_chain_store()
@@ -1244,14 +1243,14 @@ impl<'a> ChainUpdate<'a> {
 
                     if outgoing_receipts_root != chunk_header.receipts_root {
                         // TODO: MOO
-                        println!(
+                        debug!(
                             "[FAILED APPLYING CHUNK] {:?} PREV BLOCK HASH: {:?}, BLOCK HASH: {:?} ROOT: {:?}",
                             chunk_header.height_included,
                             chunk_header.prev_block_hash,
                             block.hash(),
                             chunk_header.prev_state_root
                         );
-                        println!(
+                        debug!(
                             "RECEIPTS_LEN {:?} RECEIPTS_ROOT {:?} chunk_header.receipts_root {:?} prev_chunk_header.receipts_root {:?}",
                             outgoing_receipts.len(),
                             outgoing_receipts_root,

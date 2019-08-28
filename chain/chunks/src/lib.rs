@@ -587,7 +587,6 @@ impl ShardsManager {
         }
 
         // Checking one_part's receipts validity here
-        //
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&one_part.receipts)?;
         let mut proof_index = 0;
         for shard_id in 0..self.runtime_adapter.num_shards() {
