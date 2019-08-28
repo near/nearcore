@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -458,11 +458,20 @@ impl RuntimeAdapter for NightshadeRuntime {
             .apply(state_update, &apply_state, &receipts, &transactions)
             .map_err(|err| Error::from(ErrorKind::Other(err.to_string())))?;
 
+        // Sort the receipts into appropriate outgoing shards.
+        let mut receipt_result = HashMap::default();
+        for receipt in apply_result.new_receipts.into_iter() {
+            receipt_result
+                .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                .or_insert_with(|| vec![])
+                .push(receipt);
+        }
+
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
             new_root: apply_result.root,
             transaction_results: apply_result.tx_result,
-            receipt_result: apply_result.new_receipts,
+            receipt_result,
             validator_proposals: apply_result.validator_proposals,
             gas_used: 0,
             proof: trie.recorded_storage(),

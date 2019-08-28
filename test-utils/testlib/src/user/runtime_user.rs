@@ -80,7 +80,7 @@ impl RuntimeUser {
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let state_update = TrieUpdate::new(client.trie.clone(), cur_apply_state.root);
-            let mut apply_result =
+            let apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
             for transaction_result in apply_result.tx_result.into_iter() {
                 self.transaction_results
@@ -99,12 +99,10 @@ impl RuntimeUser {
                 parent_block_hash: cur_apply_state.parent_block_hash,
                 epoch_length: client.epoch_length,
             };
-            let new_receipts: Vec<_> =
-                apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
-            for receipt in new_receipts.iter() {
+            for receipt in apply_result.new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
             }
-            receipts = new_receipts;
+            receipts = apply_result.new_receipts;
             txs = vec![];
         }
     }

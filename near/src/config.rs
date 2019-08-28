@@ -735,6 +735,7 @@ pub fn init_configs(
 
 pub fn create_testnet_configs_from_seeds(
     seeds: Vec<String>,
+    num_shards: usize,
     num_non_validators: usize,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
@@ -775,8 +776,10 @@ pub fn create_testnet_configs_from_seeds(
         genesis_time: Utc::now(),
         chain_id: random_chain_id(),
         num_block_producers: num_validators,
-        block_producers_per_shard: vec![num_validators],
-        avg_fisherman_per_shard: vec![0],
+        block_producers_per_shard: (0..num_shards)
+            .map(|_| std::cmp::max(1, num_validators / num_shards))
+            .collect(),
+        avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
@@ -819,6 +822,7 @@ pub fn create_testnet_configs_from_seeds(
 /// Create testnet configuration. If `local_ports` is true,
 /// sets up new ports for all nodes except the first one and sets boot node to it.
 pub fn create_testnet_configs(
+    num_shards: usize,
     num_validators: usize,
     num_non_validators: usize,
     prefix: &str,
@@ -828,6 +832,7 @@ pub fn create_testnet_configs(
         (0..(num_validators + num_non_validators))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
+        num_shards,
         num_non_validators,
         local_ports,
     )
@@ -835,12 +840,13 @@ pub fn create_testnet_configs(
 
 pub fn init_testnet_configs(
     dir: &Path,
+    num_shards: usize,
     num_validators: usize,
     num_non_validators: usize,
     prefix: &str,
 ) {
     let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(num_validators, num_non_validators, prefix, false);
+        create_testnet_configs(num_shards, num_validators, num_non_validators, prefix, false);
     for i in 0..(num_validators + num_non_validators) {
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");

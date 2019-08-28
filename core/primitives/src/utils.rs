@@ -109,12 +109,6 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
     bytes
 }
 
-#[allow(unused)]
-pub fn account_to_shard_id(account_id: &AccountId) -> ShardId {
-    // TODO: change to real sharding
-    0
-}
-
 lazy_static! {
     /// See NEP#0006
     static ref VALID_ACCOUNT_ID: Regex =
