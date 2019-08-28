@@ -757,7 +757,7 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     /// Level denote how much information is going to be delivered.
