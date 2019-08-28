@@ -129,6 +129,11 @@ impl External for MockedExternal {
         self.next_receipt_index += 1;
         Ok(res)
     }
+
+    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
+        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        Ok(value_hash.as_ref().to_vec())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

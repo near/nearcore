@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 regex = "1"
 bincode = { version = "1.0", features = ["i128"] }
-bs58 = { git = "https://github.com/ilblackdragon/bs58-rs", rev = "46a818c93cd2ba19c2d5d9aefa8e3062ffb98d9b" }
+bs58 = "0.2.4"
 base64 = "0.10.1"
 byteorder = "1.2"
 chrono = { version = "0.4.4", features = ["serde"] }
