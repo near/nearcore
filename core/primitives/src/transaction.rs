@@ -7,9 +7,10 @@ use borsh::{BorshDeserialize, BorshSerialize, Serializable};
 use near_crypto::{PublicKey, Signature, Signer};
 
 use crate::account::AccessKey;
+use crate::block::BlockHeader;
 use crate::hash::{hash, CryptoHash};
 use crate::logging;
-use crate::types::{AccountId, Balance, Gas, Nonce};
+use crate::types::{AccountId, Balance, BlockIndex, Gas, Nonce};
 
 pub type LogEntry = String;
 
@@ -19,6 +20,8 @@ pub struct Transaction {
     pub public_key: PublicKey,
     pub nonce: Nonce,
     pub receiver_id: AccountId,
+    /// The hash of the block in the blockchain on top of which the given transaction is valid.
+    pub block_hash: CryptoHash,
 
     pub actions: Vec<Action>,
 }
@@ -150,9 +153,17 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: Arc<dyn Signer>,
         actions: Vec<Action>,
+        block_hash: CryptoHash,
     ) -> Self {
-        Transaction { nonce, signer_id, public_key: signer.public_key(), receiver_id, actions }
-            .sign(&*signer)
+        Transaction {
+            nonce,
+            signer_id,
+            public_key: signer.public_key(),
+            receiver_id,
+            block_hash,
+            actions,
+        }
+        .sign(&*signer)
     }
 
     pub fn send_money(
@@ -161,6 +172,7 @@ impl SignedTransaction {
         receiver_id: AccountId,
         signer: Arc<dyn Signer>,
         deposit: Balance,
+        block_hash: CryptoHash,
     ) -> SignedTransaction {
         Self::from_actions(
             nonce,
@@ -168,6 +180,7 @@ impl SignedTransaction {
             receiver_id,
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
+            block_hash,
         )
     }
 }
@@ -236,6 +249,20 @@ pub fn verify_transaction_signature(
     public_keys.iter().any(|key| transaction.signature.verify(&hash, &key))
 }
 
+/// Check whether transaction is valid in terms of block history based on the block header that
+/// the transaction points to
+pub fn check_tx_history(
+    base_header: Option<&BlockHeader>,
+    current_height: BlockIndex,
+    validity_period: BlockIndex,
+) -> bool {
+    if let Some(base_header) = base_header {
+        current_height - base_header.inner.height <= validity_period
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
@@ -257,11 +284,12 @@ mod tests {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
+            block_hash: Default::default(),
             actions: vec![],
         }
         .sign(&signer);
         let wrong_public_key = PublicKey::from_seed(KeyType::ED25519, "wrong");
-        let valid_keys = vec![signer.public_key(), wrong_public_key.clone()];
+        let valid_keys = vec![signer.public_key(), wrong_public_key];
         assert!(verify_transaction_signature(&transaction, &valid_keys));
 
         let invalid_keys = vec![wrong_public_key];
@@ -285,6 +313,7 @@ mod tests {
             public_key,
             nonce: 1,
             receiver_id: "123".to_string(),
+            block_hash: Default::default(),
             actions: vec![
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::DeployContract(DeployContractAction { code: vec![1, 2, 3] }),
@@ -317,7 +346,7 @@ mod tests {
 
         assert_eq!(
             to_base(&new_signed_tx.get_hash()),
-            "244ZQ9cgj3CQ6bWBdytfrJMuMQ1jdXLFGnr4HhvtCTnM"
+            "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
     }
 }

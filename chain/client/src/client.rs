@@ -31,7 +31,7 @@ use near_network::{
 use near_pool::TransactionPool;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
@@ -98,7 +98,12 @@ impl ClientActor {
         telemetry_actor: Addr<TelemetryActor>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&genesis_time);
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        let chain = Chain::new(
+            store,
+            runtime_adapter.clone(),
+            genesis_time,
+            config.transaction_validity_period,
+        )?;
         let tx_pool = TransactionPool::new();
         let sync_status = SyncStatus::AwaitingPeers;
         let header_sync = HeaderSync::new(network_actor.clone());
@@ -871,6 +876,13 @@ impl ClientActor {
             .get_post_state_root(&head.last_block_hash)
             .map_err(|err| err.to_string())?
             .clone();
+        if !check_tx_history(
+            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
+            head.height,
+            self.config.transaction_validity_period,
+        ) {
+            return Err("Transaction has either expired or is from a different fork".to_string());
+        }
         self.runtime_adapter.validate_tx(0, state_root, tx)
     }
 

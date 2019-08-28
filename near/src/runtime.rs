@@ -495,6 +495,8 @@ mod test {
                 stake: amount,
                 public_key: sender.signer.public_key(),
             })],
+            // runtime does not validate block history
+            CryptoHash::default(),
         )
     }
 
@@ -624,6 +626,7 @@ mod test {
                     access_key: AccessKey::full_access(),
                 }),
             ],
+            CryptoHash::default(),
         );
         let staking_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
 

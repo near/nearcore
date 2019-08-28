@@ -8,7 +8,7 @@ use log::{debug, info};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::transaction::TransactionResult;
+use near_primitives::transaction::{check_tx_history, TransactionResult};
 use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
@@ -120,6 +120,7 @@ pub struct Chain {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     genesis: BlockHeader,
+    transaction_validity_period: BlockIndex,
 }
 
 impl Chain {
@@ -127,6 +128,7 @@ impl Chain {
         store: Arc<Store>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         genesis_time: DateTime<Utc>,
+        transaction_validity_period: BlockIndex,
     ) -> Result<Chain, Error> {
         let mut store = ChainStore::new(store);
 
@@ -206,6 +208,7 @@ impl Chain {
             runtime_adapter,
             orphans: OrphanBlockPool::new(),
             genesis: genesis.header,
+            transaction_validity_period,
         })
     }
 
@@ -222,8 +225,12 @@ impl Chain {
     /// Process a block header received during "header first" propagation.
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), Error> {
         // We create new chain update, but it's not going to be committed so it's read only.
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         chain_update.process_block_header(header)?;
         Ok(())
     }
@@ -251,8 +258,12 @@ impl Chain {
 
     /// Processes headers and adds them to store for syncing.
     pub fn sync_block_headers(&mut self, headers: Vec<BlockHeader>) -> Result<(), Error> {
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         chain_update.sync_block_headers(headers)?;
         chain_update.commit()
     }
@@ -343,8 +354,12 @@ impl Chain {
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let prev_head = self.store.head()?;
-        let mut chain_update =
-            ChainUpdate::new(&mut self.store, self.runtime_adapter.clone(), &self.orphans);
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            self.transaction_validity_period,
+        );
         let maybe_new_head = chain_update.process_block(&block, &provenance);
 
         if let Ok(_) = maybe_new_head {
@@ -604,6 +619,7 @@ struct ChainUpdate<'a> {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chain_store_update: ChainStoreUpdate<'a, ChainStore>,
     orphans: &'a OrphanBlockPool,
+    transaction_validity_period: BlockIndex,
 }
 
 impl<'a> ChainUpdate<'a> {
@@ -611,9 +627,10 @@ impl<'a> ChainUpdate<'a> {
         store: &'a mut ChainStore,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         orphans: &'a OrphanBlockPool,
+        transaction_validity_period: BlockIndex,
     ) -> Self {
         let chain_store_update = store.store_update();
-        ChainUpdate { runtime_adapter, chain_store_update, orphans }
+        ChainUpdate { runtime_adapter, chain_store_update, orphans, transaction_validity_period }
     }
 
     /// Commit changes to the chain into the database.
@@ -680,8 +697,22 @@ impl<'a> ChainUpdate<'a> {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
+        if block.transactions.iter().any(|t| {
+            !check_tx_history(
+                self.chain_store_update.get_block_header(&t.transaction.block_hash).ok(),
+                block.header.inner.height,
+                self.transaction_validity_period,
+            )
+        }) {
+            return Err(ErrorKind::InvalidStatePayload(
+                "Block contains transactions that are either expired or from a different fork"
+                    .to_string(),
+            )
+            .into());
+        }
+
         // Retrieve receipts from the previous block.
-        let receipts = self.chain_store_update.get_receipts(&prev_hash)?;
+        let receipts = self.chain_store_update.get_receipts(&prev_hash)?.clone();
 
         // Apply block to runtime.
         let (trie_changes, state_root, tx_results, new_receipts, validator_proposals) = self
@@ -692,7 +723,7 @@ impl<'a> ChainUpdate<'a> {
                 block.header.inner.height,
                 &block.header.inner.prev_hash,
                 &block.header.hash(),
-                &vec![receipts.clone()], // TODO: currently only taking into account one shard.
+                &vec![receipts], // TODO: currently only taking into account one shard.
                 &block.transactions,
             )
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
