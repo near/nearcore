@@ -82,9 +82,10 @@ mod tests {
     use near_chain::ValidTransaction;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::transaction::SignedTransaction;
-    use near_primitives::types::Balance;
 
     use crate::TransactionPool;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::types::Balance;
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
     /// orders them correctly.
@@ -100,6 +101,7 @@ mod tests {
                     "bob.near".to_string(),
                     signer.clone(),
                     i as Balance,
+                    CryptoHash::default(),
                 )
             })
             .collect();

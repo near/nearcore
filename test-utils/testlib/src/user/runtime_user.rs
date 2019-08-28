@@ -193,6 +193,11 @@ impl User for RuntimeUser {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
+    // This function is needed to sign transactions
+    fn get_best_block_hash(&self) -> Option<CryptoHash> {
+        Some(CryptoHash::default())
+    }
+
     fn get_block(&self, _index: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }

@@ -27,6 +27,8 @@ fn create_transaction() -> SignedTransaction {
             public_key: PublicKey::empty(KeyType::ED25519),
             nonce: 123,
             receiver_id: "1231231232131".to_string(),
+            block_hash: Default::default(),
+            validity_period: 1,
             actions,
         },
     )

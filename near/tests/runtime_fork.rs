@@ -22,7 +22,14 @@ fn runtime_hanldle_fork() {
     let runtime =
         Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
 
-    let mut chain = Chain::new(store, runtime, genesis_config.genesis_time).unwrap();
+    let mut chain = Chain::new(
+        store,
+        runtime,
+        genesis_config.genesis_time,
+        genesis_config.transaction_validity_period,
+    )
+    .unwrap();
+    let block_hash = chain.get_header_by_height(0).unwrap().hash;
 
     let tx1 = SignedTransaction::send_money(
         1,
@@ -30,6 +37,7 @@ fn runtime_hanldle_fork() {
         "near.1".to_string(),
         signer.clone(),
         100,
+        block_hash,
     );
     let tx2 = SignedTransaction::send_money(
         1,
@@ -37,6 +45,7 @@ fn runtime_hanldle_fork() {
         "near.1".to_string(),
         signer.clone(),
         500,
+        block_hash,
     );
     let tx3 = SignedTransaction::send_money(
         2,
@@ -44,6 +53,7 @@ fn runtime_hanldle_fork() {
         "near.1".to_string(),
         signer.clone(),
         100,
+        block_hash,
     );
     let state_root = chain.get_post_state_root(&chain.genesis().hash()).unwrap().clone();
     let b1 = Block::produce(

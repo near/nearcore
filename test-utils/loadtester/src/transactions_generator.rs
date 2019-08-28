@@ -24,10 +24,11 @@ impl Generator {
         signer_ind: usize,
         all_accounts: &Vec<String>,
     ) -> SignedTransaction {
-        let (signer_from, nonce) = {
+        let (signer_from, nonce, block_hash) = {
             let mut node = node.write().unwrap();
             node.nonces[signer_ind] += 1;
-            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
+            let block_hash = node.get_current_block_hash().unwrap();
+            (node.signers[signer_ind].clone(), node.nonces[signer_ind], block_hash)
         };
 
         let acc_from = signer_from.account_id.clone();
@@ -38,7 +39,7 @@ impl Generator {
             }
         };
 
-        SignedTransaction::send_money(nonce, acc_from, acc_to, signer_from.clone(), 1)
+        SignedTransaction::send_money(nonce, acc_from, acc_to, signer_from.clone(), 1, block_hash)
     }
 
     /// Returns transactions that deploy test contract to an every account used by the node.
@@ -52,6 +53,7 @@ impl Generator {
             let nonce = node.nonces[ind];
             let signer = node.signers[ind].clone();
             let contract_id = signer.account_id.clone();
+            let block_hash = node.get_current_block_hash().unwrap();
 
             res.push(SignedTransaction::from_actions(
                 nonce,
@@ -59,6 +61,7 @@ impl Generator {
                 contract_id,
                 signer.clone(),
                 vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
+                block_hash,
             ));
         }
         res
@@ -66,10 +69,14 @@ impl Generator {
 
     /// Create set key/value transaction.
     pub fn call_set(node: &Arc<RwLock<RemoteNode>>, signer_ind: usize) -> SignedTransaction {
-        let (signer_from, nonce) = {
+        let (signer_from, nonce, block_hash) = {
             let mut node = node.write().unwrap();
             node.nonces[signer_ind] += 1;
-            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
+            (
+                node.signers[signer_ind].clone(),
+                node.nonces[signer_ind],
+                node.get_current_block_hash().unwrap(),
+            )
         };
         let acc_from = signer_from.account_id.clone();
 
@@ -88,6 +95,7 @@ impl Generator {
                 gas: 100000,
                 deposit: 1,
             })],
+            block_hash,
         )
     }
 
@@ -96,10 +104,14 @@ impl Generator {
         node: &Arc<RwLock<RemoteNode>>,
         signer_ind: usize,
     ) -> SignedTransaction {
-        let (signer_from, nonce) = {
+        let (signer_from, nonce, block_hash) = {
             let mut node = node.write().unwrap();
             node.nonces[signer_ind] += 1;
-            (node.signers[signer_ind].clone(), node.nonces[signer_ind])
+            (
+                node.signers[signer_ind].clone(),
+                node.nonces[signer_ind],
+                node.get_current_block_hash().unwrap(),
+            )
         };
         let acc_from = signer_from.account_id.clone();
 
@@ -114,6 +126,7 @@ impl Generator {
                 gas: 100000,
                 deposit: 1,
             })],
+            block_hash,
         )
     }
 }

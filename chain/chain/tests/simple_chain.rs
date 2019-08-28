@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use near_chain::test_utils::setup;
+use near_chain::test_utils::{setup, setup_with_tx_validity_period};
 use near_chain::{Block, ErrorKind, Provenance};
-use near_primitives::hash::CryptoHash;
+use near_crypto::{KeyType, Signature, Signer};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::MerkleHash;
 
 #[test]
@@ -108,4 +110,64 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(b5, Provenance::PRODUCED, |_, _, _| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
     assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
+}
+
+#[test]
+fn test_apply_expired_tx() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup_with_tx_validity_period(0);
+    let b1 = Block::empty(chain.genesis(), signer.clone());
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: b1.hash(),
+            actions: vec![],
+        },
+    );
+    let b2 = Block::produce(
+        chain.genesis(),
+        2,
+        MerkleHash::default(),
+        CryptoHash::default(),
+        vec![tx],
+        HashMap::default(),
+        vec![],
+        signer.clone(),
+    );
+    assert!(chain.process_block(b1, Provenance::PRODUCED, |_, _, _| {}).is_ok());
+    assert!(chain.process_block(b2, Provenance::PRODUCED, |_, _, _| {}).is_err());
+}
+
+#[test]
+fn test_tx_wrong_fork() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let b1 = Block::empty(chain.genesis(), signer.clone());
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: hash(&[2]),
+            actions: vec![],
+        },
+    );
+    let b2 = Block::produce(
+        chain.genesis(),
+        2,
+        MerkleHash::default(),
+        CryptoHash::default(),
+        vec![tx],
+        HashMap::default(),
+        vec![],
+        signer.clone(),
+    );
+    assert!(chain.process_block(b1, Provenance::PRODUCED, |_, _, _| {}).is_ok());
+    assert!(chain.process_block(b2, Provenance::PRODUCED, |_, _, _| {}).is_err());
 }

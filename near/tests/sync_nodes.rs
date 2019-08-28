@@ -8,25 +8,15 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, BlockHeader, Chain};
+use near::{load_test_config, start_with_config, GenesisConfig};
+use near_chain::{Block, BlockHeader};
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::test_utils::{init_integration_logger, init_test_logger};
 use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
-use near_store::test_utils::create_test_store;
-
-/// Utility to generate genesis header from config for testing purposes.
-fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
-    let dir = TempDir::new("unused").unwrap();
-    let store = create_test_store();
-    let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let chain = Chain::new(store, runtime, genesis_time).unwrap();
-    chain.genesis().clone()
-}
+use testlib::{genesis_hash, genesis_header};
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
@@ -57,7 +47,7 @@ fn sync_nodes() {
 
     let mut genesis_config = GenesisConfig::test(vec!["other"]);
     genesis_config.epoch_length = 5;
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis_header = genesis_header(&genesis_config);
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -102,7 +92,7 @@ fn sync_after_sync_nodes() {
 
     let mut genesis_config = GenesisConfig::test(vec!["other"]);
     genesis_config.epoch_length = 5;
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis_header = genesis_header(&genesis_config);
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -160,6 +150,7 @@ fn sync_state_stake_change() {
 
     let mut genesis_config = GenesisConfig::test(vec!["test1"]);
     genesis_config.epoch_length = 5;
+    let genesis_hash = genesis_hash(&genesis_config);
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -172,7 +163,6 @@ fn sync_state_stake_change() {
     near2.client_config.skip_sync_wait = false;
 
     let system = System::new("NEAR");
-
     let unstake_transaction = SignedTransaction::from_actions(
         1,
         "test1".to_string(),
@@ -182,7 +172,9 @@ fn sync_state_stake_change() {
             stake: TESTING_INIT_STAKE / 2,
             public_key: near1.block_producer.as_ref().unwrap().signer.public_key(),
         })],
+        genesis_hash,
     );
+
     let dir1 = TempDir::new("sync_state_stake_change_1").unwrap();
     let dir2 = TempDir::new("sync_state_stake_change_2").unwrap();
     let (client1, view_client1) = start_with_config(dir1.path(), near1);

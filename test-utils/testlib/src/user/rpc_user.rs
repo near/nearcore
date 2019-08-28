@@ -72,6 +72,10 @@ impl User for RpcUser {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
+    fn get_best_block_hash(&self) -> Option<CryptoHash> {
+        self.get_status().map(|status| status.sync_info.latest_block_hash.into())
+    }
+
     fn get_block(&self, index: u64) -> Option<BlockView> {
         System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }

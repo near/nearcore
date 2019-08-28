@@ -50,6 +50,8 @@ pub trait User {
 
     fn get_best_block_index(&self) -> Option<u64>;
 
+    fn get_best_block_hash(&self) -> Option<CryptoHash>;
+
     fn get_block(&self, index: u64) -> Option<BlockView>;
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView;
@@ -76,12 +78,14 @@ pub trait User {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> FinalTransactionResult {
+        let block_hash = self.get_best_block_hash().unwrap_or(CryptoHash::default());
         let signed_transaction = SignedTransaction::from_actions(
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
             self.signer(),
             actions,
+            block_hash,
         );
         self.commit_transaction(signed_transaction).unwrap()
     }

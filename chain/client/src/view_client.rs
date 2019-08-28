@@ -17,6 +17,7 @@ use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
 use crate::TxDetails;
+use near_primitives::types::BlockIndex;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -29,9 +30,11 @@ impl ViewClientActor {
         store: Arc<Store>,
         genesis_time: DateTime<Utc>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
+        transaction_validity_period: BlockIndex,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        let chain =
+            Chain::new(store, runtime_adapter.clone(), genesis_time, transaction_validity_period)?;
         Ok(ViewClientActor { chain, runtime_adapter })
     }
 
