@@ -5,19 +5,22 @@ use std::sync::Arc;
 use borsh::Deserializable;
 use clap::{App, Arg, SubCommand};
 
+use ansi_term::Color::Red;
 use near::{get_default_home, get_store_path, load_config, NearConfig, NightshadeRuntime};
-use near_chain::{ChainStore, ChainStoreAccess};
+use near_chain::{ChainStore, ChainStoreAccess, RuntimeAdapter};
 use near_crypto::PublicKey;
 use near_network::peer_store::PeerStore;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{Receipt, ReceivedData};
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::serialize::{from_base64, to_base, to_base64};
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::types::BlockIndex;
 use near_primitives::utils::{col, ACCOUNT_DATA_SEPARATOR};
+use near_store::test_utils::create_test_store;
 use near_store::{create_store, DBValue, Store, TrieIterator};
 use node_runtime::StateRecord;
+use std::collections::HashMap;
 
 fn to_printable(blob: &[u8]) -> String {
     if blob.len() > 60 {
@@ -135,6 +138,93 @@ fn load_trie(
     (runtime, *state_root, last_header.inner.height)
 }
 
+pub fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..7].to_string()
+}
+
+fn print_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let mut account_id_to_blocks = HashMap::new();
+    let mut cur_epoch_id = None;
+    for index in start_index..=end_index {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            if index == 0 {
+                println!("{: >3} {}", header.inner.height, format_hash(header.hash()));
+            } else {
+                let parent_header = chain_store.get_block_header(&header.inner.prev_hash).unwrap();
+                let (epoch_id, offset) =
+                    runtime.get_epoch_offset(header.inner.prev_hash, index).unwrap();
+                cur_epoch_id = Some(epoch_id);
+                if offset == 0 {
+                    println!("{:?}", account_id_to_blocks);
+                    account_id_to_blocks = HashMap::new();
+                    println!(
+                        "Epoch {} Validators {:?}",
+                        format_hash(epoch_id),
+                        runtime.get_epoch_block_proposers(&epoch_id, &header.hash()).unwrap()
+                    );
+                }
+                let block_producer =
+                    runtime.get_block_proposer(&epoch_id, header.inner.height).unwrap();
+                account_id_to_blocks
+                    .entry(block_producer.clone())
+                    .and_modify(|e| *e += 1)
+                    .or_insert(1);
+                println!(
+                    "{: >3} {} | {: >10} | parent: {: >3} {}",
+                    header.inner.height,
+                    format_hash(header.hash()),
+                    block_producer,
+                    parent_header.inner.height,
+                    format_hash(parent_header.hash()),
+                );
+            }
+        } else {
+            if let Some(epoch_id) = cur_epoch_id {
+                let block_producer = runtime.get_block_proposer(&epoch_id, index).unwrap();
+                println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
+            } else {
+                println!("{: >3} {}", index, Red.bold().paint("MISSING"));
+            }
+        }
+    }
+}
+
+fn replay_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let new_store = create_test_store();
+    let runtime = NightshadeRuntime::new(&home_dir, new_store, near_config.genesis_config.clone());
+    for index in start_index..=end_index {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            runtime
+                .add_validator_proposals(
+                    header.inner.prev_hash,
+                    header.hash(),
+                    header.inner.height,
+                    header.inner.validator_proposals,
+                    vec![],
+                    vec![],
+                )
+                .unwrap();
+        }
+    }
+}
+
 fn main() {
     init_integration_logger();
 
@@ -157,6 +247,42 @@ fn main() {
                     .help("Output path for new genesis given current blockchain state")
                     .takes_value(true),
             ),
+        )
+        .subcommand(
+            SubCommand::with_name("chain")
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(true)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(true)
+                        .help("End index of query")
+                        .takes_value(true),
+                )
+                .help("print chain from start_index to end_index"),
+        )
+        .subcommand(
+            SubCommand::with_name("replay")
+                .arg(
+                    Arg::with_name("start_index")
+                        .long("start_index")
+                        .required(true)
+                        .help("Start index of query")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("end_index")
+                        .long("end_index")
+                        .required(true)
+                        .help("End index of query")
+                        .takes_value(true),
+                )
+                .help("replay headers from chain"),
         )
         .get_matches();
 
@@ -194,6 +320,18 @@ fn main() {
                 }
             }
             near_config.genesis_config.write_to_file(&output_path);
+        }
+        ("chain", Some(args)) => {
+            let start_index =
+                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            print_chain(store, home_dir, &near_config, start_index, end_index);
+        }
+        ("replay", Some(args)) => {
+            let start_index =
+                args.value_of("start_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            let end_index = args.value_of("end_index").map(|s| s.parse::<u64>().unwrap()).unwrap();
+            replay_chain(store, home_dir, &near_config, start_index, end_index);
         }
         (_, _) => unreachable!(),
     }

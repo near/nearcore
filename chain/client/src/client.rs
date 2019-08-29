@@ -1,7 +1,6 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in done in this actor as well (at the moment).
 
-use std::cmp::max;
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
@@ -45,6 +44,7 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
+use std::cmp::min;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -643,7 +643,12 @@ impl ClientActor {
             return Ok(());
         }
         // Check that we are were called at the block that we are producer for.
-        let next_block_proposer = self.get_block_proposer(&head.epoch_hash, next_height)?;
+        let (epoch_hash, _) = self
+            .runtime_adapter
+            .get_epoch_offset(head.last_block_hash, next_height)
+            .map_err(|e| Error::from(ErrorKind::Other(e.to_string())))?;
+
+        let next_block_proposer = self.get_block_proposer(&epoch_hash, next_height)?;
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -665,7 +670,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
+            total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
         if self.approvals.len() < total_approvals
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
