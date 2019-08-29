@@ -28,7 +28,6 @@ fn create_transaction() -> SignedTransaction {
             nonce: 123,
             receiver_id: "1231231232131".to_string(),
             block_hash: Default::default(),
-            validity_period: 1,
             actions,
         },
     )
