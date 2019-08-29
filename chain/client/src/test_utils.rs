@@ -151,7 +151,6 @@ pub fn setup_mock_all_validators(
                     }
                     let my_key_pair = my_key_pair.unwrap();
 
-                    println!("{:?}", msg);
                     match msg {
                         NetworkRequests::FetchInfo{ .. } => {
                             resp = NetworkResponses::Info ( NetworkInfo {
