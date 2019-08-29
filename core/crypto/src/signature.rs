@@ -40,7 +40,7 @@ impl TryFrom<String> for KeyType {
     type Error = Box<std::error::Error>;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+        match value.to_lowercase().as_str() {
             "ed25519" => Ok(KeyType::ED25519),
             "sepk" => Ok(KeyType::SEPK281),
             "bls" => Ok(KeyType::BLS381),
