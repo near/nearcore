@@ -70,7 +70,6 @@ pub(crate) fn apply_rent(
     block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
 ) {
-    println!("{}", cost_per_block(account_id, account, runtime_config));
     let charge = ((block_index - account.storage_paid_at) as u128)
         * cost_per_block(account_id, account, runtime_config);
     account.amount = account.amount.saturating_sub(charge);
