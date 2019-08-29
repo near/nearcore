@@ -159,6 +159,7 @@ pub(crate) fn action_function_call(
             Err(format!("wasm async call execution failed with error: {:?}", err).into());
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
+            result.logs.extend(outcome.logs.into_iter());
         }
         return;
     }
