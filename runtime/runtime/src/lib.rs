@@ -55,6 +55,29 @@ mod store;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 
+/// Number of epochs it takes to unstake.
+const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
+
+/// Returns true if the account has enough balance to pay storage rent for at least required number of blocks.
+/// Validators must have at least enought for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
+/// regular users - `poke_threshold` blocks.
+fn check_rent(
+    account_id: &AccountId,
+    account: &mut Account,
+    runtime_config: &RuntimeConfig,
+    epoch_length: BlockIndex,
+) -> bool {
+    let buffer_length = if account.staked > 0 {
+        epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
+    } else {
+        runtime_config.poke_threshold
+    };
+    let buffer_amount = (buffer_length as u128)
+        * (total_account_storage(account_id, account) as u128)
+        * runtime_config.storage_cost_byte_per_block;
+    account.amount >= buffer_amount
+}
+
 #[derive(Debug)]
 pub struct ApplyState {
     /// Previous Merkle root of the state.
