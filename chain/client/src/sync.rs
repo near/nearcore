@@ -433,7 +433,6 @@ impl StateSync {
     ) -> Result<StateSyncResult, near_chain::Error> {
         let mut sync_need_restart = HashSet::new();
 
-        debug!("MOO run state sync tracking shards: {:?}", tracking_shards);
         let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
 
         let now = Utc::now();
@@ -483,7 +482,6 @@ impl StateSync {
 
         if all_done {
             self.prev_state_sync.clear();
-            debug!("MOO omg it's completed");
             return Ok(StateSyncResult::Completed);
         }
 
@@ -496,7 +494,7 @@ impl StateSync {
                 }
                 Some(prev) => (
                     sync_need_restart.contains(&shard_id),
-                    now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT), // TODO XXX MOO: this needs to be in config, and properly configured for the production (i.e. not 10 minutes)
+                    now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT), // This needs to be in config, and properly configured for the production (i.e. not 10 minutes). #1237 tracks it
                 ),
             };
 
@@ -505,7 +503,6 @@ impl StateSync {
             }
 
             if go || download_timeout {
-                debug!("MOO dling for shard {:?}", shard_id);
                 match self.request_state(shard_id, chain, runtime_adapter, sync_hash) {
                     Some(_) => {
                         new_shard_sync.insert(

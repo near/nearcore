@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
 use chrono::Utc;
+use log::debug;
 
 use near_primitives::crypto::signature::{verify, PublicKey, Signature};
 use near_primitives::crypto::signer::InMemorySigner;
@@ -660,7 +661,7 @@ pub fn display_chain(chain: &mut Chain) {
     let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
-    println!("Chain head: {} / {}", head.height, head.last_block_hash);
+    debug!("Chain head: {} / {}", head.height, head.last_block_hash);
     let mut headers = vec![];
     for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
         let header = chain_store
@@ -679,14 +680,14 @@ pub fn display_chain(chain: &mut Chain) {
     for header in headers {
         if header.prev_hash == CryptoHash::default() {
             // Genesis block.
-            println!("{: >3} {}", header.height, format_hash(header.hash()));
+            debug!("{: >3} {}", header.height, format_hash(header.hash()));
         } else {
             let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
             let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
             let block_producer =
                 runtime_adapter.get_block_producer(&epoch_id, header.height).unwrap();
-            println!(
+            debug!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
                 header.height,
                 format_hash(header.hash()),
@@ -709,7 +710,7 @@ pub fn display_chain(chain: &mut Chain) {
                         )
                         .unwrap();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
-                        println!(
+                        debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
                             chunk_header.height_created,
                             format_hash(chunk_header.chunk_hash().0),
@@ -720,7 +721,7 @@ pub fn display_chain(chain: &mut Chain) {
                         );
                     } else if let Ok(chunk_one_part) = chain_store.get_chunk_one_part(&chunk_header)
                     {
-                        println!(
+                        debug!(
                             "    {: >3} {} | {} | {: >10} | part = {}",
                             chunk_header.height_created,
                             format_hash(chunk_header.chunk_hash().0),
