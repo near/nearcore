@@ -21,4 +21,4 @@ if __name__ == "__main__":
         help='Image to run in docker (default: nearprotocol/nearcore)')
     args = parser.parse_args()
 
-    setup_and_run(args.local, not args.debug, args.image, args.home, ['--chain-id='], '', args.verbose)
+    setup_and_run(args.local, not args.debug, args.image, args.home, ['--chain-id=localnet'], '', args.verbose)
