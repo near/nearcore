@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "dependencies": {
         "assemblyscript-json": "github:nearprotocol/assemblyscript-json#staging",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#fix-promise"
+        "near-runtime-ts": "github:nearprotocol/near-runtime-ts#staging"
     },
     "scripts": {
         "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"
