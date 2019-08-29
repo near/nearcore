@@ -37,7 +37,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        get_account(state_update, &account_id)
+        get_account(state_update, &account_id)?
             .ok_or_else(|| format!("account {} does not exist while viewing", account_id).into())
     }
 
@@ -51,7 +51,7 @@ impl TrieViewer {
             return Err(format!("Account ID '{}' is not valid", account_id).into());
         }
 
-        Ok(get_access_key(state_update, account_id, public_key))
+        get_access_key(state_update, account_id, public_key).map_err(|e| Box::new(e).into())
     }
 
     pub fn view_state(
@@ -68,7 +68,8 @@ impl TrieViewer {
         let acc_sep_len = query.len();
         query.extend_from_slice(prefix);
         state_update.for_keys_with_prefix(&query, |key| {
-            if let Some(value) = state_update.get(key) {
+            // TODO error
+            if let Ok(Some(value)) = state_update.get(key) {
                 values.insert(key[acc_sep_len..].to_vec(), value.to_vec());
             }
         });
@@ -89,51 +90,50 @@ impl TrieViewer {
             return Err(format!("Contract ID {:?} is not valid", contract_id).into());
         }
         let root = state_update.get_root();
-        let account = get_account(&state_update, contract_id)
+        let account = get_account(&state_update, contract_id)?
             .ok_or_else(|| format!("Account {:?} doesn't exists", contract_id))?;
-        let code = get_code_with_cache(&state_update, contract_id, &account)?;
+        let code = get_code_with_cache(&state_update, contract_id, &account)?.ok_or_else(|| {
+            format!("cannot find contract code for account {}", contract_id.clone())
+        })?;
         // TODO(#1015): Add ability to pass public key and originator_id
         let originator_id = contract_id;
         let public_key = PublicKey::empty(KeyType::ED25519);
-        let (outcome, err) = match get_account(&state_update, &contract_id) {
-            Some(account) => {
-                let empty_hash = CryptoHash::default();
-                let mut runtime_ext = RuntimeExt::new(
-                    &mut state_update,
-                    contract_id,
-                    originator_id,
-                    &public_key,
-                    0,
-                    &empty_hash,
-                );
+        let (outcome, err) = {
+            let empty_hash = CryptoHash::default();
+            let mut runtime_ext = RuntimeExt::new(
+                &mut state_update,
+                contract_id,
+                originator_id,
+                &public_key,
+                0,
+                &empty_hash,
+            );
 
-                let context = VMContext {
-                    current_account_id: contract_id.clone(),
-                    signer_account_id: originator_id.clone(),
-                    signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
-                    predecessor_account_id: originator_id.clone(),
-                    input: args.to_owned(),
-                    block_index,
-                    account_balance: account.amount,
-                    storage_usage: account.storage_usage,
-                    attached_deposit: 0,
-                    prepaid_gas: 0,
-                    random_seed: root.as_ref().into(),
-                    free_of_charge: true,
-                    output_data_receivers: vec![],
-                };
+            let context = VMContext {
+                current_account_id: contract_id.clone(),
+                signer_account_id: originator_id.clone(),
+                signer_account_pk: public_key.try_to_vec().expect("Failed to serialize"),
+                predecessor_account_id: originator_id.clone(),
+                input: args.to_owned(),
+                block_index,
+                account_balance: account.amount,
+                storage_usage: account.storage_usage,
+                attached_deposit: 0,
+                prepaid_gas: 0,
+                random_seed: root.as_ref().into(),
+                free_of_charge: true,
+                output_data_receivers: vec![],
+            };
 
-                near_vm_runner::run(
-                    code.hash.as_ref().to_vec(),
-                    &code.code,
-                    method_name.as_bytes(),
-                    &mut runtime_ext,
-                    context,
-                    &Config::default(),
-                    &[],
-                )
-            }
-            None => return Err(format!("contract {} does not exist", contract_id).into()),
+            near_vm_runner::run(
+                code.hash.as_ref().to_vec(),
+                &code.code,
+                method_name.as_bytes(),
+                &mut runtime_ext,
+                context,
+                &Config::default(),
+                &[],
+            )
         };
         let elapsed = now.elapsed();
         let time_ms =
