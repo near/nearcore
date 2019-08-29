@@ -20931,5 +20931,6 @@
   "validator_kickout_threshold": 0.9,
   "block_producers_per_shard": [
     50
-  ]
+  ],
+  "transaction_validity_period": 100
 }
