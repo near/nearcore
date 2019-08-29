@@ -3,10 +3,7 @@ mod test {
     use near::config::TESTING_INIT_BALANCE;
     use near::GenesisConfig;
     use near_primitives::serialize::to_base64;
-    use near_primitives::serialize::to_base64;
     use near_primitives::utils::key_for_data;
-    use near_primitives::utils::key_for_data;
-    use node_runtime::StateRecord;
     use node_runtime::StateRecord;
     use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{alice_account, bob_account};

@@ -29,8 +29,6 @@ pub mod col {
     pub const POSTPONED_RECEIPT: &[u8] = &[6];
 }
 
-pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
-
 fn key_for_column_account_id(column: &[u8], account_key: &AccountId) -> Vec<u8> {
     let mut key = column.to_vec();
     key.append(&mut account_key.clone().into_bytes());

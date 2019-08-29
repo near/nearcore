@@ -21,7 +21,6 @@ use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use std::collections::HashMap;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 3;

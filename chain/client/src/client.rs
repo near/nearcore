@@ -1,7 +1,6 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in done in this actor as well (at the moment).
 
-use std::cmp::max;
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};

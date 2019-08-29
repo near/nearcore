@@ -209,14 +209,6 @@ pub fn total_account_storage(_account_id: &AccountId, account: &Account) -> Stor
     account.storage_usage
 }
 
-/// Number of bytes account and all of it's other data occupies in the storage.
-pub fn total_account_storage(account_id: &AccountId, account: &Account) -> StorageUsage {
-    // The number of bytes the account occupies in the Trie.
-    let meta_storage =
-        key_for_account(account_id).len() as StorageUsage + account_storage_size(account);
-    account.storage_usage + meta_storage
-}
-
 pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Account) {
     set(state_update, key_for_account(key), account)
 }

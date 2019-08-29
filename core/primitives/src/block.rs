@@ -107,7 +107,6 @@ impl BlockHeader {
             approval_sigs,
             total_weight,
             validator_proposal,
-            epoch_hash,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }

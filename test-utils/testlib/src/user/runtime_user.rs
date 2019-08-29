@@ -153,17 +153,6 @@ impl RuntimeUser {
             transactions: transactions.into_iter().map(|t| t.into()).collect(),
         }
     }
-
-    fn apply_state(&self) -> ApplyState {
-        let client = self.client.read().expect(POISONED_LOCK_ERR);
-        ApplyState {
-            root: client.state_root,
-            shard_id: 0,
-            parent_block_hash: CryptoHash::default(),
-            block_index: 0,
-            epoch_length: client.epoch_length,
-        }
-    }
 }
 
 impl User for RuntimeUser {

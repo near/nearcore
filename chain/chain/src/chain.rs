@@ -810,7 +810,6 @@ impl<'a> ChainUpdate<'a> {
                         header.inner.validator_proposals.clone(),
                         vec![],
                         vec![],
-                        vec![],
                     )
                     .map_err(|err| ErrorKind::Other(err.to_string()))?;
             }
