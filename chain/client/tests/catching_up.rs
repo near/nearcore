@@ -81,7 +81,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                200,
+                400,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -224,8 +224,8 @@ mod tests {
             let amounts = Arc::new(RwLock::new(HashMap::new()));
 
             let check_amount =
-                move |amounts:Arc<RwLock<HashMap<_,_,_>>>, account_id: String, amount: u128| match amounts.write().unwrap().entry(account_id.clone())
-                    {
+                move |amounts: Arc<RwLock<HashMap<_, _, _>>>, account_id: String, amount: u128| {
+                    match amounts.write().unwrap().entry(account_id.clone()) {
                         Entry::Occupied(entry) => {
                             println!("OCCUPIED {:?}", entry);
                             assert_eq!(*entry.get(), amount);
@@ -235,7 +235,8 @@ mod tests {
                             assert_eq!(amount % 100, 0);
                             entry.insert(amount);
                         }
-                    };
+                    }
+                };
 
             let connectors1 = connectors.clone();
             *connectors.write().unwrap() = setup_mock_all_validators(
@@ -263,7 +264,12 @@ mod tests {
                                 if block.header.height == 13 {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
-                                            println!("VALUES {:?} {:?} {:?}", validator1.to_string(), validator2.to_string(), (((i + j + 17) * 701) % 42 + 1) as u128);
+                                            println!(
+                                                "VALUES {:?} {:?} {:?}",
+                                                validator1.to_string(),
+                                                validator2.to_string(),
+                                                (((i + j + 17) * 701) % 42 + 1) as u128
+                                            );
                                             for conn in 0..flat_validators.len() {
                                                 send_tx(
                                                     &connectors1.write().unwrap()[conn].0,
@@ -291,20 +297,28 @@ mod tests {
                                         for j in 0..16 {
                                             let amounts1 = amounts.clone();
                                             actix::spawn(
-                                                connectors1
-                                                    .write()
-                                                    .unwrap()[i]
+                                                connectors1.write().unwrap()[i]
                                                     .1
-                                                    .send(Query { path: "account/".to_owned() + flat_validators[j], data: vec![] })
+                                                    .send(Query {
+                                                        path: "account/".to_owned()
+                                                            + flat_validators[j],
+                                                        data: vec![],
+                                                    })
                                                     .then(move |res| {
                                                         let res_inner = res.unwrap();
                                                         if res_inner.is_ok() {
                                                             let query_response = res_inner.unwrap();
-                                                            if let ViewAccount(view_account_result) = query_response {
-                                                                println!("MOOACCOUNT {:?}, view_account_result = {:?}",
-                                                                         i,
-                                                                         &view_account_result);
-                                                                check_amount(amounts1, view_account_result.account_id.clone(), view_account_result.amount);
+                                                            if let ViewAccount(
+                                                                view_account_result,
+                                                            ) = query_response
+                                                            {
+                                                                check_amount(
+                                                                    amounts1,
+                                                                    view_account_result
+                                                                        .account_id
+                                                                        .clone(),
+                                                                    view_account_result.amount,
+                                                                );
                                                             }
                                                         }
                                                         future::result(Ok(()))
@@ -314,18 +328,28 @@ mod tests {
                                     }
                                 }
                                 if block.header.height == 32 {
-                                    println!("SEEN HEIGHTS SAME BLOCK {:?}", seen_heights_same_block.len());
+                                    println!(
+                                        "SEEN HEIGHTS SAME BLOCK {:?}",
+                                        seen_heights_same_block.len()
+                                    );
                                     assert_eq!(seen_heights_same_block.len(), 1);
                                     println!("SEEN RECEIPTS SIZE {:?}", seen_receipts_size.len());
                                     assert_ne!(seen_receipts_size.len(), 1);
                                     let amounts1 = amounts.clone();
                                     for flat_validator in &flat_validators {
-                                        match amounts1.write().unwrap().entry(flat_validator.to_string()) {
+                                        match amounts1
+                                            .write()
+                                            .unwrap()
+                                            .entry(flat_validator.to_string())
+                                        {
                                             Entry::Occupied(_) => {
                                                 continue;
                                             }
                                             Entry::Vacant(entry) => {
-                                                println!("VALIDATOR = {:?}, ENTRY = {:?}", flat_validator, entry);
+                                                println!(
+                                                    "VALIDATOR = {:?}, ENTRY = {:?}",
+                                                    flat_validator, entry
+                                                );
                                                 assert!(false);
                                             }
                                         };
@@ -339,7 +363,8 @@ mod tests {
                             {
                                 seen_receipts_size.insert(header_and_part.receipts.len());
                                 if header_and_part.header.height_created == 22 {
-                                    seen_heights_same_block.insert(header_and_part.header.prev_block_hash);
+                                    seen_heights_same_block
+                                        .insert(header_and_part.header.prev_block_hash);
                                 }
                             }
                         }
@@ -350,9 +375,8 @@ mod tests {
 
             near_network::test_utils::wait_or_panic(240000);
         })
-            .unwrap();
+        .unwrap();
     }
-
 
     /// Makes sure that 24 consecutive blocks are produced by 12 validators split into three epochs.
     /// This ensures that at no point validators get stuck with state sync

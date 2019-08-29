@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
-use log::{debug, info};
+use log::debug;
 
 use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
@@ -111,17 +111,17 @@ impl NightshadeRuntime {
                 let account: Option<Account> = get_account(state_update, &account_id);
                 if let Some(mut account) = account {
                     if let Some(reward) = validator_reward.get(&account_id) {
-                        println!(
+                        /*println!(
                             "account {} adding reward {} to stake {}",
                             account_id, reward, account.stake
-                        );
+                        );*/
                         account.stake += *reward;
                     }
 
-                    println!(
+                    /*println!(
                         "account {} stake {} max_of_stakes: {}",
                         account_id, account.stake, max_of_stakes
-                    );
+                    );*/
                     assert!(
                         account.stake >= max_of_stakes,
                         "FATAL: staking invariant does not hold. Account stake {} is less than maximum of stakes {} in the past three epochs",
@@ -383,7 +383,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
-        println!("add validator proposals at block index {} {:?}", block_index, proposals);
+        //println!("add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let mut slashed = HashSet::default();
@@ -422,17 +422,17 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_update = TrieUpdate::new(self.trie.clone(), *state_root);
         let should_update_account = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            println!(
+            /*println!(
                 "block index: {}, is next_block_epoch_start {}",
                 block_index,
                 epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
-            );
+            );*/
             epoch_manager.is_next_block_epoch_start(prev_block_hash)?
         };
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            println!("block index: {}", block_index);
+            //println!("block index: {}", block_index);
             self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
                 .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
         }
@@ -550,7 +550,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_all(value.as_ref())?;
         }
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        info!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
+        debug!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
         Ok(result)
     }
 
@@ -560,7 +560,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         state_root: MerkleHash,
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
+        debug!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let payload_len = payload.len();
         let mut cursor = Cursor::new(payload);

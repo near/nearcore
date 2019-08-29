@@ -18,3 +18,7 @@ cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef6860
 near-primitives = { path = "../../core/primitives" }
 near-protos = { path = "../../core/protos" }
 near-store = { path = "../../core/store" }
+
+[features]
+# if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
+byzantine_asserts = []
