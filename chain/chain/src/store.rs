@@ -527,6 +527,17 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
         Ok(ret)
     }
+
+    // WARNING
+    //
+    // Usually ChainStoreUpdate has some uncommitted changes
+    // and chain_store don't have access to them until they become committed.
+    // Make sure you're doing it right.
+    pub fn get_chain_store(
+        &mut self,
+    ) -> &mut T {
+        return self.chain_store;
+    }
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
@@ -620,7 +631,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.chain_store.get_block_hash_by_height(height)
     }
 
-    /// Get receipts produced for block with givien hash.
+    /// Get receipts produced for block with given hash.
     fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,

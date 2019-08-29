@@ -409,7 +409,7 @@ pub enum RoutedMessageBody {
     ForwardTx(SignedTransaction),
     StateRequest(ShardId, CryptoHash),
     ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkPartRequestMsg),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
 }
 
@@ -498,12 +498,13 @@ impl TryFrom<network_proto::RoutedMessage> for RoutedMessage {
                 part_id: chunk_part_request.part_id,
             }),
             Some(network_proto::RoutedMessage_oneof_body::chunk_one_part_request(
-                chunk_part_request,
-            )) => RoutedMessageBody::ChunkOnePartRequest(ChunkPartRequestMsg {
-                shard_id: chunk_part_request.shard_id,
-                chunk_hash: ChunkHash(chunk_part_request.chunk_hash.try_into()?),
-                height: chunk_part_request.height,
-                part_id: chunk_part_request.part_id,
+                chunk_one_part_request,
+            )) => RoutedMessageBody::ChunkOnePartRequest(ChunkOnePartRequestMsg {
+                shard_id: chunk_one_part_request.shard_id,
+                chunk_hash: ChunkHash(chunk_one_part_request.chunk_hash.try_into()?),
+                height: chunk_one_part_request.height,
+                part_id: chunk_one_part_request.part_id,
+                recipient: chunk_one_part_request.recipient.try_into()?,
             }),
             Some(network_proto::RoutedMessage_oneof_body::chunk_header_and_part(
                 chunk_header_and_part,
@@ -518,6 +519,11 @@ impl TryFrom<network_proto::RoutedMessage> for RoutedMessage {
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()?,
+                receipts_proofs: chunk_header_and_part
+                    .receipts_proofs
+                    .into_iter()
+                    .map(|proof| Ok(MerklePath::decode(proof.as_slice())?))
+                    .collect::<Result<Vec<MerklePath>, Self::Error>>()?,
                 merkle_path: MerklePath::decode(chunk_header_and_part.merkle_path.as_slice())?,
             }),
             None => return Err(format!("Unexpected empty message body").into()),
@@ -569,16 +575,18 @@ impl From<RoutedMessage> for network_proto::RoutedMessage {
                     chunk_part_request,
                 ))
             }
-            RoutedMessageBody::ChunkOnePartRequest(chunk_part_request) => {
-                let chunk_part_request = network_proto::ChunkPartRequest {
-                    shard_id: chunk_part_request.shard_id,
-                    chunk_hash: chunk_part_request.chunk_hash.0.into(),
-                    height: chunk_part_request.height,
-                    part_id: chunk_part_request.part_id,
-                    ..Default::default()
+            RoutedMessageBody::ChunkOnePartRequest(chunk_one_part_request) => {
+                let chunk_one_part_request = network_proto::ChunkOnePartRequest {
+                    shard_id: chunk_one_part_request.shard_id,
+                    chunk_hash: chunk_one_part_request.chunk_hash.0.into(),
+                    height: chunk_one_part_request.height,
+                    part_id: chunk_one_part_request.part_id,
+                    recipient: chunk_one_part_request.recipient.into(),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::RoutedMessage_oneof_body::chunk_one_part_request(
-                    chunk_part_request,
+                    chunk_one_part_request,
                 ))
             }
             RoutedMessageBody::ChunkOnePart(chunk_header_and_part) => {
@@ -631,7 +639,7 @@ pub enum PeerMessage {
     Routed(RoutedMessage),
 
     ChunkPartRequest(ChunkPartRequestMsg),
-    ChunkOnePartRequest(ChunkPartRequestMsg),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
 }
@@ -776,12 +784,13 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                 part_id: chunk_part_request.part_id,
             })),
             Some(network_proto::PeerMessage_oneof_message_type::chunk_one_part_request(
-                chunk_part_request,
-            )) => Ok(PeerMessage::ChunkOnePartRequest(ChunkPartRequestMsg {
-                shard_id: chunk_part_request.shard_id,
-                chunk_hash: ChunkHash(chunk_part_request.chunk_hash.try_into()?),
-                height: chunk_part_request.height,
-                part_id: chunk_part_request.part_id,
+                chunk_one_part_request,
+            )) => Ok(PeerMessage::ChunkOnePartRequest(ChunkOnePartRequestMsg {
+                shard_id: chunk_one_part_request.shard_id,
+                chunk_hash: ChunkHash(chunk_one_part_request.chunk_hash.try_into()?),
+                height: chunk_one_part_request.height,
+                part_id: chunk_one_part_request.part_id,
+                recipient: chunk_one_part_request.recipient.try_into()?,
             })),
             Some(network_proto::PeerMessage_oneof_message_type::chunk_part(chunk_part)) => {
                 Ok(PeerMessage::ChunkPart(ChunkPartMsg {
@@ -805,6 +814,11 @@ impl TryFrom<network_proto::PeerMessage> for PeerMessage {
                     .into_iter()
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()?,
+                receipts_proofs: chunk_header_and_part
+                    .receipts_proofs
+                    .into_iter()
+                    .map(|proof| Ok(MerklePath::decode(proof.as_slice())?))
+                    .collect::<Result<Vec<MerklePath>, Self::Error>>()?,
                 merkle_path: MerklePath::decode(chunk_header_and_part.merkle_path.as_slice())?,
             })),
             Some(network_proto::PeerMessage_oneof_message_type::announce_account(
@@ -932,22 +946,25 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     chunk_hash: chunk_part_request.chunk_hash.0.into(),
                     height: chunk_part_request.height,
                     part_id: chunk_part_request.part_id,
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::chunk_part_request(
                     chunk_part_request,
                 ))
             }
-            PeerMessage::ChunkOnePartRequest(chunk_part_request) => {
-                let chunk_part_request = network_proto::ChunkPartRequest {
-                    shard_id: chunk_part_request.shard_id,
-                    chunk_hash: chunk_part_request.chunk_hash.0.into(),
-                    height: chunk_part_request.height,
-                    part_id: chunk_part_request.part_id,
-                    ..Default::default()
+            PeerMessage::ChunkOnePartRequest(chunk_one_part_request) => {
+                let chunk_one_part_request = network_proto::ChunkOnePartRequest {
+                    shard_id: chunk_one_part_request.shard_id,
+                    chunk_hash: chunk_one_part_request.chunk_hash.0.into(),
+                    height: chunk_one_part_request.height,
+                    part_id: chunk_one_part_request.part_id,
+                    recipient: chunk_one_part_request.recipient.into(),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::chunk_one_part_request(
-                    chunk_part_request,
+                    chunk_one_part_request,
                 ))
             }
             PeerMessage::ChunkPart(chunk_part) => {
@@ -957,7 +974,8 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     part_id: chunk_part.part_id,
                     part: (*chunk_part.part).to_vec(),
                     merkle_path: MerklePath::encode(&chunk_part.merkle_path).unwrap(),
-                    ..Default::default()
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::chunk_part(chunk_part))
             }
@@ -969,7 +987,17 @@ impl From<PeerMessage> for network_proto::PeerMessage {
                     part_id: chunk_header_and_part.part_id,
                     part: (*chunk_header_and_part.part).to_vec(),
                     merkle_path: MerklePath::encode(&chunk_header_and_part.merkle_path).unwrap(),
-                    ..Default::default()
+                    receipts: RepeatedField::from_iter(
+                        chunk_header_and_part.receipts.into_iter().map(std::convert::Into::into),
+                    ),
+                    receipts_proofs: RepeatedField::from_iter(
+                        chunk_header_and_part
+                            .receipts_proofs
+                            .into_iter()
+                            .map(|proof| MerklePath::encode(&proof).unwrap()),
+                    ),
+                    cached_size: Default::default(),
+                    unknown_fields: Default::default(),
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::chunk_header_and_part(
                     chunk_header_and_part,
@@ -1175,7 +1203,7 @@ pub enum NetworkRequests {
     /// Request chunk part
     ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
     /// Request chunk part and receipts
-    ChunkOnePartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
     /// Response to a peer with chunk part and receipts.
     ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
     /// A chunk header and one part for another validator.
@@ -1262,7 +1290,7 @@ pub enum NetworkClientMessages {
     /// Request chunk part
     ChunkPartRequest(ChunkPartRequestMsg, PeerId),
     /// Request chunk part
-    ChunkOnePartRequest(ChunkPartRequestMsg, PeerId),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
     /// A chunk part
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part
@@ -1349,6 +1377,15 @@ pub struct ChunkPartRequestMsg {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ChunkOnePartRequestMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub height: BlockIndex,
+    pub part_id: u64,
+    pub recipient: AccountId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChunkPartMsg {
     pub shard_id: u64,
     pub chunk_hash: ChunkHash,
