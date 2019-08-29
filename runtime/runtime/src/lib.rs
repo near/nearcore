@@ -497,15 +497,23 @@ impl Runtime {
             .new_receipts
             .into_iter()
             .enumerate()
-            .map(|(receipt_index, mut new_receipt)| {
+            .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id =
                     create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce);
                 new_receipt.receipt_id = receipt_id.clone();
+                let is_action = match &new_receipt.receipt {
+                    ReceiptEnum::Action(_) => true,
+                    _ => false,
+                };
                 new_receipts
                     .entry(account_to_shard_id(&new_receipt.receiver_id))
                     .or_insert_with(|| vec![])
                     .push(new_receipt);
-                receipt_id
+                if is_action {
+                    Some(receipt_id)
+                } else {
+                    None
+                }
             })
             .collect();
 
