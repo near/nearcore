@@ -772,7 +772,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    pub fn log_utf16(&mut self, ptr: u64, len: u64) -> Result<()> {
+    pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
         let str = self.get_utf16(len, ptr)?;
         let message = format!("LOG: {}", str);
         self.logs.push(message);
