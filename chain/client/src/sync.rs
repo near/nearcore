@@ -230,8 +230,8 @@ impl HeaderSync {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
                 if let Ok(header) = chain.get_header_by_height(h) {
-                    if header.height != last_loc.0 {
-                        locator.push((header.height, header.hash()));
+                    if header.inner.height != last_loc.0 {
+                        locator.push((header.inner.height, header.hash()));
                     }
                 }
             }
