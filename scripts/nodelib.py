@@ -115,7 +115,7 @@ def get_port(home_dir, net):
     return p + ":" + p
 
 """Runs NEAR core inside the docker container for isolation and easy update with Watchtower."""
-def run_docker(image, home_dir, boot_nodes, verbose):
+def run_docker(image, home_dir, boot_nodes, verbose, produce_empty_blocks):
     print("Starting NEAR client and Watchtower dockers...")
     docker_stop_if_exists('watchtower')
     docker_stop_if_exists('nearcore')
@@ -125,9 +125,11 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     network_port = get_port(home_dir, 'network')
     if verbose:
         envs.extend(['-e', 'VERBOSE=1'])
+    if produce_empty_blocks:
+        envs.extend(['e', 'PRODUCE_EMPTY_BLOCKS=%s' % ("true" if produce_empty_blocks else "false")])
     subprocess.check_output(['docker', 'run',
                     '-d', '-p', rpc_port, '-p', network_port, '-v', '%s:/srv/near' % home_dir,
-                    '--name', 'nearcore', '--restart', 'unless-stopped'] + 
+                    '--name', 'nearcore', '--restart', 'unless-stopped'] +
                     envs + [image])
     # Start Watchtower that will automatically update the nearcore container when new version appears.
     subprocess.check_output(['docker', 'run',
@@ -137,7 +139,7 @@ def run_docker(image, home_dir, boot_nodes, verbose):
     print("Node is running! \nTo check logs call: docker logs --follow nearcore")
 
 """Runs NEAR core locally."""
-def run_local(home_dir, is_release, boot_nodes, verbose):
+def run_local(home_dir, is_release, boot_nodes, verbose, produce_empty_blocks):
     print("Starting NEAR client...")
     print("Autoupdate is not supported at the moment for local run")
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
@@ -146,13 +148,14 @@ def run_local(home_dir, is_release, boot_nodes, verbose):
         cmd.append('--verbose')
     cmd.append('run')
     cmd.extend(['--boot-nodes=%s' % boot_nodes])
+    cmd.extend(['--produce-empty-blocks=%s' % ("true" if produce_empty_blocks else "false")])
     try:
         subprocess.call(cmd)
     except KeyboardInterrupt:
         print("\nStopping NEARCore.")
 
 
-def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
+def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False, produce_empty_blocks=False):
     if local:
         install_cargo()
     else:
@@ -168,9 +171,9 @@ def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, ve
     print_staking_key(home_dir)
 
     if not local:
-        run_docker(image, home_dir, boot_nodes, verbose)
+        run_docker(image, home_dir, boot_nodes, verbose, produce_empty_blocks)
     else:
-        run_local(home_dir, is_release, boot_nodes, verbose)
+        run_local(home_dir, is_release, boot_nodes, verbose, produce_empty_blocks)
 
 
 """Stops docker for Nearcore and watchtower if they are running."""

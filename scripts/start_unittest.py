@@ -15,6 +15,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--image', default='nearprotocol/nearcore',
         help='Image to run in docker (default: nearprotocol/nearcore)')
+    parser.add_argument('--produce-empty-blocks', action='store_true', help='If set, produce empty blocks')
     args = parser.parse_args()
 
     print("Starting unittest nodes with test.near account and seed key of alice.near")
