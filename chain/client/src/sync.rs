@@ -229,15 +229,10 @@ impl HeaderSync {
             } else {
                 // Walk backwards to find last known hash.
                 let last_loc = locator.last().unwrap().clone();
-                let mut header_cursor = chain.get_block_header(&last_loc.1).map(|x| x.clone());
-                while let Ok(header) = header_cursor {
-                    if header.height == h {
-                        if header.height != last_loc.0 {
-                            locator.push((header.height, header.hash()));
-                            break;
-                        }
+                if let Ok(header) = chain.get_header_by_height(h) {
+                    if header.height != last_loc.0 {
+                        locator.push((header.height, header.hash()));
                     }
-                    header_cursor = chain.get_previous_header(&header).map(|x| x.clone());
                 }
             }
         }
