@@ -9,21 +9,18 @@ use chrono::Utc;
 use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::merklize;
-use near_primitives::receipt::Receipt;
-use near_primitives::serialize::{to_base, Decode, Encode};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{
-    SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
+    Action, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus, TransferAction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
 };
-use near_primitives::views::{AccountView, QueryResponse};
+use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
-use near_store::{
-    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
-};
+use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
@@ -63,6 +60,18 @@ pub struct KeyValueRuntime {
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
     ((hash(&account_id.clone().into_bytes()).0).0[0] as u64) % num_shards
+}
+
+#[derive(BorshSerialize, BorshDeserialize)]
+struct ReceiptNonce {
+    from: String,
+    to: String,
+    amount: Balance,
+    nonce: Nonce,
+}
+
+fn create_receipt_nonce(from: String, to: String, amount: Balance, nonce: Nonce) -> CryptoHash {
+    hash(&ReceiptNonce { from, to, amount, nonce }.try_to_vec().unwrap())
 }
 
 impl KeyValueRuntime {
@@ -410,118 +419,116 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
-        //        let mut balance_transfers = vec![];
+        let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            //            if let NewCall(call) = &receipt.body {
-            //                assert_eq!(self.account_id_to_shard_id(&receipt.receiver), shard_id);
-            //                if !receipt_nonces.contains(&receipt.nonce) {
-            //                    receipt_nonces.insert(receipt.nonce);
-            //                    balance_transfers.push((
-            //                        receipt.originator.clone(),
-            //                        receipt.receiver.clone(),
-            //                        call.amount,
-            //                        0,
-            //                    ));
-            //                } else {
-            //                    assert!(false); // receipts should never be applied twice
-            //                    balance_transfers.push((
-            //                        receipt.originator.clone(),
-            //                        receipt.receiver.clone(),
-            //                        0,
-            //                        0,
-            //                    ));
-            //                }
-            //            } else {
-            //                unreachable!();
-            //            }
+            if let ReceiptEnum::Action(action) = &receipt.receipt {
+                assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
+                if state.receipt_nonces.contains(&receipt.receipt_id) {
+                    state.receipt_nonces.insert(receipt.receipt_id);
+                    if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
+                        balance_transfers.push((
+                            receipt.predecessor_id.clone(),
+                            receipt.receiver_id.clone(),
+                            deposit,
+                            0,
+                        ));
+                    }
+                } else {
+                    assert!(false); // receipts should never be applied twice
+                }
+            } else {
+                unreachable!();
+            }
         }
 
         for transaction in transactions {
-            //            if let SendMoney(send_money_tx) = &transaction.body {
-            //                assert_eq!(self.account_id_to_shard_id(&send_money_tx.originator), shard_id);
-            //                if !tx_nonces.contains(&(send_money_tx.receiver.clone(), send_money_tx.nonce)) {
-            //                    tx_nonces.insert((send_money_tx.receiver.clone(), send_money_tx.nonce));
-            //                    balance_transfers.push((
-            //                        send_money_tx.originator.clone(),
-            //                        send_money_tx.receiver.clone(),
-            //                        send_money_tx.amount,
-            //                        send_money_tx.nonce,
-            //                    ));
-            //                } else {
-            //                    balance_transfers.push((
-            //                        send_money_tx.originator.clone(),
-            //                        send_money_tx.receiver.clone(),
-            //                        0,
-            //                        send_money_tx.nonce,
-            //                    ));
-            //                }
-            //            } else {
-            //                unreachable!();
-            //            }
+            assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
+            {
+                if state.tx_nonces.contains(&AccountNonce(
+                    transaction.transaction.receiver_id.clone(),
+                    transaction.transaction.nonce.clone(),
+                )) {
+                    state.tx_nonces.insert(AccountNonce(
+                        transaction.transaction.receiver_id.clone(),
+                        transaction.transaction.nonce.clone(),
+                    ));
+                } else {
+                    balance_transfers.push((
+                        transaction.transaction.signer_id.clone(),
+                        transaction.transaction.receiver_id.clone(),
+                        deposit,
+                        0,
+                    ));
+                }
+                tx_results.push(TransactionLog {
+                    hash: transaction.get_hash(),
+                    result: TransactionResult {
+                        status: TransactionStatus::Completed,
+                        logs: vec![],
+                        receipts: vec![],
+                        result: None,
+                    },
+                });
+            } else {
+                unreachable!();
+            }
         }
 
         let mut new_receipts = HashMap::new();
 
-        //        for (from, to, amount, nonce) in balance_transfers {
-        //            let mut good_to_go = false;
-        //
-        //            if self.account_id_to_shard_id(&from) != shard_id {
-        //                // This is a receipt, was already debited
-        //                good_to_go = true;
-        //            } else if let Some(balance) = accounts_mapping.get(&from) {
-        //                if *balance >= amount {
-        //                    let new_balance = balance - amount;
-        //                    accounts_mapping.insert(from.clone(), new_balance);
-        //                    good_to_go = true;
-        //                }
-        //            }
-        //
-        //            if good_to_go {
-        //                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
-        //                    accounts_mapping
-        //                        .insert(to.clone(), accounts_mapping.get(&to).unwrap_or(&0) + amount);
-        //                    vec![]
-        //                } else {
-        //                    assert_ne!(nonce, 0);
-        //                    //                    let receipt = Receipt::new(
-        //                    //                        from.clone(),
-        //                    //                        to.clone(),
-        //                    //                        hash_struct(&(from.clone(), to.clone(), amount, nonce)),
-        //                    //                        NewCall(AsyncCall::new(
-        //                    //                            vec![],
-        //                    //                            vec![],
-        //                    //                            amount,
-        //                    //                            AccountId::default(),
-        //                    //                            from,
-        //                    //                            PublicKey::empty(),
-        //                    //                        )),
-        //                    //                    );
-        //                    //                    let receipt_hash = receipt.get_hash();
-        //                    //                    new_receipts.entry(receipt.shard_id()).or_insert_with(|| vec![]).push(receipt);
-        //                    //                    vec![receipt_hash]
-        //                    vec![CryptoHash::default()]
-        //                };
-        //
-        //                //                tx_results.push(TransactionResult {
-        //                //                    status: TransactionStatus::Completed,
-        //                //                    logs: vec![],
-        //                //                    receipts: new_receipt_hashes,
-        //                //                    result: None,
-        //                //                });
-        //            }
-        //        }
+        for (from, to, amount, nonce) in balance_transfers {
+            let mut good_to_go = false;
 
-        for tx in transactions {
-            tx_results.push(TransactionLog {
-                hash: tx.get_hash(),
-                result: TransactionResult {
-                    status: TransactionStatus::Completed,
-                    logs: vec![],
-                    receipts: vec![],
-                    result: None,
-                },
-            });
+            if self.account_id_to_shard_id(&from) != shard_id {
+                // This is a receipt, was already debited
+                good_to_go = true;
+            } else if let Some(balance) = state.amounts.get(&from) {
+                if *balance >= amount {
+                    let new_balance = balance - amount;
+                    state.amounts.insert(from.clone(), new_balance);
+                    good_to_go = true;
+                }
+            }
+
+            if good_to_go {
+                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+                    state.amounts.insert(to.clone(), state.amounts.get(&to).unwrap_or(&0) + amount);
+                    vec![]
+                } else {
+                    assert_ne!(nonce, 0);
+                    let receipt = Receipt {
+                        predecessor_id: from.clone(),
+                        receiver_id: to.clone(),
+                        receipt_id: create_receipt_nonce(from.clone(), to.clone(), amount, nonce),
+                        receipt: ReceiptEnum::Action(ActionReceipt {
+                            signer_id: from.clone(),
+                            signer_public_key: PublicKey::empty(KeyType::ED25519),
+                            gas_price: 0,
+                            output_data_receivers: vec![],
+                            input_data_ids: vec![],
+                            actions: vec![Action::Transfer(TransferAction { deposit: amount })],
+                        }),
+                    };
+                    let receipt_hash = receipt.get_hash();
+                    new_receipts
+                        .entry(self.account_id_to_shard_id(&receipt.receiver_id))
+                        .or_insert_with(|| vec![])
+                        .push(receipt);
+                    vec![receipt_hash]
+                };
+
+                tx_results.push(TransactionLog {
+                    hash: CryptoHash::default(),
+                    result: TransactionResult {
+                        status: TransactionStatus::Completed,
+                        logs: vec![],
+                        receipts: new_receipt_hashes,
+                        result: None,
+                    },
+                });
+            }
         }
 
         Ok(ApplyTransactionResult {
@@ -629,7 +636,7 @@ pub fn setup_with_tx_validity_period(
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, 50),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, validity),
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));

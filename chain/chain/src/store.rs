@@ -11,12 +11,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::serialize::Decode;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{TransactionLog, TransactionResult};
-use near_primitives::types::{
-    AccountId, BlockIndex, ChunkExtra, MerkleHash, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,

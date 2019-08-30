@@ -13,7 +13,6 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
-use crate::runtime::account_id_to_shard_id;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey, Signer};
@@ -24,11 +23,14 @@ use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
+
+use crate::runtime::account_id_to_shard_id;
+use near_chain::ChainGenesis;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
@@ -66,7 +68,7 @@ pub const FAST_EPOCH_LENGTH: u64 = 60;
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 
 /// Initial gas price.
 pub const INITIAL_GAS_PRICE: Balance = 100;
@@ -337,7 +339,7 @@ pub struct GenesisConfig {
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
-    pub gas_limit: GasUsage,
+    pub gas_limit: Gas,
     /// Initial gas price.
     pub gas_price: Balance,
     /// Criterion for kicking out validators (this is a number between 0 and 100)
@@ -378,6 +380,20 @@ fn get_initial_supply(records: &[Vec<StateRecord>]) -> Balance {
     total_supply
 }
 
+impl From<GenesisConfig> for ChainGenesis {
+    fn from(genesis_config: GenesisConfig) -> Self {
+        ChainGenesis::new(
+            genesis_config.genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+            genesis_config.transaction_validity_period,
+        )
+    }
+}
+
 impl GenesisConfig {
     pub fn legacy_test(
         seeds: Vec<&str>,
@@ -390,7 +406,7 @@ impl GenesisConfig {
         let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
         let default_test_contract = std::fs::read(path).unwrap();
-        let encoded_test_contract = to_base64(default_test_contract);
+        let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
@@ -417,13 +433,17 @@ impl GenesisConfig {
                 code: encoded_test_contract.clone(),
             });
         }
-        let signer =
-            InMemorySigner::from_seed(PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_TREASURY_ACCOUNT);
-        records[0].push(StateRecord::account(
+        let signer = InMemorySigner::from_seed(
             PROTOCOL_TREASURY_ACCOUNT,
-            &signer.public_key.to_readable().0,
+            KeyType::ED25519,
+            PROTOCOL_TREASURY_ACCOUNT,
+        );
+        records[0].extend(state_records_account_with_key(
+            PROTOCOL_TREASURY_ACCOUNT,
+            &signer.public_key,
             TESTING_INIT_BALANCE,
             0,
+            CryptoHash::default(),
         ));
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
@@ -475,29 +495,28 @@ impl GenesisConfig {
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records[0]
-                ..extend(
-                    state_records_account_with_key(
-                        &account_id,
-                        &signer.public_key,
-                        TESTING_INIT_BALANCE
-                            - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                        if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                        CryptoHash::default(),
-                    )
-                    .into_iter(),
-                );
+            records[0].extend(
+                state_records_account_with_key(
+                    &account_id,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    CryptoHash::default(),
+                )
+                .into_iter(),
+            );
         }
         let signer = InMemorySigner::from_seed(
             PROTOCOL_TREASURY_ACCOUNT,
             KeyType::ED25519,
             PROTOCOL_TREASURY_ACCOUNT,
         );
-        records[0].push(StateRecord::account(
+        records[0].extend(state_records_account_with_key(
             PROTOCOL_TREASURY_ACCOUNT,
-            &signer.public_key.to_readable().0,
+            &signer.public_key,
             TESTING_INIT_BALANCE,
             0,
+            CryptoHash::default(),
         ));
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
@@ -671,13 +690,13 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let records = vec![vec![state_records_account_with_key(
+            let records = vec![state_records_account_with_key(
                 &account_id,
                 &signer.public_key,
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
                 CryptoHash::default(),
-            )]];
+            )];
             let total_supply = get_initial_supply(&records);
 
             let genesis_config = GenesisConfig {

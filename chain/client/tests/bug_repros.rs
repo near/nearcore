@@ -83,9 +83,13 @@ fn repro_1183() {
                                         block.header.inner.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
-                                        InMemorySigner::from_seed(from, KeyType::ED25519, from),
+                                        Arc::new(InMemorySigner::from_seed(
+                                            from,
+                                            KeyType::ED25519,
+                                            from,
+                                        )),
                                         1,
-                                        last_block.unwrap().hash(),
+                                        last_block.clone().unwrap().hash(),
                                     ),
                                 ));
                             nonce_delta += 1
@@ -95,7 +99,7 @@ fn repro_1183() {
                     *last_block = Some(block.clone());
                     *delayed_one_parts = vec![];
 
-                    if block.header.height >= 25 {
+                    if block.header.inner.height >= 25 {
                         System::current().stop();
                     }
                     (NetworkResponses::NoResponse, false)

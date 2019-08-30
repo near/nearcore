@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 
 use actix::System;
-use borsh::Serializable;
+use borsh::BorshSerialize;
 
 use near_client::StatusResponse;
 use near_crypto::{PublicKey, Signer};

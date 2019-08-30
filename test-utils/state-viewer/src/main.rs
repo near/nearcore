@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
-use borsh::Deserializable;
+use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
 use ansi_term::Color::Red;
@@ -135,8 +135,98 @@ fn load_trie(
     let head = chain_store.head().unwrap();
     let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
     // TODO: support chunks here.
-    let state_root = last_header.prev_state_root;
-    (runtime, state_root, last_header.height)
+    let state_root = last_header.inner.prev_state_root;
+    (runtime, state_root, last_header.inner.height)
+}
+
+pub fn format_hash(h: CryptoHash) -> String {
+    to_base(&h)[..7].to_string()
+}
+
+fn print_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let mut account_id_to_blocks = HashMap::new();
+    let mut cur_epoch_id = None;
+    for index in start_index..=end_index {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            if index == 0 {
+                println!("{: >3} {}", header.inner.height, format_hash(header.hash()));
+            } else {
+                let parent_header = chain_store.get_block_header(&header.inner.prev_hash).unwrap();
+                let epoch_id =
+                    runtime.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
+                cur_epoch_id = Some(epoch_id.clone());
+                if runtime.is_next_block_epoch_start(&header.inner.prev_hash).unwrap() {
+                    println!("{:?}", account_id_to_blocks);
+                    account_id_to_blocks = HashMap::new();
+                    println!(
+                        "Epoch {} Validators {:?}",
+                        format_hash(epoch_id.0),
+                        runtime.get_epoch_block_producers(&epoch_id, &header.hash()).unwrap()
+                    );
+                }
+                let block_producer =
+                    runtime.get_block_producer(&epoch_id, header.inner.height).unwrap();
+                account_id_to_blocks
+                    .entry(block_producer.clone())
+                    .and_modify(|e| *e += 1)
+                    .or_insert(1);
+                println!(
+                    "{: >3} {} | {: >10} | parent: {: >3} {}",
+                    header.inner.height,
+                    format_hash(header.hash()),
+                    block_producer,
+                    parent_header.inner.height,
+                    format_hash(parent_header.hash()),
+                );
+            }
+        } else {
+            if let Some(epoch_id) = &cur_epoch_id {
+                let block_producer = runtime.get_block_producer(epoch_id, index).unwrap();
+                println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
+            } else {
+                println!("{: >3} {}", index, Red.bold().paint("MISSING"));
+            }
+        }
+    }
+}
+
+fn replay_chain(
+    store: Arc<Store>,
+    home_dir: &Path,
+    near_config: &NearConfig,
+    start_index: BlockIndex,
+    end_index: BlockIndex,
+) {
+    let mut chain_store = ChainStore::new(store.clone());
+    let new_store = create_test_store();
+    let runtime = NightshadeRuntime::new(&home_dir, new_store, near_config.genesis_config.clone());
+    for index in start_index..=end_index {
+        if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
+            let header = chain_store.get_block_header(&block_hash).unwrap().clone();
+            runtime
+                .add_validator_proposals(
+                    header.inner.prev_hash,
+                    header.hash(),
+                    header.inner.height,
+                    header.inner.validator_proposals,
+                    vec![],
+                    vec![],
+                    header.inner.gas_used,
+                    header.inner.gas_price,
+                    header.inner.total_supply,
+                )
+                .unwrap();
+        }
+    }
 }
 
 fn main() {

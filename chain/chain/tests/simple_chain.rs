@@ -1,10 +1,10 @@
 use near_chain::test_utils::{setup, setup_with_tx_validity_period};
 use near_chain::{Block, ErrorKind, Provenance};
 use near_crypto::{KeyType, Signature, Signer};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::hash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::{EpochId, MerkleHash};
+use near_primitives::types::EpochId;
 use std::collections::HashMap;
 
 #[test]

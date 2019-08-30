@@ -673,7 +673,7 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
-        prev_receipts: &[Vec<Receipt>],
+        prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, Box<dyn std::error::Error>> {
         let mut new_receipts = HashMap::new();
@@ -707,7 +707,7 @@ impl Runtime {
             ));
         }
 
-        for receipt in local_receipts.iter().chain(prev_receipts.iter().flatten()) {
+        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
             self.process_receipt(
                 &mut state_update,
                 apply_state,

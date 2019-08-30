@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
@@ -11,7 +10,6 @@ use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use reed_solomon_erasure::Shard;
-use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};

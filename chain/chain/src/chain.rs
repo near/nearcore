@@ -11,9 +11,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, TransactionResult};
-use near_primitives::types::{
-    AccountId, Balance, BlockIndex, ChunkExtra, Gas, MerkleHash, ShardId, ValidatorStake,
-};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
@@ -825,7 +823,7 @@ impl Chain {
         // Save state in the runtime, will also check it's validity.
         self.runtime_adapter
             .set_state(shard_id, prev_extra.state_root, payload)
-            .map_err(|err| ErrorKind::InvalidStatePayload)?;
+            .map_err(|_| ErrorKind::InvalidStatePayload)?;
 
         // Update pointers to state root and receipts.
         let prev_block_hash = self.get_block_header(&sync_hash)?.inner.prev_hash;

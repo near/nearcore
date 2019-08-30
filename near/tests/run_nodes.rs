@@ -46,8 +46,7 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
                     Ok(Ok(b))
-                        if b.header.height > num_blocks
-                            && b.header.total_weight.to_num() > num_blocks =>
+                        if b.header.height > num_blocks && b.header.total_weight > num_blocks =>
                     {
                         System::current().stop()
                     }

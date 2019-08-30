@@ -350,7 +350,7 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChunkHeaderView {
     pub prev_block_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,

@@ -165,24 +165,6 @@ impl SignedTransaction {
         }
         .sign(&*signer)
     }
-
-    pub fn send_money(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: Arc<dyn Signer>,
-        deposit: Balance,
-        block_hash: CryptoHash,
-    ) -> SignedTransaction {
-        Self::from_actions(
-            nonce,
-            signer_id,
-            receiver_id,
-            signer,
-            vec![Action::Transfer(TransferAction { deposit })],
-            block_hash,
-        )
-    }
 }
 
 impl Hash for SignedTransaction {

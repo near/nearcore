@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::Cloned;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -136,8 +137,8 @@ fn receive_network_block() {
             let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.inner.height + 1,
-                last_block.chunks.clone(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
@@ -186,8 +187,8 @@ fn receive_network_block_header() {
             let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
-                last_block.header.inner.height + 1,
-                last_block.chunks.clone(),
+                last_block.header.height + 1,
+                last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
@@ -233,7 +234,7 @@ fn produce_block_with_approvals() {
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.chunks.clone(),
+                last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
@@ -243,7 +244,7 @@ fn produce_block_with_approvals() {
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = Arc::new(InMemorySigner::from_seed(&s, &s));
+                let signer = Arc::new(InMemorySigner::from_seed(&s, KeyType::ED25519, &s));
                 let block_approval =
                     BlockApproval::new(block.hash(), &*signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
@@ -294,7 +295,7 @@ fn invalid_blocks() {
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.chunks.clone(),
+                last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
                 vec![],
                 HashMap::default(),
@@ -302,7 +303,7 @@ fn invalid_blocks() {
                 0,
                 signer.clone(),
             );
-            block.header.prev_state_root = hash(&[1]);
+            block.header.inner.prev_state_root = hash(&[1]);
             client.do_send(NetworkClientMessages::Block(
                 block.clone(),
                 PeerInfo::random().id,
@@ -325,7 +326,7 @@ fn invalid_blocks() {
             let block3 = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
-                last_block.chunks.clone(),
+                last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
                 vec![],
                 HashMap::default(),

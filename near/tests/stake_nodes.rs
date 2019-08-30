@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -9,15 +10,15 @@ use tempdir::TempDir;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
-use near_crypto::Signer;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
-use near_primitives::rpc::{QueryResponse, ValidatorInfo};
-use near_primitives::serialize::BaseEncode;
+use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use near_primitives::transaction::{StakeTransaction, TransactionBody};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
-use std::path::Path;
+use near_primitives::views::{QueryResponse, ValidatorInfo};
+use testlib::fees_utils::stake_cost;
+use testlib::genesis_hash;
 
 #[derive(Clone)]
 struct TestNode {
@@ -28,23 +29,6 @@ struct TestNode {
     genesis_hash: CryptoHash,
 }
 
-fn stake_transaction(
-    nonce: Nonce,
-    signer_id: AccountId,
-    stake: Balance,
-    signer: Arc<dyn Signer>,
-    block_hash: CryptoHash,
-) -> SignedTransaction {
-    SignedTransaction::from_actions(
-        nonce,
-        signer_id.clone(),
-        signer_id,
-        signer.clone(),
-        vec![Action::Stake(StakeAction { stake, public_key: signer.public_key() })],
-        block_hash,
-    )
-}
-
 fn init_test_staking(
     paths: Vec<&Path>,
     num_nodes: usize,
@@ -53,7 +37,6 @@ fn init_test_staking(
     enable_rewards: bool,
 ) -> Vec<TestNode> {
     init_integration_logger();
-    //    init_test_logger();
 
     let mut genesis_config = GenesisConfig::testing_spec(num_nodes, num_validators);
     genesis_config.epoch_length = epoch_length;
@@ -80,8 +63,15 @@ fn init_test_staking(
     configs
         .enumerate()
         .map(|(i, config)| {
+            let genesis_hash = genesis_hash(&config.genesis_config);
             let (client, view_client) = start_with_config(paths[i], config.clone());
-            TestNode { account_id: format!("near.{}", i), config, client, view_client }
+            TestNode {
+                account_id: format!("near.{}", i),
+                config,
+                client,
+                view_client,
+                genesis_hash,
+            }
         })
         .collect()
 }
@@ -104,11 +94,12 @@ fn test_stake_nodes() {
             false,
         );
 
-        let tx = stake_transaction(
+        let tx = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
-            TESTING_INIT_STAKE,
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
         actix::spawn(
@@ -162,11 +153,12 @@ fn test_validator_kickout() {
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
-            stake_transaction(
+            SignedTransaction::stake(
                 1,
                 test_node.account_id.clone(),
-                stake,
                 test_node.config.block_producer.as_ref().unwrap().signer.clone(),
+                stake,
+                test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
                 test_node.genesis_hash,
             )
         });
@@ -272,24 +264,6 @@ fn test_validator_kickout() {
 fn test_validator_join() {
     heavy_test(|| {
         let system = System::new("NEAR");
-        let test_nodes = init_test_staking(4, 2, 16);
-        let unstake_transaction = stake_transaction(
-            1,
-            test_nodes[1].account_id.clone(),
-            0,
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
-            test_nodes[1].genesis_hash,
-        );
-
-        let stake_transaction = stake_transaction(
-            1,
-            test_nodes[2].account_id.clone(),
-            TESTING_INIT_STAKE,
-            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
-            test_nodes[2].genesis_hash,
-        );
-        let stake_cost = stake_cost();
-
         let num_nodes = 4;
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
@@ -301,34 +275,25 @@ fn test_validator_join() {
             16,
             false,
         );
-        let unstake_transaction = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[1].account_id.clone(),
-            amount: 0,
-            public_key: test_nodes[1]
-                .config
-                .block_producer
-                .as_ref()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[1].config.block_producer.as_ref().unwrap().signer);
-        let stake_transaction = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[2].account_id.clone(),
-            amount: TESTING_INIT_STAKE,
-            public_key: test_nodes[2]
-                .config
-                .block_producer
-                .as_ref()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[2].config.block_producer.as_ref().unwrap().signer);
+        let unstake_transaction = SignedTransaction::stake(
+            1,
+            test_nodes[1].account_id.clone(),
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            0,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[1].genesis_hash,
+        );
+        let stake_cost = stake_cost();
+
+        let stake_transaction = SignedTransaction::stake(
+            1,
+            test_nodes[2].account_id.clone(),
+            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
+            test_nodes[2].genesis_hash,
+        );
+
         actix::spawn(
             test_nodes[1]
                 .client

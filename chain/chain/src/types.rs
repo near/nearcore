@@ -7,7 +7,7 @@ pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{SignedTransaction, TransactionLog, TransactionResult};
+use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
