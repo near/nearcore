@@ -825,8 +825,11 @@ impl<'a> VMLogic<'a> {
             } else {
                 unreachable!()
             };
-            self.burnt_gas = min(new_burnt_gas, self.config.max_gas_burnt);
+
+            self.burnt_gas =
+                min(self.context.prepaid_gas, min(new_burnt_gas, self.config.max_gas_burnt));
             self.used_gas = min(new_used_gas, self.context.prepaid_gas);
+
             res
         }
     }
