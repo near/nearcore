@@ -5,7 +5,7 @@ use std::iter;
 use rand::seq::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use near_primitives::types::{AccountId, Balance, GasUsage, ValidatorId, ValidatorStake};
+use near_primitives::types::{AccountId, Balance, Gas, ValidatorId, ValidatorStake};
 
 use crate::types::{EpochConfig, EpochError, EpochInfo, RngSeed};
 
@@ -41,7 +41,7 @@ pub fn proposals_to_epoch_info(
     proposals: Vec<ValidatorStake>,
     validator_kickout: HashSet<AccountId>,
     validator_reward: HashMap<AccountId, Balance>,
-    total_gas_used: GasUsage,
+    total_gas_used: Gas,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
     println!("validator reward: {:?}", validator_reward);

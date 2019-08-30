@@ -1,28 +1,26 @@
+use std::collections::HashSet;
+use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context, Recipient};
 use chrono::{DateTime, Utc};
+use futures::future;
+use futures::future::Future;
 
 use near_chain::test_utils::KeyValueRuntime;
+use near_chain::ChainGenesis;
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::InMemorySigner;
+use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
-use near_chain::ChainGenesis;
-
-use futures::future;
-use futures::future::Future;
-use near_network::types::{NetworkInfo, PeerChainInfo};
-use near_primitives::types::ShardId;
-use std::collections::HashSet;
-use std::ops::DerefMut;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -35,6 +33,7 @@ pub fn setup(
     skip_sync_wait: bool,
     block_prod_time: u64,
     recipient: Recipient<NetworkRequests>,
+    tx_validity_period: BlockIndex,
     genesis_time: DateTime<Utc>,
 ) -> (ClientActor, ViewClientActor) {
     let store = create_test_store();
@@ -45,16 +44,20 @@ pub fn setup(
         validator_groups,
         num_shards,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
+    let genesis_time = Utc::now();
+    let chain_genesis =
+        ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period);
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
+    let mut config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
+    config.transaction_validity_period = tx_validity_period;
     let client = ClientActor::new(
-        ClientConfig::test(skip_sync_wait, block_prod_time, num_validators),
+        config,
         store,
         chain_genesis,
         runtime,
-        PublicKey::empty().into(),
+        PublicKey::empty(KeyType::ED25519).into(),
         recipient,
         Some(signer.into()),
         telemetry,
@@ -68,6 +71,21 @@ pub fn setup_mock(
     validators: Vec<&'static str>,
     account_id: &'static str,
     skip_sync_wait: bool,
+    network_mock: Box<
+        dyn FnMut(
+            &NetworkRequests,
+            &mut Context<NetworkMock>,
+            Addr<ClientActor>,
+        ) -> NetworkResponses,
+    >,
+) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+    setup_mock_with_validity_period(validators, account_id, skip_sync_wait, network_mock, 100)
+}
+
+pub fn setup_mock_with_validity_period(
+    validators: Vec<&'static str>,
+    account_id: &'static str,
+    skip_sync_wait: bool,
     mut network_mock: Box<
         dyn FnMut(
             &NetworkRequests,
@@ -75,6 +93,7 @@ pub fn setup_mock(
             Addr<ClientActor>,
         ) -> NetworkResponses,
     >,
+    validity_period: BlockIndex,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let view_client_addr = Arc::new(RwLock::new(None));
     let view_client_addr1 = view_client_addr.clone();
@@ -94,6 +113,7 @@ pub fn setup_mock(
             skip_sync_wait,
             100,
             pm.recipient(),
+            validity_period,
             Utc::now(),
         );
         *view_client_addr1.write().unwrap() = Some(view_client.start());
@@ -299,6 +319,7 @@ pub fn setup_mock_all_validators(
                 skip_sync_wait,
                 block_prod_time,
                 pm.recipient(),
+                10000,
                 genesis_time,
             );
             *view_client_addr1.write().unwrap() = Some(view_client.start());
@@ -316,7 +337,16 @@ pub fn setup_no_network(
     account_id: &'static str,
     skip_sync_wait: bool,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
-    setup_mock(
+    setup_no_network_with_validity_period(validators, account_id, skip_sync_wait, 100)
+}
+
+pub fn setup_no_network_with_validity_period(
+    validators: Vec<&'static str>,
+    account_id: &'static str,
+    skip_sync_wait: bool,
+    validity_period: BlockIndex,
+) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
+    setup_mock_with_validity_period(
         validators,
         account_id,
         skip_sync_wait,
@@ -331,11 +361,12 @@ pub fn setup_no_network(
             }),
             _ => NetworkResponses::NoResponse,
         }),
+        validity_period,
     )
 }
 
 impl BlockProducer {
     pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, seed)).into()
+        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
     }
 }

@@ -1,27 +1,29 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
-use near_primitives::crypto::signature::{verify, PublicKey, Signature};
-use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::hash::{hash, hash_struct, CryptoHash};
+use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_primitives::account::Account;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::{to_base, Decode, Encode};
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::test_utils::get_public_key_from_seed;
-use near_primitives::transaction::ReceiptBody::NewCall;
-use near_primitives::transaction::TransactionBody::SendMoney;
 use near_primitives::transaction::{
-    AsyncCall, ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
+    SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, GasUsage, MerkleHash, Nonce, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
 };
+use near_primitives::views::{AccountView, QueryResponse};
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER};
+use near_store::{
+    PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges, COL_BLOCK_HEADER,
+};
 
 use crate::error::{Error, ErrorKind};
 use crate::store::ChainStoreAccess;
@@ -30,7 +32,16 @@ use crate::types::{
     Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
-use std::cmp::Ordering;
+
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone)]
+struct AccountNonce(AccountId, Nonce);
+
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
+struct KVState {
+    amounts: HashMap<AccountId, u128>,
+    receipt_nonces: HashSet<CryptoHash>,
+    tx_nonces: HashSet<AccountNonce>,
+}
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
@@ -42,9 +53,7 @@ pub struct KeyValueRuntime {
     num_shards: ShardId,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
-    amounts: RwLock<HashMap<MerkleHash, HashMap<AccountId, u128>>>,
-    receipt_nonces: RwLock<HashMap<MerkleHash, HashSet<CryptoHash>>>,
-    tx_nonces: RwLock<HashMap<MerkleHash, HashSet<(AccountId, Nonce)>>>,
+    state: RwLock<HashMap<MerkleHash, KVState>>,
 
     hash_to_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
     hash_to_next_epoch: RwLock<HashMap<CryptoHash, EpochId>>,
@@ -80,20 +89,28 @@ impl KeyValueRuntime {
         let mut map_with_default_hash3 = HashMap::new();
         map_with_default_hash3.insert(EpochId::default(), 0);
 
-        let mut amounts = HashMap::new();
-        amounts.insert(MerkleHash::default(), initial_amounts);
+        let mut state = HashMap::new();
+        state.insert(
+            MerkleHash::default(),
+            KVState {
+                amounts: initial_amounts,
+                receipt_nonces: HashSet::default(),
+                tx_nonces: HashSet::default(),
+            },
+        );
         KeyValueRuntime {
             store,
             trie,
             root: MerkleHash::default(),
             validators: validators
                 .iter()
-                .map(|inner| {
-                    inner
+                .map(|account_ids| {
+                    account_ids
                         .iter()
                         .map(|account_id| ValidatorStake {
                             account_id: account_id.clone(),
-                            public_key: get_public_key_from_seed(account_id),
+                            public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
+                                .public_key(),
                             amount: 1_000_000,
                         })
                         .collect()
@@ -101,9 +118,7 @@ impl KeyValueRuntime {
                 .collect(),
             validator_groups,
             num_shards,
-            amounts: RwLock::new(amounts),
-            receipt_nonces: RwLock::new(HashMap::new()),
-            tx_nonces: RwLock::new(HashMap::new()),
+            state: RwLock::new(state),
             hash_to_epoch: RwLock::new(HashMap::new()),
             hash_to_next_epoch: RwLock::new(map_with_default_hash1),
             hash_to_valset: RwLock::new(map_with_default_hash3.clone()),
@@ -126,7 +141,7 @@ impl KeyValueRuntime {
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
             .ok_or("Missing block when computing the epoch")?;
-        Ok(prev_block_header.height)
+        Ok(prev_block_header.inner.height)
     }
 
     fn get_epoch_and_valset(
@@ -146,7 +161,7 @@ impl KeyValueRuntime {
         let mut hash_to_valset = self.hash_to_valset.write().unwrap();
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
-        let prev_prev_hash = prev_block_header.prev_hash;
+        let prev_prev_hash = prev_block_header.inner.prev_hash;
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
@@ -157,14 +172,19 @@ impl KeyValueRuntime {
         let prev_epoch_start = *epoch_start_map.get(&prev_prev_hash).unwrap();
 
         let increment_epoch = prev_prev_hash == CryptoHash::default() // genesis is in its own epoch
-            || prev_block_header.height - prev_epoch_start >= 5;
+            || prev_block_header.inner.height - prev_epoch_start >= 5;
 
         let (epoch, next_epoch, valset, epoch_start) = if increment_epoch {
             let new_valset = match prev_valset {
                 None => 0,
                 Some(prev_valset) => prev_valset + 1,
             };
-            (prev_next_epoch.clone(), EpochId(prev_hash), new_valset, prev_block_header.height)
+            (
+                prev_next_epoch.clone(),
+                EpochId(prev_hash),
+                new_valset,
+                prev_block_header.inner.height,
+            )
         } else {
             (
                 prev_epoch.unwrap().clone(),
@@ -209,13 +229,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
+        let validator = &self.validators[(header.inner.height as usize) % self.validators.len()];
         let validators = &self.validators
-            [self.get_epoch_and_valset(header.prev_hash).map_err(|err| err.to_string())?.1];
-        let validator = &validators[(header.height as usize) % validators.len()];
+            [self.get_epoch_and_valset(header.inner.prev_hash).map_err(|err| err.to_string())?.1];
+        let validator = &validators[(header.inner.height as usize) % validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
     }
 
     fn verify_validator_signature(
@@ -231,7 +252,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .flatten()
             .find(|&validator_stake| &validator_stake.account_id == account_id)
         {
-            if verify(data, signature, &validator.public_key) {
+            if signature.verify(data, &validator.public_key) {
                 ValidatorSignatureVerificationResult::Valid
             } else {
                 ValidatorSignatureVerificationResult::Invalid
@@ -366,186 +387,155 @@ impl RuntimeAdapter for KeyValueRuntime {
         _proposals: Vec<ValidatorStake>,
         _slashed_validators: Vec<AccountId>,
         _validator_mask: Vec<bool>,
-        _gas_used: GasUsage,
+        _gas_used: Gas,
         _gas_price: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
     }
 
-    fn apply_transactions(
+    fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        receipts: &Vec<ReceiptTransaction>,
+        receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
+        assert!(!generate_storage_proof);
         let mut tx_results = vec![];
 
-        let mut accounts_mapping =
-            self.amounts.read().unwrap().get(state_root).cloned().unwrap_or_else(|| HashMap::new());
-        let mut receipt_nonces = self
-            .receipt_nonces
-            .read()
-            .unwrap()
-            .get(state_root)
-            .cloned()
-            .unwrap_or_else(|| HashSet::new());
-        let mut tx_nonces = self
-            .tx_nonces
-            .read()
-            .unwrap()
-            .get(state_root)
-            .cloned()
-            .unwrap_or_else(|| HashSet::new());
+        let mut state = self.state.read().unwrap().get(state_root).cloned().unwrap();
 
-        let mut balance_transfers = vec![];
+        //        let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            if let NewCall(call) = &receipt.body {
-                assert_eq!(self.account_id_to_shard_id(&receipt.receiver), shard_id);
-                if !receipt_nonces.contains(&receipt.nonce) {
-                    receipt_nonces.insert(receipt.nonce);
-                    balance_transfers.push((
-                        receipt.originator.clone(),
-                        receipt.receiver.clone(),
-                        call.amount,
-                        0,
-                    ));
-                } else {
-                    assert!(false); // receipts should never be applied twice
-                    balance_transfers.push((
-                        receipt.originator.clone(),
-                        receipt.receiver.clone(),
-                        0,
-                        0,
-                    ));
-                }
-            } else {
-                unreachable!();
-            }
+            //            if let NewCall(call) = &receipt.body {
+            //                assert_eq!(self.account_id_to_shard_id(&receipt.receiver), shard_id);
+            //                if !receipt_nonces.contains(&receipt.nonce) {
+            //                    receipt_nonces.insert(receipt.nonce);
+            //                    balance_transfers.push((
+            //                        receipt.originator.clone(),
+            //                        receipt.receiver.clone(),
+            //                        call.amount,
+            //                        0,
+            //                    ));
+            //                } else {
+            //                    assert!(false); // receipts should never be applied twice
+            //                    balance_transfers.push((
+            //                        receipt.originator.clone(),
+            //                        receipt.receiver.clone(),
+            //                        0,
+            //                        0,
+            //                    ));
+            //                }
+            //            } else {
+            //                unreachable!();
+            //            }
         }
 
         for transaction in transactions {
-            if let SendMoney(send_money_tx) = &transaction.body {
-                assert_eq!(self.account_id_to_shard_id(&send_money_tx.originator), shard_id);
-                if !tx_nonces.contains(&(send_money_tx.receiver.clone(), send_money_tx.nonce)) {
-                    tx_nonces.insert((send_money_tx.receiver.clone(), send_money_tx.nonce));
-                    balance_transfers.push((
-                        send_money_tx.originator.clone(),
-                        send_money_tx.receiver.clone(),
-                        send_money_tx.amount,
-                        send_money_tx.nonce,
-                    ));
-                } else {
-                    balance_transfers.push((
-                        send_money_tx.originator.clone(),
-                        send_money_tx.receiver.clone(),
-                        0,
-                        send_money_tx.nonce,
-                    ));
-                }
-            } else {
-                unreachable!();
-            }
+            //            if let SendMoney(send_money_tx) = &transaction.body {
+            //                assert_eq!(self.account_id_to_shard_id(&send_money_tx.originator), shard_id);
+            //                if !tx_nonces.contains(&(send_money_tx.receiver.clone(), send_money_tx.nonce)) {
+            //                    tx_nonces.insert((send_money_tx.receiver.clone(), send_money_tx.nonce));
+            //                    balance_transfers.push((
+            //                        send_money_tx.originator.clone(),
+            //                        send_money_tx.receiver.clone(),
+            //                        send_money_tx.amount,
+            //                        send_money_tx.nonce,
+            //                    ));
+            //                } else {
+            //                    balance_transfers.push((
+            //                        send_money_tx.originator.clone(),
+            //                        send_money_tx.receiver.clone(),
+            //                        0,
+            //                        send_money_tx.nonce,
+            //                    ));
+            //                }
+            //            } else {
+            //                unreachable!();
+            //            }
         }
 
         let mut new_receipts = HashMap::new();
 
-        for (from, to, amount, nonce) in balance_transfers {
-            let mut good_to_go = false;
+        //        for (from, to, amount, nonce) in balance_transfers {
+        //            let mut good_to_go = false;
+        //
+        //            if self.account_id_to_shard_id(&from) != shard_id {
+        //                // This is a receipt, was already debited
+        //                good_to_go = true;
+        //            } else if let Some(balance) = accounts_mapping.get(&from) {
+        //                if *balance >= amount {
+        //                    let new_balance = balance - amount;
+        //                    accounts_mapping.insert(from.clone(), new_balance);
+        //                    good_to_go = true;
+        //                }
+        //            }
+        //
+        //            if good_to_go {
+        //                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
+        //                    accounts_mapping
+        //                        .insert(to.clone(), accounts_mapping.get(&to).unwrap_or(&0) + amount);
+        //                    vec![]
+        //                } else {
+        //                    assert_ne!(nonce, 0);
+        //                    //                    let receipt = Receipt::new(
+        //                    //                        from.clone(),
+        //                    //                        to.clone(),
+        //                    //                        hash_struct(&(from.clone(), to.clone(), amount, nonce)),
+        //                    //                        NewCall(AsyncCall::new(
+        //                    //                            vec![],
+        //                    //                            vec![],
+        //                    //                            amount,
+        //                    //                            AccountId::default(),
+        //                    //                            from,
+        //                    //                            PublicKey::empty(),
+        //                    //                        )),
+        //                    //                    );
+        //                    //                    let receipt_hash = receipt.get_hash();
+        //                    //                    new_receipts.entry(receipt.shard_id()).or_insert_with(|| vec![]).push(receipt);
+        //                    //                    vec![receipt_hash]
+        //                    vec![CryptoHash::default()]
+        //                };
+        //
+        //                //                tx_results.push(TransactionResult {
+        //                //                    status: TransactionStatus::Completed,
+        //                //                    logs: vec![],
+        //                //                    receipts: new_receipt_hashes,
+        //                //                    result: None,
+        //                //                });
+        //            }
+        //        }
 
-            if self.account_id_to_shard_id(&from) != shard_id {
-                // This is a receipt, was already debited
-                good_to_go = true;
-            } else if let Some(balance) = accounts_mapping.get(&from) {
-                if *balance >= amount {
-                    let new_balance = balance - amount;
-                    accounts_mapping.insert(from.clone(), new_balance);
-                    good_to_go = true;
-                }
-            }
-
-            if good_to_go {
-                let new_receipt_hashes = if self.account_id_to_shard_id(&to) == shard_id {
-                    accounts_mapping
-                        .insert(to.clone(), accounts_mapping.get(&to).unwrap_or(&0) + amount);
-                    vec![]
-                } else {
-                    assert_ne!(nonce, 0);
-                    let receipt = ReceiptTransaction::new(
-                        from.clone(),
-                        to.clone(),
-                        hash_struct(&(from.clone(), to.clone(), amount, nonce)),
-                        NewCall(AsyncCall::new(
-                            vec![],
-                            vec![],
-                            amount,
-                            AccountId::default(),
-                            from,
-                            PublicKey::empty(),
-                        )),
-                    );
-                    let receipt_hash = receipt.get_hash();
-                    new_receipts.entry(receipt.shard_id()).or_insert_with(|| vec![]).push(receipt);
-                    vec![receipt_hash]
-                };
-
-                tx_results.push(TransactionResult {
+        for tx in transactions {
+            tx_results.push(TransactionLog {
+                hash: tx.get_hash(),
+                result: TransactionResult {
                     status: TransactionStatus::Completed,
                     logs: vec![],
-                    receipts: new_receipt_hashes,
+                    receipts: vec![],
                     result: None,
-                });
-            }
+                },
+            });
         }
 
-        let mut new_balances = vec![];
-        for validator in self.validators.iter().flatten() {
-            let mut seen = false;
-            for (key, value) in accounts_mapping.iter() {
-                if key == &validator.account_id {
-                    assert!(!seen);
-                    seen = true;
-                    new_balances.push(*value);
-                }
-            }
-            if !seen {
-                new_balances.push(0);
-            }
-        }
-        let (balances_root, _) = merklize(&new_balances);
-
-        let mut receipt_vec = receipt_nonces.iter().collect::<Vec<_>>();
-        receipt_vec.sort();
-        let (receipts_root, _) = merklize(&receipt_vec);
-
-        let mut tx_vec = tx_nonces.iter().collect::<Vec<_>>();
-        tx_vec.sort();
-        let (tx_root, _) = merklize(&tx_vec);
-
-        let new_state_root = hash_struct(&(balances_root, receipts_root, tx_root));
-
-        self.amounts.write().unwrap().insert(new_state_root, accounts_mapping);
-        self.receipt_nonces.write().unwrap().insert(new_state_root, receipt_nonces);
-        self.tx_nonces.write().unwrap().insert(new_state_root, tx_nonces);
-
-        let apply_result = ApplyTransactionResult {
+        Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root.clone()),
             ),
-            new_root: new_state_root,
+            new_root: state_root.clone(), //: new_state_root,
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
             gas_used: 0,
-        };
-
-        Ok(apply_result)
+            proof: None,
+        })
     }
 
     fn query(
@@ -558,19 +548,21 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
         let account_id = path[1].to_string();
         let account_id2 = account_id.clone();
-        Ok(QueryResponse::ViewAccount(AccountViewCallResult {
-            account_id,
-            nonce: 0,
-            amount: self
-                .amounts
-                .read()
-                .unwrap()
-                .get(&state_root)
-                .map_or_else(|| 0, |mapping| *mapping.get(&account_id2).unwrap_or(&0)),
-            stake: 0,
-            public_keys: vec![],
-            code_hash: CryptoHash::default(),
-        }))
+        Ok(QueryResponse::ViewAccount(
+            Account {
+                amount: self
+                    .state
+                    .read()
+                    .unwrap()
+                    .get(&state_root)
+                    .map_or_else(|| 0, |state| *state.amounts.get(&account_id2).unwrap_or(&0)),
+                staked: 0,
+                code_hash: CryptoHash::default(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            }
+            .into(),
+        ))
     }
 
     fn dump_state(
@@ -578,12 +570,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         state_root: MerkleHash,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        Encode::encode(&(
-            self.amounts.read().unwrap().get(&state_root),
-            self.tx_nonces.read().unwrap().get(&state_root),
-            self.receipt_nonces.read().unwrap().get(&state_root),
-        ))
-        .map_err(Into::into)
+        self.state.read().unwrap().get(&state_root).unwrap().try_to_vec().map_err(Into::into)
     }
 
     fn set_state(
@@ -592,16 +579,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         state_root: MerkleHash,
         payload: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let (amt, txn, rcn) = Decode::decode(payload.as_ref()).unwrap();
-        if let Some(amt) = amt {
-            self.amounts.write().unwrap().insert(state_root, amt);
-        }
-        if let Some(txn) = txn {
-            self.tx_nonces.write().unwrap().insert(state_root, txn);
-        }
-        if let Some(rcn) = rcn {
-            self.receipt_nonces.write().unwrap().insert(state_root, rcn);
-        }
+        let state = KVState::try_from_slice(&payload).unwrap();
+        self.state.write().unwrap().insert(state_root, state);
         Ok(())
     }
 
@@ -613,7 +592,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.ok_or(
                 Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
             )?;
-        let prev_prev_hash = prev_block_header.prev_hash;
+        let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
@@ -632,22 +611,28 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error> {
         let epoch_id = self.get_epoch_and_valset(*block_hash)?.0;
         match self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, epoch_id.as_ref())? {
-            Some(block_header) => Ok(block_header.height),
+            Some(block_header) => Ok(block_header.inner.height),
             None => Ok(0),
         }
     }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+    setup_with_tx_validity_period(100)
+}
+
+pub fn setup_with_tx_validity_period(
+    validity: BlockIndex,
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
         store,
         runtime.clone(),
-        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0),
+        &ChainGenesis::new(Utc::now(), 1_000_000, 100, 1_000_000_000, 0, 0, 50),
     )
     .unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }
 
@@ -670,28 +655,30 @@ pub fn display_chain(chain: &mut Chain) {
         headers.push(header);
     }
     headers.sort_by(|h_left, h_right| {
-        if h_left.height > h_right.height {
+        if h_left.inner.height > h_right.inner.height {
             Ordering::Greater
         } else {
             Ordering::Less
         }
     });
     for header in headers {
-        if header.prev_hash == CryptoHash::default() {
+        if header.inner.prev_hash == CryptoHash::default() {
             // Genesis block.
-            println!("{: >3} {}", header.height, format_hash(header.hash()));
+            println!("{: >3} {}", header.inner.height, format_hash(header.hash()));
         } else {
-            let parent_header = chain_store.get_block_header(&header.prev_hash).unwrap().clone();
+            let parent_header =
+                chain_store.get_block_header(&header.inner.prev_hash).unwrap().clone();
             let maybe_block = chain_store.get_block(&header.hash()).ok().cloned();
-            let epoch_id = runtime_adapter.get_epoch_id_from_prev_block(&header.prev_hash).unwrap();
+            let epoch_id =
+                runtime_adapter.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
             let block_producer =
-                runtime_adapter.get_block_producer(&epoch_id, header.height).unwrap();
+                runtime_adapter.get_block_producer(&epoch_id, header.inner.height).unwrap();
             println!(
                 "{: >3} {} | {: >10} | parent: {: >3} {} | {}",
-                header.height,
+                header.inner.height,
                 format_hash(header.hash()),
                 block_producer,
-                parent_header.height,
+                parent_header.inner.height,
                 format_hash(parent_header.hash()),
                 if let Some(block) = &maybe_block {
                     format!("chunks: {}", block.chunks.len())
@@ -704,16 +691,16 @@ pub fn display_chain(chain: &mut Chain) {
                     let chunk_producer = runtime_adapter
                         .get_chunk_producer(
                             &epoch_id,
-                            chunk_header.height_created,
-                            chunk_header.shard_id,
+                            chunk_header.inner.height_created,
+                            chunk_header.inner.shard_id,
                         )
                         .unwrap();
                     if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
                         println!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
-                            chunk_header.height_created,
+                            chunk_header.inner.height_created,
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id,
+                            chunk_header.inner.shard_id,
                             chunk_producer,
                             chunk.transactions.len(),
                             chunk.receipts.len()
@@ -722,9 +709,9 @@ pub fn display_chain(chain: &mut Chain) {
                     {
                         println!(
                             "    {: >3} {} | {} | {: >10} | part = {}",
-                            chunk_header.height_created,
+                            chunk_header.inner.height_created,
                             format_hash(chunk_header.chunk_hash().0),
-                            chunk_header.shard_id,
+                            chunk_header.inner.shard_id,
                             chunk_producer,
                             chunk_one_part.part_id
                         );

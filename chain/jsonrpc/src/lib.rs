@@ -1,15 +1,14 @@
 #![feature(await_macro, async_await)]
 
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::time::Duration;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
+use borsh::BorshDeserialize;
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
-use protobuf::parse_from_bytes;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,9 +22,9 @@ use near_jsonrpc_client::message as message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
-use near_primitives::transaction::{FinalTransactionStatus, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;
-use near_protos::signed_transaction as transaction_proto;
+use near_primitives::views::FinalTransactionStatus;
 
 pub mod test_utils;
 
@@ -101,12 +100,7 @@ fn jsonify<T: serde::Serialize>(
 fn parse_tx(params: Option<Value>) -> Result<SignedTransaction, RpcError> {
     let (encoded,) = parse_params::<(String,)>(params)?;
     let bytes = from_base64_or_parse_err(encoded)?;
-    let tx: transaction_proto::SignedTransaction = parse_from_bytes(&bytes).map_err(|e| {
-        RpcError::invalid_params(Some(format!("Failed to decode transaction proto: {}", e)))
-    })?;
-    Ok(tx.try_into().map_err(|e| {
-        RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e)))
-    })?)
+    SignedTransaction::try_from_slice(&bytes).map_err(|e| RpcError::invalid_params(Some(format!("Failed to decode transaction: {}", e))))
 }
 
 fn parse_hash(params: Option<Value>) -> Result<CryptoHash, RpcError> {

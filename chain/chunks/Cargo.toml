@@ -5,11 +5,6 @@ authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
-near-primitives = { path = "../../core/primitives" }
-near-store = { path = "../../core/store" }
-near-network = { path = "../network" }
-near-chain = { path = "../chain" }
-near-pool = { path = "../pool" }
 actix = "0.8.1"
 typed-arena = "1.4.1"
 futures = "0.1.25"
@@ -25,3 +20,12 @@ protobuf = "2.4"
 reed-solomon-erasure = "3.1.1"
 crossbeam = "0.3.0"
 cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
+
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+
+near-crypto = { path = "../../core/crypto" }
+near-primitives = { path = "../../core/primitives" }
+near-store = { path = "../../core/store" }
+near-network = { path = "../network" }
+near-chain = { path = "../chain" }
+near-pool = { path = "../pool" }

@@ -9,10 +9,10 @@ use near_chain::{Block, BlockApproval};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
+use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
@@ -52,14 +52,14 @@ fn produce_blocks_with_tx() {
     let mut encoded_chunks: Vec<EncodedShardChunk> = vec![];
     init_test_logger();
     System::run(|| {
-        let (client, _) = setup_mock(
+        let (client, view_client) = setup_mock(
             vec!["test"],
             "test",
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::ChunkOnePartMessage { account_id: _, header_and_part } = msg
                 {
-                    let height = header_and_part.header.height_created as usize;
+                    let height = header_and_part.header.inner.height_created as usize;
                     assert!(encoded_chunks.len() + 2 >= height);
 
                     // the following two lines must match data_parts and total_parts in KeyValueRuntimeAdapter
@@ -90,8 +90,25 @@ fn produce_blocks_with_tx() {
                 NetworkResponses::NoResponse
             }),
         );
-        client.do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+        // IIIIIIII
+        // client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(Transactioiin::)));
         near_network::test_utils::wait_or_panic(5000);
+        //        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+        //            let header: BlockHeader = res.unwrap().unwrap().header.into();
+        //            let block_hash = header.hash;
+        //            client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
+        //                Signature::empty(KeyType::ED25519),
+        //                Transaction {
+        //                    signer_id: "".to_string(),
+        //                    public_key: PublicKey::empty(KeyType::ED25519),
+        //                    nonce: 0,
+        //                    receiver_id: "".to_string(),
+        //                    block_hash,
+        //                    actions: vec![],
+        //                },
+        //            )));
+        //            future::ok(())
+        //        }))
     })
     .unwrap();
 }
@@ -116,10 +133,10 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test1", "test1"));
+            let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
             let block = Block::produce(
-                &last_block.header,
-                last_block.header.height + 1,
+                &last_block.header.clone().into(),
+                last_block.header.inner.height + 1,
                 last_block.chunks.clone(),
                 EpochId::default(),
                 vec![],
@@ -149,7 +166,7 @@ fn receive_network_block_header() {
             Box::new(move |msg, _ctx, client_addr| match msg {
                 NetworkRequests::BlockRequest { hash, peer_id } => {
                     let block = block_holder1.read().unwrap().clone().unwrap();
-                    assert_eq!(hash.clone(), block.hash());
+                    assert_eq!(hash, &block.hash());
                     actix::spawn(
                         client_addr
                             .send(NetworkClientMessages::Block(block, peer_id.clone(), false))
@@ -166,10 +183,10 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
             let block = Block::produce(
-                &last_block.header,
-                last_block.header.height + 1,
+                &last_block.header.clone().into(),
+                last_block.header.inner.height + 1,
                 last_block.chunks.clone(),
                 EpochId::default(),
                 vec![],
@@ -203,7 +220,7 @@ fn produce_block_with_approvals() {
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    if block.header.approval_sigs.len() == validators.len() - 2 {
+                    if block.header.inner.approval_sigs.len() == validators.len() - 2 {
                         System::current().stop();
                     }
                 }
@@ -212,9 +229,9 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemorySigner::from_seed("test2", "test2"));
+            let signer1 = Arc::new(InMemorySigner::from_seed("test2", KeyType::ED25519, "test2"));
             let block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 EpochId::default(),
@@ -257,9 +274,9 @@ fn invalid_blocks() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                        assert_eq!(header.height, 1);
+                        assert_eq!(header.inner.height, 1);
                         assert_eq!(
-                            header.prev_state_root,
+                            header.inner.prev_state_root,
                             merklize(&vec![MerkleHash::default()]).0
                         );
                         assert_eq!(*approval, None);
@@ -272,10 +289,10 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
             // Send invalid state root.
             let mut block = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 EpochId::default(),
@@ -293,8 +310,8 @@ fn invalid_blocks() {
             ));
             // Send block that builds on invalid one.
             let block2 = Block::produce(
-                &block.header,
-                block.header.height + 1,
+                &block.header.clone().into(),
+                block.header.inner.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
                 vec![],
@@ -306,7 +323,7 @@ fn invalid_blocks() {
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
             // Send proper block.
             let block3 = Block::produce(
-                &last_block.header,
+                &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.clone(),
                 EpochId::default(),
@@ -337,7 +354,7 @@ fn skip_block_production() {
             Box::new(move |msg, _ctx, _client_actor| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        if block.header.height > 3 {
+                        if block.header.inner.height > 3 {
                             System::current().stop();
                         }
                     }
@@ -387,7 +404,7 @@ fn client_sync_headers() {
                 _ => NetworkResponses::NoResponse,
             }),
         );
-        wait_or_panic(1000);
+        wait_or_panic(2000);
     })
     .unwrap();
 }

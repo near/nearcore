@@ -7,13 +7,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
+use near_primitives::views::EpochValidatorInfo;
 use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochSummary;
 pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
-use near_primitives::rpc::EpochValidatorInfo;
 
 mod proposals;
 mod reward_calculator;
@@ -536,9 +536,9 @@ impl EpochManager {
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
         let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
         Ok(EpochValidatorInfo {
-            current_validators,
-            next_validators,
-            current_proposals: epoch_summary.all_proposals,
+            current_validators: current_validators.into_iter().map(Into::into).collect(),
+            next_validators: next_validators.into_iter().map(Into::into).collect(),
+            current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
         })
     }
 }

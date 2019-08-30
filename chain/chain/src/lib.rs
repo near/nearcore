@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate serde_derive;
-
 pub use chain::{Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
 pub use store::{ChainStore, ChainStoreAccess};

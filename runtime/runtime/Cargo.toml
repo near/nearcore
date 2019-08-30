@@ -16,26 +16,25 @@ rand = "0.6"
 rand_xorshift = "0.1"
 ethash = "0.3"
 ethereum-bigint = "0.2"
-protobuf = { version = "2.7", features = ["with-bytes"] }
+sodiumoxide = "0.2.2"
 
-near-protos = { path = "../../core/protos" }
+near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-verifier = { path = "../../runtime/verifier" }
-wasm = { path = "../../runtime/wasm" }
+near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
+near-vm-logic = { path = "../../runtime/near-vm-logic" }
+near-vm-runner = { path = "../../runtime/near-vm-runner" }
+cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
 [features]
 test-utils = []
 
 [dev-dependencies]
-bencher = "0.1.5"
 ethereum-rlp = "0.2"
 ethereum-block = "0.3"
 ethereum-hexutil = "0.2"
 tempdir = "0.3"
 
 testlib = { path = "../../test-utils/testlib" }
-
-[[bench]]
-name = "bench"
-harness = false

@@ -5,18 +5,16 @@ use std::sync::{Arc, Mutex, RwLock};
 use tempdir::TempDir;
 
 use lazy_static::lazy_static;
-use near_chain::Block;
-use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
+use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptInfo;
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
-use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus,
-};
+use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::transaction::{SignedTransaction, TransactionStatus};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, TransactionLogView,
+    TransactionResultView, ViewStateResult,
+};
+use near_primitives::views::{FinalTransactionResult, FinalTransactionStatus};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -42,13 +40,13 @@ impl MockClient {
 
 pub struct RuntimeUser {
     pub account_id: AccountId,
-    pub signer: Arc<dyn EDSigner>,
+    pub signer: Arc<dyn Signer>,
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
-    pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResult>>,
+    pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResultView>>,
     // store receipts generated when applying transactions
-    pub receipts: RefCell<HashMap<CryptoHash, ReceiptTransaction>>,
+    pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
 
 lazy_static! {
@@ -58,11 +56,7 @@ lazy_static! {
 }
 
 impl RuntimeUser {
-    pub fn new(
-        account_id: &str,
-        signer: Arc<dyn EDSigner>,
-        client: Arc<RwLock<MockClient>>,
-    ) -> Self {
+    pub fn new(account_id: &str, signer: Arc<dyn Signer>, client: Arc<RwLock<MockClient>>) -> Self {
         let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
             signer,
@@ -77,7 +71,7 @@ impl RuntimeUser {
     pub fn apply_all(
         &self,
         apply_state: ApplyState,
-        prev_receipts: Vec<ReceiptTransaction>,
+        prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
     ) {
         let mut cur_apply_state = apply_state;
@@ -88,15 +82,10 @@ impl RuntimeUser {
             let state_update = TrieUpdate::new(client.trie.clone(), cur_apply_state.root);
             let mut apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
-            let mut counter = 0;
-            for (i, receipt) in receipts.iter().enumerate() {
-                counter += 1;
-                let transaction_result = apply_result.tx_result[i].clone();
-                self.transaction_results.borrow_mut().insert(receipt.nonce, transaction_result);
-            }
-            for (i, tx) in txs.iter().enumerate() {
-                let transaction_result = apply_result.tx_result[i + counter].clone();
-                self.transaction_results.borrow_mut().insert(tx.get_hash(), transaction_result);
+            for transaction_result in apply_result.tx_result.into_iter() {
+                self.transaction_results
+                    .borrow_mut()
+                    .insert(transaction_result.hash, transaction_result.result.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             if apply_result.new_receipts.is_empty() {
@@ -113,38 +102,10 @@ impl RuntimeUser {
             let new_receipts: Vec<_> =
                 apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
             for receipt in new_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.nonce, receipt.clone());
+                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
             }
             receipts = new_receipts;
             txs = vec![];
-        }
-    }
-
-    fn collect_transaction_final_result(
-        &self,
-        transaction_result: &TransactionResult,
-        logs: &mut Vec<TransactionLogs>,
-    ) -> FinalTransactionStatus {
-        match transaction_result.status {
-            TransactionStatus::Unknown => FinalTransactionStatus::Unknown,
-            TransactionStatus::Failed => FinalTransactionStatus::Failed,
-            TransactionStatus::Completed => {
-                for r in transaction_result.receipts.iter() {
-                    let receipt_result = self.get_transaction_result(&r);
-                    logs.push(TransactionLogs {
-                        hash: *r,
-                        lines: receipt_result.logs.clone(),
-                        receipts: receipt_result.receipts.clone(),
-                        result: receipt_result.result.clone(),
-                    });
-                    match self.collect_transaction_final_result(&receipt_result, logs) {
-                        FinalTransactionStatus::Failed => return FinalTransactionStatus::Failed,
-                        FinalTransactionStatus::Completed => {}
-                        _ => return FinalTransactionStatus::Started,
-                    };
-                }
-                FinalTransactionStatus::Completed
-            }
         }
     }
 
@@ -158,17 +119,56 @@ impl RuntimeUser {
             epoch_length: client.epoch_length,
         }
     }
+
+    fn get_recursive_transaction_results(&self, hash: &CryptoHash) -> Vec<TransactionLogView> {
+        let result = self.get_transaction_result(hash);
+        let receipt_ids = result.receipts.clone();
+        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
+        for hash in &receipt_ids {
+            transactions
+                .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
+        }
+        transactions
+    }
+
+    fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+        let transactions = self.get_recursive_transaction_results(hash);
+        let status = if transactions
+            .iter()
+            .find(|t| &t.result.status == &TransactionStatus::Failed)
+            .is_some()
+        {
+            FinalTransactionStatus::Failed
+        } else if transactions
+            .iter()
+            .find(|t| &t.result.status == &TransactionStatus::Unknown)
+            .is_some()
+        {
+            FinalTransactionStatus::Started
+        } else {
+            FinalTransactionStatus::Completed
+        };
+        FinalTransactionResult {
+            status,
+            transactions: transactions.into_iter().map(|t| t.into()).collect(),
+        }
+    }
 }
 
 impl User for RuntimeUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_account(&state_update, account_id).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_account(&state_update, account_id)
+            .map(|account| account.into())
+            .map_err(|err| err.to_string())
     }
 
-    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
+    fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_state(&state_update, account_id).map_err(|err| err.to_string())
+        self.trie_viewer
+            .view_state(&state_update, account_id, prefix)
+            .map_err(|err| err.to_string())
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
@@ -184,65 +184,63 @@ impl User for RuntimeUser {
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
-    fn add_receipt(&self, receipt: ReceiptTransaction) -> Result<(), String> {
+    fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
         self.apply_all(self.apply_state(), vec![receipt], vec![]);
         Ok(())
-    }
-
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.view_account(account_id).ok().map(|account| account.nonce)
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
         unimplemented!("get_best_block_index should not be implemented for RuntimeUser");
     }
 
-    fn get_block(&self, _index: u64) -> Option<Block> {
+    // This function is needed to sign transactions
+    fn get_best_block_hash(&self) -> Option<CryptoHash> {
+        Some(CryptoHash::default())
+    }
+
+    fn get_block(&self, _index: u64) -> Option<BlockView> {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
         self.transaction_results.borrow().get(hash).cloned().unwrap()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        let transaction_result = self.get_transaction_result(hash);
-        let mut result = FinalTransactionResult {
-            status: FinalTransactionStatus::Unknown,
-            logs: vec![TransactionLogs {
-                hash: *hash,
-                lines: transaction_result.logs.clone(),
-                receipts: transaction_result.receipts.clone(),
-                result: transaction_result.result.clone(),
-            }],
-        };
-        result.status =
-            self.collect_transaction_final_result(&transaction_result, &mut result.logs);
-        result
+        self.get_final_transaction_result(hash)
     }
 
-    fn get_state_root(&self) -> MerkleHash {
-        self.client.read().expect(POISONED_LOCK_ERR).state_root
+    fn get_state_root(&self) -> CryptoHashView {
+        self.client.read().expect(POISONED_LOCK_ERR).state_root.into()
     }
 
     fn get_receipt_info(&self, hash: &CryptoHash) -> Option<ReceiptInfo> {
         let receipt = self.receipts.borrow().get(hash).cloned()?;
         let transaction_result = self.transaction_results.borrow().get(hash).cloned()?;
-        Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
+        Some(ReceiptInfo {
+            receipt,
+            result: transaction_result.into(),
+            block_index: Default::default(),
+        })
     }
 
     fn get_access_key(
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
+    ) -> Result<Option<AccessKeyView>, String> {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_access_key(&state_update, account_id, public_key)
+            .map(|value| value.map(|access_key| access_key.into()))
             .map_err(|err| err.to_string())
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
+    }
+
+    fn set_signer(&mut self, signer: Arc<dyn Signer>) {
+        self.signer = signer;
     }
 }

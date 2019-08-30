@@ -9,6 +9,7 @@ use tempdir::TempDir;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, Query, Status, ViewClientActor};
+use near_crypto::Signer;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::rpc::{QueryResponse, ValidatorInfo};
@@ -24,6 +25,24 @@ struct TestNode {
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
+    genesis_hash: CryptoHash,
+}
+
+fn stake_transaction(
+    nonce: Nonce,
+    signer_id: AccountId,
+    stake: Balance,
+    signer: Arc<dyn Signer>,
+    block_hash: CryptoHash,
+) -> SignedTransaction {
+    SignedTransaction::from_actions(
+        nonce,
+        signer_id.clone(),
+        signer_id,
+        signer.clone(),
+        vec![Action::Stake(StakeAction { stake, public_key: signer.public_key() })],
+        block_hash,
+    )
 }
 
 fn init_test_staking(
@@ -54,8 +73,6 @@ fn init_test_staking(
         );
         if i != 0 {
             config.network_config.boot_nodes = convert_boot_nodes(vec![("near.0", first_node)]);
-        } else {
-            //            config.client_config.min_num_peers = 0;
         }
         config.client_config.min_num_peers = num_nodes - 1;
         config
@@ -87,20 +104,13 @@ fn test_stake_nodes() {
             false,
         );
 
-        let tx = TransactionBody::Stake(StakeTransaction {
-            nonce: 1,
-            originator: test_nodes[1].account_id.clone(),
-            amount: TESTING_INIT_STAKE,
-            public_key: test_nodes[1]
-                .config
-                .block_producer
-                .clone()
-                .unwrap()
-                .signer
-                .public_key()
-                .to_base(),
-        })
-        .sign(&*test_nodes[1].config.block_producer.clone().unwrap().signer);
+        let tx = stake_transaction(
+            1,
+            test_nodes[1].account_id.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[1].genesis_hash,
+        );
         actix::spawn(
             test_nodes[0]
                 .client
@@ -152,20 +162,13 @@ fn test_validator_kickout() {
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
-            TransactionBody::Stake(StakeTransaction {
-                nonce: 1,
-                originator: test_node.account_id.clone(),
-                amount: stake,
-                public_key: test_node
-                    .config
-                    .block_producer
-                    .as_ref()
-                    .unwrap()
-                    .signer
-                    .public_key()
-                    .to_base(),
-            })
-            .sign(&*test_node.config.block_producer.as_ref().unwrap().signer)
+            stake_transaction(
+                1,
+                test_node.account_id.clone(),
+                stake,
+                test_node.config.block_producer.as_ref().unwrap().signer.clone(),
+                test_node.genesis_hash,
+            )
         });
 
         for (i, stake_transaction) in stake_transactions.enumerate() {
@@ -210,7 +213,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            if result.stake == 0
+                                            if result.staked == 0
                                                 || result.amount == TESTING_INIT_BALANCE
                                             {
                                                 mark.store(true, Ordering::SeqCst);
@@ -236,7 +239,7 @@ fn test_validator_kickout() {
                                     })
                                     .then(move |res| match res.unwrap().unwrap() {
                                         QueryResponse::ViewAccount(result) => {
-                                            assert_eq!(result.stake, TESTING_INIT_STAKE);
+                                            assert_eq!(result.staked, TESTING_INIT_STAKE);
                                             assert_eq!(
                                                 result.amount,
                                                 TESTING_INIT_BALANCE - TESTING_INIT_STAKE
@@ -269,6 +272,24 @@ fn test_validator_kickout() {
 fn test_validator_join() {
     heavy_test(|| {
         let system = System::new("NEAR");
+        let test_nodes = init_test_staking(4, 2, 16);
+        let unstake_transaction = stake_transaction(
+            1,
+            test_nodes[1].account_id.clone(),
+            0,
+            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[1].genesis_hash,
+        );
+
+        let stake_transaction = stake_transaction(
+            1,
+            test_nodes[2].account_id.clone(),
+            TESTING_INIT_STAKE,
+            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
+            test_nodes[2].genesis_hash,
+        );
+        let stake_cost = stake_cost();
+
         let num_nodes = 4;
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("validator_join_{}", i)).unwrap())
@@ -345,8 +366,8 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.stake == 0
-                                            && result.amount == TESTING_INIT_BALANCE
+                                        if result.staked == 0
+                                            && result.amount == TESTING_INIT_BALANCE - stake_cost
                                         {
                                             done1_copy2.store(true, Ordering::SeqCst);
                                         }
@@ -364,9 +385,11 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.stake == TESTING_INIT_STAKE
+                                        if result.staked == TESTING_INIT_STAKE
                                             && result.amount
-                                                == TESTING_INIT_BALANCE - TESTING_INIT_STAKE
+                                                == TESTING_INIT_BALANCE
+                                                    - TESTING_INIT_STAKE
+                                                    - stake_cost
                                         {
                                             done2_copy2.store(true, Ordering::SeqCst);
                                         }

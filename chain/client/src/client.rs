@@ -1,6 +1,8 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in done in this actor as well (at the moment).
 
+use std::cmp::max;
+use std::cmp::min;
 use std::collections::HashMap;
 use std::ops::Sub;
 use std::sync::{Arc, RwLock};
@@ -11,26 +13,32 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
+use borsh::BorshSerialize;
+use cached::{Cached, SizedCache};
 use chrono::{DateTime, Utc};
 use futures::Future;
 use log::{debug, error, info, warn};
 
+use near_chain::types::{ReceiptResponse, ValidatorSignatureVerificationResult};
 use near_chain::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis, Provenance, RuntimeAdapter,
+    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis, Provenance,
+    RuntimeAdapter, ValidTransaction,
 };
 use near_chunks::ShardsManager;
+use near_crypto::Signature;
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo,
 };
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_primitives::crypto::signature::{verify, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
+use near_primitives::utils::from_timestamp;
+use near_primitives::views::ValidatorInfo;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
@@ -40,16 +48,13 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use near_primitives::rpc::ValidatorInfo;
+use near_primitives::transaction::{check_tx_history, SignedTransaction};
 
 /// Economics config taken from genesis config
 struct EconConfig {
     gas_price_adjustment_rate: u8,
     max_inflation_rate: u8,
 }
-use cached::{Cached, SizedCache};
-use near_chain::types::ValidatorSignatureVerificationResult;
-use std::cmp::max;
 
 enum AccountAnnounceVerificationResult {
     Valid,
@@ -204,14 +209,20 @@ impl ClientActor {
             if let Ok(previous_hash) = previous_hash {
                 let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
 
-                let real_current_hash =
-                    &hash([previous_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
+                let real_current_hash = &hash(
+                    [
+                        previous_hash.as_ref(),
+                        peer_id.try_to_vec().expect("Failed to serialize").as_ref(),
+                    ]
+                    .concat()
+                    .as_slice(),
+                );
 
                 if real_current_hash != current_hash {
                     return Err(ReasonForBan::InvalidHash);
                 }
 
-                if verify(current_hash.as_ref(), signature, &peer_id.public_key()) {
+                if signature.verify(current_hash.as_ref(), &peer_id.public_key()) {
                     Ok(current_hash.clone())
                 } else {
                     return Err(ReasonForBan::InvalidSignature);
@@ -251,7 +262,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
         match msg {
             NetworkClientMessages::Transaction(tx) => {
                 let runtime_adapter = self.runtime_adapter.clone();
-                let shard_id = runtime_adapter.account_id_to_shard_id(&tx.body.get_originator());
+                let shard_id = runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
                 if let Ok(chunk_extra) = self.chain.get_latest_chunk_extra(shard_id) {
                     match self.runtime_adapter.validate_tx(shard_id, chunk_extra.state_root, tx) {
                         Ok(valid_transaction) => {
@@ -275,7 +286,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::Block(block, peer_id, was_requested) => {
                 if let SyncStatus::StateSync(sync_hash, _) = &mut self.sync_status {
                     if let Ok(header) = self.chain.get_block_header(sync_hash) {
-                        if block.hash() == header.prev_hash {
+                        if block.hash() == header.inner.prev_hash {
                             if let Err(_) = self.chain.save_block(&block) {
                                 error!(target: "client", "Failed to save a block during state sync");
                             }
@@ -434,7 +445,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkOnePart(one_part_msg) => {
-                let prev_block_hash = one_part_msg.header.prev_block_hash;
+                let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
                 if let Ok(ret) = self.shards_mgr.process_chunk_one_part(one_part_msg.clone()) {
                     if ret {
                         // If the chunk builds on top of the current head, get all the remaining parts
@@ -453,7 +464,9 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         ) && self
                             .chain
                             .head()
-                            .map(|head| head.last_block_hash == one_part_msg.header.prev_block_hash)
+                            .map(|head| {
+                                head.last_block_hash == one_part_msg.header.inner.prev_block_hash
+                            })
                             .unwrap_or(false)
                         {
                             self.shards_mgr.request_chunks(vec![one_part_msg.header]);
@@ -497,7 +510,7 @@ impl Handler<Status> for ClientActor {
         let head = self.chain.head().map_err(|err| err.to_string())?;
         let prev_header =
             self.chain.get_block_header(&head.last_block_hash).map_err(|err| err.to_string())?;
-        let latest_block_time = prev_header.timestamp.clone();
+        let latest_block_time = prev_header.inner.timestamp.clone();
         let validators = self
             .runtime_adapter
             .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
@@ -511,10 +524,10 @@ impl Handler<Status> for ClientActor {
             rpc_addr: self.config.rpc_addr.clone(),
             validators,
             sync_info: StatusSyncInfo {
-                latest_block_hash: head.last_block_hash,
+                latest_block_hash: head.last_block_hash.into(),
                 latest_block_height: head.height,
-                latest_state_root: prev_header.prev_state_root.clone(),
-                latest_block_time,
+                latest_state_root: prev_header.inner.prev_state_root.clone().into(),
+                latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.sync_status.is_syncing(),
             },
         })
@@ -585,8 +598,8 @@ impl ClientActor {
             self.handle_scheduling_block_production(
                 ctx,
                 block.hash(),
-                block.header.height,
-                block.header.height,
+                block.header.inner.height,
+                block.header.inner.height,
             );
         }
 
@@ -615,22 +628,22 @@ impl ClientActor {
                     let mut to_reintroduce = vec![];
 
                     while remove_head.hash() != reintroduce_head.hash() {
-                        while remove_head.height > reintroduce_head.height {
+                        while remove_head.inner.height > reintroduce_head.inner.height {
                             to_remove.push(remove_head.hash());
                             remove_head = self
                                 .chain
-                                .get_block_header(&remove_head.prev_hash)
+                                .get_block_header(&remove_head.inner.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
-                        while reintroduce_head.height > remove_head.height
-                            || reintroduce_head.height == remove_head.height
+                        while reintroduce_head.inner.height > remove_head.inner.height
+                            || reintroduce_head.inner.height == remove_head.inner.height
                                 && reintroduce_head.hash() != remove_head.hash()
                         {
                             to_reintroduce.push(reintroduce_head.hash());
                             reintroduce_head = self
                                 .chain
-                                .get_block_header(&reintroduce_head.prev_hash)
+                                .get_block_header(&reintroduce_head.inner.prev_hash)
                                 .unwrap()
                                 .clone();
                         }
@@ -657,7 +670,7 @@ impl ClientActor {
                         .unwrap();
                     let chunk_proposer = self
                         .runtime_adapter
-                        .get_chunk_producer(&epoch_id, block.header.height + 1, shard_id)
+                        .get_chunk_producer(&epoch_id, block.header.inner.height + 1, shard_id)
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
@@ -666,7 +679,7 @@ impl ClientActor {
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
-                            block.header.height + 1,
+                            block.header.inner.height + 1,
                             shard_id,
                         ) {
                             error!(target: "client", "Error producing chunk {:?}", err);
@@ -676,16 +689,16 @@ impl ClientActor {
             }
         }
 
-        self.check_send_announce_account(block.header.prev_hash);
+        self.check_send_announce_account(block.header.inner.prev_hash);
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.height == chunk_header.height_included {
+            if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     &me,
-                    block.header.prev_hash,
+                    block.header.inner.prev_hash,
                     shard_id,
                 ) {
                     self.shards_mgr.remove_transactions(
@@ -701,10 +714,10 @@ impl ClientActor {
     fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
-            if block.header.height == chunk_header.height_included {
+            if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     &me,
-                    block.header.prev_hash,
+                    block.header.inner.prev_hash,
                     shard_id,
                 ) {
                     self.shards_mgr.reintroduce_transactions(
@@ -818,12 +831,12 @@ impl ClientActor {
         let mut epoch_hash =
             self.runtime_adapter.get_epoch_id_from_prev_block(&block.hash()).ok()?;
         let next_block_producer_account =
-            self.get_block_proposer(&epoch_hash, block.header.height + 1);
+            self.get_block_proposer(&epoch_hash, block.header.inner.height + 1);
         if let (Some(block_producer), Ok(next_block_producer_account)) =
             (&self.block_producer, &next_block_producer_account)
         {
             if &block_producer.account_id != next_block_producer_account {
-                epoch_hash = block.header.epoch_id.clone();
+                epoch_hash = block.header.inner.epoch_id.clone();
                 if let Ok(validators) =
                     self.runtime_adapter.get_epoch_block_producers(&epoch_hash, &block.hash())
                 {
@@ -949,7 +962,7 @@ impl ClientActor {
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
         info!("Creating a chunk with {} transactions for shard {}", transactions.len(), shard_id);
 
-        let (_, receipts) = self.chain.get_outgoing_receipts_for_shard(
+        let ReceiptResponse(_, receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
             last_header.height_included,
@@ -1038,7 +1051,7 @@ impl ClientActor {
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
         let prev_hash = prev.hash();
-        let prev_prev_hash = prev.prev_hash;
+        let prev_prev_hash = prev.inner.prev_hash;
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -1064,7 +1077,7 @@ impl ClientActor {
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
-            total_validators - max(if prev_same_bp { 1 } else { 2 }, total_validators);
+            total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
         let elapsed = self.last_block_processed.elapsed();
         if self.approvals.len() < total_approvals
             && elapsed < self.config.max_block_production_delay
@@ -1201,8 +1214,8 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        info!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.prev_hash, block.header.height, peer_id);
-        let prev_hash = block.header.prev_hash;
+        info!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
+        let prev_hash = block.header.inner.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
         match self.process_block(ctx, block, provenance) {
@@ -1248,7 +1261,7 @@ impl ClientActor {
 
     fn receive_header(&mut self, header: BlockHeader, peer_info: PeerId) -> NetworkClientResponses {
         let hash = header.hash();
-        debug!(target: "client", "Received block header {} at {} from {}", hash, header.height, peer_info);
+        debug!(target: "client", "Received block header {} at {} from {}", hash, header.inner.height, peer_info);
 
         // Process block by chain, if it's valid header ask for the block.
         let result = self.chain.process_block_header(&header);
@@ -1323,7 +1336,7 @@ impl ClientActor {
         let mut headers = vec![];
         let max_height = self.chain.header_head()?.height;
         // TODO: this may be inefficient if there are a lot of skipped blocks.
-        for h in header.height + 1..=max_height {
+        for h in header.inner.height + 1..=max_height {
             if let Ok(header) = self.chain.get_header_by_height(h) {
                 headers.push(header.clone());
                 if headers.len() >= sync::MAX_BLOCK_HEADERS as usize {
@@ -1332,6 +1345,26 @@ impl ClientActor {
             }
         }
         Ok(headers)
+    }
+
+    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
+    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, String> {
+        let head = self.chain.head().map_err(|err| err.to_string())?;
+        // IIIII
+        //        let state_root = self
+        //            .chain
+        //            .get_post_state_root(&head.last_block_hash)
+        //            .map_err(|err| err.to_string())?
+        //            .clone();
+        //        if !check_tx_history(
+        //            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
+        //            head.height,
+        //            self.config.transaction_validity_period,
+        //        ) {
+        //            return Err("Transaction has either expired or is from a different fork".to_string());
+        //        }
+        //        self.runtime_adapter.validate_tx(0, state_root, tx)
+        Ok(ValidTransaction { transaction: tx })
     }
 
     /// Check whether need to (continue) sync.
@@ -1393,7 +1426,7 @@ impl ClientActor {
         let header_head = self.chain.header_head()?;
         let mut sync_hash = header_head.prev_block_hash;
         for _ in 0..self.config.state_fetch_horizon {
-            sync_hash = self.chain.get_block_header(&sync_hash)?.prev_hash;
+            sync_hash = self.chain.get_block_header(&sync_hash)?.inner.prev_hash;
         }
         Ok(sync_hash)
     }
@@ -1545,7 +1578,7 @@ impl ClientActor {
                         let mut need_to_restart = false;
 
                         if let Ok(sync_block_header) = self.chain.get_block_header(&sync_hash) {
-                            let prev_hash = sync_block_header.prev_hash;
+                            let prev_hash = sync_block_header.inner.prev_hash;
 
                             if let Ok(current_epoch) =
                                 self.runtime_adapter.get_epoch_id_from_prev_block(&prev_hash)
@@ -1601,7 +1634,7 @@ impl ClientActor {
                         {
                             if fetch_block {
                                 if let Ok(header) = self.chain.get_block_header(&sync_hash) {
-                                    let prev_hash = header.prev_hash;
+                                    let prev_hash = header.inner.prev_hash;
                                     self.request_block_by_hash(prev_hash, peer_info.peer_info.id);
                                 }
                             }
@@ -1734,7 +1767,7 @@ impl ClientActor {
         // TODO: Access runtime adapter only once to find the position and public key.
 
         // If given account is not current block proposer.
-        let position = match self.get_epoch_block_proposers(&header.epoch_id, &hash) {
+        let position = match self.get_epoch_block_proposers(&header.inner.epoch_id, &hash) {
             Ok(validators) => {
                 let position = validators.iter().position(|x| &(x.0) == account_id);
                 if let Some(idx) = position {
@@ -1748,14 +1781,18 @@ impl ClientActor {
                 }
             }
             Err(err) => {
-                error!(target: "client", "Error: {}", err);
+                error!(target: "client", "Block approval error: {}", err);
                 return false;
             }
         };
         // Check signature is correct for given validator.
-        if let ValidatorSignatureVerificationResult::Invalid = self
-            .runtime_adapter
-            .verify_validator_signature(&header.epoch_id, account_id, hash.as_ref(), signature)
+        if let ValidatorSignatureVerificationResult::Invalid =
+            self.runtime_adapter.verify_validator_signature(
+                &header.inner.epoch_id,
+                account_id,
+                hash.as_ref(),
+                signature,
+            )
         {
             return false;
         }

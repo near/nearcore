@@ -1,8 +1,9 @@
-import { context, storage, ContractPromise, ContractPromiseResult, near } from "./near";
+// @nearfile
+import { context, storage, ContractPromise, near, logging } from "near-runtime-ts";
 
-import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model.near";
+import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model";
 
-import { u128 } from "./bignum/integer/u128";
+import { u128 } from "bignum";
 
 export function hello(name: string): string {
 
@@ -10,20 +11,20 @@ export function hello(name: string): string {
 }
 
 export function setKeyValue(key: string, value: string): void {
-  storage.setItem(key, value);
+  storage.setString(key, value);
 }
 
 export function getValueByKey(key: string): string {
-  return storage.getItem(key);
+  return storage.getString(key)!;
 }
 
 export function setValue(value: string): string {
-  storage.setItem("name", value);
+  storage.setString("name", value);
   return value;
 }
 
 export function getValue(): string {
-  return storage.getItem("name");
+  return storage.getString("name")!;
 }
 
 export function getAllKeys(): string[] {
@@ -36,7 +37,7 @@ export function getAllKeys(): string[] {
 export function benchmark(): string[] {
   let i = 0;
   while (i < 10) {
-    storage.setItem(i.toString(), "123123");
+    storage.setString(i.toString(), "123123");
     i += 1;
   }
   return storage.keys("");
@@ -45,13 +46,13 @@ export function benchmark(): string[] {
 export function benchmark_storage(n: i32): string {
   let i = 0;
   while (i < n) {
-    storage.setItem(i.toString(), i.toString());
+    storage.setString(i.toString(), i.toString());
     i += 1;
   }
   i = 0;
   let sum: u64 = 0;
   while (i < n) {
-    let item = I32.parseInt(storage.getItem(i.toString()));
+    let item = I32.parseInt(storage.getString(i.toString()));
     sum += item;
     i += 1;
   }
@@ -62,10 +63,10 @@ export function limited_storage(max_storage: u64): string {
   let i = 0;
   while (context.storageUsage <= max_storage) {
     i += 1;
-    storage.setItem(i.toString(), i.toString());
+    storage.setString(i.toString(), i.toString());
   }
   if (context.storageUsage > max_storage) {
-    storage.removeItem(i.toString());
+    storage.delete(i.toString());
   }
   return i.toString()
 }
@@ -81,26 +82,26 @@ export function benchmark_sum_n(n: i32): string {
 }
 
 export function generateLogs(): void {
-  storage.setItem("item", "value");
-  near.log("log1");
-  near.log("log2");
+  storage.setString("item", "value");
+  logging.log("log1");
+  logging.log("log2");
 }
 
 export function returnHiWithLogs(): string {
-  near.log("loooog1");
-  near.log("loooog2");
+  logging.log("loooog1");
+  logging.log("loooog2");
   return "Hi"
 }
 
 export function triggerAssert(): void {
-  near.log("log before assert");
+  logging.log("log before assert");
   assert(false, "expected to fail");
 }
 
 export function testSetRemove(value: string): void {
-  storage.setItem("test", value);
-  storage.removeItem("test");
-  assert(storage.getItem("test") == null, "Item must be empty");
+  storage.setString("test", value);
+  storage.delete("test");
+  assert(storage.getString("test") == null, "Item must be empty");
 }
 
 function buildString(n: i32): string {
@@ -118,14 +119,14 @@ function buildString(n: i32): string {
 export function insertStrings(from: i32, to: i32): void {
   let str = buildString(to);
   for (let i = from; i < to; i++) {
-    storage.setItem(str.substr(to - i) + "b", "x");
+    storage.setString(str.substr(to - i) + "b", "x");
   }
 }
 
 export function deleteStrings(from: i32, to: i32): void {
   let str = buildString(to);
   for (let i = to - 1; i >= from; i--) {
-    storage.removeItem(str.substr(to - i) + "b");
+    storage.delete(str.substr(to - i) + "b");
   }
 }
 
@@ -144,14 +145,16 @@ export function callPromise(args: PromiseArgs): void {
   let promise = ContractPromise.create(
       args.receiver,
       args.methodName,
-      inputArgs.encode(),
+      inputArgs.encode().serialize(),
       new u128(args.balance));
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     let callbackBalance = args.callbackBalance as u64;
+
     promise = promise.then(
+        args.receiver,
         args.callback,
-        inputArgs.encode(),
+        inputArgs.encode().serialize(),
         new u128(callbackBalance));
   }
   promise.returnAsResult();
@@ -162,7 +165,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let allRes = Array.create<MyContractPromiseResult>(contractResults.length);
   for (let i = 0; i < contractResults.length; ++i) {
     allRes[i] = new MyContractPromiseResult();
-    allRes[i].ok = contractResults[i].success;
+    allRes[i].ok = (contractResults[i].status == 1);
     if (allRes[i].ok && contractResults[i].buffer != null && contractResults[i].buffer.length > 0) {
       allRes[i].r = MyCallbackResult.decode(contractResults[i].buffer);
     }
@@ -171,7 +174,7 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
     rs: allRes,
     n: context.contractName,
   };
-  let bytes = result.encode();
+  let bytes = result.encode().serialize();
   storage.setBytes("lastResult", bytes);
   return result;
 }
@@ -179,4 +182,3 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
 export function getLastResult(): MyCallbackResult {
   return MyCallbackResult.decode(storage.getBytes("lastResult"));
 }
-

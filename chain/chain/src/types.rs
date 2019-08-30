@@ -1,18 +1,23 @@
 use std::collections::HashMap;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
+use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
-use near_primitives::crypto::signature::Signature;
-use near_primitives::crypto::signer::EDSigner;
-use near_primitives::hash::{CryptoHash, hash_struct};
-use near_primitives::rpc::QueryResponse;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction, TransactionResult};
+use near_primitives::transaction::{SignedTransaction, TransactionLog, TransactionResult};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, GasUsage, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
-use near_store::{StoreUpdate, WrappedTrieChanges};
+use near_primitives::views::QueryResponse;
+use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum BlockStatus {
@@ -52,7 +57,7 @@ pub struct ValidTransaction {
 }
 
 /// Map of shard to list of receipts to send to it.
-pub type ReceiptResult = HashMap<ShardId, Vec<ReceiptTransaction>>;
+pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
 pub enum ShardFullChunkOrOnePart<'a> {
     // The validator follows the shard, and has the full chunk
@@ -73,10 +78,11 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
-    pub transaction_results: Vec<TransactionResult>,
+    pub transaction_results: Vec<TransactionLog>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub gas_used: GasUsage,
+    pub gas_used: Gas,
+    pub proof: Option<PartialStorage>,
 }
 
 /// Bridge between the chain and the runtime.
@@ -185,7 +191,7 @@ pub trait RuntimeAdapter: Send + Sync {
         proposals: Vec<ValidatorStake>,
         slashed_validators: Vec<AccountId>,
         validator_mask: Vec<bool>,
-        gas_used: GasUsage,
+        gas_used: Gas,
         gas_price: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
@@ -195,12 +201,35 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        merkle_hash: &MerkleHash,
+        state_root: &MerkleHash,
         block_index: BlockIndex,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
-        receipts: &Vec<ReceiptTransaction>,
+        receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+    ) -> Result<ApplyTransactionResult, Error> {
+        self.apply_transactions_with_optional_storage_proof(
+            shard_id,
+            state_root,
+            block_index,
+            prev_block_hash,
+            block_hash,
+            receipts,
+            transactions,
+            false,
+        )
+    }
+
+    fn apply_transactions_with_optional_storage_proof(
+        &self,
+        shard_id: ShardId,
+        state_root: &MerkleHash,
+        block_index: BlockIndex,
+        prev_block_hash: &CryptoHash,
+        block_hash: &CryptoHash,
+        receipts: &Vec<Receipt>,
+        transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -230,30 +259,28 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Build receipts hashes.
-    fn build_receipts_hashes(
-        &self,
-        receipts: &Vec<ReceiptTransaction>,
-    ) -> Result<Vec<CryptoHash>, Error> {
+    fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
         let mut receipts_hashes = vec![];
         for shard_id in 0..self.num_shards() {
             // importance to save the same order while filtering
-            let shard_receipts: Vec<ReceiptTransaction> = receipts
+            let shard_receipts: Vec<Receipt> = receipts
                 .iter()
-                .filter(|&receipt| {
-                    self.account_id_to_shard_id(&receipt.receiver) == shard_id
-                })
+                .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash_struct(&shard_receipts));
+            receipts_hashes.push(hash(&ReceiptList(shard_receipts).try_to_vec()?));
         }
         Ok(receipts_hashes)
     }
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+struct ReceiptList(Vec<Receipt>);
+
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience and the total weight.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct Tip {
     /// Height of the tip (max height of the fork)
     pub height: BlockIndex,
@@ -271,11 +298,11 @@ impl Tip {
     /// Creates a new tip based on provided header.
     pub fn from_header(header: &BlockHeader) -> Tip {
         Tip {
-            height: header.height,
+            height: header.inner.height,
             last_block_hash: header.hash(),
-            prev_block_hash: header.prev_hash,
-            total_weight: header.total_weight,
-            epoch_id: header.epoch_id.clone(),
+            prev_block_hash: header.inner.prev_hash,
+            total_weight: header.inner.total_weight,
+            epoch_id: header.inner.epoch_id.clone(),
         }
     }
 }
@@ -289,7 +316,7 @@ pub struct BlockApproval {
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn EDSigner, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -301,7 +328,7 @@ mod tests {
 
     use chrono::Utc;
 
-    use near_primitives::crypto::signer::InMemorySigner;
+    use near_crypto::{InMemorySigner, KeyType};
 
     use super::*;
 
@@ -316,21 +343,34 @@ mod tests {
             100,
             1_000_000_000,
         );
-        let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
+        let b1 = Block::produce(
+            &genesis.header,
+            1,
+            genesis.chunks.clone(),
+            EpochId::default(),
+            vec![],
+            HashMap::default(),
+            0,
+            0,
+            signer.clone(),
+        );
+        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
-        assert_eq!(b1.header.total_weight.to_num(), 1);
-        let other_signer = Arc::new(InMemorySigner::from_seed("other2", "other2"));
+        assert_eq!(b1.header.inner.total_weight.to_num(), 1);
+        let other_signer =
+            Arc::new(InMemorySigner::from_seed("other2", KeyType::ED25519, "other2"));
         let approvals: HashMap<usize, Signature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,
             2,
+            b1.header.inner.epoch_id.clone(),
             approvals,
             signer.clone(),
-            b1.header.epoch_id.clone(),
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
-        assert_eq!(b2.header.total_weight.to_num(), 3);
+        assert_eq!(b2.header.inner.total_weight.to_num(), 3);
     }
 }

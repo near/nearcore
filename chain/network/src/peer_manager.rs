@@ -20,6 +20,7 @@ use tokio::io::AsyncRead;
 use tokio::net::{TcpListener, TcpStream};
 
 use near_primitives::types::AccountId;
+use near_primitives::utils::from_timestamp;
 use near_store::Store;
 
 use crate::codec::Codec;
@@ -333,7 +334,7 @@ impl PeerManagerActor {
             match peer_state.status {
                 KnownPeerStatus::Banned(_, last_banned) => {
                     let interval = unwrap_or_error!(
-                        (Utc::now() - last_banned).to_std(),
+                        (Utc::now() - from_timestamp(last_banned)).to_std(),
                         "Failed to convert time"
                     );
                     if interval > self.config.ban_window {
@@ -684,9 +685,9 @@ impl Handler<PeersRequest> for PeerManagerActor {
 impl Handler<PeersResponse> for PeerManagerActor {
     type Result = ();
 
-    fn handle(&mut self, mut msg: PeersResponse, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: PeersResponse, _ctx: &mut Self::Context) {
         self.peer_store.add_peers(
-            msg.peers.drain(..).filter(|peer_info| peer_info.id != self.peer_id).collect(),
+            msg.peers.into_iter().filter(|peer_info| peer_info.id != self.peer_id).collect(),
         );
     }
 }

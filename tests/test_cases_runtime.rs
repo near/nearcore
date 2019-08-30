@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod test {
+    use near::config::TESTING_INIT_BALANCE;
     use near::GenesisConfig;
     use near_primitives::serialize::to_base64;
     use near_primitives::utils::key_for_data;
@@ -13,13 +14,32 @@ mod test {
     }
 
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis_config = GenesisConfig::legacy_test(
-            vec![&alice_account(), &bob_account(), "carol.near"],
-            1,
-            vec![1],
-        );
+        let mut genesis_config =
+            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = 100_000_000_000_000;
+        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
+        genesis_config.runtime_config.poke_threshold = 10;
+        match &mut genesis_config.records[0][0] {
+            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000_000,
+            _ => {}
+        }
+        genesis_config.records[0].push(StateRecord::Data {
+            key: to_base64(&key_for_data(&bob_account(), b"test")),
+            value: to_base64(b"123"),
+        });
+        RuntimeNode::new_from_genesis(&alice_account(), genesis_config)
+    }
+
+    fn create_runtime_with_expensive_account_length() -> RuntimeNode {
+        let mut genesis_config =
+            GenesisConfig::legacy_test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
+        // Set expensive account length rent and add alice more money.
+        // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
+        // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73
+        // it would be enough to delete bob's account.
+        genesis_config.runtime_config.account_length_baseline_cost_per_block =
+            73 * TESTING_INIT_BALANCE;
+        genesis_config.runtime_config.storage_cost_byte_per_block = 1;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0][0] {
             StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
@@ -69,39 +89,9 @@ mod test {
     }
 
     #[test]
-    fn test_async_call_with_no_callback_runtime() {
-        let node = create_runtime_node();
-        test_async_call_with_no_callback(node);
-    }
-
-    #[test]
-    fn test_async_call_with_callback_runtime() {
-        let node = create_runtime_node();
-        test_async_call_with_callback(node);
-    }
-
-    #[test]
     fn test_async_call_with_logs_runtime() {
         let node = create_runtime_node();
         test_async_call_with_logs(node);
-    }
-
-    #[test]
-    fn test_callback_runtime() {
-        let node = create_runtime_node();
-        test_callback(node);
-    }
-
-    #[test]
-    fn test_callback_failure_runtime() {
-        let node = create_runtime_node();
-        test_callback_failure(node);
-    }
-
-    #[test]
-    fn test_deposit_with_callback_runtime() {
-        let node = create_runtime_node();
-        test_deposit_with_callback(node);
     }
 
     #[test]
@@ -207,9 +197,9 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_runtime() {
+    fn test_add_access_key_function_call_runtime() {
         let node = create_runtime_node();
-        test_add_access_key(node);
+        test_add_access_key_function_call(node);
     }
 
     #[test]
@@ -219,21 +209,15 @@ mod test {
     }
 
     #[test]
-    fn test_add_access_key_with_funding_runtime() {
+    fn test_add_access_key_with_allowance_runtime() {
         let node = create_runtime_node();
-        test_add_access_key_with_funding(node);
+        test_add_access_key_with_allowance(node);
     }
 
     #[test]
-    fn test_delete_access_key_with_owner_refund_runtime() {
+    fn test_delete_access_key_with_allowance_runtime() {
         let node = create_runtime_node();
-        test_delete_access_key_with_owner_refund(node);
-    }
-
-    #[test]
-    fn test_delete_access_key_with_bob_refund_runtime() {
-        let node = create_runtime_node();
-        test_delete_access_key_with_bob_refund(node);
+        test_delete_access_key_with_allowance(node);
     }
 
     #[test]
@@ -279,21 +263,39 @@ mod test {
     }
 
     #[test]
-    fn test_fail_not_enough_rent_runtime() {
+    fn test_fail_not_enough_rent_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
         test_fail_not_enough_rent(node);
     }
 
     #[test]
-    fn test_stake_fail_not_enough_rent_runtime() {
+    fn test_stake_fail_not_enough_rent_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
-        test_stake_fail_not_enough_rent(node);
+        test_stake_fail_not_enough_rent_for_storage(node);
     }
 
     #[test]
-    fn test_delete_account_runtime() {
+    fn test_delete_account_for_storage_runtime() {
         let node = create_runtime_with_expensive_storage();
-        test_delete_account(node);
+        test_delete_account_low_balance(node);
+    }
+
+    #[test]
+    fn test_fail_not_enough_rent_for_account_id_runtime() {
+        let node = create_runtime_with_expensive_account_length();
+        test_fail_not_enough_rent(node);
+    }
+
+    #[test]
+    fn test_stake_fail_not_enough_rent_for_account_id_runtime() {
+        let node = create_runtime_with_expensive_account_length();
+        test_stake_fail_not_enough_rent_for_account_id(node);
+    }
+
+    #[test]
+    fn test_delete_account_for_account_id_runtime() {
+        let node = create_runtime_with_expensive_account_length();
+        test_delete_account_low_balance(node);
     }
 
     #[test]

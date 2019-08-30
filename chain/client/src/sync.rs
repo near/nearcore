@@ -322,7 +322,7 @@ impl BlockSync {
             near_chain::MAX_ORPHAN_SIZE.saturating_sub(chain.orphans_len()) + 1,
         );
 
-        let mut hashes_to_request = hashes
+        let hashes_to_request = hashes
             .iter()
             .filter(|x| !chain.get_block(x).is_ok() && !chain.is_orphan(x))
             .take(block_count)
@@ -337,12 +337,12 @@ impl BlockSync {
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_REQUEST_TIMEOUT);
 
             let mut peers_iter = most_weight_peers.iter().cycle();
-            for hash in hashes_to_request.drain(..) {
+            for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
                     if self
                         .network_recipient
                         .do_send(NetworkRequests::BlockRequest {
-                            hash: hash.clone(),
+                            hash: *hash,
                             peer_id: peer.peer_info.id.clone(),
                         })
                         .is_ok()
@@ -434,7 +434,7 @@ impl StateSync {
         let mut sync_need_restart = HashSet::new();
 
         debug!("MOO run state sync tracking shards: {:?}", tracking_shards);
-        let prev_hash = chain.get_block_header(&sync_hash)?.prev_hash.clone();
+        let prev_hash = chain.get_block_header(&sync_hash)?.inner.prev_hash.clone();
 
         let now = Utc::now();
         let (request_block, have_block) = if !chain.block_exists(&prev_hash)? {
@@ -546,7 +546,8 @@ impl StateSync {
         runtime_adapter: &Arc<dyn RuntimeAdapter>,
         hash: CryptoHash,
     ) -> Option<()> {
-        let prev_block_hash = unwrap_or_return!(chain.get_block_header(&hash), None).prev_hash;
+        let prev_block_hash =
+            unwrap_or_return!(chain.get_block_header(&hash), None).inner.prev_hash;
         let epoch_hash =
             unwrap_or_return!(runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash), None);
         let shard_bps =

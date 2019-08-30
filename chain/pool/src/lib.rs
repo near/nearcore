@@ -23,11 +23,11 @@ impl TransactionPool {
 
     /// Insert a valid transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, valid_transaction: ValidTransaction) {
-        let account = valid_transaction.transaction.body.get_originator();
-        let nonce = valid_transaction.transaction.body.get_nonce();
+        let signer_id = valid_transaction.transaction.transaction.signer_id.clone();
+        let nonce = valid_transaction.transaction.transaction.nonce;
         self.num_transactions += 1;
         self.transactions
-            .entry(account)
+            .entry(signer_id)
             .or_insert_with(BTreeMap::new)
             .insert(nonce, valid_transaction.transaction);
     }
@@ -53,16 +53,16 @@ impl TransactionPool {
     /// or became invalid after it.
     pub fn remove_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
         for transaction in transactions.iter() {
-            let account = transaction.body.get_originator();
-            let nonce = transaction.body.get_nonce();
+            let signer_id = &transaction.transaction.signer_id;
+            let nonce = transaction.transaction.nonce;
             let mut remove_map = false;
-            if let Some(map) = self.transactions.get_mut(&account) {
+            if let Some(map) = self.transactions.get_mut(signer_id) {
                 map.remove(&nonce);
                 remove_map = map.is_empty();
             }
             if remove_map {
                 self.num_transactions -= 1;
-                self.transactions.remove(&account);
+                self.transactions.remove(signer_id);
             }
         }
     }
@@ -82,24 +82,35 @@ impl TransactionPool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
     use near_chain::ValidTransaction;
-    use near_primitives::crypto::signer::InMemorySigner;
-    use near_primitives::transaction::TransactionBody;
+    use near_crypto::{InMemorySigner, KeyType};
+    use near_primitives::transaction::SignedTransaction;
 
     use crate::TransactionPool;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::types::Balance;
 
     /// Add transactions of nonce from 1..10 in random order. Check that mempool
     /// orders them correctly.
     #[test]
     fn test_order_nonce() {
-        let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        let signer =
+            Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
         let mut transactions: Vec<_> = (1..10)
             .map(|i| {
-                TransactionBody::send_money(i, "alice.near", "bob.near", i as Balance).sign(&signer)
+                SignedTransaction::send_money(
+                    i,
+                    "alice.near".to_string(),
+                    "bob.near".to_string(),
+                    signer.clone(),
+                    i as Balance,
+                    CryptoHash::default(),
+                )
             })
             .collect();
         let mut pool = TransactionPool::new();
@@ -109,7 +120,7 @@ mod tests {
             pool.insert_transaction(ValidTransaction { transaction: tx });
         }
         let transactions = pool.prepare_transactions(10).unwrap();
-        let nonces: Vec<u64> = transactions.iter().map(|tx| tx.body.get_nonce()).collect();
+        let nonces: Vec<u64> = transactions.iter().map(|tx| tx.transaction.nonce).collect();
         assert_eq!(nonces, (1..10).collect::<Vec<u64>>())
     }
 

@@ -1,6 +1,10 @@
-use near_chain::test_utils::setup;
+use near_chain::test_utils::{setup, setup_with_tx_validity_period};
 use near_chain::{Block, ErrorKind, Provenance};
+use near_crypto::{KeyType, Signature, Signer};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::test_utils::init_test_logger;
+use near_primitives::transaction::{SignedTransaction, Transaction};
+use near_primitives::types::{EpochId, MerkleHash};
 use std::collections::HashMap;
 
 #[test]
@@ -39,7 +43,7 @@ fn build_chain_with_orhpans() {
         &last_block.header,
         10,
         last_block.chunks.clone(),
-        last_block.header.epoch_id.clone(),
+        last_block.header.inner.epoch_id.clone(),
         vec![],
         HashMap::default(),
         0,
@@ -100,5 +104,69 @@ fn build_chain_with_skips_and_forks() {
     assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
     assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
-    assert_eq!(chain.get_header_by_height(5).unwrap().height, 5);
+    assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
+}
+
+#[test]
+fn test_apply_expired_tx() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup_with_tx_validity_period(0);
+    let genesis = chain.get_block_by_height(0).unwrap().clone();
+    let b1 = Block::empty(&genesis, signer.clone());
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: b1.hash(),
+            actions: vec![],
+        },
+    );
+    let b2 = Block::produce(
+        &chain.genesis(),
+        2,
+        genesis.chunks.clone(),
+        EpochId::default(),
+        vec![tx],
+        HashMap::default(),
+        0,
+        0,
+        signer.clone(),
+    );
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
+}
+
+#[test]
+fn test_tx_wrong_fork() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let b1 = Block::empty(genesis, signer.clone());
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: hash(&[2]),
+            actions: vec![],
+        },
+    );
+    let b2 = Block::produce(
+        &genesis.header,
+        2,
+        genesis.chunks.clone(),
+        EpochId::default(),
+        vec![tx],
+        HashMap::default(),
+        0,
+        0,
+        signer.clone(),
+    );
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
 }

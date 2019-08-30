@@ -63,29 +63,29 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(block.hash(), block.header.height);
-                        check_height(block.header.prev_hash, block.header.height - 1);
+                        check_height(block.hash(), block.header.inner.height);
+                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
 
                         println!(
                             "BLOCK HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}",
-                            block.header.height,
-                            block.chunks[0].height_created,
-                            block.chunks[1].height_created,
-                            block.chunks[2].height_created,
-                            block.chunks[3].height_created
+                            block.header.inner.height,
+                            block.chunks[0].inner.height_created,
+                            block.chunks[1].inner.height_created,
+                            block.chunks[2].inner.height_created,
+                            block.chunks[3].inner.height_created
                         );
 
-                        if block.header.height > 1 {
+                        if block.header.inner.height > 1 {
                             for shard_id in 0..4 {
                                 assert_eq!(
-                                    block.header.height,
-                                    block.chunks[shard_id].height_created
+                                    block.header.inner.height,
+                                    block.chunks[shard_id].inner.height_created
                                 );
                             }
                         }
 
-                        if block.header.height >= 6 {
-                            println!("PREV BLOCK HASH: {}", block.header.prev_hash);
+                        if block.header.inner.height >= 6 {
+                            println!("PREV BLOCK HASH: {}", block.header.inner.prev_hash);
                             println!(
                                 "STATS: one_parts: {} part_requests: {} parts: {}",
                                 one_part_msgs, part_request_msgs, part_msgs
@@ -121,15 +121,16 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
 
         {
             let connectors_ = connectors.write().unwrap();
-            connectors_[0]
-                .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-            connectors_[1]
-                .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-            connectors_[2]
-                .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+            // IIIIIIIII
+            //            connectors_[0]
+            //                .0
+            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+            //            connectors_[1]
+            //                .0
+            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+            //            connectors_[2]
+            //                .0
+            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
         }
     })
     .unwrap();

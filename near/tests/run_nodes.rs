@@ -34,7 +34,7 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
     let system = System::new("NEAR");
 
     let mut view_clients = vec![];
-    for (i, near_config) in near_configs.drain(..).enumerate() {
+    for (i, near_config) in near_configs.into_iter().enumerate() {
         let dir = TempDir::new(&format!("two_nodes_{}", i)).unwrap();
         let (_client, view_client) = start_with_config(dir.path(), near_config);
         view_clients.push(view_client)

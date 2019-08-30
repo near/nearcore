@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, GasUsage, ShardId, ValidatorId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, ValidatorId, ValidatorStake,
 };
-use serde_derive::{Deserialize, Serialize};
 
 pub type RngSeed = [u8; 32];
 
@@ -27,8 +28,11 @@ pub struct EpochConfig {
     pub validator_kickout_threshold: u8,
 }
 
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ValidatorWeight(ValidatorId, u64);
+
 /// Information per epoch.
-#[derive(Default, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct EpochInfo {
     /// List of current validators.
     pub validators: Vec<ValidatorStake>,
@@ -39,17 +43,17 @@ pub struct EpochInfo {
     /// Per each shard, ids and seats of validators that are responsible.
     pub chunk_producers: Vec<Vec<ValidatorId>>,
     /// Weight of given validator used to determine how many shards they will validate.
-    pub fishermen: Vec<(ValidatorId, u64)>,
+    pub fishermen: Vec<ValidatorWeight>,
     /// New stake for validators
     pub stake_change: BTreeMap<AccountId, Balance>,
     /// Total gas used in epoch (T-2)
-    pub total_gas_used: GasUsage,
+    pub total_gas_used: Gas,
     /// Validator reward for the epoch
     pub validator_reward: HashMap<AccountId, Balance>,
 }
 
 /// Information per each block.
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct BlockInfo {
     pub index: BlockIndex,
     pub prev_hash: CryptoHash,
@@ -59,7 +63,7 @@ pub struct BlockInfo {
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
-    pub gas_used: GasUsage,
+    pub gas_used: Gas,
     pub gas_price: Balance,
     pub total_supply: Balance,
 }
@@ -71,7 +75,7 @@ impl BlockInfo {
         proposals: Vec<ValidatorStake>,
         validator_mask: Vec<bool>,
         slashed: HashSet<AccountId>,
-        gas_used: GasUsage,
+        gas_used: Gas,
         gas_price: Balance,
         total_supply: Balance,
     ) -> Self {
@@ -165,5 +169,5 @@ pub struct EpochSummary {
     pub all_proposals: Vec<ValidatorStake>,
     pub validator_kickout: HashSet<AccountId>,
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
-    pub total_gas_used: GasUsage,
+    pub total_gas_used: Gas,
 }
