@@ -20,7 +20,7 @@ use crate::rate_counter::RateCounter;
 use crate::types::{
     Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
     PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, SendMessage, Unregister,
+    ReasonForBan, SendMessage, Unregister, HandshakeFailureReason, PROTOCOL_VERSION
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
 
@@ -265,6 +265,7 @@ impl Peer {
                 }
             }
             PeerMessage::Handshake(_)
+            | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
             | PeerMessage::PeersResponse(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
@@ -358,8 +359,38 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             }
         };
         match (self.peer_type, self.peer_status, peer_msg) {
+            (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
+                match reason {
+                    HandshakeFailureReason::GenesisMismatch(genesis) => {
+                        error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
+                    },
+                    HandshakeFailureReason::ProtocolVersionMismatch(version) => {
+                        error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
+                    }
+                }
+                ctx.stop();
+            }
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
+
+                if handshake.chain_info.genesis != self.genesis {
+                    info!(target: "network", "Received connection from node with different genesis.");
+                    ctx.address().do_send(SendMessage {
+                        message: PeerMessage::HandshakeFailure(
+                            self.node_info.clone(),
+                            HandshakeFailureReason::GenesisMismatch(self.genesis))
+                    });
+                    return;
+                    // Connection will be closed by a handshake timeout
+                }
+                if handshake.version != PROTOCOL_VERSION {
+                    info!(target: "network", "Received connection from node with different network protocol version.");
+                    ctx.address().do_send(SendMessage {
+                        message: PeerMessage::HandshakeFailure(
+                            self.node_info.clone(),
+                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION))
+                    });
+                }
                 if handshake.chain_info.genesis != self.genesis {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.stop();
