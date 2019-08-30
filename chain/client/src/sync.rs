@@ -234,6 +234,7 @@ impl HeaderSync {
                     if header.height == h {
                         if header.height != last_loc.0 {
                             locator.push((header.height, header.hash()));
+                            break;
                         }
                     }
                     header_cursor = chain.get_previous_header(&header).map(|x| x.clone());
