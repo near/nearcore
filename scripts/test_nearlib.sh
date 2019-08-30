@@ -12,7 +12,7 @@ rm -rf nearlib
 git clone --single-branch --branch staging https://github.com/nearprotocol/nearlib.git nearlib
 cd nearlib
 export NEAR_PROTOS_DIR="../core/protos/protos"
-export HELLO_WASM_PATH="../runtime/near-vm-runner/tests/res/test_contract_rs.wasm"
+export HELLO_WASM_PATH="../tests/hello.wasm"
 yarn
 yarn build
 ../scripts/waitonserver.sh
