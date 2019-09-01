@@ -146,3 +146,39 @@ impl Default for RuntimeFeesConfig {
         }
     }
 }
+
+impl RuntimeFeesConfig {
+    pub fn free() -> Self {
+        let free = Fee { send_sir: 0, send_not_sir: 0, execution: 0 };
+        RuntimeFeesConfig {
+            action_receipt_creation_config: free.clone(),
+            data_receipt_creation_config: DataReceiptCreationConfig {
+                base_cost: free.clone(),
+                cost_per_byte: free.clone(),
+            },
+            action_creation_config: ActionCreationConfig {
+                create_account_cost: free.clone(),
+                deploy_contract_cost: free.clone(),
+                deploy_contract_cost_per_byte: free.clone(),
+                function_call_cost: free.clone(),
+                function_call_cost_per_byte: free.clone(),
+                transfer_cost: free.clone(),
+                stake_cost: free.clone(),
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: free.clone(),
+                    function_call_cost: free.clone(),
+                    function_call_cost_per_byte: free.clone(),
+                },
+                delete_key_cost: free.clone(),
+                delete_account_cost: free.clone(),
+            },
+            storage_usage_config: StorageUsageConfig {
+                account_cost: 0,
+                data_record_cost: 0,
+                key_cost_per_byte: 0,
+                value_cost_per_byte: 0,
+                code_cost_per_byte: 0,
+            },
+        }
+    }
+}

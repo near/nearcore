@@ -44,7 +44,6 @@ pub fn setup(
         validator_groups,
         num_shards,
     ));
-    let genesis_time = Utc::now();
     let chain_genesis =
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period);
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
@@ -171,7 +170,6 @@ pub fn setup_mock_all_validators(
                     }
                     let my_key_pair = my_key_pair.unwrap();
 
-                    println!("{:?}", msg);
                     match msg {
                         NetworkRequests::FetchInfo{ .. } => {
                             resp = NetworkResponses::Info ( NetworkInfo {

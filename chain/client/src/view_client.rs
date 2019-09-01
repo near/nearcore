@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use actix::{Actor, Context, Handler};
 
-use near_chain::{Block, Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{TransactionResult, TransactionStatus};
 use near_primitives::types::AccountId;
@@ -17,7 +17,6 @@ use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
 use crate::TxDetails;
-use near_primitives::types::BlockIndex;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {

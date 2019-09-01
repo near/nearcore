@@ -18,8 +18,6 @@ fn sync_state_nodes() {
         init_test_logger();
 
         let genesis_config = GenesisConfig::test(vec!["test1"]);
-        let genesis_config = GenesisConfig::test(vec!["other"]);
-        let genesis_header = genesis_header(&genesis_config);
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);

@@ -70,4 +70,21 @@ impl Config {
         self.hash(&mut s);
         s.finish()
     }
+
+    pub fn free() -> Self {
+        Self {
+            runtime_fees: RuntimeFeesConfig::free(),
+            grow_mem_cost: 0,
+            regular_op_cost: 0,
+            max_gas_burnt: 0,
+            max_stack_height: 0,
+            initial_memory_pages: 0,
+            max_memory_pages: 0,
+            registers_memory_limit: 0,
+            max_register_size: 0,
+            max_number_registers: 0,
+            max_number_logs: 0,
+            max_log_len: 0,
+        }
+    }
 }

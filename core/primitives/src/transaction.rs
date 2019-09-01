@@ -1,6 +1,5 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -151,7 +150,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: &dyn Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
     ) -> Self {
@@ -163,7 +162,7 @@ impl SignedTransaction {
             block_hash,
             actions,
         }
-        .sign(&*signer)
+        .sign(signer)
     }
 }
 
@@ -239,7 +238,8 @@ pub fn check_tx_history(
     validity_period: BlockIndex,
 ) -> bool {
     if let Some(base_header) = base_header {
-        current_height - base_header.inner.height <= validity_period
+        current_height >= base_header.inner.height
+            && current_height - base_header.inner.height <= validity_period
     } else {
         false
     }

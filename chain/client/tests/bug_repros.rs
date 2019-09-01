@@ -89,7 +89,7 @@ fn repro_1183() {
                                             from,
                                         )),
                                         1,
-                                        last_block.clone().unwrap().hash(),
+                                        block.hash(),
                                     ),
                                 ));
                             nonce_delta += 1

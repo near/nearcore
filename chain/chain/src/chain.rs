@@ -1252,6 +1252,10 @@ impl<'a> ChainUpdate<'a> {
                     let outgoing_receipts_hashes =
                         self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
                     let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+                    println!(
+                        " ==> Receipts: {} {:?}",
+                        outgoing_receipts_root, outgoing_receipts_hashes
+                    );
 
                     if outgoing_receipts_root != chunk_header.inner.receipts_root {
                         // TODO: MOO
@@ -1280,9 +1284,21 @@ impl<'a> ChainUpdate<'a> {
                         .map(|x| x.1.clone())
                         .flatten()
                         .collect();
-                    let chunk = self.chain_store_update.get_chunk(&chunk_header)?.clone();
 
-                    if chunk.transactions.iter().any(|t| {
+                    let mut transactions = block
+                        .transactions
+                        .iter()
+                        .filter(|tx| {
+                            self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id)
+                                == shard_id
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    let chunk = self.chain_store_update.get_chunk(&chunk_header)?.clone();
+                    transactions.extend(chunk.transactions.iter().cloned());
+
+                    if transactions.iter().any(|t| {
                         !check_tx_history(
                             self.chain_store_update
                                 .get_block_header(&t.transaction.block_hash)
@@ -1296,7 +1312,7 @@ impl<'a> ChainUpdate<'a> {
 
                     let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
                     let transaction_hashes =
-                        chunk.transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
+                        transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply block to runtime.
@@ -1336,16 +1352,18 @@ impl<'a> ChainUpdate<'a> {
                         ),
                     );
                     // Save resulting receipts.
+                    let mut outgoing_receipts = vec![];
                     for (_receipt_shard_id, receipts) in apply_result.receipt_result.drain() {
                         // The receipts in store are indexed by the SOURCE shard_id, not destination,
                         //    since they are later retrieved by the chunk producer of the source
                         //    shard to be distributed to the recipients.
-                        self.chain_store_update.save_outgoing_receipt(
-                            &block.hash(),
-                            shard_id,
-                            receipts,
-                        );
+                        outgoing_receipts.extend(receipts);
                     }
+                    self.chain_store_update.save_outgoing_receipt(
+                        &block.hash(),
+                        shard_id,
+                        outgoing_receipts,
+                    );
                     // Save receipt and transaction results.
                     for (i, tx_result) in apply_result.transaction_results.drain(..).enumerate() {
                         if i < receipt_hashes.len() {

@@ -29,11 +29,15 @@ use crate::types::{
     Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::merkle::merklize;
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
 struct AccountNonce(AccountId, Nonce);
 
-#[derive(BorshSerialize, BorshDeserialize, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone)]
+struct StateRoot(CryptoHash, CryptoHash, CryptoHash);
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 struct KVState {
     amounts: HashMap<AccountId, u128>,
     receipt_nonces: HashSet<CryptoHash>,
@@ -238,7 +242,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = &self.validators[(header.inner.height as usize) % self.validators.len()];
         let validators = &self.validators
             [self.get_epoch_and_valset(header.inner.prev_hash).map_err(|err| err.to_string())?.1];
         let validator = &validators[(header.inner.height as usize) % validators.len()];
@@ -424,7 +427,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         for receipt in receipts.iter() {
             if let ReceiptEnum::Action(action) = &receipt.receipt {
                 assert_eq!(self.account_id_to_shard_id(&receipt.receiver_id), shard_id);
-                if state.receipt_nonces.contains(&receipt.receipt_id) {
+                if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
                         balance_transfers.push((
@@ -446,7 +449,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
             if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
             {
-                if state.tx_nonces.contains(&AccountNonce(
+                if !state.tx_nonces.contains(&AccountNonce(
                     transaction.transaction.receiver_id.clone(),
                     transaction.transaction.nonce.clone(),
                 )) {
@@ -454,23 +457,20 @@ impl RuntimeAdapter for KeyValueRuntime {
                         transaction.transaction.receiver_id.clone(),
                         transaction.transaction.nonce.clone(),
                     ));
-                } else {
                     balance_transfers.push((
                         transaction.transaction.signer_id.clone(),
                         transaction.transaction.receiver_id.clone(),
                         deposit,
+                        transaction.transaction.nonce,
+                    ));
+                } else {
+                    balance_transfers.push((
+                        transaction.transaction.signer_id.clone(),
+                        transaction.transaction.receiver_id.clone(),
                         0,
+                        transaction.transaction.nonce,
                     ));
                 }
-                tx_results.push(TransactionLog {
-                    hash: transaction.get_hash(),
-                    result: TransactionResult {
-                        status: TransactionStatus::Completed,
-                        logs: vec![],
-                        receipts: vec![],
-                        result: None,
-                    },
-                });
             } else {
                 unreachable!();
             }
@@ -531,12 +531,39 @@ impl RuntimeAdapter for KeyValueRuntime {
             }
         }
 
+        let mut new_balances = vec![];
+        for validator in self.validators.iter().flatten() {
+            let mut seen = false;
+            for (key, value) in state.amounts.iter() {
+                if key == &validator.account_id {
+                    assert!(!seen);
+                    seen = true;
+                    new_balances.push(*value);
+                }
+            }
+            if !seen {
+                new_balances.push(0);
+            }
+        }
+
+        let (balances_root, _) = merklize(&new_balances);
+        let mut receipt_vec = state.receipt_nonces.iter().cloned().collect::<Vec<_>>();
+        receipt_vec.sort();
+        let (receipt_root, _) = merklize(&receipt_vec);
+        let mut tx_vec = state.tx_nonces.iter().cloned().collect::<Vec<_>>();
+        tx_vec.sort();
+        let (tx_root, _) = merklize(&tx_vec);
+
+        let new_state_root =
+            hash(&StateRoot(balances_root, receipt_root, tx_root).try_to_vec().unwrap());
+        self.state.write().unwrap().insert(new_state_root, state);
+
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
                 TrieChanges::empty(state_root.clone()),
             ),
-            new_root: state_root.clone(), //: new_state_root,
+            new_root: new_state_root,
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],

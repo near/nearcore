@@ -1,7 +1,9 @@
 use actix::{Addr, System};
+use futures::{future, Future};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::SignedTransaction;
@@ -119,19 +121,22 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
             })),
         );
 
-        {
+        let view_client = connectors.write().unwrap()[0].1.clone();
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+            let header: BlockHeader = res.unwrap().unwrap().header.into();
+            let block_hash = header.hash;
             let connectors_ = connectors.write().unwrap();
-            // IIIIIIIII
-            //            connectors_[0]
-            //                .0
-            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-            //            connectors_[1]
-            //                .0
-            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-            //            connectors_[2]
-            //                .0
-            //                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-        }
+            connectors_[0]
+                .0
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            connectors_[1]
+                .0
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            connectors_[2]
+                .0
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            future::ok(())
+        }));
     })
     .unwrap();
 }

@@ -3,7 +3,10 @@ use crate::types::MerkleHash;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct MerklePathItem(MerkleHash, Direction);
+pub struct MerklePathItem {
+    pub hash: MerkleHash,
+    pub direction: Direction,
+}
 
 pub type MerklePath = Vec<MerklePathItem>;
 
@@ -41,9 +44,9 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     let mut paths: Vec<MerklePath> = (0..arr.len())
         .map(|i| {
             if i % 2 == 0 {
-                vec![MerklePathItem(hashes[(i + 1) as usize], Direction::Right)]
+                vec![MerklePathItem { hash: hashes[(i + 1) as usize], direction: Direction::Right }]
             } else {
-                vec![MerklePathItem(hashes[(i - 1) as usize], Direction::Left)]
+                vec![MerklePathItem { hash: hashes[(i - 1) as usize], direction: Direction::Left }]
             }
         })
         .collect();
@@ -60,14 +63,14 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
                     for j in 0..counter {
                         let index = ((i + 1) * counter + j) as usize;
                         if index < arr.len() {
-                            paths[index].push(MerklePathItem(hash, Direction::Left));
+                            paths[index].push(MerklePathItem { hash, direction: Direction::Left });
                         }
                     }
                 } else {
                     for j in 0..counter {
                         let index = ((i - 1) * counter + j) as usize;
                         if index < arr.len() {
-                            paths[index].push(MerklePathItem(hash, Direction::Right));
+                            paths[index].push(MerklePathItem { hash, direction: Direction::Right });
                         }
                     }
                 }
@@ -81,12 +84,12 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
     let mut hash = hash(&item.try_to_vec().expect("Failed to serialize"));
     for item in path {
-        match item.1 {
+        match item.direction {
             Direction::Left => {
-                hash = combine_hash(item.0, hash);
+                hash = combine_hash(item.hash, hash);
             }
             Direction::Right => {
-                hash = combine_hash(hash, item.0);
+                hash = combine_hash(hash, item.hash);
             }
         }
     }

@@ -513,7 +513,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "borsh"
 version = "0.2.1"
-source = "git+https://github.com/nearprotocol/borsh.git#082236e8c38b457691338b969075aa684ca2d178"
+source = "git+https://github.com/nearprotocol/borsh.git#e0cdfbb558ad33eb77d3f448abf7406d3b34ab5c"
 dependencies = [
  "borsh-derive 0.2.1 (git+https://github.com/nearprotocol/borsh.git)",
 ]
@@ -521,7 +521,7 @@ dependencies = [
 [[package]]
 name = "borsh-derive"
 version = "0.2.1"
-source = "git+https://github.com/nearprotocol/borsh.git#082236e8c38b457691338b969075aa684ca2d178"
+source = "git+https://github.com/nearprotocol/borsh.git#e0cdfbb558ad33eb77d3f448abf7406d3b34ab5c"
 dependencies = [
  "borsh-derive-internal 0.2.1 (git+https://github.com/nearprotocol/borsh.git)",
  "syn 0.15.42 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -530,7 +530,7 @@ dependencies = [
 [[package]]
 name = "borsh-derive-internal"
 version = "0.2.1"
-source = "git+https://github.com/nearprotocol/borsh.git#082236e8c38b457691338b969075aa684ca2d178"
+source = "git+https://github.com/nearprotocol/borsh.git#e0cdfbb558ad33eb77d3f448abf7406d3b34ab5c"
 dependencies = [
  "proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)",

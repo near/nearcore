@@ -17,15 +17,6 @@ impl<'a> From<&'a CryptoHash> for String {
     }
 }
 
-impl TryFrom<String> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = from_base(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
-        Self::try_from(bytes)
-    }
-}
-
 impl Default for CryptoHash {
     fn default() -> Self {
         CryptoHash(Digest(Default::default()))
@@ -61,6 +52,23 @@ impl borsh::BorshDeserialize for CryptoHash {
     }
 }
 
+impl TryFrom<&str> for CryptoHash {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let bytes = from_base(s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
+        Self::try_from(bytes)
+    }
+}
+
+impl TryFrom<String> for CryptoHash {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        <Self as TryFrom<&str>>::try_from(&s.as_str())
+    }
+}
+
 impl TryFrom<&[u8]> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
@@ -78,7 +86,7 @@ impl TryFrom<Vec<u8>> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(v.as_ref())
+        <Self as TryFrom<&[u8]>>::try_from(v.as_ref())
     }
 }
 

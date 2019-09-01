@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use log::LevelFilter;
 
 use lazy_static::lazy_static;
-use near_crypto::{PublicKey, Signature, Signer};
+use near_crypto::{EmptySigner, PublicKey, Signature, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission};
 use crate::block::Block;
@@ -66,7 +66,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: &dyn Signer,
         deposit: Balance,
         block_hash: CryptoHash,
     ) -> Self {
@@ -83,7 +83,7 @@ impl SignedTransaction {
     pub fn stake(
         nonce: Nonce,
         signer_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: &dyn Signer,
         stake: Balance,
         public_key: PublicKey,
         block_hash: CryptoHash,
@@ -104,7 +104,7 @@ impl SignedTransaction {
         new_account_id: AccountId,
         amount: Balance,
         public_key: PublicKey,
-        signer: Arc<dyn Signer>,
+        signer: &dyn Signer,
         block_hash: CryptoHash,
     ) -> Self {
         Self::from_actions(
@@ -122,6 +122,10 @@ impl SignedTransaction {
             ],
             block_hash,
         )
+    }
+
+    pub fn empty(block_hash: CryptoHash) -> Self {
+        Self::from_actions(0, "".to_string(), "".to_string(), &EmptySigner {}, vec![], block_hash)
     }
 }
 

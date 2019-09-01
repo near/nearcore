@@ -1,7 +1,6 @@
 //! Client is responsible for tracking the chain and related pieces of infrastructure.
 //! Block production is done in done in this actor as well (at the moment).
 
-use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::ops::Sub;
@@ -35,6 +34,7 @@ use near_network::{
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::from_timestamp;
@@ -48,7 +48,6 @@ use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
-use near_primitives::transaction::{check_tx_history, SignedTransaction};
 
 /// Economics config taken from genesis config
 struct EconConfig {
@@ -260,26 +259,18 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => {
-                let runtime_adapter = self.runtime_adapter.clone();
-                let shard_id = runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-                if let Ok(chunk_extra) = self.chain.get_latest_chunk_extra(shard_id) {
-                    match self.runtime_adapter.validate_tx(shard_id, chunk_extra.state_root, tx) {
-                        Ok(valid_transaction) => {
-                            debug!(
-                                "MOO recording a transaction. I'm {:?}, {}",
-                                self.block_producer.as_ref().unwrap().account_id,
-                                shard_id
-                            );
-                            self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                            NetworkClientResponses::ValidTx
-                        }
-                        Err(err) => NetworkClientResponses::InvalidTx(err),
-                    }
-                } else {
-                    NetworkClientResponses::NoResponse
+            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
+                Ok((valid_transaction, shard_id)) => {
+                    debug!(
+                        "MOO recording a transaction. I'm {:?}, {}",
+                        self.block_producer.as_ref().unwrap().account_id,
+                        shard_id
+                    );
+                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                    NetworkClientResponses::ValidTx
                 }
-            }
+                Err(err) => NetworkClientResponses::InvalidTx(err),
+            },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -1348,23 +1339,26 @@ impl ClientActor {
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(&mut self, tx: SignedTransaction) -> Result<ValidTransaction, String> {
+    fn validate_tx(
+        &mut self,
+        tx: SignedTransaction,
+    ) -> Result<(ValidTransaction, ShardId), String> {
         let head = self.chain.head().map_err(|err| err.to_string())?;
-        // IIIII
-        //        let state_root = self
-        //            .chain
-        //            .get_post_state_root(&head.last_block_hash)
-        //            .map_err(|err| err.to_string())?
-        //            .clone();
-        //        if !check_tx_history(
-        //            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
-        //            head.height,
-        //            self.config.transaction_validity_period,
-        //        ) {
-        //            return Err("Transaction has either expired or is from a different fork".to_string());
-        //        }
-        //        self.runtime_adapter.validate_tx(0, state_root, tx)
-        Ok(ValidTransaction { transaction: tx })
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        if !check_tx_history(
+            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
+            head.height,
+            self.config.transaction_validity_period,
+        ) {
+            return Err("Transaction has either expired or is from a different fork".to_string());
+        }
+        let state_root = self
+            .chain
+            .get_chunk_extra(&head.last_block_hash, shard_id)
+            .map_err(|err| err.to_string())?
+            .state_root
+            .clone();
+        self.runtime_adapter.validate_tx(shard_id, state_root, tx).map(|vtx| (vtx, shard_id))
     }
 
     /// Check whether need to (continue) sync.

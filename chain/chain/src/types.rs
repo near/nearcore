@@ -344,18 +344,6 @@ mod tests {
             1_000_000_000,
         );
         let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
-        let b1 = Block::produce(
-            &genesis.header,
-            1,
-            genesis.chunks.clone(),
-            EpochId::default(),
-            vec![],
-            HashMap::default(),
-            0,
-            0,
-            signer.clone(),
-        );
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);

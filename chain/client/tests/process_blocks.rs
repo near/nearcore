@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::iter::Cloned;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -10,10 +9,11 @@ use near_chain::{Block, BlockApproval};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::hash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
@@ -91,25 +91,14 @@ fn produce_blocks_with_tx() {
                 NetworkResponses::NoResponse
             }),
         );
-        // IIIIIIII
-        // client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(Transactioiin::)));
         near_network::test_utils::wait_or_panic(5000);
-        //        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
-        //            let header: BlockHeader = res.unwrap().unwrap().header.into();
-        //            let block_hash = header.hash;
-        //            client.do_send(NetworkClientMessages::Transaction(SignedTransaction::new(
-        //                Signature::empty(KeyType::ED25519),
-        //                Transaction {
-        //                    signer_id: "".to_string(),
-        //                    public_key: PublicKey::empty(KeyType::ED25519),
-        //                    nonce: 0,
-        //                    receiver_id: "".to_string(),
-        //                    block_hash,
-        //                    actions: vec![],
-        //                },
-        //            )));
-        //            future::ok(())
-        //        }))
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+            let header: BlockHeader = res.unwrap().unwrap().header.into();
+            let block_hash = header.hash;
+            client
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            future::ok(())
+        }))
     })
     .unwrap();
 }

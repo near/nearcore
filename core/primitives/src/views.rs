@@ -9,7 +9,7 @@ use near_crypto::{PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::logging;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
 use crate::serialize::{
@@ -668,7 +668,7 @@ impl FinalTransactionResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -806,7 +806,7 @@ impl TryFrom<ReceiptView> for Receipt {
 }
 
 /// Information about this epoch validators and next epoch validators
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct EpochValidatorInfo {
     /// Validators for the current epoch
     pub current_validators: Vec<ValidatorStakeView>,
