@@ -6,7 +6,7 @@
         "near-runtime-ts": "github:nearprotocol/near-runtime-ts#staging"
     },
     "scripts": {
-        "build": "mkdir -p ./out && near build && cp ./out/main.wasm ../hello.wasm"
+        "build": "mkdir -p ./out && mkdir -p ./out/assembly && near build && cp ./out/main.wasm ../hello.wasm"
     },
     "devDependencies": {
         "bignum": "github:MaxGraey/bignum.wasm",

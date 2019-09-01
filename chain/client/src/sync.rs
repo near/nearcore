@@ -1,5 +1,6 @@
 use std::cmp;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use actix::Recipient;
 use chrono::{DateTime, Duration, Utc};
@@ -14,7 +15,6 @@ use near_primitives::types::{BlockIndex, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{ShardSyncStatus, SyncStatus};
-use std::sync::Arc;
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -37,6 +37,29 @@ const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 /// Sync state download timeout in minutes.
 const STATE_SYNC_TIMEOUT: i64 = 10;
 
+/// Adapter to allow to test Header/Body/State sync without actix.
+pub trait SyncNetworkAdapter: Sync + Send {
+    fn send(&self, msg: NetworkRequests);
+}
+
+pub struct SyncNetworkRecipient {
+    network_recipient: Recipient<NetworkRequests>,
+}
+
+unsafe impl Sync for SyncNetworkRecipient {}
+
+impl SyncNetworkRecipient {
+    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Box<Self> {
+        Box::new(Self { network_recipient })
+    }
+}
+
+impl SyncNetworkAdapter for SyncNetworkRecipient {
+    fn send(&self, msg: NetworkRequests) {
+        let _ = self.network_recipient.do_send(msg);
+    }
+}
+
 /// Get random peer from the most weighted peers.
 pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
     if most_weight_peers.len() == 0 {
@@ -49,7 +72,7 @@ pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPee
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
-    network_recipient: Recipient<NetworkRequests>,
+    network_adapter: Box<dyn SyncNetworkAdapter>,
     history_locator: Vec<(BlockIndex, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockIndex, BlockIndex),
     syncing_peer: Option<FullPeerInfo>,
@@ -57,9 +80,9 @@ pub struct HeaderSync {
 }
 
 impl HeaderSync {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+    pub fn new(network_adapter: Box<dyn SyncNetworkAdapter>) -> Self {
         HeaderSync {
-            network_recipient,
+            network_adapter,
             history_locator: vec![],
             prev_header_sync: (Utc::now(), 0, 0),
             syncing_peer: None,
@@ -151,13 +174,10 @@ impl HeaderSync {
                                 {
                                     info!(target: "sync", "Sync: ban a fraudulent peer: {}, claimed height: {}, total weight: {}",
                                         peer.peer_info, peer.chain_info.height, peer.chain_info.total_weight);
-                                    unwrap_or_return!(
-                                        self.network_recipient.do_send(NetworkRequests::BanPeer {
-                                            peer_id: peer.peer_info.id.clone(),
-                                            ban_reason: ReasonForBan::HeightFraud,
-                                        }),
-                                        true
-                                    );
+                                    self.network_adapter.send(NetworkRequests::BanPeer {
+                                        peer_id: peer.peer_info.id.clone(),
+                                        ban_reason: ReasonForBan::HeightFraud,
+                                    });
                                 }
                             }
                             _ => (),
@@ -181,10 +201,10 @@ impl HeaderSync {
     }
 
     /// Request headers from a given peer to advance the chain.
-    fn request_headers(&mut self, chain: &Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
+    fn request_headers(&mut self, chain: &mut Chain, peer: FullPeerInfo) -> Option<FullPeerInfo> {
         if let Ok(locator) = self.get_locator(chain) {
             debug!(target: "sync", "Sync: request headers: asking {} for headers, {:?}", peer.peer_info.id, locator);
-            let _ = self.network_recipient.do_send(NetworkRequests::BlockHeadersRequest {
+            self.network_adapter.send(NetworkRequests::BlockHeadersRequest {
                 hashes: locator,
                 peer_id: peer.peer_info.id.clone(),
             });
@@ -193,7 +213,7 @@ impl HeaderSync {
         None
     }
 
-    fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
+    fn get_locator(&mut self, chain: &mut Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
         let tip = chain.sync_head()?;
         let heights = get_locator_heights(tip.height);
 
@@ -209,6 +229,14 @@ impl HeaderSync {
         for h in heights {
             if let Some(x) = close_enough(&self.history_locator, h) {
                 locator.push(x);
+            } else {
+                // Walk backwards to find last known hash.
+                let last_loc = locator.last().unwrap().clone();
+                if let Ok(header) = chain.get_header_by_height(h) {
+                    if header.inner.height != last_loc.0 {
+                        locator.push((header.inner.height, header.hash()));
+                    }
+                }
             }
         }
         locator.dedup_by(|a, b| a.0 == b.0);
@@ -261,24 +289,24 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
-    network_recipient: Recipient<NetworkRequests>,
+    network_adapter: Box<dyn SyncNetworkAdapter>,
     blocks_requested: BlockIndex,
     receive_timeout: DateTime<Utc>,
-    prev_blocks_recevied: BlockIndex,
+    prev_blocks_received: BlockIndex,
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockIndex,
 }
 
 impl BlockSync {
     pub fn new(
-        network_recipient: Recipient<NetworkRequests>,
+        network_adapter: Box<dyn SyncNetworkAdapter>,
         block_fetch_horizon: BlockIndex,
     ) -> Self {
         BlockSync {
-            network_recipient,
+            network_adapter,
             blocks_requested: 0,
             receive_timeout: Utc::now(),
-            prev_blocks_recevied: 0,
+            prev_blocks_received: 0,
             block_fetch_horizon,
         }
     }
@@ -339,18 +367,11 @@ impl BlockSync {
             let mut peers_iter = most_weight_peers.iter().cycle();
             for hash in hashes_to_request.into_iter() {
                 if let Some(peer) = peers_iter.next() {
-                    if self
-                        .network_recipient
-                        .do_send(NetworkRequests::BlockRequest {
-                            hash: *hash,
-                            peer_id: peer.peer_info.id.clone(),
-                        })
-                        .is_ok()
-                    {
-                        self.blocks_requested += 1;
-                    } else {
-                        error!(target: "sync", "Failed to send message to network agent");
-                    }
+                    self.network_adapter.send(NetworkRequests::BlockRequest {
+                        hash: hash.clone(),
+                        peer_id: peer.peer_info.id.clone(),
+                    });
+                    self.blocks_requested += 1;
                 }
             }
         }
@@ -364,18 +385,18 @@ impl BlockSync {
         // Some blocks have been requested.
         if self.blocks_requested > 0 {
             let timeout = Utc::now() > self.receive_timeout;
-            if timeout && blocks_received <= self.prev_blocks_recevied {
+            if timeout && blocks_received <= self.prev_blocks_received {
                 debug!(target: "sync", "Block sync: expecting {} more blocks and none received for a while", self.blocks_requested);
                 return Ok(true);
             }
         }
 
-        if blocks_received > self.prev_blocks_recevied {
+        if blocks_received > self.prev_blocks_received {
             // Some blocks received, update for next check.
             self.receive_timeout = Utc::now() + Duration::seconds(BLOCK_SOME_RECEIVED_TIMEOUT);
             self.blocks_requested =
-                self.blocks_requested.saturating_sub(blocks_received - self.prev_blocks_recevied);
-            self.prev_blocks_recevied = blocks_received;
+                self.blocks_requested.saturating_sub(blocks_received - self.prev_blocks_received);
+            self.prev_blocks_received = blocks_received;
         }
 
         // Account for broadcast adding few blocks to orphans during.
@@ -408,16 +429,16 @@ pub enum StateSyncResult {
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_recipient: Recipient<NetworkRequests>,
+    network_adapter: Box<dyn SyncNetworkAdapter>,
 
     prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 }
 
 impl StateSync {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+    pub fn new(network_adapter: Box<dyn SyncNetworkAdapter>) -> Self {
         StateSync {
-            network_recipient,
+            network_adapter,
             prev_state_sync: Default::default(),
             last_time_block_requested: None,
         }
@@ -561,21 +582,37 @@ impl StateSync {
         if shard_bps.len() == 0 {
             return None;
         }
-        unwrap_or_return!(
-            self.network_recipient.do_send(NetworkRequests::StateRequest {
-                shard_id,
-                hash,
-                account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
-            }),
-            None
-        );
+        self.network_adapter.send(NetworkRequests::StateRequest {
+            shard_id,
+            hash,
+            account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+        });
         Some(())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::{Arc, RwLock};
+
+    use near_chain::test_utils::setup;
+    use near_chain::Provenance;
+    use near_network::types::PeerChainInfo;
+    use near_network::PeerInfo;
+    use near_primitives::block::Block;
+
     use super::*;
+
+    #[derive(Default)]
+    struct MockNetworkAdapter {
+        pub requests: Arc<RwLock<Vec<NetworkRequests>>>,
+    }
+
+    impl SyncNetworkAdapter for MockNetworkAdapter {
+        fn send(&self, msg: NetworkRequests) {
+            self.requests.write().unwrap().push(msg);
+        }
+    }
 
     #[test]
     fn test_get_locator_heights() {
@@ -593,6 +630,51 @@ mod test {
         assert_eq!(
             get_locator_heights(10000),
             vec![10000, 9998, 9994, 9986, 9970, 9938, 9874, 9746, 9490, 8978, 7954, 5906, 1810, 0,]
+        );
+    }
+
+    /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
+    #[test]
+    fn test_sync_headers_fork() {
+        let requests = Arc::new(RwLock::new(vec![]));
+        let mock_adapter = Box::new(MockNetworkAdapter { requests: requests.clone() });
+        let mut header_sync = HeaderSync::new(mock_adapter);
+        let (mut chain, _, signer) = setup();
+        for _ in 0..5 {
+            let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            let block = Block::empty(prev, signer.clone());
+            chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
+        }
+        let (mut chain2, _, signer2) = setup();
+        for _ in 0..10 {
+            let prev = chain2.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+            let block = Block::empty(&prev, signer2.clone());
+            chain2.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
+        }
+        let mut sync_status = SyncStatus::NoSync;
+        let peer1 = FullPeerInfo {
+            peer_info: PeerInfo::random(),
+            chain_info: PeerChainInfo {
+                genesis: chain.genesis().hash(),
+                height: chain2.head().unwrap().height,
+                total_weight: chain2.head().unwrap().total_weight,
+            },
+        };
+        let head = chain.head().unwrap();
+        assert!(header_sync
+            .run(&mut sync_status, &mut chain, head.height, &vec![peer1.clone()])
+            .is_ok());
+        assert!(sync_status.is_syncing());
+        // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
+        assert_eq!(
+            requests.read().unwrap()[0],
+            NetworkRequests::BlockHeadersRequest {
+                hashes: [5, 3, 0]
+                    .iter()
+                    .map(|i| chain.get_block_by_height(*i).unwrap().hash())
+                    .collect(),
+                peer_id: peer1.peer_info.id
+            }
         );
     }
 }

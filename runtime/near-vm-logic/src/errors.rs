@@ -6,6 +6,7 @@ pub enum HostError {
     BadUTF8,
     GasExceeded,
     GasLimitExceeded,
+    BalanceExceeded,
     EmptyMethodName,
     External(ExternalError),
     GuestPanic,
@@ -33,6 +34,7 @@ impl std::fmt::Display for HostError {
             BadUTF16 => write!(f, "String encoding is bad UTF-16 sequence."),
             GasExceeded => write!(f, "Exceeded the prepaid gas."),
             GasLimitExceeded => write!(f, "Exceeded the maximum amount of gas allowed to burn per contract."),
+            BalanceExceeded => write!(f, "Exceeded the account balance."),
             EmptyMethodName => write!(f, "Tried to call an empty method name."),
             External(ext) => {
                 write!(f, "External error: ")?;

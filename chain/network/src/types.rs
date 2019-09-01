@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use reed_solomon_erasure::Shard;
 use tokio::net::TcpStream;
 
+use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
@@ -19,10 +20,9 @@ use near_primitives::merkle::MerklePath;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use near_chain::types::ReceiptResponse;
-use near_primitives::utils::{from_timestamp, to_timestamp};
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 3;
@@ -263,8 +263,15 @@ impl AnnounceAccount {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum HandshakeFailureReason {
+    ProtocolVersionMismatch(u32),
+    GenesisMismatch(CryptoHash),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
+    HandshakeFailure(PeerInfo, HandshakeFailureReason),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -293,6 +300,7 @@ impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
+            PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -475,7 +483,7 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,

@@ -1,4 +1,4 @@
-// @nearfile
+//@nearfile out
 import { context, storage, ContractPromise, near, logging } from "near-runtime-ts";
 
 import { PromiseArgs, InputPromiseArgs, MyCallbackResult, MyContractPromiseResult } from "./model";
@@ -146,16 +146,19 @@ export function callPromise(args: PromiseArgs): void {
       args.receiver,
       args.methodName,
       inputArgs.encode().serialize(),
+      args.gas,
       new u128(args.balance));
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     let callbackBalance = args.callbackBalance as u64;
 
     promise = promise.then(
-        args.receiver,
+        context.contractName,
         args.callback,
         inputArgs.encode().serialize(),
-        new u128(callbackBalance));
+        args.callbackGas,
+        new u128(callbackBalance)
+    );
   }
   promise.returnAsResult();
 }

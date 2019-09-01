@@ -43,7 +43,9 @@ use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::info::InfoHelper;
-use crate::sync::{most_weight_peer, BlockSync, HeaderSync, StateSync, StateSyncResult};
+use crate::sync::{
+    most_weight_peer, BlockSync, HeaderSync, StateSync, StateSyncResult, SyncNetworkRecipient,
+};
 use crate::types::{
     BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
@@ -128,9 +130,12 @@ impl ClientActor {
             store.clone(),
         );
         let sync_status = SyncStatus::AwaitingPeers;
-        let header_sync = HeaderSync::new(network_actor.clone());
-        let block_sync = BlockSync::new(network_actor.clone(), config.block_fetch_horizon);
-        let state_sync = StateSync::new(network_actor.clone());
+        let header_sync = HeaderSync::new(SyncNetworkRecipient::new(network_actor.clone()));
+        let block_sync = BlockSync::new(
+            SyncNetworkRecipient::new(network_actor.clone()),
+            config.block_fetch_horizon,
+        );
+        let state_sync = StateSync::new(SyncNetworkRecipient::new(network_actor.clone()));
         if let Some(bp) = &block_producer {
             info!(target: "client", "Starting validator node: {}", bp.account_id);
         }
@@ -1405,10 +1410,10 @@ impl ClientActor {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_actor1 = self.network_actor.clone();
 
-            let (state_sync, new_shard_sync) = self
-                .catchup_state_syncs
-                .entry(sync_hash)
-                .or_insert_with(|| (StateSync::new(network_actor1), HashMap::new()));
+            let (state_sync, new_shard_sync) =
+                self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    (StateSync::new(SyncNetworkRecipient::new(network_actor1)), HashMap::new())
+                });
 
             debug!(
                 target: "client",

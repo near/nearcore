@@ -326,14 +326,14 @@ impl<'a> VMLogic<'a> {
     // # Economics API #
     // #################
 
-    /// The balance attached to the given account. This includes the attached_deposit that was
-    /// attached to the transaction
+    /// The current balance of the given account. This includes the attached_deposit that was
+    /// attached to the transaction.
     pub fn account_balance(&mut self, balance_ptr: u64) -> Result<()> {
-        Self::memory_set(self.memory, balance_ptr, &self.context.account_balance.to_le_bytes())
+        Self::memory_set(self.memory, balance_ptr, &self.current_account_balance.to_le_bytes())
     }
 
     /// The balance that was attached to the call that will be immediately deposited before the
-    /// contract execution starts
+    /// contract execution starts.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
@@ -428,6 +428,15 @@ impl<'a> VMLogic<'a> {
         self.deduct_gas(0, use_gas)
     }
 
+    /// A helper function to subtract balance on transfer or attached deposit for promises.
+    /// # Args:
+    /// * `amount`: the amount to deduct from the current account balance.
+    fn deduct_balance(&mut self, amount: Balance) -> Result<()> {
+        self.current_account_balance =
+            self.current_account_balance.checked_sub(amount).ok_or(HostError::BalanceExceeded)?;
+        Ok(())
+    }
+
     /// Creates a promise that will execute a method on account with given arguments and attaches
     /// the given amount and gas. `amount_ptr` point to slices of bytes representing `u128`.
     ///
@@ -462,6 +471,7 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         let num_bytes = method_name_len + arguments_len;
         self.pay_gas_for_contract_call(sir, gas, num_bytes, &[])?;
+        self.deduct_balance(amount)?;
         let new_receipt_idx = self.ext.receipt_create(
             vec![],
             account_id.clone(),
@@ -531,6 +541,7 @@ impl<'a> VMLogic<'a> {
             })
             .collect();
         self.pay_gas_for_contract_call(sir, gas, num_bytes, &deps)?;
+        self.deduct_balance(amount)?;
 
         let new_receipt_idx = self.ext.receipt_create(
             receipt_dependencies,
@@ -761,8 +772,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If string extends outside the memory of the guest with `MemoryAccessViolation`;
     /// * If string is not UTF-16 returns `BadUtf16`.
-    pub fn log_utf16(&mut self, ptr: u64, len: u64) -> Result<()> {
-        let str = self.get_utf16(ptr, len)?;
+    pub fn log_utf16(&mut self, len: u64, ptr: u64) -> Result<()> {
+        let str = self.get_utf16(len, ptr)?;
         let message = format!("LOG: {}", str);
         self.logs.push(message);
         Ok(())
@@ -825,8 +836,11 @@ impl<'a> VMLogic<'a> {
             } else {
                 unreachable!()
             };
-            self.burnt_gas = min(new_burnt_gas, self.config.max_gas_burnt);
+
+            self.burnt_gas =
+                min(self.context.prepaid_gas, min(new_burnt_gas, self.config.max_gas_burnt));
             self.used_gas = min(new_used_gas, self.context.prepaid_gas);
+
             res
         }
     }
