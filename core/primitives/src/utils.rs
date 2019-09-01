@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::{AccountId, ShardId};
+use crate::types::AccountId;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;

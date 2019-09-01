@@ -640,14 +640,14 @@ mod test {
         let mock_adapter = Box::new(MockNetworkAdapter { requests: requests.clone() });
         let mut header_sync = HeaderSync::new(mock_adapter);
         let (mut chain, _, signer) = setup();
-        for _ in 0..5 {
+        for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, signer.clone());
             chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
         }
         let (mut chain2, _, signer2) = setup();
-        for _ in 0..10 {
-            let prev = chain2.get_block(&chain.head().unwrap().last_block_hash).unwrap();
+        for _ in 0..5 {
+            let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, signer2.clone());
             chain2.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
         }
@@ -669,7 +669,7 @@ mod test {
         assert_eq!(
             requests.read().unwrap()[0],
             NetworkRequests::BlockHeadersRequest {
-                hashes: [5, 3, 0]
+                hashes: [3, 1, 0]
                     .iter()
                     .map(|i| chain.get_block_by_height(*i).unwrap().hash())
                     .collect(),
