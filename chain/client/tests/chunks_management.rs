@@ -5,7 +5,7 @@ use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
 fn chunks_produced_and_distributed_common(validator_groups: u64) {
     let validators_per_shard = 4 / validator_groups;
-    init_test_logger();
+    init_integration_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));

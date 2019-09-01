@@ -5,11 +5,11 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::{heavy_test, init_test_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::types::BlockIndex;
 
 fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex) {
-    init_test_logger();
+    init_integration_logger();
 
     let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
     let mut genesis_config = GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());

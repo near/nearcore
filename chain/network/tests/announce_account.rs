@@ -8,7 +8,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -66,7 +66,7 @@ fn check_account_id_propagation(
     adjacency_list: Vec<Vec<usize>>,
     max_wait_ms: u64,
 ) {
-    init_test_logger();
+    init_integration_logger();
 
     System::run(move || {
         let total_nodes = accounts_id.len();

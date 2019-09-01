@@ -10,7 +10,7 @@ mod tests {
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::rpc::QueryResponse::ViewAccount;
-    use near_primitives::test_utils::init_test_logger;
+    use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
     use std::collections::hash_map::Entry;
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_catchup_receipts_sync() {
         let validator_groups = 1;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn test_catchup_random_single_part_sync() {
         let validator_groups = 2;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_catchup_sanity_blocks_produced() {
         let validator_groups = 2;
-        init_test_logger();
+        init_integration_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
                 Arc::new(RwLock::new(vec![]));

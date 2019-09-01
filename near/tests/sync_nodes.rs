@@ -15,7 +15,7 @@ use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::test_utils::{heavy_test, init_integration_logger, init_test_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockIndex, EpochId};
 use near_store::test_utils::create_test_store;
@@ -72,7 +72,7 @@ fn add_blocks(
 #[test]
 fn sync_nodes() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
         let mut genesis_config = GenesisConfig::test(vec!["other"]);
         genesis_config.epoch_length = 5;
@@ -121,7 +121,7 @@ fn sync_nodes() {
 #[test]
 fn sync_after_sync_nodes() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
         let mut genesis_config = GenesisConfig::test(vec!["other"]);
         genesis_config.epoch_length = 5;
