@@ -32,7 +32,7 @@ pub fn init_test_logger() {
         .filter_module("tokio_reactor", LevelFilter::Info)
         .filter_module("tokio_core", LevelFilter::Info)
         .filter_module("hyper", LevelFilter::Info)
-        .filter(None, LevelFilter::Info)
+        .filter(None, LevelFilter::Debug)
         .try_init();
 }
 
@@ -116,7 +116,7 @@ impl SignedTransaction {
                 Action::CreateAccount(CreateAccountAction {}),
                 Action::AddKey(AddKeyAction {
                     public_key,
-                    access_key: AccessKey { nonce, permission: AccessKeyPermission::FullAccess },
+                    access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
                 }),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],

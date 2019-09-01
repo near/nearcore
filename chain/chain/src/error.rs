@@ -51,6 +51,9 @@ pub enum ErrorKind {
     /// Invalid state payload on state sync.
     #[fail(display = "Invalid State Payload")]
     InvalidStatePayload,
+    /// Invalid transactions in the block.
+    #[fail(display = "Invalid Transactions")]
+    InvalidTransactions,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
@@ -133,6 +136,7 @@ impl Error {
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
+            | ErrorKind::InvalidTransactions
             | ErrorKind::IncorrectNumberOfChunkHeaders
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals

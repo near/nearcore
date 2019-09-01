@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{TransactionLog, TransactionResult};
+use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::index_to_bytes;
 use near_store::{
@@ -475,7 +475,7 @@ pub struct ChainStoreUpdate<'a, T> {
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
-    transaction_results: HashMap<CryptoHash, TransactionLog>,
+    transaction_results: HashMap<CryptoHash, TransactionResult>,
     head: Option<Tip>,
     tail: Option<Tip>,
     header_head: Option<Tip>,
@@ -800,7 +800,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.incoming_receipts.insert((*hash, shard_id), receipt);
     }
 
-    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionLog) {
+    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionResult) {
         self.transaction_results.insert(*hash, result);
     }
 

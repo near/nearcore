@@ -68,7 +68,7 @@ fn test_send_tx_async() {
                 }
             }),
             100,
-            1000,
+            2000,
         )
         .start();
     })

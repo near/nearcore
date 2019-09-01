@@ -28,11 +28,11 @@ pub fn genesis_header(genesis_config: &GenesisConfig) -> BlockHeader {
         Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config.clone()));
     let chain_genesis = ChainGenesis::new(
         genesis_time,
-        1_000_000,
-        100,
-        1_000_000_000,
-        0,
-        0,
+        genesis_config.gas_limit,
+        genesis_config.gas_price,
+        genesis_config.total_supply,
+        genesis_config.max_inflation_rate,
+        genesis_config.gas_price_adjustment_rate,
         genesis_config.transaction_validity_period,
     );
     let chain = Chain::new(store, runtime, &chain_genesis).unwrap();

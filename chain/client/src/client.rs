@@ -259,12 +259,15 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
+            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx.clone()) {
                 Ok((valid_transaction, shard_id)) => {
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                     NetworkClientResponses::ValidTx
                 }
-                Err(err) => NetworkClientResponses::InvalidTx(err),
+                Err(err) => {
+                    debug!(target: "client", "Invalid tx: {} -- {:?}", err.to_string(), tx);
+                    NetworkClientResponses::InvalidTx(err)
+                }
             },
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)

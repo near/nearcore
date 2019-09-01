@@ -1269,12 +1269,9 @@ impl<'a> ChainUpdate<'a> {
                             self.transaction_validity_period,
                         )
                     }) {
-                        return Err(ErrorKind::InvalidStatePayload.into());
+                        debug!(target: "chain", "Invalid transactions in the block: {:?}", transactions);
+                        return Err(ErrorKind::InvalidTransactions.into());
                     }
-
-                    let receipt_hashes = receipts.iter().map(|r| r.get_hash()).collect::<Vec<_>>();
-                    let transaction_hashes =
-                        transactions.iter().map(|t| t.get_hash()).collect::<Vec<_>>();
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply block to runtime.
@@ -1317,16 +1314,9 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    for (i, tx_result) in apply_result.transaction_results.drain(..).enumerate() {
-                        if i < receipt_hashes.len() {
-                            self.chain_store_update
-                                .save_transaction_result(&receipt_hashes[i], tx_result);
-                        } else {
-                            self.chain_store_update.save_transaction_result(
-                                &transaction_hashes[i - receipt_hashes.len()],
-                                tx_result,
-                            );
-                        }
+                    for tx_result in apply_result.transaction_results.into_iter() {
+                        self.chain_store_update
+                            .save_transaction_result(&tx_result.hash, tx_result.result);
                     }
                 } else {
                     let mut new_extra = self

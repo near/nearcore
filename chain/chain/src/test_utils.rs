@@ -432,6 +432,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     state.receipt_nonces.insert(receipt.receipt_id);
                     if let Action::Transfer(TransferAction { deposit }) = action.actions[0] {
                         balance_transfers.push((
+                            receipt.get_hash(),
                             receipt.predecessor_id.clone(),
                             receipt.receiver_id.clone(),
                             deposit,
@@ -448,6 +449,9 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
+            if transaction.transaction.actions.len() == 0 {
+                continue;
+            }
             if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
@@ -459,6 +463,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         transaction.transaction.nonce.clone(),
                     ));
                     balance_transfers.push((
+                        transaction.get_hash(),
                         transaction.transaction.signer_id.clone(),
                         transaction.transaction.receiver_id.clone(),
                         deposit,
@@ -466,6 +471,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     ));
                 } else {
                     balance_transfers.push((
+                        transaction.get_hash(),
                         transaction.transaction.signer_id.clone(),
                         transaction.transaction.receiver_id.clone(),
                         0,
@@ -479,7 +485,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         let mut new_receipts = HashMap::new();
 
-        for (from, to, amount, nonce) in balance_transfers {
+        for (hash, from, to, amount, nonce) in balance_transfers {
             let mut good_to_go = false;
 
             if self.account_id_to_shard_id(&from) != shard_id {
@@ -521,7 +527,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 };
 
                 tx_results.push(TransactionLog {
-                    hash: CryptoHash::default(),
+                    hash,
                     result: TransactionResult {
                         status: TransactionStatus::Completed,
                         logs: vec![],

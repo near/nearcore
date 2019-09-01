@@ -20928,8 +20928,18 @@
   ],
   "protocol_version": 3,
   "num_block_producers": 50,
-  "validator_kickout_threshold": 0.9,
+  "validator_kickout_threshold": 90,
   "block_producers_per_shard": [
     50
-  ]
+  ],
+  "gas_limit": 10000000,
+  "gas_price": 100,
+  "gas_price_adjustment_rate": 1,
+  "developer_reward_percentage": 30,
+  "protocol_reward_percentage": 10,
+  "max_inflation_rate": 5,
+  "total_supply": 0,
+  "num_blocks_per_year": 31536000,
+  "protocol_treasury_account": "near",
+  "transaction_validity_period": 1000
 }

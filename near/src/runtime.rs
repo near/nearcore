@@ -115,17 +115,14 @@ impl NightshadeRuntime {
                 let account: Option<Account> = get_account(state_update, &account_id);
                 if let Some(mut account) = account {
                     if let Some(reward) = validator_reward.get(&account_id) {
-                        /*println!(
-                            "account {} adding reward {} to stake {}",
-                            account_id, reward, account.staked
-                        );*/
+                        debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.staked);
                         account.staked += *reward;
                     }
 
-                    /*println!(
+                    debug!(target: "runtime",
                         "account {} stake {} max_of_stakes: {}",
                         account_id, account.staked, max_of_stakes
-                    );*/
+                    );
                     assert!(
                         account.staked >= max_of_stakes,
                         "FATAL: staking invariant does not hold. Account stake {} is less than maximum of stakes {} in the past three epochs",
@@ -151,6 +148,7 @@ impl NightshadeRuntime {
                 &protocol_treasury_account,
             );
         }
+        state_update.commit();
 
         Ok(())
     }
@@ -388,7 +386,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
         assert!(block_index > 0 || (proposals.len() == 0 && slashed_validators.len() == 0));
-        //println!("add validator proposals at block index {} {:?}", block_index, proposals);
+        debug!(target: "runtime", "add validator proposals at block index {} {:?}", block_index, proposals);
         // Deal with validator proposals and epoch finishing.
         let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
         let mut slashed = HashSet::default();
@@ -433,17 +431,16 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut state_update = TrieUpdate::new(trie.clone(), *state_root);
         let should_update_account = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            /*println!(
+            debug!(target: "runtime",
                 "block index: {}, is next_block_epoch_start {}",
                 block_index,
                 epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
-            );*/
+            );
             epoch_manager.is_next_block_epoch_start(prev_block_hash)?
         };
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            //println!("block index: {}", block_index);
             self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
                 .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
         }
@@ -695,6 +692,7 @@ mod test {
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
     use near_chain::types::ValidatorSignatureVerificationResult;
+    use near_primitives::test_utils::init_test_logger;
     use node_runtime::config::RuntimeConfig;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
@@ -881,6 +879,7 @@ mod test {
     /// 5. At the end Validator 0 and 2 with 2 * X are validators. Validator 1 has stake returned to balance.
     #[test]
     fn test_validator_rotation() {
+        init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new("test_validator_rotation", vec![validators.clone()], 2);
@@ -908,11 +907,15 @@ mod test {
         assert_eq!(account.staked, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
-        let staking_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
-        env.step_default(vec![staking_transaction]);
+        // Send invalid transaction to see if the rollback of the state affects the validator rewards.
+        let invalid_transaction = stake(0, &new_validator, TESTING_INIT_STAKE * 2);
+        env.step_default(vec![invalid_transaction]);
+
+        let stake_transaction = stake(1, &new_validator, TESTING_INIT_STAKE * 2);
+        env.step_default(vec![stake_transaction]);
 
         // Roll steps for 3 epochs to pass.
-        for _ in 4..=9 {
+        for _ in 5..=9 {
             env.step_default(vec![]);
         }
 
