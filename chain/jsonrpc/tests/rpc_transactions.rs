@@ -39,7 +39,7 @@ fn test_send_tx_async() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -93,7 +93,7 @@ fn test_send_tx_commit() {
                 1,
                 "test1".to_string(),
                 "test2".to_string(),
-                Arc::new(signer),
+                &signer,
                 100,
                 block_hash,
             );
@@ -138,7 +138,7 @@ fn test_expired_tx() {
                                 1,
                                 "test1".to_string(),
                                 "test2".to_string(),
-                                Arc::new(signer),
+                                &signer,
                                 100,
                                 block_hash,
                             );
@@ -180,7 +180,7 @@ fn test_replay_protection() {
             1,
             "test1".to_string(),
             "test2".to_string(),
-            Arc::new(signer),
+            &signer,
             100,
             hash(&[1]),
         );

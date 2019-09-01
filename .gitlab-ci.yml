@@ -134,6 +134,8 @@ test_nearlib:
    - release_build
    script:
    - ./scripts/test_nearlib.sh
+   only:
+   - schedules
 
 #test_pynear:
 #    stage: libs

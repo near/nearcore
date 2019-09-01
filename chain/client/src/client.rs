@@ -261,11 +261,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
         match msg {
             NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx) {
                 Ok((valid_transaction, shard_id)) => {
-                    debug!(
-                        "MOO recording a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().unwrap().account_id,
-                        shard_id
-                    );
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                     NetworkClientResponses::ValidTx
                 }
@@ -329,11 +324,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
-                debug!(
-                    "MOO received state request for hash {:?}, I'm {:?}",
-                    hash,
-                    self.block_producer.clone().map(|x| x.account_id)
-                );
                 if let Ok((prev_chunk_extra, payload, outgoing_receipts, incoming_receipts)) =
                     self.chain.state_request(shard_id, hash)
                 {
@@ -345,9 +335,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         outgoing_receipts,
                         incoming_receipts,
                     });
-                } else {
-                    // TODO XXX MOO REMOVE
-                    debug!(target: "client", "State request for shard {} failed, I'm {:?}", shard_id, self.block_producer.clone().unwrap().account_id);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -359,11 +346,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 outgoing_receipts,
                 incoming_receipts,
             }) => {
-                debug!(
-                    "MOO received state response for hash {:?}, I'm {:?}",
-                    hash,
-                    self.block_producer.clone().map(|x| x.account_id)
-                );
                 // Populate the hashmaps with shard statuses that might be interested in this state
                 //     (naturally, the plural of statuses is statuseses)
                 let mut shard_statuseses = vec![];
@@ -382,7 +364,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         if let Some((_, shard_statuses)) =
                             self.catchup_state_syncs.get_mut(&sync_hash)
                         {
-                            debug!("MOO there's a status to update for {:?}", hash);
                             shard_statuseses.push(shard_statuses);
                         }
                         // We should not be requesting the same state twice.
@@ -551,13 +532,6 @@ impl ClientActor {
 
         // Process orphaned chunk_one_parts
         if self.shards_mgr.process_orphaned_one_parts(block_hash) {
-            // process_orphaned_one_parts returns true if some of the one parts were not known before
-            //    generally in this case we would check blocks with missing chunks, but since the
-            //    block that unbloked the one parts was just processed, any block that would actually
-            //    depend on those one parts would have been an orphan, not a block with missing chunks,
-            //    so no need to process anything here
-            error!("MOO unlocked some orphaned one parts");
-            // TODO XXX MOO: the comment above suggests this line is not needed, and yet here it is? O.o
             self.process_blocks_with_missing_chunks(ctx, block_hash);
         }
 
@@ -725,7 +699,7 @@ impl ClientActor {
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
         if self.network_info.num_active_peers == 0 {
-            warn!(target: "client", "No peers: skip account announce");
+            debug!(target: "client", "No peers: skip account announce");
             return;
         }
 
@@ -747,8 +721,6 @@ impl ClientActor {
 
         debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_val_announce_height);
 
-        // TODO MOO XXX: only announce if will be a validator in the next epoch.
-        // TODO MOO WTF: currently, it will still resend this every epoch.
         if let Some(last_val_announce_height) = self.last_val_announce_height {
             if last_val_announce_height >= epoch_start_height {
                 // This announcement was already done!
@@ -951,7 +923,7 @@ impl ClientActor {
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
-        info!("Creating a chunk with {} transactions for shard {}", transactions.len(), shard_id);
+        debug!("Creating a chunk with {} transactions for shard {}", transactions.len(), shard_id);
 
         let ReceiptResponse(_, receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
@@ -1035,7 +1007,6 @@ impl ClientActor {
             &self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash).unwrap(),
             next_height,
         )?;
-        println!("MOO Produce block {}? {:?} {:?}", next_block_proposer, last_height, next_height);
         if block_producer.account_id != next_block_proposer {
             info!(target: "client", "Produce block: chain at {}, not block producer for next block.", next_height);
             return Ok(());
@@ -1104,7 +1075,7 @@ impl ClientActor {
 
         let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
-        // TODO XXX MOO: this is kept here in case we want to revive txs on the block level.
+        // This is kept here in case we want to revive txs on the block level.
         let transactions = vec![];
 
         // At this point, the previous epoch hash must be available
@@ -1128,7 +1099,6 @@ impl ClientActor {
 
         let ret = self.process_block(ctx, block, Provenance::PRODUCED);
 
-        println!("{:?} MADE block", self.block_producer.as_ref().unwrap().account_id);
         near_chain::test_utils::display_chain(&mut self.chain);
 
         assert!(
@@ -1205,7 +1175,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        info!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
         let prev_hash = block.header.inner.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };

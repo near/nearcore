@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use log::{info, warn};
+use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
@@ -215,7 +215,7 @@ impl EpochManager {
             &slashed_validators,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
-        info!(
+        debug!(
             "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected: {:?}",
             all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_blocks
         );
@@ -494,19 +494,19 @@ impl EpochManager {
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
-        println!(
+        /*println!(
             "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
             next_next_epoch_id, next_epoch_id, epoch_id
-        );
+        );*/
         // Since stake changes for epoch T are stored in epoch info for T+2, the one stored by epoch_id
         // is the prev_prev_stake_change.
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
-        println!(
+        /*println!(
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change
-        );
+        );*/
         let mut all_keys = HashSet::new();
         for (key, _) in
             prev_prev_stake_change.iter().chain(prev_stake_change.iter()).chain(stake_change.iter())
@@ -646,7 +646,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);
+        /*println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);*/
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
             .map_err(|err| EpochError::from(err))?;

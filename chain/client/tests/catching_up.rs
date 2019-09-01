@@ -81,7 +81,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                200,
+                400,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let account_from = "test3.3".to_string();
                     let account_to = "test1.1".to_string();
@@ -195,6 +195,185 @@ mod tests {
             );
 
             near_network::test_utils::wait_or_panic(30000);
+        })
+        .unwrap();
+    }
+
+    enum RandomSinglePartPhases {
+        WaitingForFirstBlock,
+        WaitingForThirdEpoch,
+        WaitingForSixEpoch,
+    }
+
+    /// Test test
+    #[test]
+    fn test_catchup_random_single_part_sync() {
+        let validator_groups = 2;
+        init_test_logger();
+        System::run(move || {
+            let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
+                Arc::new(RwLock::new(vec![]));
+
+            let (validators, key_pairs) = get_validators_and_key_pairs();
+            let flat_validators = validators.iter().flatten().map(|x| *x).collect::<Vec<_>>();
+
+            let phase = Arc::new(RwLock::new(RandomSinglePartPhases::WaitingForFirstBlock));
+            let seen_heights_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
+            let seen_receipts_size = Arc::new(RwLock::new(HashSet::<usize>::new()));
+
+            let amounts = Arc::new(RwLock::new(HashMap::new()));
+
+            let check_amount =
+                move |amounts: Arc<RwLock<HashMap<_, _, _>>>, account_id: String, amount: u128| {
+                    match amounts.write().unwrap().entry(account_id.clone()) {
+                        Entry::Occupied(entry) => {
+                            println!("OCCUPIED {:?}", entry);
+                            assert_eq!(*entry.get(), amount);
+                        }
+                        Entry::Vacant(entry) => {
+                            println!("VACANT {:?}", entry);
+                            assert_eq!(amount % 100, 0);
+                            entry.insert(amount);
+                        }
+                    }
+                };
+
+            let connectors1 = connectors.clone();
+            *connectors.write().unwrap() = setup_mock_all_validators(
+                validators.clone(),
+                key_pairs.clone(),
+                validator_groups,
+                true,
+                1500,
+                Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
+                    let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
+                    let mut seen_receipts_size = seen_receipts_size.write().unwrap();
+                    let mut phase = phase.write().unwrap();
+                    match *phase {
+                        RandomSinglePartPhases::WaitingForFirstBlock => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert_eq!(block.header.height, 1);
+                                *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
+                            }
+                        }
+                        RandomSinglePartPhases::WaitingForThirdEpoch => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header.height >= 2);
+                                assert!(block.header.height <= 13);
+                                let mut tx_count = 0;
+                                if block.header.height == 13 {
+                                    for (i, validator1) in flat_validators.iter().enumerate() {
+                                        for (j, validator2) in flat_validators.iter().enumerate() {
+                                            println!(
+                                                "VALUES {:?} {:?} {:?}",
+                                                validator1.to_string(),
+                                                validator2.to_string(),
+                                                (((i + j + 17) * 701) % 42 + 1) as u128
+                                            );
+                                            for conn in 0..flat_validators.len() {
+                                                send_tx(
+                                                    &connectors1.write().unwrap()[conn].0,
+                                                    validator1.to_string(),
+                                                    validator2.to_string(),
+                                                    (((i + j + 17) * 701) % 42 + 1) as u128,
+                                                    (12345 + tx_count) as u64,
+                                                );
+                                            }
+                                            tx_count += 1;
+                                        }
+                                    }
+                                    *phase = RandomSinglePartPhases::WaitingForSixEpoch;
+                                    assert_eq!(tx_count, 16 * 16);
+                                }
+                            }
+                        }
+                        RandomSinglePartPhases::WaitingForSixEpoch => {
+                            if let NetworkRequests::Block { block } = msg {
+                                assert!(block.header.height >= 13);
+                                assert!(block.header.height <= 32);
+                                if block.header.height >= 26 {
+                                    println!("BLOCK HEIGHT {:?}", block.header.height);
+                                    for i in 0..16 {
+                                        for j in 0..16 {
+                                            let amounts1 = amounts.clone();
+                                            actix::spawn(
+                                                connectors1.write().unwrap()[i]
+                                                    .1
+                                                    .send(Query {
+                                                        path: "account/".to_owned()
+                                                            + flat_validators[j],
+                                                        data: vec![],
+                                                    })
+                                                    .then(move |res| {
+                                                        let res_inner = res.unwrap();
+                                                        if res_inner.is_ok() {
+                                                            let query_response = res_inner.unwrap();
+                                                            if let ViewAccount(
+                                                                view_account_result,
+                                                            ) = query_response
+                                                            {
+                                                                check_amount(
+                                                                    amounts1,
+                                                                    view_account_result
+                                                                        .account_id
+                                                                        .clone(),
+                                                                    view_account_result.amount,
+                                                                );
+                                                            }
+                                                        }
+                                                        future::result(Ok(()))
+                                                    }),
+                                            );
+                                        }
+                                    }
+                                }
+                                if block.header.height == 32 {
+                                    println!(
+                                        "SEEN HEIGHTS SAME BLOCK {:?}",
+                                        seen_heights_same_block.len()
+                                    );
+                                    assert_eq!(seen_heights_same_block.len(), 1);
+                                    println!("SEEN RECEIPTS SIZE {:?}", seen_receipts_size.len());
+                                    assert_ne!(seen_receipts_size.len(), 1);
+                                    let amounts1 = amounts.clone();
+                                    for flat_validator in &flat_validators {
+                                        match amounts1
+                                            .write()
+                                            .unwrap()
+                                            .entry(flat_validator.to_string())
+                                        {
+                                            Entry::Occupied(_) => {
+                                                continue;
+                                            }
+                                            Entry::Vacant(entry) => {
+                                                println!(
+                                                    "VALIDATOR = {:?}, ENTRY = {:?}",
+                                                    flat_validator, entry
+                                                );
+                                                assert!(false);
+                                            }
+                                        };
+                                    }
+                                    System::current().stop();
+                                }
+                            }
+                            if let NetworkRequests::ChunkOnePartMessage {
+                                header_and_part, ..
+                            } = msg
+                            {
+                                seen_receipts_size.insert(header_and_part.receipts.len());
+                                if header_and_part.header.height_created == 22 {
+                                    seen_heights_same_block
+                                        .insert(header_and_part.header.prev_block_hash);
+                                }
+                            }
+                        }
+                    };
+                    (NetworkResponses::NoResponse, true)
+                })),
+            );
+
+            near_network::test_utils::wait_or_panic(240000);
         })
         .unwrap();
     }

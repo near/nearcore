@@ -83,11 +83,7 @@ fn repro_1183() {
                                         block.header.inner.height * 16 + nonce_delta,
                                         from.to_string(),
                                         to.to_string(),
-                                        Arc::new(InMemorySigner::from_seed(
-                                            from,
-                                            KeyType::ED25519,
-                                            from,
-                                        )),
+                                        &InMemorySigner::from_seed(from, KeyType::ED25519, from),
                                         1,
                                         block.hash(),
                                     ),

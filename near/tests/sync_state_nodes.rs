@@ -9,7 +9,6 @@ use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_test_logger};
 use std::time::Duration;
-use testlib::genesis_header;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]

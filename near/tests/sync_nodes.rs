@@ -216,7 +216,7 @@ fn sync_state_stake_change() {
         let unstake_transaction = SignedTransaction::stake(
             1,
             "test1".to_string(),
-            near1.block_producer.as_ref().unwrap().signer.clone(),
+            &*near1.block_producer.as_ref().unwrap().signer,
             TESTING_INIT_STAKE / 2,
             near1.block_producer.as_ref().unwrap().signer.public_key(),
             genesis_hash,

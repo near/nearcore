@@ -29,3 +29,6 @@ near-store = { path = "../../core/store" }
 near-network = { path = "../network" }
 near-chain = { path = "../chain" }
 near-pool = { path = "../pool" }
+
+[features]
+byzantine_asserts = ["near-chain/byzantine_asserts"]

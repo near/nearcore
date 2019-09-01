@@ -32,7 +32,7 @@ pub fn init_test_logger() {
         .filter_module("tokio_reactor", LevelFilter::Info)
         .filter_module("tokio_core", LevelFilter::Info)
         .filter_module("hyper", LevelFilter::Info)
-        .filter(None, LevelFilter::Debug)
+        .filter(None, LevelFilter::Info)
         .try_init();
 }
 
@@ -42,7 +42,7 @@ pub fn init_test_module_logger(module: &str) {
         .filter_module("tokio_core", LevelFilter::Info)
         .filter_module("hyper", LevelFilter::Info)
         .filter_module("cranelift_wasm", LevelFilter::Warn)
-        .filter_module(module, LevelFilter::Debug)
+        .filter_module(module, LevelFilter::Info)
         .filter(None, LevelFilter::Info)
         .try_init();
 }

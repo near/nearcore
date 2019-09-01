@@ -31,7 +31,7 @@ fn test_check_tx_error_log() {
         1,
         "bob.near".to_string(),
         "test.near".to_string(),
-        signer.clone(),
+        &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: 1_000 }),
@@ -60,7 +60,7 @@ fn test_deliver_tx_error_log() {
         1,
         "alice.near".to_string(),
         "test.near".to_string(),
-        signer.clone(),
+        &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),

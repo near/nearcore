@@ -97,7 +97,7 @@ fn test_stake_nodes() {
         let tx = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
             TESTING_INIT_STAKE,
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
@@ -156,7 +156,7 @@ fn test_validator_kickout() {
             SignedTransaction::stake(
                 1,
                 test_node.account_id.clone(),
-                test_node.config.block_producer.as_ref().unwrap().signer.clone(),
+                &*test_node.config.block_producer.as_ref().unwrap().signer,
                 stake,
                 test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
                 test_node.genesis_hash,
@@ -278,7 +278,7 @@ fn test_validator_join() {
         let unstake_transaction = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
-            test_nodes[1].config.block_producer.as_ref().unwrap().signer.clone(),
+            &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
             0,
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
@@ -288,7 +288,7 @@ fn test_validator_join() {
         let stake_transaction = SignedTransaction::stake(
             1,
             test_nodes[2].account_id.clone(),
-            test_nodes[2].config.block_producer.as_ref().unwrap().signer.clone(),
+            &*test_nodes[2].config.block_producer.as_ref().unwrap().signer,
             TESTING_INIT_STAKE,
             test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[2].genesis_hash,

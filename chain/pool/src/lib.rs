@@ -107,7 +107,7 @@ mod tests {
                     i,
                     "alice.near".to_string(),
                     "bob.near".to_string(),
-                    signer.clone(),
+                    &*signer,
                     i as Balance,
                     CryptoHash::default(),
                 )
