@@ -7,9 +7,10 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::rpc::QueryResponse::ViewAccount;
+    use near_primitives::views::QueryResponse::ViewAccount;
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
@@ -47,9 +48,15 @@ mod tests {
         (validators, key_pairs)
     }
 
-    fn send_tx(connector: &Addr<ClientActor>, from: String, to: String, amount: u128, nonce: u64) {
+    fn send_tx(connector: &Addr<ClientActor>, from: String, to: String, amount: u128, nonce: u64, block_hash: CryptoHash) {
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         connector.do_send(NetworkClientMessages::Transaction(
-            SignedTransaction::create_payment_tx(from, to, amount, nonce),
+            SignedTransaction::send_money(nonce,
+                                          from,
+                                          to,
+                                          &signer,
+                                          amount,
+                                          block_hash),
         ));
     }
 
@@ -94,7 +101,7 @@ mod tests {
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.height, 1);
+                                assert_eq!(block.header.inner.height, 1);
                                 // This tx is rather fragile, specifically it's important that
                                 //   1. the `from` and `to` account are not in the same shard;
                                 //   2. ideally the producer of the chunk at height 3 for the shard
@@ -114,6 +121,7 @@ mod tests {
                                     account_to,
                                     111,
                                     1,
+                                    block.header.hash,
                                 );
                                 *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
                             }
@@ -121,8 +129,8 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForSecondBlock => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.height <= 2);
-                                if block.header.height == 2 {
+                                assert!(block.header.inner.height <= 2);
+                                if block.header.inner.height == 2 {
                                     *phase = ReceiptsSyncPhases::WaitingForThirdEpoch;
                                 }
                             }
@@ -130,9 +138,9 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForThirdEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.height >= 2);
-                                assert!(block.header.height <= 13);
-                                if block.header.height == 13 {
+                                assert!(block.header.inner.height >= 2);
+                                assert!(block.header.inner.height <= 13);
+                                if block.header.inner.height == 13 {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -146,7 +154,7 @@ mod tests {
                                 if header_and_part.receipts.len() > 0 {
                                     assert_eq!(header_and_part.shard_id, source_shard_id);
                                     seen_heights_with_receipts
-                                        .insert(header_and_part.header.height_created);
+                                        .insert(header_and_part.header.inner.height_created);
                                 } else {
                                     assert_ne!(header_and_part.shard_id, source_shard_id);
                                 }
@@ -164,9 +172,9 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForFifthEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.height >= 13);
-                                assert!(block.header.height <= 23);
-                                if block.header.height == 23 {
+                                assert!(block.header.inner.height >= 13);
+                                assert!(block.header.inner.height <= 23);
+                                if block.header.inner.height == 23 {
                                     actix::spawn(
                                         connectors1.write().unwrap()[5] // 5th account is one of the validators of epoch 5
                                             .1
@@ -252,16 +260,16 @@ mod tests {
                     match *phase {
                         RandomSinglePartPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.height, 1);
+                                assert_eq!(block.header.inner.height, 1);
                                 *phase = RandomSinglePartPhases::WaitingForThirdEpoch;
                             }
                         }
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.height >= 2);
-                                assert!(block.header.height <= 13);
+                                assert!(block.header.inner.height >= 2);
+                                assert!(block.header.inner.height <= 13);
                                 let mut tx_count = 0;
-                                if block.header.height == 13 {
+                                if block.header.inner.height == 13 {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
                                             println!(
@@ -277,6 +285,7 @@ mod tests {
                                                     validator2.to_string(),
                                                     (((i + j + 17) * 701) % 42 + 1) as u128,
                                                     (12345 + tx_count) as u64,
+                                                    block.header.hash,
                                                 );
                                             }
                                             tx_count += 1;
@@ -289,13 +298,14 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForSixEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.height >= 13);
-                                assert!(block.header.height <= 32);
-                                if block.header.height >= 26 {
-                                    println!("BLOCK HEIGHT {:?}", block.header.height);
+                                assert!(block.header.inner.height >= 13);
+                                assert!(block.header.inner.height <= 32);
+                                if block.header.inner.height >= 26 {
+                                    println!("BLOCK HEIGHT {:?}", block.header.inner.height);
                                     for i in 0..16 {
                                         for j in 0..16 {
                                             let amounts1 = amounts.clone();
+                                            let validator = flat_validators[j].to_string();
                                             actix::spawn(
                                                 connectors1.write().unwrap()[i]
                                                     .1
@@ -314,9 +324,7 @@ mod tests {
                                                             {
                                                                 check_amount(
                                                                     amounts1,
-                                                                    view_account_result
-                                                                        .account_id
-                                                                        .clone(),
+                                                                    validator,
                                                                     view_account_result.amount,
                                                                 );
                                                             }
@@ -327,7 +335,7 @@ mod tests {
                                         }
                                     }
                                 }
-                                if block.header.height == 32 {
+                                if block.header.inner.height == 32 {
                                     println!(
                                         "SEEN HEIGHTS SAME BLOCK {:?}",
                                         seen_heights_same_block.len()
@@ -362,9 +370,9 @@ mod tests {
                             } = msg
                             {
                                 seen_receipts_size.insert(header_and_part.receipts.len());
-                                if header_and_part.header.height_created == 22 {
+                                if header_and_part.header.inner.height_created == 22 {
                                     seen_heights_same_block
-                                        .insert(header_and_part.header.prev_block_hash);
+                                        .insert(header_and_part.header.inner.prev_block_hash);
                                 }
                             }
                         }
@@ -412,10 +420,10 @@ mod tests {
                 200,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
-                        check_height(block.hash(), block.header.height);
-                        check_height(block.header.prev_hash, block.header.height - 1);
+                        check_height(block.hash(), block.header.inner.height);
+                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
 
-                        if block.header.height >= 25 {
+                        if block.header.inner.height >= 25 {
                             System::current().stop();
                         }
                     }
