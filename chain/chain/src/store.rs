@@ -4,10 +4,9 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use cached::SizedCache;
 use log::debug;
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
@@ -23,13 +22,16 @@ use near_store::{
 };
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, ReceiptResponse, ShardFullChunkOrOnePart, Tip};
+use crate::types::{
+    Block, BlockHeader, LatestKnown, ReceiptResponse, ShardFullChunkOrOnePart, Tip,
+};
 use crate::RuntimeAdapter;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 
 /// lru cache size
 const CACHE_SIZE: usize = 20;
@@ -203,6 +205,20 @@ impl ChainStore {
                 receipts_block_hash = block_header.inner.prev_hash.clone();
             }
         }
+    }
+
+    pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
+        option_to_not_found(
+            self.store.get_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY),
+            "LATEST_KNOWN_KEY",
+        )
+    }
+
+    /// Immediately commits last height to the storage.
+    pub fn save_latest_known(&self, latest_known: LatestKnown) -> Result<(), Error> {
+        let mut store_update = self.store.store_update();
+        store_update.set_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY, &latest_known)?;
+        store_update.commit().map_err(|err| err.into())
     }
 }
 
@@ -480,6 +496,7 @@ pub struct ChainStoreUpdate<'a, T> {
     tail: Option<Tip>,
     header_head: Option<Tip>,
     sync_head: Option<Tip>,
+    latest_known: Option<LatestKnown>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     remove_blocks_to_catchup: Vec<CryptoHash>,
@@ -504,6 +521,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             tail: None,
             header_head: None,
             sync_head: None,
+            latest_known: None,
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
@@ -543,11 +561,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         Ok(ret)
     }
 
-    // WARNING
-    //
-    // Usually ChainStoreUpdate has some uncommitted changes
-    // and chain_store don't have access to them until they become committed.
-    // Make sure you're doing it right.
+    /// WARNING
+    ///
+    /// Usually ChainStoreUpdate has some uncommitted changes
+    /// and chain_store don't have access to them until they become committed.
+    /// Make sure you're doing it right.
     pub fn get_chain_store(&mut self) -> &mut T {
         return self.chain_store;
     }
@@ -759,6 +777,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.sync_head = Some(t.clone());
     }
 
+    /// Save latest known.
+    pub fn save_latest_known(&mut self, latest_known: LatestKnown) {
+        self.latest_known = Some(latest_known);
+    }
+
     /// Save block.
     pub fn save_block(&mut self, block: Block) {
         self.blocks.insert(block.hash(), block);
@@ -845,6 +868,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn add_state_dl_info(&mut self, info: StateSyncInfo) {
         self.add_state_dl_infos.push(info);
     }
+
     pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
         self.remove_state_dl_infos.push(hash);
     }
@@ -870,6 +894,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         if let Some(t) = self.sync_head {
             store_update
                 .set_ser(COL_BLOCK_MISC, SYNC_HEAD_KEY, &t)
+                .map_err::<Error, _>(|e| e.into())?;
+        }
+        if let Some(latest_known) = self.latest_known {
+            store_update
+                .set_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY, &latest_known)
                 .map_err::<Error, _>(|e| e.into())?;
         }
         for (hash, block) in self.blocks.drain() {

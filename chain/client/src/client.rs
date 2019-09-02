@@ -3,7 +3,6 @@
 
 use std::cmp::min;
 use std::collections::HashMap;
-use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,7 +17,7 @@ use chrono::{DateTime, Utc};
 use futures::Future;
 use log::{debug, error, info, warn};
 
-use near_chain::types::{ReceiptResponse, ValidatorSignatureVerificationResult};
+use near_chain::types::{LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult};
 use near_chain::{
     Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis, Provenance,
     RuntimeAdapter, ValidTransaction,
@@ -37,7 +36,7 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::from_timestamp;
+use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
@@ -247,6 +246,11 @@ impl Actor for ClientActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         // Start syncing job.
         self.start_sync(ctx);
+
+        // Start block production tracking if have block producer info.
+        if let Some(_) = self.block_producer {
+            self.block_production_tracking(ctx);
+        }
 
         // Start catchup job.
         self.catchup(ctx);
@@ -543,6 +547,15 @@ impl ClientActor {
             self.process_blocks_with_missing_chunks(ctx, block_hash);
         }
 
+        // Update latest known height if given block is indeed latest known.
+        let this_latest_known =
+            LatestKnown { height: block.header.inner.height, seen: to_timestamp(Utc::now()) };
+        let latest_known =
+            self.chain.store().get_latest_known().ok().unwrap_or_else(|| this_latest_known.clone());
+        if block.header.inner.height > latest_known.height {
+            unwrap_or_return!(self.chain.store().save_latest_known(this_latest_known), ());
+        }
+
         if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
@@ -566,14 +579,6 @@ impl ClientActor {
                     approval,
                 });
             }
-
-            // If this is block producing node and next block is produced by us, schedule to produce a block after a delay.
-            self.handle_scheduling_block_production(
-                ctx,
-                block.hash(),
-                block.header.inner.height,
-                block.header.inner.height,
-            );
         }
 
         if let Some(bp) = self.block_producer.clone() {
@@ -706,16 +711,11 @@ impl ClientActor {
     /// Check if client Account Id should be sent and send it.
     /// Account Id is sent when is not current a validator but are becoming a validator soon.
     fn check_send_announce_account(&mut self, prev_block_hash: CryptoHash) {
+        // If no peers, there is no one to announce to.
         if self.network_info.num_active_peers == 0 {
             debug!(target: "client", "No peers: skip account announce");
             return;
         }
-
-        // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(
-            self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
-            ()
-        );
 
         // First check that we currently have an AccountId
         if self.block_producer.is_none() {
@@ -735,6 +735,12 @@ impl ClientActor {
                 return;
             }
         }
+
+        // Announce AccountId if client is becoming a validator soon.
+        let next_epoch_id = unwrap_or_return!(
+            self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
+            ()
+        );
 
         // Check client is part of the futures validators
         if let Ok(validators) =
@@ -828,71 +834,71 @@ impl ClientActor {
         None
     }
 
-    /// Checks if we are block producer and if we are next block producer schedules calling `produce_block`.
-    /// If we are not next block producer, schedule to check timeout.
-    fn handle_scheduling_block_production(
-        &mut self,
-        ctx: &mut Context<ClientActor>,
-        block_hash: CryptoHash,
-        last_height: BlockIndex,
-        check_height: BlockIndex,
-    ) {
-        let epoch_id =
-            unwrap_or_return!(self.runtime_adapter.get_epoch_id_from_prev_block(&block_hash), ());
-        let next_block_producer_account =
-            unwrap_or_return!(self.get_block_proposer(&epoch_id, check_height + 1), ());
-        if let Some(block_producer) = &self.block_producer {
-            if block_producer.account_id.clone() == next_block_producer_account {
-                ctx.run_later(self.config.min_block_production_delay, move |act, ctx| {
-                    act.produce_block(ctx, block_hash, last_height, check_height + 1);
-                });
-            } else {
-                // Otherwise, schedule timeout to check if the next block was produced.
-                ctx.run_later(self.config.max_block_production_delay, move |act, ctx| {
-                    act.check_block_timeout(ctx, last_height, check_height);
-                });
+    /// Retrieves latest height, and checks if must produce next block.
+    /// Otherwise wait for block arrival or suggest to skip after timeout.
+    fn handle_block_production(&mut self, ctx: &mut Context<Self>) -> Result<(), Error> {
+        // If syncing, don't try to produce blocks.
+        if self.sync_status != SyncStatus::NoSync {
+            return Ok(());
+        }
+        let head = self.chain.head()?;
+        let mut latest_known = self.chain.store().get_latest_known()?;
+        assert!(head.height <= latest_known.height, "Latest known height is invalid");
+        if Utc::now()
+            < from_timestamp(latest_known.seen)
+                + chrono::Duration::from_std(self.config.max_block_production_delay).unwrap()
+        {
+            let epoch_id =
+                self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+            // Get who is the block producer for the upcoming `latest_known.height + 1` block.
+            let next_block_producer_account =
+                self.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
+            if let Some(block_producer) = &self.block_producer {
+                if block_producer.account_id.clone() == next_block_producer_account {
+                    // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
+                    if Utc::now()
+                        >= from_timestamp(latest_known.seen)
+                            + chrono::Duration::from_std(self.config.min_block_production_delay)
+                                .unwrap()
+                    {
+                        if let Err(err) =
+                            self.produce_block(ctx, head.height, latest_known.height + 1)
+                        {
+                            // If there is an error, report it and let it retry on the next loop step.
+                            error!(target: "client", "Block production failed: {:?}", err);
+                        }
+                    }
+                } else {
+                    // Next block producer is not this client, so just go for another loop iteration.
+                }
+            }
+        } else {
+            // Upcoming block has not been seen in max block production delay, suggest to skip.
+            if !self.config.produce_empty_blocks {
+                // If we are not producing empty blocks, we always wait for a block to be produced.
+                // Used mostly for testing.
+                return Ok(());
+            }
+            debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
+            latest_known.height += 1;
+            latest_known.seen = to_timestamp(Utc::now());
+            self.chain.store().save_latest_known(latest_known)?;
+        }
+        Ok(())
+    }
+
+    /// Runs a loop to keep track of the latest known block, produces if it's this validators turn.
+    fn block_production_tracking(&mut self, ctx: &mut Context<Self>) {
+        match self.handle_block_production(ctx) {
+            Ok(()) => {}
+            Err(err) => {
+                error!(target: "client", "Handle block production failed: {:?}", err);
             }
         }
-    }
-
-    /// Checks if next block was produced within timeout, if not check if we should produce next block.
-    /// `last_height` is the height of the `head` at the point of scheduling,
-    /// `check_height` is the height at which to call `handle_scheduling_block_production` to skip non received blocks.
-    /// TODO: should we send approvals for `last_height` block to next block producer?
-    fn check_block_timeout(
-        &mut self,
-        ctx: &mut Context<ClientActor>,
-        last_height: BlockIndex,
-        check_height: BlockIndex,
-    ) {
-        let head = unwrap_or_return!(self.chain.head(), ());
-        // If height changed since we scheduled this, exit.
-        if head.height != last_height {
-            return;
-        }
-        debug!(target: "client", "{:?} Timeout for {}, current head {}, next head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), last_height, head.height, check_height);
-        // Update how long ago last block arrived to reset block production timer.
-        self.last_block_processed = Instant::now();
-        self.handle_scheduling_block_production(
-            ctx,
-            head.last_block_hash,
-            last_height,
-            check_height + 1,
-        );
-    }
-
-    /// Produce block if we are block producer for given block. If error happens, retry.
-    fn produce_block(
-        &mut self,
-        ctx: &mut Context<ClientActor>,
-        block_hash: CryptoHash,
-        last_height: BlockIndex,
-        next_height: BlockIndex,
-    ) {
-        if let Err(err) = self.produce_block_err(ctx, last_height, next_height) {
-            error!(target: "client", "Block production failed: {:?}", err);
-            self.handle_scheduling_block_production(ctx, block_hash, last_height, next_height - 1);
-        }
+        let wait = self.config.block_production_tracking_delay;
+        ctx.run_later(wait, move |act, ctx| {
+            act.block_production_tracking(ctx);
+        });
     }
 
     fn produce_chunk(
@@ -939,13 +945,13 @@ impl ClientActor {
             last_header.height_included,
         )?;
 
-        // receipts proofs root is calculating here
+        // Receipts proofs root is calculating here
         //
-        // for each subset of incoming_receipts_into_shard_i_from_the_current_one
+        // For each subset of incoming_receipts_into_shard_i_from_the_current_one
         // we calculate hash here and save it
         // and then hash all of them into a single receipts root
         //
-        // we check validity in two ways:
+        // We check validity in two ways:
         // 1. someone who cares about shard will download all the receipts
         // and checks that receipts_root equals to all receipts hashed
         // 2. anyone who just asks for one's incoming receipts
@@ -991,7 +997,7 @@ impl ClientActor {
 
     /// Produce block if we are block producer for given `next_height` index.
     /// Can return error, should be called with `produce_block` to handle errors and reschedule.
-    fn produce_block_err(
+    fn produce_block(
         &mut self,
         ctx: &mut Context<ClientActor>,
         last_height: BlockIndex,
@@ -1032,9 +1038,6 @@ impl ClientActor {
                 // The previous block is not caught up for the next epoch relative to the previous
                 // block, which is the current epoch for this block, so this block cannot be applied
                 // at all yet, block production must to be rescheduled
-                ctx.run_later(self.config.block_production_retry_delay, move |act, ctx| {
-                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
-                });
                 return Ok(());
             }
         }
@@ -1052,23 +1055,15 @@ impl ClientActor {
         if self.approvals.len() < total_approvals
             && elapsed < self.config.max_block_production_delay
         {
-            // Schedule itself for (max BP delay - how much time passed).
-            ctx.run_later(self.config.max_block_production_delay.sub(elapsed), move |act, ctx| {
-                act.produce_block(ctx, head.last_block_hash, last_height, next_height);
-            });
+            // Will retry after a `block_production_tracking_delay`.
             return Ok(());
         }
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
         let new_chunks = self.shards_mgr.prepare_chunks(prev_hash);
 
+        // If we are producing empty blocks and there are not transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
-            self.handle_scheduling_block_production(
-                ctx,
-                head.last_block_hash,
-                head.height,
-                next_height,
-            );
             return Ok(());
         }
 
@@ -1092,7 +1087,6 @@ impl ClientActor {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
-        // TODO: current gas used and gas limit.
         let block = Block::produce(
             &prev_header,
             next_height,
@@ -1105,15 +1099,13 @@ impl ClientActor {
             block_producer.signer.clone(),
         );
 
-        let ret = self.process_block(ctx, block, Provenance::PRODUCED);
+        // Update latest known even before sending block out, to prevent race conditions.
+        self.chain.store().save_latest_known(LatestKnown {
+            height: next_height,
+            seen: to_timestamp(Utc::now()),
+        })?;
 
-        near_chain::test_utils::display_chain(&mut self.chain);
-
-        assert!(
-            ret.is_ok(),
-            format!("{:?}, me: {:?}", ret, self.block_producer.clone().map(|x| x.account_id))
-        );
-        ret.map_err(|err| err.into())
+        self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into())
     }
 
     /// Check if any block with missing chunks is ready to be processed
@@ -1504,15 +1496,9 @@ impl ClientActor {
                 self.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.
-                // Start by handling scheduling block production if needed.
+                // Announce this client's account id if their epoch is coming up.
                 let head = unwrap_or_run_later!(self.chain.head());
                 self.check_send_announce_account(head.prev_block_hash);
-                self.handle_scheduling_block_production(
-                    ctx,
-                    head.last_block_hash,
-                    head.height,
-                    head.height,
-                );
             }
             wait_period = self.config.sync_check_period;
         } else {

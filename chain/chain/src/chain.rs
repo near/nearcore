@@ -12,14 +12,14 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, TransactionResult};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
+use near_primitives::utils::to_timestamp;
 use near_store::Store;
 
 use crate::byzantine_assert;
-
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    Block, BlockHeader, BlockStatus, Provenance, ReceiptResponse, RuntimeAdapter,
+    Block, BlockHeader, BlockStatus, LatestKnown, Provenance, ReceiptResponse, RuntimeAdapter,
     ShardFullChunkOrOnePart, Tip, ValidatorSignatureVerificationResult,
 };
 
@@ -226,7 +226,7 @@ impl Chain {
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
-                        0,
+                        genesis.header.inner.height,
                         vec![],
                         vec![],
                         vec![],
@@ -249,6 +249,10 @@ impl Chain {
                     head = Tip::from_header(&genesis.header);
                     store_update.save_head(&head)?;
                     store_update.save_sync_head(&head);
+                    store_update.save_latest_known(LatestKnown {
+                        height: genesis.header.inner.height,
+                        seen: to_timestamp(Utc::now()),
+                    });
 
                     store_update.merge(state_store_update);
 
