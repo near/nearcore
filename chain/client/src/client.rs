@@ -5,7 +5,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
@@ -81,8 +81,6 @@ pub struct ClientActor {
     pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
     /// Set of approvals for the next block.
     approvals: HashMap<usize, Signature>,
-    /// Timestamp when last block was received / processed. Used to timeout block production.
-    last_block_processed: Instant,
     /// Keeps track of syncing headers.
     header_sync: HeaderSync,
     /// Keeps track of syncing block.
@@ -162,7 +160,6 @@ impl ClientActor {
             },
             pending_approvals: SizedCache::with_size(num_block_producers),
             approvals: HashMap::default(),
-            last_block_processed: Instant::now(),
             header_sync,
             block_sync,
             state_sync,
@@ -536,9 +533,6 @@ impl ClientActor {
             }
         };
 
-        // Update when last block was processed.
-        self.last_block_processed = Instant::now();
-
         // Count blocks and transactions processed both in SYNC and regular modes.
         self.info_helper.block_processed(block.transactions.len() as u64);
 
@@ -550,10 +544,14 @@ impl ClientActor {
         // Update latest known height if given block is indeed latest known.
         let this_latest_known =
             LatestKnown { height: block.header.inner.height, seen: to_timestamp(Utc::now()) };
-        let latest_known =
-            self.chain.store().get_latest_known().ok().unwrap_or_else(|| this_latest_known.clone());
+        let latest_known = self
+            .chain
+            .mut_store()
+            .get_latest_known()
+            .ok()
+            .unwrap_or_else(|| this_latest_known.clone());
         if block.header.inner.height > latest_known.height {
-            unwrap_or_return!(self.chain.store().save_latest_known(this_latest_known), ());
+            unwrap_or_return!(self.chain.mut_store().save_latest_known(this_latest_known), ());
         }
 
         if provenance != Provenance::SYNC {
@@ -842,12 +840,10 @@ impl ClientActor {
             return Ok(());
         }
         let head = self.chain.head()?;
-        let mut latest_known = self.chain.store().get_latest_known()?;
+        let mut latest_known = self.chain.mut_store().get_latest_known()?;
         assert!(head.height <= latest_known.height, "Latest known height is invalid");
-        if Utc::now()
-            < from_timestamp(latest_known.seen)
-                + chrono::Duration::from_std(self.config.max_block_production_delay).unwrap()
-        {
+        let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
+        if elapsed < self.config.max_block_wait_delay {
             let epoch_id =
                 self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
             // Get who is the block producer for the upcoming `latest_known.height + 1` block.
@@ -856,13 +852,8 @@ impl ClientActor {
             if let Some(block_producer) = &self.block_producer {
                 if block_producer.account_id.clone() == next_block_producer_account {
                     // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
-                    if Utc::now()
-                        >= from_timestamp(latest_known.seen)
-                            + chrono::Duration::from_std(self.config.min_block_production_delay)
-                                .unwrap()
-                    {
-                        if let Err(err) =
-                            self.produce_block(ctx, head.height, latest_known.height + 1)
+                    if elapsed >= self.config.min_block_production_delay {
+                        if let Err(err) = self.produce_block(ctx, latest_known.height + 1, elapsed)
                         {
                             // If there is an error, report it and let it retry on the next loop step.
                             error!(target: "client", "Block production failed: {:?}", err);
@@ -882,7 +873,7 @@ impl ClientActor {
             debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
             latest_known.height += 1;
             latest_known.seen = to_timestamp(Utc::now());
-            self.chain.store().save_latest_known(latest_known)?;
+            self.chain.mut_store().save_latest_known(latest_known)?;
         }
         Ok(())
     }
@@ -1000,8 +991,8 @@ impl ClientActor {
     fn produce_block(
         &mut self,
         ctx: &mut Context<ClientActor>,
-        last_height: BlockIndex,
         next_height: BlockIndex,
+        elapsed_since_last_block: Duration,
     ) -> Result<(), Error> {
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
@@ -1011,10 +1002,6 @@ impl ClientActor {
             head.epoch_id,
             self.runtime_adapter.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
-        // If last height changed, this process should stop as we spun up another one.
-        if head.height != last_height {
-            return Ok(());
-        }
 
         // Check that we are were called at the block that we are producer for.
         let next_block_proposer = self.get_block_proposer(
@@ -1026,7 +1013,7 @@ impl ClientActor {
             return Ok(());
         }
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
-        let prev_hash = prev.hash();
+        let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
@@ -1038,6 +1025,7 @@ impl ClientActor {
                 // The previous block is not caught up for the next epoch relative to the previous
                 // block, which is the current epoch for this block, so this block cannot be applied
                 // at all yet, block production must to be rescheduled
+                debug!(target: "client", "Produce block: prev block is not caught up");
                 return Ok(());
             }
         }
@@ -1046,16 +1034,17 @@ impl ClientActor {
         let validators =
             self.runtime_adapter.get_epoch_block_producers(&head.epoch_id, &prev_hash)?;
         let total_validators = validators.len();
-        let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, last_height)?
+        let prev_same_bp = self.runtime_adapter.get_block_producer(&head.epoch_id, head.height)?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
         let total_approvals =
             total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
-        let elapsed = self.last_block_processed.elapsed();
-        if self.approvals.len() < total_approvals
-            && elapsed < self.config.max_block_production_delay
+        if head.height > 0
+            && self.approvals.len() < total_approvals
+            && elapsed_since_last_block < self.config.max_block_production_delay
         {
             // Will retry after a `block_production_tracking_delay`.
+            debug!(target: "client", "Produce block: approvals {}, expected: {}", self.approvals.len(), total_approvals);
             return Ok(());
         }
 
@@ -1064,6 +1053,7 @@ impl ClientActor {
 
         // If we are producing empty blocks and there are not transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {
+            debug!(target: "client", "Empty blocks, skipping block production");
             return Ok(());
         }
 
@@ -1100,7 +1090,7 @@ impl ClientActor {
         );
 
         // Update latest known even before sending block out, to prevent race conditions.
-        self.chain.store().save_latest_known(LatestKnown {
+        self.chain.mut_store().save_latest_known(LatestKnown {
             height: next_height,
             seen: to_timestamp(Utc::now()),
         })?;
@@ -1492,7 +1482,6 @@ impl ClientActor {
 
         if !needs_syncing {
             if currently_syncing {
-                self.last_block_processed = Instant::now();
                 self.sync_status = SyncStatus::NoSync;
 
                 // Initial transition out of "syncing" state.

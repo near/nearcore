@@ -118,6 +118,8 @@ pub trait ChainStoreAccess {
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Arc<Store>,
+    /// Latest known.
+    latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
@@ -150,6 +152,7 @@ impl ChainStore {
     pub fn new(store: Arc<Store>) -> ChainStore {
         ChainStore {
             store,
+            latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             chunks: HashMap::new(),
@@ -207,17 +210,21 @@ impl ChainStore {
         }
     }
 
-    pub fn get_latest_known(&self) -> Result<LatestKnown, Error> {
-        option_to_not_found(
-            self.store.get_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY),
-            "LATEST_KNOWN_KEY",
-        )
+    pub fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
+        if self.latest_known.is_none() {
+            self.latest_known = Some(option_to_not_found(
+                self.store.get_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY),
+                "LATEST_KNOWN_KEY",
+            )?);
+        }
+        Ok(self.latest_known.as_ref().unwrap().clone())
     }
 
     /// Immediately commits last height to the storage.
-    pub fn save_latest_known(&self, latest_known: LatestKnown) -> Result<(), Error> {
+    pub fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         let mut store_update = self.store.store_update();
         store_update.set_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY, &latest_known)?;
+        self.latest_known = Some(latest_known);
         store_update.commit().map_err(|err| err.into())
     }
 }

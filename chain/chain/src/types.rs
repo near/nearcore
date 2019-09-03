@@ -279,7 +279,7 @@ struct ReceiptList(Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 pub struct LatestKnown {
     pub height: BlockIndex,
     pub seen: u64,
