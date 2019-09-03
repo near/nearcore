@@ -100,6 +100,38 @@ pub mod base_format {
     }
 }
 
+pub mod option_base_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{BaseDecode, BaseEncode};
+
+    pub fn serialize<T, S>(data: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: BaseEncode,
+        S: Serializer,
+    {
+        if let Some(x) = data {
+            serializer.serialize_str(&x.to_base())
+        } else {
+            serializer.serialize_str("")
+        }
+    }
+
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        T: BaseDecode + std::fmt::Debug,
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            T::from_base(&s).map(|x| Some(x)).map_err(|err| de::Error::custom(err.to_string()))
+        }
+    }
+}
+
 pub mod vec_base_format {
     use std::fmt;
 
