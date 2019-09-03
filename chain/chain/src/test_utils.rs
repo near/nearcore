@@ -343,9 +343,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn cares_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        _is_me: bool,
     ) -> bool {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash).unwrap().1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
@@ -354,9 +355,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
-        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-            if validator.account_id == *account_id {
-                return true;
+        if let Some(account_id) = account_id {
+            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+                if validator.account_id == *account_id {
+                    return true;
+                }
             }
         }
         false
@@ -364,9 +367,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn will_care_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        _is_me: bool,
     ) -> bool {
         let validators = &self.validators
             [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
@@ -375,9 +379,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-            if validator.account_id == *account_id {
-                return true;
+        if let Some(account_id) = account_id {
+            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+                if validator.account_id == *account_id {
+                    return true;
+                }
             }
         }
         false

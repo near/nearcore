@@ -112,6 +112,10 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockIndex,
     /// Number of blocks for which a transaction is valid
     pub transaction_validity_period: BlockIndex,
+    /// Accounts that this client tracks
+    pub tracked_accounts: Vec<AccountId>,
+    /// Shards that this client tracks
+    pub tracked_shards: Vec<ShardId>,
 }
 
 impl ClientConfig {
@@ -145,6 +149,8 @@ impl ClientConfig {
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
             block_header_fetch_horizon: 50,
             transaction_validity_period: 100,
+            tracked_accounts: vec![],
+            tracked_shards: vec![],
         }
     }
 }

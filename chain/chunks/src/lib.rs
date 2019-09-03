@@ -103,12 +103,22 @@ impl ShardsManager {
 
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
-        account_id: &AccountId,
+        account_id: &Option<AccountId>,
         parent_hash: CryptoHash,
         shard_id: ShardId,
+        is_me: bool,
     ) -> bool {
-        return self.runtime_adapter.cares_about_shard(account_id, &parent_hash, shard_id)
-            || self.runtime_adapter.will_care_about_shard(account_id, &parent_hash, shard_id);
+        return self.runtime_adapter.cares_about_shard(
+            account_id.as_ref(),
+            &parent_hash,
+            shard_id,
+            is_me,
+        ) || self.runtime_adapter.will_care_about_shard(
+            account_id.as_ref(),
+            &parent_hash,
+            shard_id,
+            is_me,
+        );
     }
 
     pub fn request_chunks(&mut self, chunks_to_request: Vec<ShardChunkHeader>) {
@@ -156,10 +166,12 @@ impl ShardsManager {
                     }
                 }
 
-                if match self.me.clone() {
-                    None => false,
-                    Some(me) => self.runtime_adapter.cares_about_shard(&me, &parent_hash, shard_id),
-                } {
+                if self.runtime_adapter.cares_about_shard(
+                    self.me.as_ref(),
+                    &parent_hash,
+                    shard_id,
+                    true,
+                ) {
                     assert!(requested_one_part)
                 };
 
@@ -312,20 +324,23 @@ impl ShardsManager {
         receipts: &Vec<Receipt>,
         receipts_proofs: &Vec<MerklePath>,
     ) -> (Vec<Receipt>, Vec<MerklePath>) {
+        let recipient = Some(recipient.clone());
         let one_part_receipts = receipts
             .iter()
             .filter(|&receipt| {
                 self.cares_about_shard_this_or_next_epoch(
-                    recipient,
+                    &recipient,
                     prev_block_hash,
                     self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id),
+                    false,
                 )
             })
             .cloned()
             .collect();
         let mut one_part_receipts_proofs = vec![];
         for shard in 0..self.runtime_adapter.num_shards() {
-            if self.cares_about_shard_this_or_next_epoch(recipient, prev_block_hash, shard) {
+            if self.cares_about_shard_this_or_next_epoch(&recipient, prev_block_hash, shard, false)
+            {
                 one_part_receipts_proofs.push(receipts_proofs[shard as usize].clone())
             }
         }
@@ -400,10 +415,7 @@ impl ShardsManager {
         let cares_about_shard = if let Some(chunk) = self.encoded_chunks.get(&part.chunk_hash) {
             let prev_block_hash = chunk.header.inner.prev_block_hash;
             let shard_id = part.shard_id;
-            self.me.clone().map_or_else(
-                || false,
-                |me| self.cares_about_shard_this_or_next_epoch(&me, prev_block_hash, shard_id),
-            )
+            self.cares_about_shard_this_or_next_epoch(&self.me, prev_block_hash, shard_id, true)
         } else {
             false
         };
@@ -515,9 +527,10 @@ impl ShardsManager {
                     }
                     Some(me) => {
                         if self.runtime_adapter.cares_about_shard(
-                            &me,
+                            Some(&me),
                             &prev_block_hash,
                             one_part.shard_id,
+                            true,
                         ) {
                             if me != owner {
                                 // ChunkOnePartMsg should only be sent to the authority that corresponds to the part_id
@@ -568,11 +581,8 @@ impl ShardsManager {
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&one_part.receipts)?;
         let mut proof_index = 0;
         for shard_id in 0..self.runtime_adapter.num_shards() {
-            if self.cares_about_shard_this_or_next_epoch(
-                self.me.as_ref().unwrap(),
-                prev_block_hash,
-                shard_id,
-            ) {
+            if self.cares_about_shard_this_or_next_epoch(&self.me, prev_block_hash, shard_id, true)
+            {
                 if proof_index == one_part.receipts_proofs.len()
                     || !verify_path(
                         one_part.header.inner.receipts_root,
@@ -629,9 +639,11 @@ impl ShardsManager {
         }
 
         // If we do not follow this shard, having the one part is sufficient to include the chunk in the block
-        if self.me.as_ref().map_or_else(
-            || false,
-            |me| !self.cares_about_shard_this_or_next_epoch(me, prev_block_hash, one_part.shard_id),
+        if !self.cares_about_shard_this_or_next_epoch(
+            &self.me,
+            prev_block_hash,
+            one_part.shard_id,
+            true,
         ) {
             self.block_hash_to_chunk_headers
                 .entry(one_part.header.inner.prev_block_hash)
@@ -662,13 +674,9 @@ impl ShardsManager {
                         Ok(cur) => {
                             ret |= cur;
 
-                            if self.me.is_some()
-                                && self.cares_about_shard_this_or_next_epoch(
-                                    self.me.as_ref().unwrap(),
-                                    block_hash,
-                                    shard_id,
-                                )
-                            {
+                            if self.cares_about_shard_this_or_next_epoch(
+                                &self.me, block_hash, shard_id, true,
+                            ) {
                                 self.request_chunks(vec![chunk_header]);
                             }
                         }

@@ -2,7 +2,7 @@ use std::convert::AsRef;
 use std::fmt;
 
 use borsh::BorshSerialize;
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;
 
@@ -10,7 +10,8 @@ use lazy_static::lazy_static;
 use near_crypto::PublicKey;
 
 use crate::hash::{hash, CryptoHash};
-use crate::types::AccountId;
+use crate::types::{AccountId, ShardId};
+use std::io::Cursor;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 pub const MIN_ACCOUNT_ID_LEN: usize = 2;
@@ -107,6 +108,11 @@ pub fn index_to_bytes(index: u64) -> Vec<u8> {
     let mut bytes = vec![];
     bytes.write_u64::<LittleEndian>(index).expect("writing to bytes failed");
     bytes
+}
+
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+    let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+    cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 
 lazy_static! {

@@ -432,15 +432,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         // TODO: if the bp receives the chunk before they receive the block, they will
                         //     not collect the parts currently. It will result in chunk not included
                         //     in the next block.
-                        if self.block_producer.as_ref().map_or_else(
-                            || false,
-                            |bp| {
-                                self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                                    &bp.account_id,
-                                    prev_block_hash,
-                                    one_part_msg.shard_id,
-                                )
-                            },
+                        if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+                            &self.block_producer.as_ref().map(|x| x.account_id.clone()),
+                            prev_block_hash,
+                            one_part_msg.shard_id,
+                            true,
                         ) && self
                             .chain
                             .head()
@@ -666,6 +662,7 @@ impl ClientActor {
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+        let me = Some(me);
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.inner.height == chunk_header.height_included {
@@ -673,6 +670,7 @@ impl ClientActor {
                     &me,
                     block.header.inner.prev_hash,
                     shard_id,
+                    true,
                 ) {
                     self.shards_mgr.remove_transactions(
                         shard_id,
@@ -685,6 +683,7 @@ impl ClientActor {
     }
 
     fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
+        let me = Some(me);
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.inner.height == chunk_header.height_included {
@@ -692,6 +691,7 @@ impl ClientActor {
                     &me,
                     block.header.inner.prev_hash,
                     shard_id,
+                    false,
                 ) {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
@@ -1584,11 +1584,9 @@ impl ClientActor {
                 };
 
                 let shards_to_sync = (0..self.runtime_adapter.num_shards())
-                    .filter(|x| match me {
-                        Some(me) => {
-                            self.shards_mgr.cares_about_shard_this_or_next_epoch(&me, sync_hash, *x)
-                        }
-                        None => false,
+                    .filter(|x| {
+                        self.shards_mgr
+                            .cares_about_shard_this_or_next_epoch(&me, sync_hash, *x, true)
                     })
                     .collect();
                 match unwrap_or_run_later!(self.state_sync.run(

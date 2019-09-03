@@ -2069,6 +2069,7 @@ dependencies = [
  "near-network 0.1.0",
  "near-pool 0.1.0",
  "near-primitives 0.1.0",
+ "near-shard-tracker 0.1.0",
  "near-store 0.1.0",
  "near-telemetry 0.1.0",
  "near-verifier 0.1.0",
@@ -2303,6 +2304,16 @@ name = "near-runtime-fees"
 version = "0.2.1"
 dependencies = [
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "near-shard-tracker"
+version = "0.1.0"
+dependencies = [
+ "near-crypto 0.1.0",
+ "near-epoch-manager 0.0.1",
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
 ]
 
 [[package]]
