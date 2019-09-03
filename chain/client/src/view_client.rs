@@ -6,17 +6,18 @@ use std::sync::Arc;
 use actix::{Actor, Context, Handler};
 use chrono::{DateTime, Utc};
 
-use near_chain::{Block, Chain, ErrorKind, RuntimeAdapter};
+use near_chain::{Chain, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::QueryResponse;
-use near_primitives::transaction::{
-    FinalTransactionResult, FinalTransactionStatus, TransactionLogs, TransactionResult,
-    TransactionStatus,
+use near_primitives::transaction::{TransactionResult, TransactionStatus};
+use near_primitives::views::{
+    BlockView, FinalTransactionResult, FinalTransactionStatus, QueryResponse, TransactionLogView,
+    TransactionResultView,
 };
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
 use crate::TxDetails;
+use near_primitives::types::BlockIndex;
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -29,53 +30,69 @@ impl ViewClientActor {
         store: Arc<Store>,
         genesis_time: DateTime<Utc>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
+        transaction_validity_period: BlockIndex,
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
-        let chain = Chain::new(store, runtime_adapter.clone(), genesis_time)?;
+        let chain =
+            Chain::new(store, runtime_adapter.clone(), genesis_time, transaction_validity_period)?;
         Ok(ViewClientActor { chain, runtime_adapter })
     }
 
     pub fn get_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<TransactionResult, String> {
+    ) -> Result<TransactionResultView, String> {
         match self.chain.get_transaction_result(hash) {
-            Ok(result) => Ok(result.clone()),
+            Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(TransactionResult::default()),
+                ErrorKind::DBNotFoundErr(_) => Ok(TransactionResult {
+                    status: TransactionStatus::Unknown,
+                    ..Default::default()
+                }
+                .into()),
                 _ => Err(err.to_string()),
             },
         }
     }
 
-    fn collect_transaction_final_result(
+    fn get_recursive_transaction_results(
         &mut self,
-        transaction_result: &TransactionResult,
-        logs: &mut Vec<TransactionLogs>,
-    ) -> Result<FinalTransactionStatus, String> {
-        match transaction_result.status {
-            TransactionStatus::Unknown => Ok(FinalTransactionStatus::Unknown),
-            TransactionStatus::Failed => Ok(FinalTransactionStatus::Failed),
-            TransactionStatus::Completed => {
-                for r in transaction_result.receipts.iter() {
-                    let receipt_result = self.get_transaction_result(&r)?;
-                    logs.push(TransactionLogs {
-                        hash: *r,
-                        lines: receipt_result.logs.clone(),
-                        receipts: receipt_result.receipts.clone(),
-                        result: receipt_result.result.clone(),
-                    });
-                    match self.collect_transaction_final_result(&receipt_result, logs)? {
-                        FinalTransactionStatus::Failed => {
-                            return Ok(FinalTransactionStatus::Failed)
-                        }
-                        FinalTransactionStatus::Completed => {}
-                        _ => return Ok(FinalTransactionStatus::Started),
-                    };
-                }
-                Ok(FinalTransactionStatus::Completed)
-            }
+        hash: &CryptoHash,
+    ) -> Result<Vec<TransactionLogView>, String> {
+        let result = self.get_transaction_result(hash)?;
+        let receipt_ids = result.receipts.clone();
+        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
+        for hash in &receipt_ids {
+            transactions
+                .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
         }
+        Ok(transactions)
+    }
+
+    fn get_final_transaction_result(
+        &mut self,
+        hash: &CryptoHash,
+    ) -> Result<FinalTransactionResult, String> {
+        let transactions = self.get_recursive_transaction_results(hash)?;
+        let status = if transactions
+            .iter()
+            .find(|t| &t.result.status == &TransactionStatus::Failed)
+            .is_some()
+        {
+            FinalTransactionStatus::Failed
+        } else if transactions
+            .iter()
+            .find(|t| &t.result.status == &TransactionStatus::Unknown)
+            .is_some()
+        {
+            FinalTransactionStatus::Started
+        } else {
+            FinalTransactionStatus::Completed
+        };
+        Ok(FinalTransactionResult {
+            status,
+            transactions: transactions.into_iter().map(|t| t.into()).collect(),
+        })
     }
 }
 
@@ -99,7 +116,7 @@ impl Handler<Query> for ViewClientActor {
 
 /// Handles retrieving block from the chain.
 impl Handler<GetBlock> for ViewClientActor {
-    type Result = Result<Block, String>;
+    type Result = Result<BlockView, String>;
 
     fn handle(&mut self, msg: GetBlock, _: &mut Context<Self>) -> Self::Result {
         match msg {
@@ -110,6 +127,7 @@ impl Handler<GetBlock> for ViewClientActor {
             GetBlock::Height(height) => self.chain.get_block_by_height(height).map(Clone::clone),
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
+        .map(|block| block.into())
         .map_err(|err| err.to_string())
     }
 }
@@ -118,24 +136,12 @@ impl Handler<TxStatus> for ViewClientActor {
     type Result = Result<FinalTransactionResult, String>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
-        let transaction_result = self.get_transaction_result(&msg.tx_hash)?;
-        let mut result = FinalTransactionResult {
-            status: FinalTransactionStatus::Unknown,
-            logs: vec![TransactionLogs {
-                hash: msg.tx_hash,
-                lines: transaction_result.logs.clone(),
-                receipts: transaction_result.receipts.clone(),
-                result: transaction_result.result.clone(),
-            }],
-        };
-        result.status =
-            self.collect_transaction_final_result(&transaction_result, &mut result.logs)?;
-        Ok(result)
+        self.get_final_transaction_result(&msg.tx_hash)
     }
 }
 
 impl Handler<TxDetails> for ViewClientActor {
-    type Result = Result<TransactionResult, String>;
+    type Result = Result<TransactionResultView, String>;
 
     fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
         self.get_transaction_result(&msg.tx_hash)

@@ -1,14 +1,14 @@
-use std::panic;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::{fs, panic};
 
 use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
-use near_primitives::rpc::AccountViewCallResult;
-use near_primitives::serialize::to_base;
+use near_crypto::{InMemorySigner, Signer};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
 use node_runtime::StateRecord;
@@ -17,6 +17,7 @@ pub use crate::node::process_node::ProcessNode;
 pub use crate::node::runtime_node::RuntimeNode;
 pub use crate::node::thread_node::ThreadNode;
 use crate::user::{AsyncUser, User};
+use near_primitives::views::AccountView;
 
 mod process_node;
 mod runtime_node;
@@ -50,8 +51,12 @@ pub trait Node: Send + Sync {
 
     fn kill(&mut self);
 
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         self.user().view_account(account_id)
+    }
+
+    fn get_access_key_nonce_for_signer(&self, account_id: &AccountId) -> Result<u64, String> {
+        self.user().get_access_key_nonce_for_signer(account_id)
     }
 
     fn view_balance(&self, account_id: &AccountId) -> Result<Balance, String> {
@@ -62,11 +67,7 @@ pub trait Node: Send + Sync {
         self.user().add_transaction(transaction)
     }
 
-    fn get_account_nonce(&self, account_id: &AccountId) -> Option<u64> {
-        self.user().get_account_nonce(account_id)
-    }
-
-    fn signer(&self) -> Arc<dyn EDSigner>;
+    fn signer(&self) -> Arc<dyn Signer>;
 
     fn is_running(&self) -> bool;
 
@@ -124,7 +125,7 @@ fn near_configs_to_node_configs(
         result.push(NodeConfig::Thread(NearConfig::new(
             configs[i].clone(),
             &genesis_config,
-            network_signers[i].clone().into(),
+            (&network_signers[i]).into(),
             Some(signers[i].clone().into()),
         )))
     }
@@ -138,8 +139,9 @@ pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
-    let code =
-        to_base(include_bytes!("../../../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref());
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+    let code = to_base64(&fs::read(path).unwrap());
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 0, true);
     for seed in seeds {

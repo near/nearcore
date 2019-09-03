@@ -4,24 +4,14 @@ use actix::{Actor, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, BlockHeader, Chain};
+use near::{load_test_config, start_with_config, GenesisConfig};
+use near_chain::Block;
 use near_client::GetBlock;
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
-use near_store::test_utils::create_test_store;
-
-/// Utility to generate genesis header from config for testing purposes.
-fn genesis_header(genesis_config: GenesisConfig) -> BlockHeader {
-    let dir = TempDir::new("unused").unwrap();
-    let store = create_test_store();
-    let genesis_time = genesis_config.genesis_time.clone();
-    let runtime = Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config));
-    let chain = Chain::new(store, runtime, genesis_time).unwrap();
-    chain.genesis().clone()
-}
+use testlib::genesis_header;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -29,7 +19,7 @@ fn sync_state_nodes() {
     init_test_logger();
 
     let genesis_config = GenesisConfig::test(vec!["other"]);
-    let genesis_header = genesis_header(genesis_config.clone());
+    let genesis_header = genesis_header(&genesis_config);
 
     let (port1, port2) = (open_port(), open_port());
     let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -46,7 +36,7 @@ fn sync_state_nodes() {
 
     let mut blocks = vec![];
     let mut prev = &genesis_header;
-    let signer = Arc::new(InMemorySigner::from_seed("other", "other"));
+    let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
     for _ in 0..=100 {
         let block = Block::empty(prev, signer.clone());
         let _ = client1.do_send(NetworkClientMessages::Block(

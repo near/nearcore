@@ -7,13 +7,14 @@ edition = "2018"
 [dependencies]
 clap = "2.32.0"
 hex = "0.3"
-protobuf = "2.7"
-ansi_term = "0.11.0"
+ansi_term = "0.12.0"
+borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
-near-protos = { path = "../../core/protos" }
+near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 node-runtime = { path = "../../runtime/runtime" }
 near-chain = { path = "../../chain/chain" }
 near-network = { path = "../../chain/network" }
 near = { path = "../../near" }
+

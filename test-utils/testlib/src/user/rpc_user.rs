@@ -2,33 +2,30 @@ use std::convert::TryInto;
 use std::sync::{Arc, RwLock};
 
 use actix::System;
-use protobuf::Message;
+use borsh::Serializable;
 
-use near_chain::Block;
 use near_client::StatusResponse;
+use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
-use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::crypto::signer::EDSigner;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptInfo;
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse, ViewStateResult};
-use near_primitives::serialize::{to_base, to_base64, BaseEncode};
-use near_primitives::transaction::{
-    FinalTransactionResult, ReceiptTransaction, SignedTransaction, TransactionResult,
+use near_primitives::receipt::{Receipt, ReceiptInfo};
+use near_primitives::serialize::{to_base, to_base64};
+use near_primitives::transaction::SignedTransaction;
+use near_primitives::types::AccountId;
+use near_primitives::views::{
+    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
+    TransactionResultView, ViewStateResult,
 };
-use near_primitives::types::{AccountId, MerkleHash};
-use near_protos::signed_transaction as transaction_proto;
 
 use crate::user::User;
 
 pub struct RpcUser {
-    signer: Arc<dyn EDSigner>,
+    signer: Arc<dyn Signer>,
     client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {
-    pub fn new(addr: &str, signer: Arc<dyn EDSigner>) -> RpcUser {
+    pub fn new(addr: &str, signer: Arc<dyn Signer>) -> RpcUser {
         RpcUser { client: RwLock::new(new_client(&format!("http://{}", addr))), signer }
     }
 
@@ -36,25 +33,24 @@ impl RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().status()).ok()
     }
 
-    pub fn query(&self, path: String, data: Vec<u8>) -> Result<QueryResponse, String> {
-        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(&data)))
+    pub fn query(&self, path: String, data: &[u8]) -> Result<QueryResponse, String> {
+        System::new("actix").block_on(self.client.write().unwrap().query(path, to_base(data)))
     }
 }
 
 impl User for RpcUser {
-    fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        self.query(format!("account/{}", account_id), vec![])?.try_into()
+    fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
+        self.query(format!("account/{}", account_id), &[])?.try_into()
     }
 
-    fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
-        self.query(format!("contract/{}", account_id), vec![])?.try_into()
+    fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String> {
+        self.query(format!("contract/{}", account_id), prefix)?.try_into()
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        let proto: transaction_proto::SignedTransaction = transaction.into();
-        let bytes = to_base64(&proto.write_to_bytes().unwrap());
+        let bytes = transaction.try_to_vec().unwrap();
         let _ = System::new("actix")
-            .block_on(self.client.write().unwrap().broadcast_tx_async(bytes))?;
+            .block_on(self.client.write().unwrap().broadcast_tx_async(to_base64(&bytes)))?;
         Ok(())
     }
 
@@ -62,29 +58,29 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalTransactionResult, String> {
-        let proto: transaction_proto::SignedTransaction = transaction.into();
-        let bytes = to_base64(&proto.write_to_bytes().unwrap());
-        System::new("actix").block_on(self.client.write().unwrap().broadcast_tx_commit(bytes))
+        let bytes = transaction.try_to_vec().unwrap();
+        System::new("actix")
+            .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
     }
 
-    fn add_receipt(&self, _receipt: ReceiptTransaction) -> Result<(), String> {
+    fn add_receipt(&self, _receipt: Receipt) -> Result<(), String> {
         // TDDO: figure out if rpc will support this
         unimplemented!()
-    }
-
-    fn get_account_nonce(&self, account_id: &String) -> Option<u64> {
-        self.view_account(account_id).ok().map(|acc| acc.nonce)
     }
 
     fn get_best_block_index(&self) -> Option<u64> {
         self.get_status().map(|status| status.sync_info.latest_block_height)
     }
 
-    fn get_block(&self, index: u64) -> Option<Block> {
+    fn get_best_block_hash(&self) -> Option<CryptoHash> {
+        self.get_status().map(|status| status.sync_info.latest_block_hash.into())
+    }
+
+    fn get_block(&self, index: u64) -> Option<BlockView> {
         System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResult {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
         System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
     }
 
@@ -92,7 +88,7 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 
-    fn get_state_root(&self) -> MerkleHash {
+    fn get_state_root(&self) -> CryptoHashView {
         self.get_status().map(|status| status.sync_info.latest_state_root).unwrap()
     }
 
@@ -105,12 +101,15 @@ impl User for RpcUser {
         &self,
         account_id: &AccountId,
         public_key: &PublicKey,
-    ) -> Result<Option<AccessKey>, String> {
-        self.query(format!("access_key/{}/{}", account_id, public_key.to_base()), vec![])?
-            .try_into()
+    ) -> Result<Option<AccessKeyView>, String> {
+        self.query(format!("access_key/{}/{}", account_id, public_key), &[])?.try_into()
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
+    }
+
+    fn set_signer(&mut self, signer: Arc<Signer>) {
+        self.signer = signer;
     }
 }

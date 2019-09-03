@@ -2,11 +2,13 @@ use std::collections::{hash_map::Iter, HashMap, HashSet};
 use std::convert::TryInto;
 use std::sync::Arc;
 
+use borsh::Serializable;
 use chrono::Utc;
 use log::debug;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
+use near_primitives::utils::to_timestamp;
 use near_store::{Store, COL_PEERS};
 
 use crate::types::{
@@ -32,7 +34,7 @@ impl PeerStore {
             let mut peer_state: KnownPeerState = value.try_into()?;
             match peer_state.status {
                 KnownPeerStatus::Banned(_, _) => {}
-                _ => peer_state.status = KnownPeerStatus::NotConnected
+                _ => peer_state.status = KnownPeerStatus::NotConnected,
             };
             peer_states.insert(peer_id, peer_state);
         }
@@ -56,10 +58,10 @@ impl PeerStore {
             .peer_states
             .entry(peer_info.peer_info.id)
             .or_insert(KnownPeerState::new(peer_info.peer_info.clone()));
-        entry.last_seen = Utc::now();
+        entry.last_seen = to_timestamp(Utc::now());
         entry.status = KnownPeerStatus::Connected;
         let mut store_update = self.store.store_update();
-        store_update.set_ser(COL_PEERS, peer_info.peer_info.id.as_ref(), entry)?;
+        store_update.set_ser(COL_PEERS, &peer_info.peer_info.id.try_to_vec()?, entry)?;
         store_update.commit().map_err(|err| err.into())
     }
 
@@ -68,10 +70,10 @@ impl PeerStore {
         peer_id: &PeerId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now();
+            peer_state.last_seen = to_timestamp(Utc::now());
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
+            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -84,10 +86,10 @@ impl PeerStore {
         ban_reason: ReasonForBan,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
-            peer_state.last_seen = Utc::now();
-            peer_state.status = KnownPeerStatus::Banned(ban_reason, Utc::now());
+            peer_state.last_seen = to_timestamp(Utc::now());
+            peer_state.status = KnownPeerStatus::Banned(ban_reason, to_timestamp(Utc::now()));
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
+            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -98,7 +100,7 @@ impl PeerStore {
         if let Some(peer_state) = self.peer_states.get_mut(peer_id) {
             peer_state.status = KnownPeerStatus::NotConnected;
             let mut store_update = self.store.store_update();
-            store_update.set_ser(COL_PEERS, peer_id.as_ref(), peer_state)?;
+            store_update.set_ser(COL_PEERS, &peer_id.try_to_vec()?, peer_state)?;
             store_update.commit().map_err(|err| err.into())
         } else {
             Err(format!("Peer {} is missing in the peer store", peer_id).into())
@@ -157,7 +159,7 @@ impl PeerStore {
         let now = Utc::now();
         let mut to_remove = vec![];
         for (peer_id, peer_status) in self.peer_states.iter() {
-            let diff = (now - peer_status.last_seen).to_std()?;
+            let diff = (now - peer_status.last_seen()).to_std()?;
             if peer_status.status != KnownPeerStatus::Connected
                 && diff > config.peer_expiration_duration
             {
@@ -168,13 +170,13 @@ impl PeerStore {
         let mut store_update = self.store.store_update();
         for peer_id in to_remove {
             self.peer_states.remove(&peer_id);
-            store_update.delete(COL_PEERS, peer_id.as_ref());
+            store_update.delete(COL_PEERS, &peer_id.try_to_vec()?);
         }
         store_update.commit().map_err(|err| err.into())
     }
 
-    pub fn add_peers(&mut self, mut peers: Vec<PeerInfo>) {
-        for peer_info in peers.drain(..) {
+    pub fn add_peers(&mut self, peers: Vec<PeerInfo>) {
+        for peer_info in peers.into_iter() {
             if !self.peer_states.contains_key(&peer_info.id) {
                 self.peer_states.insert(peer_info.id, KnownPeerState::new(peer_info));
             }
@@ -185,13 +187,15 @@ impl PeerStore {
 #[cfg(test)]
 mod test {
     extern crate tempdir;
+
+    use near_store::create_store;
+
     use super::*;
-    use near_store::{create_store};
-    use near_primitives::crypto::signature::get_key_pair;
+    use near_crypto::{KeyType, SecretKey};
 
     fn gen_peer_info() -> PeerInfo {
-        PeerInfo{
-            id: PeerId::from(get_key_pair().0),
+        PeerInfo {
+            id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: None,
             account_id: None,
         }

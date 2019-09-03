@@ -61,6 +61,7 @@ pub fn start_with_config(
         store.clone(),
         config.genesis_config.genesis_time.clone(),
         runtime.clone(),
+        config.genesis_config.transaction_validity_period,
     )
     .unwrap()
     .start();

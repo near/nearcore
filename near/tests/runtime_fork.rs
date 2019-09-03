@@ -5,10 +5,10 @@ use tempdir::TempDir;
 
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, Chain, Provenance};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::TransactionBody;
+use near_primitives::transaction::SignedTransaction;
 use near_store::create_store;
 
 #[test]
@@ -18,15 +18,43 @@ fn runtime_hanldle_fork() {
     let tmp_dir = TempDir::new("handle_fork").unwrap();
     let store = create_store(&get_store_path(tmp_dir.path()));
     let genesis_config = GenesisConfig::testing_spec(2, 1);
-    let signer = Arc::new(InMemorySigner::from_seed("near.0", "near.0"));
+    let signer = Arc::new(InMemorySigner::from_seed("near.0", KeyType::ED25519, "near.0"));
     let runtime =
         Arc::new(NightshadeRuntime::new(tmp_dir.path(), store.clone(), genesis_config.clone()));
 
-    let mut chain = Chain::new(store, runtime, genesis_config.genesis_time).unwrap();
+    let mut chain = Chain::new(
+        store,
+        runtime,
+        genesis_config.genesis_time,
+        genesis_config.transaction_validity_period,
+    )
+    .unwrap();
+    let block_hash = chain.get_header_by_height(0).unwrap().hash;
 
-    let tx1 = TransactionBody::send_money(1, "near.0", "near.1", 100).sign(&*signer);
-    let tx2 = TransactionBody::send_money(1, "near.0", "near.1", 500).sign(&*signer);
-    let tx3 = TransactionBody::send_money(2, "near.0", "near.1", 100).sign(&*signer);
+    let tx1 = SignedTransaction::send_money(
+        1,
+        "near.0".to_string(),
+        "near.1".to_string(),
+        signer.clone(),
+        100,
+        block_hash,
+    );
+    let tx2 = SignedTransaction::send_money(
+        1,
+        "near.0".to_string(),
+        "near.1".to_string(),
+        signer.clone(),
+        500,
+        block_hash,
+    );
+    let tx3 = SignedTransaction::send_money(
+        2,
+        "near.0".to_string(),
+        "near.1".to_string(),
+        signer.clone(),
+        100,
+        block_hash,
+    );
     let state_root = chain.get_post_state_root(&chain.genesis().hash()).unwrap().clone();
     let b1 = Block::produce(
         chain.genesis(),

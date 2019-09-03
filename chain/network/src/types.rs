@@ -1,37 +1,32 @@
-use std::convert::From;
-use std::convert::{Into, TryFrom, TryInto};
+use std::collections::HashMap;
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::iter::FromIterator;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
+use borsh::{BorshDeserialize, BorshSerialize, Deserializable, Serializable};
 use chrono::{DateTime, Utc};
-use protobuf::well_known_types::UInt32Value;
-use protobuf::{RepeatedField, SingularPtrField};
-use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_primitives::crypto::signature::{sign, PublicKey, SecretKey, Signature};
+use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::logging::pretty_str;
-use near_primitives::serialize::{BaseEncode, Decode};
-use near_primitives::transaction::{ReceiptTransaction, SignedTransaction};
+use near_primitives::receipt::Receipt;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
-use near_primitives::utils::{proto_to_type, to_string_value};
-use near_protos::network as network_proto;
+use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
-use std::collections::HashMap;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Peer id is the public key.
-#[derive(Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -42,7 +37,7 @@ impl PeerId {
 
 impl From<PeerId> for Vec<u8> {
     fn from(peer_id: PeerId) -> Vec<u8> {
-        (&peer_id.0).into()
+        peer_id.0.try_to_vec().unwrap()
     }
 }
 
@@ -56,19 +51,13 @@ impl TryFrom<Vec<u8>> for PeerId {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(bytes.try_into()?))
-    }
-}
-
-impl std::convert::AsRef<[u8]> for PeerId {
-    fn as_ref(&self) -> &[u8] {
-        &(self.0).0[..]
+        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
     }
 }
 
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(self.0.as_ref());
+        state.write(&self.0.try_to_vec().unwrap());
     }
 }
 
@@ -80,12 +69,12 @@ impl fmt::Display for PeerId {
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", pretty_str(&self.0.to_base(), 4))
+        write!(f, "{}", self.0)
     }
 }
 
 /// Peer information.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -123,7 +112,7 @@ impl TryFrom<&str> for PeerInfo {
             return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
         }
         Ok(PeerInfo {
-            id: PublicKey::try_from(chunks[0])?.into(),
+            id: PeerId(ReadablePublicKey::new(chunks[0]).try_into()?),
             addr: Some(
                 chunks[1].parse().map_err(|err| {
                     format!("Invalid ip address format for {}: {}", chunks[1], err)
@@ -134,29 +123,8 @@ impl TryFrom<&str> for PeerInfo {
     }
 }
 
-impl TryFrom<network_proto::PeerInfo> for PeerInfo {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
-        let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
-        let account_id = proto.account_id.into_option().map(|s| s.value);
-        Ok(PeerInfo { id: PublicKey::try_from(proto.id)?.into(), addr, account_id })
-    }
-}
-
-impl From<PeerInfo> for network_proto::PeerInfo {
-    fn from(peer_info: PeerInfo) -> network_proto::PeerInfo {
-        let id = peer_info.id;
-        let addr = SingularPtrField::from_option(
-            peer_info.addr.map(|s| to_string_value(format!("{}", s))),
-        );
-        let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
-        network_proto::PeerInfo { id: (&id.0).into(), addr, account_id, ..Default::default() }
-    }
-}
-
 /// Peer chain information.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct PeerChainInfo {
     /// Genesis hash.
     pub genesis: CryptoHash,
@@ -164,29 +132,6 @@ pub struct PeerChainInfo {
     pub height: BlockIndex,
     /// Last known chain weight of the peer.
     pub total_weight: Weight,
-}
-
-impl TryFrom<network_proto::PeerChainInfo> for PeerChainInfo {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::PeerChainInfo) -> Result<Self, Self::Error> {
-        Ok(PeerChainInfo {
-            genesis: proto.genesis.try_into()?,
-            height: proto.height,
-            total_weight: proto.total_weight.into(),
-        })
-    }
-}
-
-impl From<PeerChainInfo> for network_proto::PeerChainInfo {
-    fn from(chain_peer_info: PeerChainInfo) -> network_proto::PeerChainInfo {
-        network_proto::PeerChainInfo {
-            genesis: chain_peer_info.genesis.into(),
-            height: chain_peer_info.height,
-            total_weight: chain_peer_info.total_weight.to_num(),
-            ..Default::default()
-        }
-    }
 }
 
 /// Peer type.
@@ -209,7 +154,7 @@ pub enum PeerStatus {
     Banned(ReasonForBan),
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
     /// Protocol version.
     pub version: u32,
@@ -227,66 +172,23 @@ impl Handshake {
     }
 }
 
-impl TryFrom<network_proto::Handshake> for Handshake {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::Handshake) -> Result<Self, Self::Error> {
-        let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
-        let peer_id: PublicKey = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
-        let chain_info = proto_to_type(proto.chain_info)?;
-        Ok(Handshake { version: proto.version, peer_id: peer_id.into(), listen_port, chain_info })
-    }
-}
-
-impl From<Handshake> for network_proto::Handshake {
-    fn from(handshake: Handshake) -> network_proto::Handshake {
-        let listen_port = SingularPtrField::from_option(handshake.listen_port.map(|v| {
-            let mut res = UInt32Value::new();
-            res.set_value(u32::from(v));
-            res
-        }));
-        network_proto::Handshake {
-            version: handshake.version,
-            peer_id: handshake.peer_id.into(),
-            listen_port,
-            chain_info: SingularPtrField::some(handshake.chain_info.into()),
-            ..Default::default()
-        }
-    }
+#[derive(BorshSerialize, BorshDeserialize)]
+struct AnnounceAccountRouteHeader {
+    pub account_id: AccountId,
+    pub peer_id: PeerId,
+    pub epoch_id: CryptoHash,
 }
 
 /// Account route description
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
     pub signature: Signature,
 }
 
-impl TryFrom<network_proto::AnnounceAccountRoute> for AnnounceAccountRoute {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::AnnounceAccountRoute) -> Result<Self, Self::Error> {
-        let peer_id: PeerId = proto.peer_id.try_into().map_err(|e| format!("{}", e))?;
-        let hash: CryptoHash = proto.hash.try_into().map_err(|e| format!("{}", e))?;
-        let signature: Signature = proto.signature.try_into().map_err(|e| format!("{}", e))?;
-        Ok(AnnounceAccountRoute { peer_id, hash, signature })
-    }
-}
-
-impl From<AnnounceAccountRoute> for network_proto::AnnounceAccountRoute {
-    fn from(announce_account_route: AnnounceAccountRoute) -> network_proto::AnnounceAccountRoute {
-        network_proto::AnnounceAccountRoute {
-            peer_id: announce_account_route.peer_id.into(),
-            hash: announce_account_route.hash.into(),
-            signature: announce_account_route.signature.into(),
-            ..Default::default()
-        }
-    }
-}
-
 /// Account announcement information
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
@@ -317,17 +219,18 @@ impl AnnounceAccount {
     }
 
     pub fn build_header_hash(
-        account_id: &AccountId,
-        peer_id: &PeerId,
+        account_id: AccountId,
+        peer_id: PeerId,
         epoch: CryptoHash,
     ) -> CryptoHash {
-        hash([account_id.as_bytes(), peer_id.as_ref(), epoch.as_ref()].concat().as_slice())
+        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id: epoch };
+        hash(&header.try_to_vec().unwrap())
     }
 
     pub fn header_hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(
-            &self.account_id,
-            &self.route.first().unwrap().peer_id,
+            self.account_id.clone(),
+            self.route.first().unwrap().peer_id,
             self.epoch,
         )
     }
@@ -346,48 +249,23 @@ impl AnnounceAccount {
 
     pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
         let last_hash = self.route.last().unwrap().hash;
-        let new_hash = hash([last_hash.as_ref(), peer_id.as_ref()].concat().as_slice());
-        let signature = sign(new_hash.as_ref(), secret_key);
+        let new_hash =
+            hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
+        let signature = secret_key.sign(new_hash.as_ref());
         self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
     }
 }
 
-impl TryFrom<network_proto::AnnounceAccount> for AnnounceAccount {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::AnnounceAccount) -> Result<Self, Self::Error> {
-        let epoch: CryptoHash = proto.epoch.try_into().map_err(|e| format!("{}", e))?;
-        Ok(AnnounceAccount {
-            account_id: proto.account_id,
-            epoch,
-            route: proto
-                .route
-                .into_iter()
-                .filter_map(|hop| match hop.try_into() {
-                    Ok(hop) => Some(hop),
-                    Err(_) => None,
-                })
-                .collect(),
-        })
-    }
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum HandshakeFailureReason {
+    ProtocolVersionMismatch(u32),
+    GenesisMismatch(CryptoHash),
 }
 
-impl From<AnnounceAccount> for network_proto::AnnounceAccount {
-    fn from(announce_account: AnnounceAccount) -> network_proto::AnnounceAccount {
-        network_proto::AnnounceAccount {
-            account_id: announce_account.account_id,
-            epoch: announce_account.epoch.into(),
-            route: RepeatedField::from_iter(
-                announce_account.route.into_iter().map(|hop| hop.into()),
-            ),
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
+    HandshakeFailure(PeerInfo, HandshakeFailureReason),
 
     PeersRequest,
     PeersResponse(Vec<PeerInfo>),
@@ -403,7 +281,7 @@ pub enum PeerMessage {
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
 
     AnnounceAccount(AnnounceAccount),
 }
@@ -412,6 +290,7 @@ impl fmt::Display for PeerMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PeerMessage::Handshake(_) => f.write_str("Handshake"),
+            PeerMessage::HandshakeFailure(_, _) => f.write_str("HandshakeFailure"),
             PeerMessage::PeersRequest => f.write_str("PeersRequest"),
             PeerMessage::PeersResponse(_) => f.write_str("PeersResponse"),
             PeerMessage::BlockHeadersRequest(_) => f.write_str("BlockHeaderRequest"),
@@ -425,181 +304,6 @@ impl fmt::Display for PeerMessage {
             PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
         }
-    }
-}
-
-impl TryFrom<network_proto::PeerMessage> for PeerMessage {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proto: network_proto::PeerMessage) -> Result<Self, Self::Error> {
-        match proto.message_type {
-            Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake)) => {
-                hand_shake.try_into().map(PeerMessage::Handshake)
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::peers_request(_)) => {
-                Ok(PeerMessage::PeersRequest)
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::peers_response(peers_response)) => {
-                let peers_response = peers_response
-                    .peers
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(PeerMessage::PeersResponse(peers_response))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block(block)) => {
-                Ok(PeerMessage::Block(block.try_into()?))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block_header_announce(header)) => {
-                Ok(PeerMessage::BlockHeaderAnnounce(header.try_into()?))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction)) => {
-                Ok(PeerMessage::Transaction(transaction.try_into()?))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval)) => {
-                Ok(PeerMessage::BlockApproval(
-                    block_approval.account_id,
-                    block_approval.hash.try_into()?,
-                    block_approval.signature.try_into()?,
-                ))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block_request(block_request)) => {
-                Ok(PeerMessage::BlockRequest(block_request.try_into()?))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(
-                block_headers_request,
-            )) => Ok(PeerMessage::BlockHeadersRequest(
-                block_headers_request
-                    .hashes
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-            Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers)) => {
-                Ok(PeerMessage::BlockHeaders(
-                    block_headers
-                        .headers
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request)) => {
-                Ok(PeerMessage::StateRequest(
-                    state_request.shard_id,
-                    state_request.hash.try_into()?,
-                ))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response)) => {
-                Ok(PeerMessage::StateResponse(
-                    state_response.shard_id,
-                    state_response.hash.try_into()?,
-                    state_response.payload,
-                    state_response
-                        .receipts
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?,
-                ))
-            }
-            Some(network_proto::PeerMessage_oneof_message_type::announce_account(
-                announce_account,
-            )) => announce_account.try_into().map(PeerMessage::AnnounceAccount),
-            None => Err(format!("Unexpected empty message body").into()),
-        }
-    }
-}
-
-impl From<PeerMessage> for network_proto::PeerMessage {
-    fn from(message: PeerMessage) -> network_proto::PeerMessage {
-        let message_type = match message {
-            PeerMessage::Handshake(hand_shake) => {
-                Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake.into()))
-            }
-            PeerMessage::PeersRequest => {
-                Some(network_proto::PeerMessage_oneof_message_type::peers_request(true))
-            }
-            PeerMessage::PeersResponse(peers_response) => {
-                let peers_response = network_proto::PeersResponse {
-                    peers: RepeatedField::from_iter(
-                        peers_response.into_iter().map(std::convert::Into::into),
-                    ),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::peers_response(peers_response))
-            }
-            PeerMessage::Block(block) => {
-                Some(network_proto::PeerMessage_oneof_message_type::block(block.into()))
-            }
-            PeerMessage::BlockHeaderAnnounce(header) => Some(
-                network_proto::PeerMessage_oneof_message_type::block_header_announce(header.into()),
-            ),
-            PeerMessage::Transaction(transaction) => {
-                Some(network_proto::PeerMessage_oneof_message_type::transaction(transaction.into()))
-            }
-            PeerMessage::BlockApproval(account_id, hash, signature) => {
-                let block_approval = network_proto::BlockApproval {
-                    account_id,
-                    hash: hash.into(),
-                    signature: signature.into(),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::block_approval(block_approval))
-            }
-            PeerMessage::BlockRequest(hash) => {
-                Some(network_proto::PeerMessage_oneof_message_type::block_request(hash.into()))
-            }
-            PeerMessage::BlockHeadersRequest(hashes) => {
-                let request = network_proto::BlockHeaderRequest {
-                    hashes: RepeatedField::from_iter(
-                        hashes.into_iter().map(std::convert::Into::into),
-                    ),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::block_headers_request(request))
-            }
-            PeerMessage::BlockHeaders(headers) => {
-                let block_headers = network_proto::BlockHeaders {
-                    headers: RepeatedField::from_iter(
-                        headers.into_iter().map(std::convert::Into::into),
-                    ),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::block_headers(block_headers))
-            }
-            PeerMessage::StateRequest(shard_id, hash) => {
-                let state_request = network_proto::StateRequest {
-                    shard_id,
-                    hash: hash.into(),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::state_request(state_request))
-            }
-            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
-                let state_response = network_proto::StateResponse {
-                    shard_id,
-                    hash: hash.into(),
-                    payload,
-                    receipts: RepeatedField::from_iter(
-                        receipts.into_iter().map(std::convert::Into::into),
-                    ),
-                    cached_size: Default::default(),
-                    unknown_fields: Default::default(),
-                };
-                Some(network_proto::PeerMessage_oneof_message_type::state_response(state_response))
-            }
-            PeerMessage::AnnounceAccount(announce_account) => {
-                Some(network_proto::PeerMessage_oneof_message_type::announce_account(
-                    announce_account.into(),
-                ))
-            }
-        };
-        network_proto::PeerMessage { message_type, ..Default::default() }
     }
 }
 
@@ -626,21 +330,21 @@ pub struct NetworkConfig {
 }
 
 /// Status of the known peers.
-#[derive(Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug)]
 pub enum KnownPeerStatus {
     Unknown,
     NotConnected,
     Connected,
-    Banned(ReasonForBan, DateTime<Utc>),
+    Banned(ReasonForBan, u64),
 }
 
 /// Information node stores about known peers.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KnownPeerState {
     pub peer_info: PeerInfo,
     pub status: KnownPeerStatus,
-    pub first_seen: DateTime<Utc>,
-    pub last_seen: DateTime<Utc>,
+    pub first_seen: u64,
+    pub last_seen: u64,
 }
 
 impl KnownPeerState {
@@ -648,9 +352,17 @@ impl KnownPeerState {
         KnownPeerState {
             peer_info,
             status: KnownPeerStatus::Unknown,
-            first_seen: Utc::now(),
-            last_seen: Utc::now(),
+            first_seen: to_timestamp(Utc::now()),
+            last_seen: to_timestamp(Utc::now()),
         }
+    }
+
+    pub fn first_seen(&self) -> DateTime<Utc> {
+        from_timestamp(self.first_seen)
+    }
+
+    pub fn last_seen(&self) -> DateTime<Utc> {
+        from_timestamp(self.last_seen)
     }
 }
 
@@ -658,7 +370,7 @@ impl TryFrom<Vec<u8>> for KnownPeerState {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<KnownPeerState, Self::Error> {
-        Decode::decode(&bytes).map_err(|err| err.into())
+        KnownPeerState::try_from_slice(&bytes).map_err(|err| err.into())
     }
 }
 
@@ -737,7 +449,7 @@ where
 }
 
 /// Ban reason.
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -757,7 +469,7 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     /// Level denote how much information is going to be delivered.
@@ -841,7 +553,7 @@ pub enum NetworkClientMessages {
     /// State request.
     StateRequest(ShardId, CryptoHash),
     /// State response.
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<ReceiptTransaction>),
+    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
     /// Account announcement that needs to be validated before being processed
     AnnounceAccount(AnnounceAccount),
 }
@@ -862,12 +574,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse {
-        shard_id: ShardId,
-        hash: CryptoHash,
-        payload: Vec<u8>,
-        receipts: Vec<ReceiptTransaction>,
-    },
+    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<Receipt> },
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses

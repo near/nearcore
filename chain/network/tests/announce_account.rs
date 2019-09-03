@@ -3,15 +3,16 @@ use chrono::{DateTime, Utc};
 use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::crypto::signer::InMemorySigner;
 use near_primitives::test_utils::init_test_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use testlib::test_helpers::heavy_test;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -29,7 +30,7 @@ pub fn setup_network_node(
         store.clone(),
         validators.into_iter().map(Into::into).collect(),
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
@@ -135,62 +136,76 @@ fn check_account_id_propagation(
 
 #[test]
 fn two_nodes() {
-    check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 5000);
+    heavy_test(|| {
+        check_account_id_propagation(vec!["test1", "test2"], vec![vec![1], vec![0]], 5000);
+    });
 }
 
 #[test]
 fn three_nodes_clique() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
-        vec![vec![1, 2], vec![0, 2], vec![0, 1]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3"],
+            vec![vec![1, 2], vec![0, 2], vec![0, 1]],
+            5000,
+        );
+    });
 }
 
 #[test]
 fn three_nodes_path() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3"],
-        vec![vec![1], vec![0, 2], vec![1]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3"],
+            vec![vec![1], vec![0, 2], vec![1]],
+            5000,
+        );
+    });
 }
 
 #[test]
 fn four_nodes_star() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
+            5000,
+        );
+    });
 }
 
 #[test]
 #[ignore]
 fn four_nodes_path() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+            5000,
+        );
+    });
 }
 
 #[test]
 #[should_panic]
 fn four_nodes_disconnected() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![0], vec![3], vec![2]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![0], vec![3], vec![2]],
+            5000,
+        );
+    });
 }
 
 #[test]
 #[ignore]
 fn four_nodes_directed() {
-    check_account_id_propagation(
-        vec!["test1", "test2", "test3", "test4"],
-        vec![vec![1], vec![], vec![1], vec![2]],
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec!["test1", "test2", "test3", "test4"],
+            vec![vec![1], vec![], vec![1], vec![2]],
+            5000,
+        );
+    });
 }

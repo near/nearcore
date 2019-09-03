@@ -1,63 +1,50 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
-use std::sync::{Arc, Mutex};
 
-use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
+use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{
-    AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
-};
-use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
+use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
+use near_primitives::transaction::{Action, FunctionCallAction};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
-use near_store::{set_callback, TrieUpdate, TrieUpdateIterator};
-use wasm::ext::{Error as ExtError, External, Result as ExtResult};
-
-use crate::ethereum::EthashProvider;
-use crate::POISONED_LOCK_ERR;
-use near_primitives::crypto::signature::PublicKey;
+use near_store::{TrieUpdate, TrieUpdateIterator};
+use near_vm_logic::{External, ExternalError};
 
 pub struct RuntimeExt<'a> {
     trie_update: &'a mut TrieUpdate,
     storage_prefix: Vec<u8>,
-    pub receipts: HashMap<ReceiptId, ReceiptTransaction>,
-    pub callbacks: HashMap<CallbackId, Callback>,
-    account_id: &'a AccountId,
-    refund_account_id: &'a AccountId,
-    nonce: Nonce,
-    transaction_hash: &'a CryptoHash,
-    iters: HashMap<u32, Peekable<TrieUpdateIterator<'a>>>,
-    last_iter_id: u32,
-    ethash_provider: Arc<Mutex<EthashProvider>>,
-    originator_id: &'a AccountId,
-    public_key: &'a PublicKey,
+    action_receipts: Vec<(AccountId, ActionReceipt)>,
+    iters: HashMap<u64, Peekable<TrieUpdateIterator<'a>>>,
+    last_iter_id: u64,
+    signer_id: &'a AccountId,
+    signer_public_key: &'a PublicKey,
+    gas_price: Balance,
+    base_data_id: &'a CryptoHash,
+    data_count: u64,
 }
 
 impl<'a> RuntimeExt<'a> {
     pub fn new(
         trie_update: &'a mut TrieUpdate,
         account_id: &'a AccountId,
-        refund_account_id: &'a AccountId,
-        transaction_hash: &'a CryptoHash,
-        ethash_provider: Arc<Mutex<EthashProvider>>,
-        originator_id: &'a AccountId,
-        public_key: &'a PublicKey,
+        signer_id: &'a AccountId,
+        signer_public_key: &'a PublicKey,
+        gas_price: Balance,
+        base_data_id: &'a CryptoHash,
     ) -> Self {
         RuntimeExt {
             trie_update,
             storage_prefix: prefix_for_data(account_id),
-            receipts: HashMap::new(),
-            callbacks: HashMap::new(),
-            account_id,
-            refund_account_id,
-            nonce: 0,
-            transaction_hash,
+            action_receipts: vec![],
             iters: HashMap::new(),
             last_iter_id: 0,
-            ethash_provider,
-            originator_id,
-            public_key,
+            signer_id,
+            signer_public_key,
+            gas_price,
+            base_data_id,
+            data_count: 0,
         }
     }
 
@@ -67,183 +54,144 @@ impl<'a> RuntimeExt<'a> {
         storage_key
     }
 
-    pub fn create_nonce(&mut self) -> CryptoHash {
-        let nonce = create_nonce_with_nonce(self.transaction_hash, self.nonce);
-        self.nonce += 1;
-        nonce
+    fn new_data_id(&mut self) -> CryptoHash {
+        let data_id = create_nonce_with_nonce(&self.base_data_id, self.data_count);
+        self.data_count += 1;
+        data_id
     }
 
-    pub fn get_receipts(&mut self) -> Vec<ReceiptTransaction> {
-        let mut vec: Vec<ReceiptTransaction> = self.receipts.drain().map(|(_, v)| v).collect();
-        vec.sort_by_key(|a| a.nonce);
-        vec
-    }
-
-    /// write callbacks to stateUpdate
-    pub fn flush_callbacks(&mut self) {
-        for (id, callback) in self.callbacks.drain() {
-            set_callback(self.trie_update, &id, &callback);
-        }
+    pub fn into_receipts(self, predecessor_id: &AccountId) -> Vec<Receipt> {
+        self.action_receipts
+            .into_iter()
+            .map(|(receiver_id, action_receipt)| Receipt {
+                predecessor_id: predecessor_id.clone(),
+                receiver_id,
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Action(action_receipt),
+            })
+            .collect()
     }
 }
 
 impl<'a> External for RuntimeExt<'a> {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        Ok(self.trie_update.set(storage_key, DBValue::from_slice(value)))
+        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        self.trie_update.set(storage_key, DBValue::from_slice(value));
+        Ok(evicted)
     }
 
-    fn storage_get(&self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
         let value = self.trie_update.get(&storage_key);
-        Ok(value.map(|buf| buf.to_vec()))
+        Ok(value.map(|buf| buf.into_vec()))
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> ExtResult<Option<Vec<u8>>> {
+    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        Ok(self.trie_update.remove(&storage_key))
+        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        self.trie_update.remove(&storage_key);
+        Ok(evicted)
     }
 
-    fn storage_iter(&mut self, prefix: &[u8]) -> ExtResult<u32> {
+    fn storage_has_key(&mut self, key: &[u8]) -> Result<bool, ExternalError> {
+        Ok(self.storage_get(key)?.is_some())
+    }
+
+    fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64, ExternalError> {
         self.iters.insert(
             self.last_iter_id,
-            // It is safe to insert an iterator of lifetime 'a into a HashMap of lifetime 'a.
-            // We just could not convince Rust that `self.trie_update` has lifetime 'a as it
-            // shrinks the lifetime to the lifetime of `self`.
-            unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
+            // Danger: we're creating a read reference to trie_update while still
+            // having a mutable reference.
+            // Any function that mutates trie_update must drop all existing iterators first.
+            unsafe { &*(self.trie_update as *const TrieUpdate) }
                 .iter(&self.create_storage_key(prefix))
-                .map_err(|_| ExtError::TrieIteratorError)?
+                // TODO(#1131): if storage fails we actually want to abort the block rather than panic in the contract.
+                .expect("Error reading from storage")
                 .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_range(&mut self, start: &[u8], end: &[u8]) -> ExtResult<u32> {
+    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<u64, ExternalError> {
         self.iters.insert(
             self.last_iter_id,
             unsafe { &mut *(self.trie_update as *mut TrieUpdate) }
                 .range(&self.storage_prefix, start, end)
-                .map_err(|_| ExtError::TrieIteratorError)?
+                .expect("Error reading from storage")
                 .peekable(),
         );
         self.last_iter_id += 1;
         Ok(self.last_iter_id - 1)
     }
 
-    fn storage_iter_next(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
-        let result = match self.iters.get_mut(&id) {
+    fn storage_iter_next(
+        &mut self,
+        iterator_idx: u64,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, ExternalError> {
+        let result = match self.iters.get_mut(&iterator_idx) {
             Some(iter) => iter.next(),
-            None => return Err(ExtError::TrieIteratorMissing),
+            None => return Err(ExternalError::InvalidIteratorIndex),
         };
         if result.is_none() {
-            self.iters.remove(&id);
+            self.iters.remove(&iterator_idx);
         }
-        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+        Ok(result.map(|key| {
+            (
+                key[self.storage_prefix.len()..].to_vec(),
+                self.trie_update.get(&key).expect("key is guaranteed to be there").into_vec(),
+            )
+        }))
     }
 
-    fn storage_iter_peek(&mut self, id: u32) -> ExtResult<Option<Vec<u8>>> {
-        let result = match self.iters.get_mut(&id) {
-            Some(iter) => iter.peek().cloned(),
-            None => return Err(ExtError::TrieIteratorMissing),
-        };
-        Ok(result.map(|x| x[self.storage_prefix.len()..].to_vec()))
+    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
+        self.iters.remove(&iterator_idx);
+        Ok(())
     }
 
-    fn storage_iter_remove(&mut self, id: u32) {
-        self.iters.remove(&id);
-    }
-
-    fn promise_create(
+    fn receipt_create(
         &mut self,
-        account_id: AccountId,
+        receipt_indices: Vec<u64>,
+        receiver_id: String,
         method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-    ) -> ExtResult<PromiseId> {
-        let nonce = self.create_nonce();
-        let receipt = ReceiptTransaction::new(
-            self.account_id.clone(),
-            account_id,
-            nonce,
-            ReceiptBody::NewCall(AsyncCall::new(
-                method_name,
-                arguments,
-                amount,
-                self.refund_account_id.clone(),
-                self.originator_id.clone(),
-                self.public_key.clone(),
-            )),
-        );
-        let promise_id = PromiseId::Receipt(nonce.as_ref().to_vec());
-        self.receipts.insert(nonce.as_ref().to_vec(), receipt);
-        Ok(promise_id)
-    }
-
-    fn promise_then(
-        &mut self,
-        promise_id: PromiseId,
-        method_name: Vec<u8>,
-        arguments: Vec<u8>,
-        amount: Balance,
-    ) -> ExtResult<PromiseId> {
-        let callback_id = self.create_nonce();
-        let receipt_ids = match promise_id {
-            PromiseId::Receipt(r) => vec![r],
-            PromiseId::Joiner(rs) => rs,
-            PromiseId::Callback(_) => return Err(ExtError::WrongPromise),
-        };
-        let mut callback = Callback::new(
-            method_name,
-            arguments,
-            amount,
-            self.refund_account_id.clone(),
-            self.originator_id.clone(),
-            self.public_key.clone(),
-        );
-        callback.results.resize(receipt_ids.len(), None);
-        for (index, receipt_id) in receipt_ids.iter().enumerate() {
-            let receipt = match self.receipts.get_mut(receipt_id) {
-                Some(r) => r,
-                _ => return Err(ExtError::PromiseIdNotFound),
-            };
-            match receipt.body {
-                ReceiptBody::NewCall(ref mut async_call) => {
-                    let callback_info = CallbackInfo::new(
-                        callback_id.as_ref().to_vec(),
-                        index,
-                        self.account_id.clone(),
-                    );
-                    match async_call.callback {
-                        Some(_) => return Err(ExtError::PromiseAlreadyHasCallback),
-                        None => {
-                            async_call.callback = Some(callback_info);
-                        }
-                    }
-                }
-                _ => {
-                    return Err(ExtError::WrongPromise);
-                }
-            }
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+    ) -> Result<u64, ExternalError> {
+        let mut input_data_ids = vec![];
+        for receipt_index in receipt_indices {
+            let data_id = self.new_data_id();
+            self.action_receipts
+                .get_mut(receipt_index as usize)
+                .expect("receipt index should be present")
+                .1
+                .output_data_receivers
+                .push(DataReceiver { data_id, receiver_id: receiver_id.clone() });
+            input_data_ids.push(data_id);
         }
-        self.callbacks.insert(callback_id.as_ref().to_vec(), callback);
-        Ok(PromiseId::Callback(callback_id.as_ref().to_vec()))
+
+        let new_receipt = ActionReceipt {
+            signer_id: self.signer_id.clone(),
+            signer_public_key: self.signer_public_key.clone(),
+            gas_price: self.gas_price,
+            output_data_receivers: vec![],
+            input_data_ids,
+            actions: vec![Action::FunctionCall(FunctionCallAction {
+                method_name: String::from_utf8(method_name)
+                    .map_err(|_| ExternalError::InvalidMethodName)?,
+                args,
+                gas: prepaid_gas,
+                deposit: attached_deposit,
+            })],
+        };
+        let new_receipt_index = self.action_receipts.len() as u64;
+        self.action_receipts.push((receiver_id, new_receipt));
+        Ok(new_receipt_index)
     }
 
-    fn check_ethash(
-        &mut self,
-        block_number: u64,
-        header_hash: &[u8],
-        nonce: u64,
-        mix_hash: &[u8],
-        difficulty: u64,
-    ) -> bool {
-        self.ethash_provider.lock().expect(POISONED_LOCK_ERR).check_ethash(
-            U256::from(block_number),
-            H256::from(header_hash),
-            H64::from(nonce),
-            H256::from(mix_hash),
-            U256::from(difficulty),
-        )
+    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
+        let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
+        Ok(value_hash.as_ref().to_vec())
     }
 }

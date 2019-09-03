@@ -3,17 +3,17 @@ use std::sync::Arc;
 
 use chrono::Utc;
 
-use near_primitives::crypto::signature::{verify, Signature};
-use near_primitives::crypto::signer::InMemorySigner;
+use near_crypto::{InMemorySigner, KeyType, SecretKey, Signature};
+use near_primitives::account::Account;
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::{AccountViewCallResult, QueryResponse};
-use near_primitives::test_utils::get_public_key_from_seed;
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{
-    ReceiptTransaction, SignedTransaction, TransactionResult, TransactionStatus,
+    SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash, ShardId, ValidatorStake};
+use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
-use near_store::{Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
+use near_store::{PartialStorage, Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges};
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{BlockHeader, ReceiptResult, RuntimeAdapter, Weight};
@@ -42,7 +42,7 @@ impl KeyValueRuntime {
                 .iter()
                 .map(|account_id| ValidatorStake {
                     account_id: account_id.clone(),
-                    public_key: get_public_key_from_seed(account_id),
+                    public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                     amount: 1_000_000,
                 })
                 .collect(),
@@ -64,11 +64,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         prev_header: &BlockHeader,
         header: &BlockHeader,
     ) -> Result<Weight, Error> {
-        let validator = &self.validators[(header.height as usize) % self.validators.len()];
+        let validator = &self.validators[(header.inner.height as usize) % self.validators.len()];
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.total_weight.next(header.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
     }
 
     fn get_epoch_block_proposers(
@@ -108,7 +108,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .iter()
             .find(|&validator_stake| &validator_stake.account_id == account_id)
         {
-            verify(data, signature, &validator.public_key)
+            signature.verify(data, &validator.public_key)
         } else {
             false
         }
@@ -151,32 +151,38 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok((parent_hash, 0))
     }
 
-    fn apply_transactions(
+    fn apply_transactions_with_optional_storage_proof(
         &self,
         _shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
-        _receipts: &Vec<Vec<ReceiptTransaction>>,
+        _receipts: &Vec<Vec<Receipt>>,
         transactions: &Vec<SignedTransaction>,
+        generate_storage_proof: bool,
     ) -> Result<
         (
             WrappedTrieChanges,
             MerkleHash,
-            Vec<TransactionResult>,
+            Vec<TransactionLog>,
             ReceiptResult,
             Vec<ValidatorStake>,
+            Option<PartialStorage>,
         ),
         Box<dyn std::error::Error>,
     > {
+        assert!(!generate_storage_proof);
         let mut tx_results = vec![];
-        for _ in transactions {
-            tx_results.push(TransactionResult {
-                status: TransactionStatus::Completed,
-                logs: vec![],
-                receipts: vec![],
-                result: None,
+        for tx in transactions {
+            tx_results.push(TransactionLog {
+                hash: tx.get_hash(),
+                result: TransactionResult {
+                    status: TransactionStatus::Completed,
+                    logs: vec![],
+                    receipts: vec![],
+                    result: None,
+                },
             });
         }
         Ok((
@@ -185,6 +191,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             tx_results,
             HashMap::default(),
             vec![],
+            None,
         ))
     }
 
@@ -192,18 +199,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _state_root: MerkleHash,
         _height: BlockIndex,
-        path: &str,
+        _path: &str,
         _data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>> {
-        let path = path.split("/").collect::<Vec<_>>();
-        Ok(QueryResponse::ViewAccount(AccountViewCallResult {
-            account_id: path[1].to_string(),
-            nonce: 0,
-            amount: 1000,
-            stake: 0,
-            public_keys: vec![],
-            code_hash: CryptoHash::default(),
-        }))
+        Ok(QueryResponse::ViewAccount(Account::new(1000, CryptoHash::default(), 0).into()))
     }
 
     fn dump_state(
@@ -225,9 +224,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+    setup_with_tx_validity_period(100)
+}
+
+pub fn setup_with_tx_validity_period(
+    validity: BlockIndex,
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
-    let chain = Chain::new(store, runtime.clone(), Utc::now()).unwrap();
-    let signer = Arc::new(InMemorySigner::from_seed("test", "test"));
+    let chain = Chain::new(store, runtime.clone(), Utc::now(), validity).unwrap();
+    let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
     (chain, runtime, signer)
 }

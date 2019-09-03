@@ -5,13 +5,13 @@ use std::time::Duration;
 use actix::Message;
 use chrono::{DateTime, Utc};
 
-use near_chain::Block;
-use near_primitives::crypto::signer::{AccountSigner, EDSigner, InMemorySigner};
+use near_crypto::{InMemorySigner, Signer};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::QueryResponse;
-pub use near_primitives::rpc::{StatusResponse, StatusSyncInfo};
-use near_primitives::transaction::{FinalTransactionResult, TransactionResult};
 use near_primitives::types::{AccountId, BlockIndex, ShardId, Version};
+use near_primitives::views::{
+    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+};
+pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -102,6 +102,8 @@ pub struct ClientConfig {
     pub state_fetch_horizon: BlockIndex,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
+    /// Number of blocks for which a transaction is valid
+    pub transaction_validity_period: BlockIndex,
 }
 
 impl ClientConfig {
@@ -127,33 +129,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             block_header_fetch_horizon: 50,
-        }
-    }
-}
-
-impl ClientConfig {
-    pub fn new() -> Self {
-        ClientConfig {
-            version: Default::default(),
-            chain_id: "test".to_string(),
-            rpc_addr: "0.0.0.0:3030".to_string(),
-            min_block_production_delay: Duration::from_millis(100),
-            max_block_production_delay: Duration::from_millis(2000),
-            block_expected_weight: 1000,
-            skip_sync_wait: false,
-            sync_check_period: Duration::from_secs(10),
-            sync_step_period: Duration::from_millis(10),
-            sync_weight_threshold: 0,
-            sync_height_threshold: 1,
-            min_num_peers: 1,
-            fetch_info_period: Duration::from_millis(100),
-            log_summary_period: Duration::from_secs(10),
-            produce_empty_blocks: true,
-            epoch_length: 10,
-            announce_account_horizon: 5,
-            block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
-            block_header_fetch_horizon: 50,
+            transaction_validity_period: 100,
         }
     }
 }
@@ -162,18 +138,18 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn EDSigner>,
+    pub signer: Arc<dyn Signer>,
 }
 
 impl From<InMemorySigner> for BlockProducer {
     fn from(signer: InMemorySigner) -> Self {
-        BlockProducer { account_id: signer.account_id(), signer: Arc::new(signer) }
+        BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
 impl From<Arc<InMemorySigner>> for BlockProducer {
     fn from(signer: Arc<InMemorySigner>) -> Self {
-        BlockProducer { account_id: signer.account_id(), signer }
+        BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
 
@@ -228,7 +204,7 @@ pub enum GetBlock {
 }
 
 impl Message for GetBlock {
-    type Result = Result<Block, String>;
+    type Result = Result<BlockView, String>;
 }
 
 /// Queries client for given path / data.
@@ -262,5 +238,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResult, String>;
+    type Result = Result<TransactionResultView, String>;
 }

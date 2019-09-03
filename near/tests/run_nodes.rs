@@ -4,7 +4,7 @@ use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
-use near_network::test_utils::{convert_boot_nodes, WaitOrTimeout, open_port};
+use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::init_test_logger;
 
 fn run_nodes(num_nodes: usize) {
@@ -16,10 +16,15 @@ fn run_nodes(num_nodes: usize) {
     let mut near_configs = vec![];
     let first_node = open_port();
     for i in 0..num_nodes {
-        let mut near_config = load_test_config(&validators[i], if i == 0 { first_node } else { open_port() }, &genesis_config);
+        let mut near_config = load_test_config(
+            &validators[i],
+            if i == 0 { first_node } else { open_port() },
+            &genesis_config,
+        );
         near_config.client_config.min_num_peers = num_nodes - 1;
         if i > 0 {
-            near_config.network_config.boot_nodes = convert_boot_nodes(vec![(&validators[0], first_node)]);
+            near_config.network_config.boot_nodes =
+                convert_boot_nodes(vec![(&validators[0], first_node)]);
         }
         near_configs.push(near_config);
     }
@@ -27,7 +32,7 @@ fn run_nodes(num_nodes: usize) {
     let system = System::new("NEAR");
 
     let mut view_clients = vec![];
-    for (i, near_config) in near_configs.drain(..).enumerate() {
+    for (i, near_config) in near_configs.into_iter().enumerate() {
         let dir = TempDir::new(&format!("two_nodes_{}", i)).unwrap();
         let (_client, view_client) = start_with_config(dir.path(), near_config);
         view_clients.push(view_client)
@@ -38,7 +43,7 @@ fn run_nodes(num_nodes: usize) {
         Box::new(move |_ctx| {
             actix::spawn(view_client.send(GetBlock::Best).then(|res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height > 4 && b.header.total_weight.to_num() > 6 => {
+                    Ok(Ok(b)) if b.header.height > 4 && b.header.total_weight > 6 => {
                         System::current().stop()
                     }
                     Err(_) => return futures::future::err(()),
@@ -50,7 +55,7 @@ fn run_nodes(num_nodes: usize) {
         100,
         60000,
     )
-        .start();
+    .start();
 
     system.run().unwrap();
 }

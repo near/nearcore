@@ -15,15 +15,16 @@ use serde_derive::{Deserialize, Serialize};
 
 use near_client::BlockProducer;
 use near_client::ClientConfig;
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::Account;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
-use near_primitives::hash::hash;
+use near_primitives::account::AccessKey;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ReadablePublicKey, ValidatorId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, ValidatorId};
+use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
@@ -59,9 +60,12 @@ pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DE
 pub const VALIDATOR_KICKOUT_THRESHOLD: f64 = 0.9;
 
 /// Fast mode constants for testing/developing.
-pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 10;
-pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 100;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
+
+/// Number of blocks for which a given transaction is valid
+pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -220,10 +224,11 @@ impl NearConfig {
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
+                transaction_validity_period: genesis_config.transaction_validity_period,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
+                public_key: network_key_pair.public_key.into(),
+                secret_key: network_key_pair.secret_key.into(),
                 account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
@@ -269,11 +274,8 @@ impl NearConfig {
             block_producer.signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
         }
 
-        let network_signer = InMemorySigner::from_secret_key(
-            "".to_string(),
-            self.network_config.public_key.clone(),
-            self.network_config.secret_key.clone(),
-        );
+        let network_signer =
+            InMemorySigner::from_secret_key("".to_string(), self.network_config.secret_key.clone());
         network_signer.write_to_file(&dir.join(self.config.node_key_file.clone()));
 
         self.genesis_config.write_to_file(&dir.join(self.config.genesis_file.clone()));
@@ -316,38 +318,38 @@ pub struct GenesisConfig {
     pub validators: Vec<AccountInfo>,
     /// Records in storage per each shard at genesis.
     pub records: Vec<Vec<StateRecord>>,
+    /// Number of blocks for which a given transaction is valid
+    pub transaction_validity_period: u64,
 }
 
 impl GenesisConfig {
     pub fn legacy_test(seeds: Vec<&str>, num_validators: usize) -> Self {
         let mut validators = vec![];
         let mut records = vec![vec![]];
-        let default_test_contract =
-            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
-        let encoded_test_contract = to_base64(default_test_contract);
+        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+        let default_test_contract = std::fs::read(path).unwrap();
+        let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
-            let signer = InMemorySigner::from_seed(account, account);
+            let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records[0].push(StateRecord::Account {
-                account_id: account.to_string(),
-                account: Account {
-                    nonce: 0,
-                    amount: TESTING_INIT_BALANCE
-                        - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    public_keys: vec![signer.public_key],
+            records[0].extend(
+                state_records_account_with_key(
+                    account,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     code_hash,
-                    staked: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            });
+                )
+                .into_iter(),
+            );
             records[0].push(StateRecord::Contract {
                 account_id: account.to_string(),
                 code: encoded_test_contract.clone(),
@@ -366,6 +368,7 @@ impl GenesisConfig {
             runtime_config: Default::default(),
             validators,
             records,
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         }
     }
 
@@ -379,20 +382,24 @@ impl GenesisConfig {
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
-            let signer = InMemorySigner::from_seed(&account_id, &account_id);
+            let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records.push(StateRecord::account(
-                &account_id,
-                &signer.public_key.to_readable().0,
-                TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-            ));
+            records.extend(
+                state_records_account_with_key(
+                    &account_id,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    CryptoHash::default(),
+                )
+                .into_iter(),
+            );
         }
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -407,6 +414,7 @@ impl GenesisConfig {
             runtime_config: Default::default(),
             validators,
             records: vec![records],
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         }
     }
 
@@ -445,6 +453,32 @@ impl From<&str> for GenesisConfig {
 
 fn random_chain_id() -> String {
     format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
+}
+
+fn state_records_account_with_key(
+    account_id: &str,
+    public_key: &PublicKey,
+    amount: u128,
+    staked: u128,
+    code_hash: CryptoHash,
+) -> Vec<StateRecord> {
+    vec![
+        StateRecord::Account {
+            account_id: account_id.to_string(),
+            account: AccountView {
+                amount,
+                staked,
+                code_hash: code_hash.into(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            },
+        },
+        StateRecord::AccessKey {
+            account_id: account_id.to_string(),
+            public_key: public_key.clone().into(),
+            access_key: AccessKey::full_access().into(),
+        },
+    ]
 }
 
 /// Official TestNet configuration.
@@ -490,12 +524,12 @@ pub fn init_configs(
             if let Some(account_id) =
                 account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
             {
-                let signer = InMemorySigner::new(account_id.clone());
+                let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
 
-            let network_signer = InMemorySigner::new("".to_string());
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             testnet_genesis().write_to_file(&dir.join(config.genesis_file));
@@ -519,13 +553,13 @@ pub fn init_configs(
                 .to_string();
 
             let signer = if let Some(test_seed) = test_seed {
-                InMemorySigner::from_seed(&account_id, test_seed)
+                InMemorySigner::from_seed(&account_id, KeyType::ED25519, test_seed)
             } else {
-                InMemorySigner::new(account_id.clone())
+                InMemorySigner::from_random(account_id.clone(), KeyType::ED25519)
             };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
-            let network_signer = InMemorySigner::new("".to_string());
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             let genesis_config = GenesisConfig {
@@ -541,15 +575,17 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 }],
-                records: vec![vec![StateRecord::account(
+                records: vec![state_records_account_with_key(
                     &account_id,
-                    &signer.public_key.to_readable().0,
+                    &signer.public_key,
                     TESTING_INIT_BALANCE,
                     TESTING_INIT_STAKE,
-                )]],
+                    CryptoHash::default(),
+                )],
+                transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -563,18 +599,25 @@ pub fn create_testnet_configs_from_seeds(
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
     let num_validators = seeds.len() - num_non_validators;
-    let signers =
-        seeds.iter().map(|seed| InMemorySigner::new(seed.to_string())).collect::<Vec<_>>();
-    let network_signers =
-        (0..seeds.len()).map(|_| InMemorySigner::from_random()).collect::<Vec<_>>();
+    let signers = seeds
+        .iter()
+        .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
+        .collect::<Vec<_>>();
+    let network_signers = (0..seeds.len())
+        .map(|_| InMemorySigner::from_random("".to_string(), KeyType::ED25519))
+        .collect::<Vec<_>>();
     let mut records = vec![vec![]];
     for (i, seed) in seeds.iter().enumerate() {
-        records[0].push(StateRecord::account(
-            seed,
-            &signers[i].public_key.to_readable().0,
-            TESTING_INIT_BALANCE,
-            TESTING_INIT_STAKE,
-        ));
+        records[0].extend(
+            state_records_account_with_key(
+                seed,
+                &signers[i].public_key,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            )
+            .into_iter(),
+        );
     }
     let validators = seeds
         .iter()
@@ -582,7 +625,7 @@ pub fn create_testnet_configs_from_seeds(
         .take(seeds.len() - num_non_validators)
         .map(|(i, seed)| AccountInfo {
             account_id: seed.to_string(),
-            public_key: signers[i].public_key.to_readable(),
+            public_key: signers[i].public_key.into(),
             amount: TESTING_INIT_STAKE,
         })
         .collect::<Vec<_>>();
@@ -599,6 +642,7 @@ pub fn create_testnet_configs_from_seeds(
         runtime_config: Default::default(),
         validators,
         records,
+        transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
     };
     let mut configs = vec![];
     let first_node_port = open_port();
@@ -671,7 +715,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
@@ -683,7 +727,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-    let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
+    let signer = Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed));
     let block_producer = BlockProducer::from(signer.clone());
     NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))
 }
@@ -692,7 +736,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
 mod tests {
     use serde_json::json;
 
-    use near_primitives::types::ReadablePublicKey;
+    use near_crypto::ReadablePublicKey;
 
     use super::*;
 
@@ -711,15 +755,14 @@ mod tests {
             "validator_kickout_threshold": 0.9,
             "validators": [{"account_id": "alice.near", "public_key": "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq", "amount": "50"}],
             "records": [[]],
+            "transaction_validity_period": 100,
         });
         let spec = GenesisConfig::from(data.to_string().as_str());
         assert_eq!(
             spec.validators[0],
             AccountInfo {
                 account_id: "alice.near".to_string(),
-                public_key: ReadablePublicKey(
-                    "6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq".to_string()
-                ),
+                public_key: ReadablePublicKey::new("6fgp5mkRgsTWfd5UWw1VwHbNLLDYeLxrxw3jrkCeXNWq"),
                 amount: 50
             }
         );

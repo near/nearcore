@@ -5,13 +5,13 @@ from near.pynear.test_utils.fixtures import *
 
 
 @pytest.fixture(scope='session')
-def hello_wasm_path():
+def test_contract_rs_path():
     cur_dir = os.path.abspath(os.path.dirname(__file__))
-    hello_dir = os.path.join(cur_dir, '../../../tests/hello')
-    command = 'npm install && npm run build'
-    process = delegator.run(command, cwd=hello_dir)
+    contract_dir = os.path.join(cur_dir, '../../../runtime/near-vm-runtime/tests/near-runtime-rs')
+    command = './build.sh'
+    process = delegator.run(command, cwd=contract_dir)
     assert process.return_code == 0, process.err
-    return os.path.join(hello_dir, '../hello.wasm')
+    return os.path.join(contract_dir, '../res/test_contract_rs.wasm')
 
 
 def test_view_latest_beacon_block(make_devnet, tmpdir):
@@ -57,12 +57,12 @@ def test_deploy_contract(
         make_devnet,
         tmpdir,
         get_incrementing_number,
-        hello_wasm_path,
+        test_contract_rs_path,
 ):
     port = make_devnet(tmpdir)
     buster = get_incrementing_number()
     contract_name = "test_contract_{}".format(buster)
-    CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
+    CliHelpers(port).deploy_contract(contract_name, test_contract_rs_path)
 
 
 def test_send_money(make_devnet, tmpdir):
@@ -84,12 +84,12 @@ def test_set_get_values(
         make_devnet,
         tmpdir,
         get_incrementing_number,
-        hello_wasm_path,
+        test_contract_rs_path,
 ):
     port = make_devnet(tmpdir)
     buster = get_incrementing_number()
     contract_name = "test_contract_{}".format(buster)
-    contract, _ = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
+    contract, _ = CliHelpers(port).deploy_contract(contract_name, test_contract_rs_path)
     contract_name = contract['account_id']
     value = 'test'
     args = {'value': value}
@@ -112,12 +112,12 @@ def test_view_state(
         make_devnet,
         tmpdir,
         get_incrementing_number,
-        hello_wasm_path,
+        test_contract_rs_path,
 ):
     port = make_devnet(tmpdir)
     buster = get_incrementing_number()
     contract_name = "test_contract_{}".format(buster)
-    contract, _ = CliHelpers(port).deploy_contract(contract_name, hello_wasm_path)
+    contract, _ = CliHelpers(port).deploy_contract(contract_name, test_contract_rs_path)
     contract_name = contract['account_id']
     command = "view_state {}".format(contract_name)
     out = CliHelpers(port).run_command(command)

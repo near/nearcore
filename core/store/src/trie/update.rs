@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::convert::identity;
 use std::iter::Peekable;
 use std::sync::Arc;
 
@@ -33,11 +32,11 @@ impl TrieUpdate {
             self.trie.get(&self.root, key).map(DBValue::from_vec)
         }
     }
-    pub fn set(&mut self, key: Vec<u8>, value: DBValue) -> Option<Vec<u8>> {
-        self.prospective.insert(key, Some(value.into_vec())).and_then(identity)
+    pub fn set(&mut self, key: Vec<u8>, value: DBValue) {
+        self.prospective.insert(key, Some(value.into_vec()));
     }
-    pub fn remove(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-        self.prospective.insert(key.to_vec(), None).and_then(identity)
+    pub fn remove(&mut self, key: &[u8]) {
+        self.prospective.insert(key.to_vec(), None);
     }
 
     pub fn remove_starts_with(&mut self, prefix: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -84,6 +83,8 @@ impl TrieUpdate {
         let TrieUpdate { trie, root, committed, .. } = self;
         trie.update(&root, committed.into_iter())
     }
+
+    /// Returns Error if the underlying storage fails
     pub fn iter(&self, prefix: &[u8]) -> Result<TrieUpdateIterator, Box<dyn std::error::Error>> {
         TrieUpdateIterator::new(self, prefix, b"", None)
     }
@@ -190,7 +191,7 @@ impl<'a> Iterator for TrieUpdateIterator<'a> {
         let stop_cond = |key: &Vec<u8>, prefix: &Vec<u8>, end_offset: &Option<Vec<u8>>| {
             !key.starts_with(prefix)
                 || match end_offset {
-                    Some(end) => key > end,
+                    Some(end) => key >= end,
                     None => false,
                 }
         };
@@ -364,7 +365,7 @@ mod tests {
         let values: Vec<Vec<u8>> = trie_update.iter(b"dog").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec(), b"dog3".to_vec()]);
 
-        let values: Vec<Vec<u8>> = trie_update.range(b"do", b"g", b"g2").unwrap().collect();
+        let values: Vec<Vec<u8>> = trie_update.range(b"do", b"g", b"g21").unwrap().collect();
         assert_eq!(values, vec![b"dog".to_vec(), b"dog2".to_vec()]);
 
         let values: Vec<Vec<u8>> = trie_update.range(b"do", b"", b"xyz").unwrap().collect();

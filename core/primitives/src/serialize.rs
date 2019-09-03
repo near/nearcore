@@ -189,6 +189,36 @@ pub mod vec_base_format {
     }
 }
 
+pub mod option_base64_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use super::{from_base64, to_base64};
+
+    pub fn serialize<S>(data: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(ref bytes) = data {
+            serializer.serialize_str(&to_base64(bytes))
+        } else {
+            serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Option<String> = Option::deserialize(deserializer)?;
+        if let Some(s) = s {
+            Ok(Some(from_base64(&s).map_err(|err| de::Error::custom(err.to_string()))?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 pub mod base_bytes_format {
     use serde::de;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -228,5 +258,72 @@ pub mod u128_dec_format {
     {
         let s = String::deserialize(deserializer)?;
         u128::from_str_radix(&s, 10).map_err(de::Error::custom)
+    }
+}
+
+pub mod option_u128_dec_format {
+    use serde::de;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(data: &Option<u128>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(ref num) = data {
+            serializer.serialize_str(&format!("{}", num))
+        } else {
+            serializer.serialize_none()
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u128>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: Option<String> = Option::deserialize(deserializer)?;
+        if let Some(s) = s {
+            Ok(Some(u128::from_str_radix(&s, 10).map_err(de::Error::custom)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize, Serialize)]
+    struct OptionBytesStruct {
+        #[serde(with = "option_base64_format")]
+        data: Option<Vec<u8>>,
+    }
+
+    #[test]
+    fn test_serialize_some() {
+        let s = OptionBytesStruct { data: Some(vec![10, 20, 30]) };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"data\":\"ChQe\"}");
+    }
+
+    #[test]
+    fn test_deserialize_some() {
+        let encoded = "{\"data\":\"ChQe\"}";
+        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.data, Some(vec![10, 20, 30]));
+    }
+
+    #[test]
+    fn test_serialize_none() {
+        let s = OptionBytesStruct { data: None };
+        let encoded = serde_json::to_string(&s).unwrap();
+        assert_eq!(encoded, "{\"data\":null}");
+    }
+
+    #[test]
+    fn test_deserialize_none() {
+        let encoded = "{\"data\":null}";
+        let decoded: OptionBytesStruct = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.data, None);
     }
 }
