@@ -833,7 +833,8 @@ impl Runtime {
             }
         }
         for (account_id, storage_usage) in self.compute_storage_usage(records) {
-            let mut account = get_account(&state_update, &account_id).expect("account must exist");
+            let mut account = get_account(&state_update, &account_id)
+                .expect(&format!("account {} must exist", account_id));
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
@@ -869,8 +870,8 @@ impl Runtime {
         }
 
         for (account_id, _, amount) in validators {
-            let mut account: Account =
-                get_account(&state_update, account_id).expect("account must exist");
+            let mut account: Account = get_account(&state_update, account_id)
+                .expect(&format!("account {} must exist", account_id));
             account.staked = *amount;
             set_account(&mut state_update, account_id, &account);
         }
