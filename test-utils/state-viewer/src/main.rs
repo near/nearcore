@@ -128,15 +128,17 @@ fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, CryptoHash, BlockIndex) {
+) -> (NightshadeRuntime, Vec<CryptoHash>, BlockIndex) {
     let mut chain_store = ChainStore::new(store.clone());
 
     let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
     let head = chain_store.head().unwrap();
-    let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
-    // TODO: support chunks here.
-    let state_root = last_header.inner.prev_state_root;
-    (runtime, state_root, last_header.inner.height)
+    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    let mut state_roots = vec![];
+    for chunk in last_block.chunks.iter() {
+        state_roots.push(chunk.inner.prev_state_root);
+    }
+    (runtime, state_roots, last_block.header.inner.height)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -303,24 +305,33 @@ fn main() {
             }
         }
         ("state", Some(_args)) => {
-            let (runtime, state_root, height) = load_trie(store, &home_dir, &near_config);
-            println!("Storage root is {}, block height is {}", state_root, height);
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                print_state_entry(key, value);
+            let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
+            println!("Storage roots are {:?}, block height is {}", state_roots, height);
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    print_state_entry(key, value);
+                }
             }
         }
         ("dump_state", Some(args)) => {
-            let (runtime, state_root, height) = load_trie(store, home_dir, &near_config);
+            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
             let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
-            println!("Saving state at {} @ {} into {}", state_root, height, output_path.display());
-            near_config.genesis_config.records = vec![vec![]];
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                if let Some(sr) = kv_to_state_record(key, value) {
-                    near_config.genesis_config.records[0].push(sr);
+            println!(
+                "Saving state at {:?} @ {} into {}",
+                state_roots,
+                height,
+                output_path.display()
+            );
+            near_config.genesis_config.records = vec![];
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    if let Some(sr) = kv_to_state_record(key, value) {
+                        near_config.genesis_config.records.push(sr);
+                    }
                 }
             }
             near_config.genesis_config.write_to_file(&output_path);
