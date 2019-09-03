@@ -19,8 +19,8 @@ use log::{debug, error, info, warn};
 
 use near_chain::types::{LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult};
 use near_chain::{
-    Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis, Provenance,
-    RuntimeAdapter, ValidTransaction,
+    byzantine_assert, Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis,
+    Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_chunks::ShardsManager;
 use near_crypto::Signature;
@@ -867,7 +867,7 @@ impl ClientActor {
             // Upcoming block has not been seen in max block production delay, suggest to skip.
             if !self.config.produce_empty_blocks {
                 // If we are not producing empty blocks, we always wait for a block to be produced.
-                // Used mostly for testing.
+                // Used exclusively for testing.
                 return Ok(());
             }
             debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
@@ -1095,7 +1095,9 @@ impl ClientActor {
             seen: to_timestamp(Utc::now()),
         })?;
 
-        self.process_block(ctx, block, Provenance::PRODUCED).map_err(|err| err.into())
+        let res = self.process_block(ctx, block, Provenance::PRODUCED);
+        byzantine_assert!(res.is_ok());
+        res.map_err(|err| err.into())
     }
 
     /// Check if any block with missing chunks is ready to be processed
