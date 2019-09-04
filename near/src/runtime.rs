@@ -16,12 +16,13 @@ use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator}
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
+use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
-use near_primitives::utils::prefix_for_access_key;
+use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
@@ -33,7 +34,7 @@ use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
-use node_runtime::{ApplyState, Runtime, ETHASH_CACHE_PATH};
+use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 
@@ -159,11 +160,48 @@ pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> Sh
     cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 
+pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId) -> ShardId {
+    match &state_record {
+        StateRecord::Account { account_id, .. }
+        | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::Contract { account_id, .. }
+        | StateRecord::ReceivedData { account_id, .. } => {
+            account_id_to_shard_id(account_id, num_shards)
+        }
+        StateRecord::Data { key, .. } => {
+            let key = from_base64(key).unwrap();
+            let separator = (1..key.len())
+                .find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0])
+                .expect("Invalid data record");
+            account_id_to_shard_id(
+                &String::from_utf8(key[1..separator].to_vec()).expect("Must be account id"),
+                num_shards,
+            )
+        }
+        StateRecord::PostponedReceipt(receipt) => {
+            account_id_to_shard_id(&receipt.receiver_id, num_shards)
+        }
+    }
+}
+
 impl RuntimeAdapter for NightshadeRuntime {
     fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
-        for shard_id in 0..self.genesis_config.block_producers_per_shard.len() as ShardId {
+        let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
+        let mut shard_records: Vec<Vec<StateRecord>> = (0..num_shards).map(|_| vec![]).collect();
+        let mut has_protocol_account = false;
+        for record in self.genesis_config.records.iter() {
+            shard_records[state_record_to_shard_id(record, num_shards) as usize]
+                .push(record.clone());
+            if let StateRecord::Account { account_id, .. } = record {
+                if account_id == &self.genesis_config.protocol_treasury_account {
+                    has_protocol_account = true;
+                }
+            }
+        }
+        assert!(has_protocol_account, "Genesis spec doesn't have protocol treasury account");
+        for shard_id in 0..num_shards {
             let validators = self
                 .genesis_config
                 .validators
@@ -184,7 +222,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
                 state_update,
                 &validators,
-                &self.genesis_config.records[shard_id as usize],
+                &shard_records[shard_id as usize],
             );
             store_update.merge(shard_store_update);
             state_roots.push(state_root);
@@ -683,12 +721,14 @@ mod test {
 
     use tempdir::TempDir;
 
+    use near_chain::types::ValidatorSignatureVerificationResult;
     use near_chain::{ReceiptResult, RuntimeAdapter, Tip};
     use near_client::BlockProducer;
     use near_crypto::{InMemorySigner, KeyType, Signer};
     use near_primitives::block::Weight;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
+    use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, ValidatorStake,
@@ -696,13 +736,11 @@ mod test {
     use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
     use near_store::create_store;
     use node_runtime::adapter::ViewRuntimeAdapter;
+    use node_runtime::config::RuntimeConfig;
 
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_chain::types::ValidatorSignatureVerificationResult;
-    use near_primitives::test_utils::init_test_logger;
-    use node_runtime::config::RuntimeConfig;
 
     fn stake(nonce: Nonce, sender: &BlockProducer, amount: Balance) -> SignedTransaction {
         SignedTransaction::from_actions(

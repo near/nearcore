@@ -497,7 +497,8 @@ impl ShardsManager {
         }
         Ok(None)
     }
-    // Returns true if the chunk_one_part was not previously known
+
+    /// Returns true if the chunk_one_part was not previously known
     pub fn process_chunk_one_part(
         &mut self,
         one_part: ChunkOnePart,
