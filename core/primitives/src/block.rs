@@ -10,7 +10,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
 use crate::sharding::ShardChunkHeader;
 use crate::transaction::SignedTransaction;
-use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake, Nonce};
+use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -315,8 +315,7 @@ impl Block {
 
     pub fn compute_tx_root(transactions: &Vec<SignedTransaction>) -> CryptoHash {
         merklize(
-            // TODO What exactly I should take from transactions to build a tx_root? sort somehow?
-            &transactions.iter().map(|tx| tx.transaction.nonce).collect::<Vec<Nonce>>(),
+            &transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>(),
         )
             .0
     }

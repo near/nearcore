@@ -284,19 +284,23 @@ impl Chain {
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        // TODO check the description below
         // Before saving the very first block in the epoch,
-        // we ensure that the block contains of correct data.
-        // It can be proven because hash of the block which
-        // identifies the block includes that data.
+        // we ensure that the block contains the correct data.
+        // It is sufficient to check the correctness of tx_root, state_root
+        // and that the re-computed hash of the block matches the stated hash
 
-        // 1. Checking state_root validity
+        // 1. Checking correctness of hash of the header
+        if block.hash() != block.header.hash {
+            return Err(ErrorKind::InvalidBlockHash.into());
+        }
+
+        // 2. Checking state_root validity
         let state_root = Block::compute_state_root(&block.chunks);
         if block.header.inner.prev_state_root != state_root {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
 
-        // 2. Checking tx_root validity
+        // 3. Checking tx_root validity
         let tx_root = Block::compute_tx_root(&block.transactions);
         if block.header.inner.tx_root != tx_root {
             return Err(ErrorKind::InvalidTxRoot.into());

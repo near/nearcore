@@ -42,6 +42,9 @@ pub enum ErrorKind {
     /// Invalid block weight.
     #[fail(display = "Invalid Block Weight")]
     InvalidBlockWeight,
+    /// Invalid block hash.
+    #[fail(display = "Invalid Block Hash")]
+    InvalidBlockHash,
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
@@ -135,6 +138,7 @@ impl Error {
             | ErrorKind::InvalidBlockProposer
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
+            | ErrorKind::InvalidBlockHash
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
