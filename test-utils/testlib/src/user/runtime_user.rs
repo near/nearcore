@@ -94,7 +94,6 @@ impl RuntimeUser {
             }
             cur_apply_state = ApplyState {
                 root: apply_result.root,
-                shard_id: cur_apply_state.shard_id,
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
                 epoch_length: client.epoch_length,
@@ -111,7 +110,6 @@ impl RuntimeUser {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
             root: client.state_root,
-            shard_id: 0,
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
             epoch_length: client.epoch_length,

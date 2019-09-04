@@ -485,7 +485,6 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         let apply_state = ApplyState {
             root: *state_root,
-            shard_id,
             block_index,
             parent_block_hash: *prev_block_hash,
             epoch_length: self.genesis_config.epoch_length,
