@@ -503,7 +503,7 @@ impl Chain {
         let tip = Tip::from_header(prev_header);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.save_body_head(&tip);
+        chain_store_update.save_body_head(&tip)?;
         chain_store_update.save_body_tail(&tip);
         chain_store_update.commit()?;
 
@@ -1584,7 +1584,7 @@ impl<'a> ChainUpdate<'a> {
         if block.header.inner.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
-            self.chain_store_update.save_body_head(&tip);
+            self.chain_store_update.save_body_head(&tip)?;
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {
