@@ -1,4 +1,4 @@
-use near_primitives::types::{AccountId, Balance, GasUsage};
+use near_primitives::types::{AccountId, Balance, Gas};
 use std::cmp::max;
 use std::collections::HashMap;
 
@@ -17,7 +17,7 @@ impl RewardCalculator {
     pub fn calculate_reward(
         &self,
         validator_online_ratio: HashMap<AccountId, (u64, u64)>,
-        total_gas_used: GasUsage,
+        total_gas_used: Gas,
         gas_price: Balance,
         total_supply: Balance,
     ) -> HashMap<AccountId, Balance> {

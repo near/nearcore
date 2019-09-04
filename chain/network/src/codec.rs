@@ -1,11 +1,9 @@
-use std::convert::TryInto;
 use std::io::{Error, ErrorKind};
 
 use bytes::{BufMut, BytesMut};
-use protobuf::{parse_from_bytes, Message};
 use tokio::codec::{Decoder, Encoder};
 
-use near_protos::network::PeerMessage as ProtoMessage;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::types::PeerMessage;
 
@@ -59,21 +57,17 @@ impl Decoder for Codec {
     }
 }
 
-pub fn peer_message_to_bytes(
-    peer_message: PeerMessage,
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let proto: ProtoMessage = peer_message.into();
-    proto.write_to_bytes().map_err(|err| err.into())
+pub fn peer_message_to_bytes(peer_message: PeerMessage) -> Result<Vec<u8>, std::io::Error> {
+    peer_message.try_to_vec()
 }
 
-pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, Box<dyn std::error::Error>> {
-    let proto: ProtoMessage = parse_from_bytes(bytes)?;
-    proto.try_into()
+pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error> {
+    PeerMessage::try_from_slice(bytes)
 }
 
 #[cfg(test)]
 mod test {
-    use near_primitives::crypto::signature::{get_key_pair, sign};
+    use near_crypto::{KeyType, SecretKey};
     use near_primitives::hash::CryptoHash;
 
     use crate::types::{
@@ -118,12 +112,12 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_account() {
-        let (pk, sk) = get_key_pair();
-        let signature = sign(vec![].as_slice(), &sk);
+        let sk = SecretKey::from_random(KeyType::ED25519);
+        let signature = sk.sign(vec![].as_slice());
         let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
             "test1".to_string(),
             EpochId::default(),
-            pk.into(),
+            sk.public_key().into(),
             CryptoHash::default(),
             signature,
         ));
@@ -132,12 +126,12 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_routed_block_approval() {
-        let (pk, sk) = get_key_pair();
+        let sk = SecretKey::from_random(KeyType::ED25519);
         let hash = CryptoHash::default();
-        let signature = sign(hash.as_ref(), &sk);
+        let signature = sk.sign(hash.as_ref());
         let msg = PeerMessage::Routed(RoutedMessage {
             account_id: "test1".to_string(),
-            author: pk.into(),
+            author: sk.public_key().into(),
             signature: signature.clone(),
             body: RoutedMessageBody::BlockApproval(
                 "test2".to_string(),

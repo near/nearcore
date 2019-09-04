@@ -7,14 +7,14 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::{heavy_test, init_test_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
 fn sync_state_nodes() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
         let genesis_config = GenesisConfig::test(vec!["test1"]);
 
@@ -93,7 +93,7 @@ fn sync_state_nodes() {
 #[ignore]
 fn sync_state_nodes_multishard() {
     heavy_test(|| {
-        init_test_logger();
+        init_integration_logger();
 
         let mut genesis_config =
             GenesisConfig::test_sharded(vec!["test1", "test2", "test3", "test4"], vec![2, 2]);

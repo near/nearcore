@@ -8,13 +8,14 @@ use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::crypto::signer::InMemorySigner;
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use testlib::test_helpers::heavy_test;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -41,10 +42,14 @@ pub fn setup_network_node(
         1,
         1,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id.as_str(), account_id.as_str()));
+    let signer = Arc::new(InMemorySigner::from_seed(
+        account_id.as_str(),
+        KeyType::ED25519,
+        account_id.as_str(),
+    ));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0);
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
@@ -74,7 +79,7 @@ fn check_account_id_propagation(
     peer_max_count: u32,
     max_wait_ms: u64,
 ) {
-    init_test_logger();
+    init_integration_logger();
 
     System::run(move || {
         let total_nodes = accounts_id.len();
@@ -149,116 +154,137 @@ fn check_account_id_propagation(
     .unwrap();
 }
 
-// TODO(MarX): Wrap all this tests with heavy (Similar commit already merged in staging)
 #[test]
 fn two_nodes() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2"]),
-        vec![vec![1], vec![0]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2"]),
+            vec![vec![1], vec![0]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
 fn three_nodes_clique() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3"]),
-        vec![vec![1, 2], vec![0, 2], vec![0, 1]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3"]),
+            vec![vec![1, 2], vec![0, 2], vec![0, 1]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
 fn three_nodes_path() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3"]),
-        vec![vec![1], vec![0, 2], vec![1]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3"]),
+            vec![vec![1], vec![0, 2], vec![1]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
 fn four_nodes_star() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
-        vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
+            vec![vec![1, 2, 3], vec![0], vec![0], vec![0]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
+#[ignore]
 fn four_nodes_path() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
-        vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
+            vec![vec![1], vec![0, 2], vec![1, 3], vec![2]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
 #[should_panic]
 fn four_nodes_disconnected() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
-        vec![vec![1], vec![0], vec![3], vec![2]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
+            vec![vec![1], vec![0], vec![3], vec![2]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
+#[ignore]
 fn four_nodes_directed() {
-    check_account_id_propagation(
-        vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
-        vec![vec![1], vec![], vec![1], vec![2]],
-        10,
-        5000,
-    );
+    heavy_test(|| {
+        check_account_id_propagation(
+            vec_ref_to_str(vec!["test1", "test2", "test3", "test4"]),
+            vec![vec![1], vec![], vec![1], vec![2]],
+            10,
+            5000,
+        );
+    });
 }
 
 #[test]
 fn circle() {
-    let num_peers = 7;
-    let max_peer_connections = 2;
+    heavy_test(|| {
+        let num_peers = 7;
+        let max_peer_connections = 2;
 
-    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
-    let adjacency_list = (0..num_peers)
-        .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
-        .collect();
+        let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+        let adjacency_list = (0..num_peers)
+            .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
+            .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+        check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+    });
 }
 
 #[test]
 fn star_2_connections() {
-    let num_peers = 7;
-    let max_peer_connections = 2;
+    heavy_test(|| {
+        let num_peers = 7;
+        let max_peer_connections = 2;
 
-    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
-    let adjacency_list = (0..num_peers)
-        .map(|ix| {
-            let size = if ix > 0 { 1 } else { 0 };
-            vec![0; size]
-        })
-        .collect();
+        let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+        let adjacency_list = (0..num_peers)
+            .map(|ix| {
+                let size = if ix > 0 { 1 } else { 0 };
+                vec![0; size]
+            })
+            .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+        check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+    });
 }
 
 #[test]
 fn circle_extra_connection() {
-    let num_peers = 7;
-    let max_peer_connections = 3;
+    heavy_test(|| {
+        let num_peers = 7;
+        let max_peer_connections = 3;
 
-    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
-    let adjacency_list = (0..num_peers)
-        .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
-        .collect();
+        let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
+        let adjacency_list = (0..num_peers)
+            .map(|ix| vec![(ix + num_peers - 1) % num_peers, (ix + 1) % num_peers])
+            .collect();
 
-    check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+        check_account_id_propagation(accounts_id, adjacency_list, max_peer_connections, 5000);
+    });
 }

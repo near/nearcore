@@ -1,7 +1,7 @@
-use near_primitives::account::AccessKey;
-use near_primitives::crypto::signature::PublicKey;
-use near_primitives::rpc::{AccountViewCallResult, ViewStateResult};
+use near_crypto::PublicKey;
+use near_primitives::account::{AccessKey, Account};
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
+use near_primitives::views::ViewStateResult;
 
 /// Adapter for querying runtime.
 pub trait ViewRuntimeAdapter {
@@ -9,7 +9,7 @@ pub trait ViewRuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
-    ) -> Result<AccountViewCallResult, Box<dyn std::error::Error>>;
+    ) -> Result<Account, Box<dyn std::error::Error>>;
 
     fn call_function(
         &self,
@@ -38,5 +38,6 @@ pub trait ViewRuntimeAdapter {
         &self,
         state_root: MerkleHash,
         account_id: &AccountId,
+        prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>>;
 }

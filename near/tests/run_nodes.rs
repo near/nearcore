@@ -5,11 +5,11 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::{heavy_test, init_test_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::types::BlockIndex;
 
 fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex) {
-    init_test_logger();
+    init_integration_logger();
 
     let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
     let mut genesis_config = GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
@@ -34,7 +34,7 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
     let system = System::new("NEAR");
 
     let mut view_clients = vec![];
-    for (i, near_config) in near_configs.drain(..).enumerate() {
+    for (i, near_config) in near_configs.into_iter().enumerate() {
         let dir = TempDir::new(&format!("two_nodes_{}", i)).unwrap();
         let (_client, view_client) = start_with_config(dir.path(), near_config);
         view_clients.push(view_client)
@@ -46,8 +46,7 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
                     Ok(Ok(b))
-                        if b.header.height > num_blocks
-                            && b.header.total_weight.to_num() > num_blocks =>
+                        if b.header.height > num_blocks && b.header.total_weight > num_blocks =>
                     {
                         System::current().stop()
                     }

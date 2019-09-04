@@ -1,9 +1,11 @@
 use actix::{Addr, System};
+use futures::{future, Future};
 use near_client::test_utils::setup_mock_all_validators;
-use near_client::{ClientActor, ViewClientActor};
+use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -29,7 +31,7 @@ fn chunks_produced_and_distributed_one_val_per_shard() {
 /// Confirms that the number of messages transmitting the chunks matches the expected number.
 fn chunks_produced_and_distributed_common(validator_groups: u64) {
     let validators_per_shard = 4 / validator_groups;
-    init_test_logger();
+    init_integration_logger();
     System::run(move || {
         let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
             Arc::new(RwLock::new(vec![]));
@@ -59,33 +61,33 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
             key_pairs.clone(),
             validator_groups,
             true,
-            400,
+            1500,
             Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                 match msg {
                     NetworkRequests::Block { block } => {
-                        check_height(block.hash(), block.header.height);
-                        check_height(block.header.prev_hash, block.header.height - 1);
+                        check_height(block.hash(), block.header.inner.height);
+                        check_height(block.header.inner.prev_hash, block.header.inner.height - 1);
 
                         println!(
                             "BLOCK HEIGHT {}; HEADER HEIGHTS: {} / {} / {} / {}",
-                            block.header.height,
-                            block.chunks[0].height_created,
-                            block.chunks[1].height_created,
-                            block.chunks[2].height_created,
-                            block.chunks[3].height_created
+                            block.header.inner.height,
+                            block.chunks[0].inner.height_created,
+                            block.chunks[1].inner.height_created,
+                            block.chunks[2].inner.height_created,
+                            block.chunks[3].inner.height_created
                         );
 
-                        if block.header.height > 1 {
+                        if block.header.inner.height > 1 {
                             for shard_id in 0..4 {
                                 assert_eq!(
-                                    block.header.height,
-                                    block.chunks[shard_id].height_created
+                                    block.header.inner.height,
+                                    block.chunks[shard_id].inner.height_created
                                 );
                             }
                         }
 
-                        if block.header.height >= 6 {
-                            println!("PREV BLOCK HASH: {}", block.header.prev_hash);
+                        if block.header.inner.height >= 6 {
+                            println!("PREV BLOCK HASH: {}", block.header.inner.prev_hash);
                             println!(
                                 "STATS: one_parts: {} part_requests: {} parts: {}",
                                 one_part_msgs, part_request_msgs, part_msgs
@@ -119,18 +121,22 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
             })),
         );
 
-        {
+        let view_client = connectors.write().unwrap()[0].1.clone();
+        actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
+            let header: BlockHeader = res.unwrap().unwrap().header.into();
+            let block_hash = header.hash;
             let connectors_ = connectors.write().unwrap();
             connectors_[0]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
             connectors_[1]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
             connectors_[2]
                 .0
-                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty()));
-        }
+                .do_send(NetworkClientMessages::Transaction(SignedTransaction::empty(block_hash)));
+            future::ok(())
+        }));
     })
     .unwrap();
 }

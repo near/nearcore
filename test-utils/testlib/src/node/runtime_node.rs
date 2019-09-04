@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use near::GenesisConfig;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner};
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
@@ -22,7 +22,7 @@ impl RuntimeNode {
     }
 
     pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
-        let signer = Arc::new(InMemorySigner::from_seed(account_id, account_id));
+        let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
         let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
@@ -43,7 +43,7 @@ impl Node for RuntimeNode {
 
     fn kill(&mut self) {}
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
     }
 
@@ -62,6 +62,7 @@ impl Node for RuntimeNode {
 
 #[cfg(test)]
 mod tests {
+    use crate::fees_utils::transfer_cost;
     use crate::node::runtime_node::RuntimeNode;
     use crate::node::Node;
     use crate::runtime_utils::{alice_account, bob_account};
@@ -71,6 +72,7 @@ mod tests {
         let node = RuntimeNode::new(&"alice.near".to_string());
         let node_user = node.user();
         node_user.send_money(alice_account(), bob_account(), 1);
+        let transfer_cost = transfer_cost();
         let (alice1, bob1) = (
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
@@ -80,7 +82,7 @@ mod tests {
             node.view_balance(&alice_account()).unwrap(),
             node.view_balance(&bob_account()).unwrap(),
         );
-        assert_eq!(alice2, alice1 - 1);
+        assert_eq!(alice2, alice1 - 1 - transfer_cost);
         assert_eq!(bob2, bob1 + 1);
     }
 

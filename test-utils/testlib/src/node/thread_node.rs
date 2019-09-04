@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near::{start_with_config, NearConfig};
-use near_primitives::crypto::signer::EDSigner;
+use near_crypto::Signer;
 use near_primitives::types::AccountId;
 
 use crate::actix_utils::ShutdownableThread;
@@ -49,7 +49,7 @@ impl Node for ThreadNode {
         }
     }
 
-    fn signer(&self) -> Arc<dyn EDSigner> {
+    fn signer(&self) -> Arc<dyn Signer> {
         self.config.block_producer.clone().unwrap().signer.clone()
     }
 

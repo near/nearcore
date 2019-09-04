@@ -1,12 +1,13 @@
-use near_primitives::test_utils::get_key_pair_from_seed;
-use near_primitives::types::{AccountId, Balance, BlockIndex, GasUsage, ShardId, ValidatorStake};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::types::{EpochConfig, EpochInfo};
+use near_crypto::{KeyType, SecretKey};
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorStake};
+use near_store::test_utils::create_test_store;
+
+use crate::types::{EpochConfig, EpochInfo, ValidatorWeight};
 use crate::RewardCalculator;
 use crate::{BlockInfo, EpochManager};
-use near_primitives::hash::{hash, CryptoHash};
-use near_store::test_utils::create_test_store;
 
 pub const DEFAULT_GAS_PRICE: u128 = 100;
 pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
@@ -27,9 +28,9 @@ pub fn epoch_info(
     mut accounts: Vec<(&str, Balance)>,
     block_producers: Vec<usize>,
     chunk_producers: Vec<Vec<usize>>,
-    fishermen: Vec<(usize, u64)>,
+    fishermen: Vec<ValidatorWeight>,
     stake_change: BTreeMap<AccountId, Balance>,
-    total_gas_used: GasUsage,
+    total_gas_used: Gas,
     validator_reward: HashMap<AccountId, Balance>,
 ) -> EpochInfo {
     accounts.sort();
@@ -42,7 +43,7 @@ pub fn epoch_info(
             .into_iter()
             .map(|(account_id, amount)| ValidatorStake {
                 account_id: account_id.to_string(),
-                public_key: get_key_pair_from_seed(account_id).0,
+                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
                 amount,
             })
             .collect(),
@@ -74,7 +75,7 @@ pub fn epoch_config(
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
-    let (public_key, _) = get_key_pair_from_seed(account_id);
+    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 

@@ -21,6 +21,11 @@ pub mod update;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
+/// For fraud proofs
+pub struct PartialStorage {
+    nodes: Vec<(CryptoHash, Vec<u8>)>,
+}
+
 #[derive(Clone, Hash, Debug, Copy)]
 struct StorageHandle(usize);
 
@@ -300,12 +305,56 @@ impl RcTrieNode {
         let rc = cursor.read_u32::<LittleEndian>()?;
         Ok((&bytes[..bytes.len() - 4], rc))
     }
+}
 
-    fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
-        let node = RawTrieNode::decode(&bytes[..bytes.len() - 4])?;
-        let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
-        let rc = cursor.read_u32::<LittleEndian>()?;
-        Ok((node, rc))
+pub trait TrieStorage: Send + Sync {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)>;
+
+    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32>;
+
+    fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
+        None
+    }
+
+    fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
+        None
+    }
+}
+
+pub struct TrieRecordingStorage {
+    storage: TrieCachingStorage,
+    recorded: Arc<Mutex<HashMap<CryptoHash, Option<Vec<u8>>>>>,
+}
+
+impl TrieStorage for TrieRecordingStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<Vec<u8>> {
+        let result = self.storage.retrieve_raw_bytes(hash);
+        self.recorded.lock().expect(POISONED_LOCK_ERR).insert(*hash, result.clone());
+        result
+    }
+
+    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
+        debug_assert!(false, "retrieve_rc should not be called when recording");
+        self.storage.retrieve_rc(hash)
+    }
+
+    fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
+        Some(self)
+    }
+}
+
+pub struct TrieMemoryPartialStorage {
+    recorded_storage: HashMap<CryptoHash, Vec<u8>>,
+}
+
+impl TrieStorage for TrieMemoryPartialStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<Vec<u8>> {
+        self.recorded_storage.get(hash).cloned()
+    }
+
+    fn retrieve_rc(&self, _hash: &CryptoHash) -> Option<u32> {
+        debug_assert!(false, "retrieve_rc should not be called when replaying recorded");
+        None
     }
 }
 
@@ -319,20 +368,29 @@ impl TrieCachingStorage {
         // TODO defend from huge values in cache
         TrieCachingStorage { store, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
     }
+}
 
+impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)> {
-        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-        if let Some(val) = (*guard).cache_get(hash) {
-            val.clone()
-        } else {
-            let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
-                Some(bytes)
+        let result = {
+            let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+            if let Some(val) = (*guard).cache_get(hash) {
+                val.as_ref().map(|vec| vec[0..vec.len() - 4].to_vec())
             } else {
-                None
-            };
-            (*guard).cache_set(*hash, result.clone());
-            result
-        }
+                let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
+                    Some(bytes)
+                } else {
+                    None
+                };
+                let raw_node = result.as_ref().map(|vec| vec[0..vec.len() - 4].to_vec());
+                (*guard).cache_set(*hash, result);
+                raw_node
+            }
+        };
+        // the only time a node can be missing from storage is if we're validating with partial
+        // storage and try to read something that's not there.
+        debug_assert!(result.is_some());
+        result
     }
 
     fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
@@ -352,20 +410,13 @@ impl TrieCachingStorage {
         }
     }
 
-    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, String> {
-        if let Some(bytes) = self.retrieve_raw_bytes(hash) {
-            match RcTrieNode::decode(&bytes) {
-                Ok((value, _)) => Ok(TrieNode::new(value)),
-                Err(_) => Err(format!("Failed to decode node {}", hash)),
-            }
-        } else {
-            Err(format!("Node {} not found in storage", hash))
-        }
+    fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
+        Some(self)
     }
 }
 
 pub struct Trie {
-    storage: TrieCachingStorage,
+    storage: Box<dyn TrieStorage>,
 }
 
 ///
@@ -440,8 +491,15 @@ impl TrieChanges {
         self,
         trie: Arc<Trie>,
     ) -> Result<(StoreUpdate, CryptoHash), Box<dyn std::error::Error>> {
-        let mut store_update =
-            StoreUpdate::new_with_trie(trie.storage.store.storage.clone(), trie.clone());
+        let mut store_update = StoreUpdate::new_with_trie(
+            trie.storage
+                .as_caching_storage()
+                .expect("Storage should be TrieCachingStorage")
+                .store
+                .storage
+                .clone(),
+            trie.clone(),
+        );
         self.insertions_into(trie.clone(), &mut store_update)?;
         self.deletions_into(trie.clone(), &mut store_update)?;
         Ok((store_update, self.new_root))
@@ -481,11 +539,47 @@ enum FlattenNodesCrumb {
 
 impl Trie {
     pub fn new(store: Arc<Store>) -> Self {
-        Trie { storage: TrieCachingStorage::new(store) }
+        Trie { storage: Box::new(TrieCachingStorage::new(store)) }
+    }
+
+    pub fn recording_reads(&self) -> Self {
+        let storage =
+            self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
+        let storage = TrieRecordingStorage {
+            storage: TrieCachingStorage {
+                store: Arc::clone(&storage.store),
+                cache: Arc::clone(&storage.cache),
+            },
+            recorded: Arc::new(Mutex::new(Default::default())),
+        };
+        Trie { storage: Box::new(storage) }
     }
 
     pub fn empty_root() -> CryptoHash {
         CryptoHash::default()
+    }
+
+    pub fn recorded_storage(&self) -> Option<PartialStorage> {
+        let storage = self.storage.as_recording_storage()?;
+        let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
+        let mut nodes = Vec::new();
+        for (k, v) in guard.drain() {
+            if let Some(v) = v {
+                nodes.push((k, v));
+            } else {
+                debug_assert!(
+                    false,
+                    "Recorded a read of a missing node. This should never happen."
+                );
+            }
+        }
+        nodes.sort();
+        Some(PartialStorage { nodes })
+    }
+
+    fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
+        let map = partial_storage.nodes.into_iter().collect();
+        Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }
     }
 
     fn move_node_to_mutable(
@@ -497,21 +591,13 @@ impl Trie {
             Ok(memory.store(TrieNode::Empty))
         } else {
             if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
-                match RcTrieNode::decode(&bytes) {
-                    Ok((value, _)) => {
+                match RawTrieNode::decode(&bytes) {
+                    Ok(value) => {
                         let result = memory.store(TrieNode::new(value));
                         memory
                             .refcount_changes
                             .entry(*hash)
-                            .or_insert_with(|| {
-                                (
-                                    RcTrieNode::decode_raw(&bytes)
-                                        .expect("calling after decode()")
-                                        .0
-                                        .to_vec(),
-                                    0,
-                                )
-                            })
+                            .or_insert_with(|| (bytes.to_vec(), 0))
                             .1 -= 1;
                         Ok(result)
                     }
@@ -527,7 +613,14 @@ impl Trie {
         if *hash == Trie::empty_root() {
             return Ok(TrieNode::Empty);
         }
-        self.storage.retrieve_node(hash)
+        if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
+            match RawTrieNode::decode(&bytes) {
+                Ok(value) => Ok(TrieNode::new(value)),
+                Err(_) => Err(format!("Failed to decode node {}", hash)),
+            }
+        } else {
+            Err(format!("Node {} not found in storage", hash))
+        }
     }
 
     fn lookup(&self, root: &CryptoHash, mut key: NibbleSlice) -> Result<Option<Vec<u8>>, String> {
@@ -538,9 +631,9 @@ impl Trie {
                 return Ok(None);
             }
             let node = match self.storage.retrieve_raw_bytes(&hash) {
-                Some(bytes) => RcTrieNode::decode(&bytes)
-                    .map(|trie_node| trie_node.0)
-                    .map_err(|_| "Failed to decode node".to_string())?,
+                Some(bytes) => {
+                    RawTrieNode::decode(&bytes).map_err(|_| "Failed to decode node".to_string())?
+                }
                 _ => return Err(format!("Node {} not found in storage", hash)),
             };
 
@@ -1063,7 +1156,9 @@ impl Trie {
 
     #[inline]
     pub fn update_cache(&self, transaction: &DBTransaction) -> std::io::Result<()> {
-        let mut guard = self.storage.cache.lock().expect(POISONED_LOCK_ERR);
+        let storage =
+            self.storage.as_caching_storage().expect("Storage should be TrieCachingStorage");
+        let mut guard = storage.cache.lock().expect(POISONED_LOCK_ERR);
         for op in &transaction.ops {
             match op {
                 DBOp::Insert { col, ref key, ref value } if *col == COL_STATE => (*guard)
@@ -1617,5 +1712,67 @@ mod tests {
 
         let trie2 = Arc::new(Trie::new(store));
         assert_eq!(trie2.get(&root, b"doge"), Some(b"coin".to_vec()));
+    }
+
+    // TODO: somehow also test that we don't record unnecessary nodes
+    #[test]
+    fn test_trie_recording_reads() {
+        let store = create_test_store();
+        let trie1 = Arc::new(Trie::new(store.clone()));
+        let empty_root = Trie::empty_root();
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+            (b"do".to_vec(), Some(b"verb".to_vec())),
+            (b"horse".to_vec(), Some(b"stallion".to_vec())),
+            (b"dog".to_vec(), Some(b"puppy".to_vec())),
+            (b"h".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+
+        let trie2 = Trie::new(store).recording_reads();
+        trie2.get(&root, b"dog");
+        trie2.get(&root, b"horse");
+        let partial_storage = trie2.recorded_storage();
+
+        let trie3 = Trie::from_recorded_storage(partial_storage.unwrap());
+
+        assert_eq!(trie3.get(&root, b"dog"), Some(b"puppy".to_vec()));
+        assert_eq!(trie3.get(&root, b"horse"), Some(b"stallion".to_vec()));
+    }
+
+    #[test]
+    fn test_trie_recording_reads_update() {
+        let store = create_test_store();
+        let trie1 = Arc::new(Trie::new(store.clone()));
+        let empty_root = Trie::empty_root();
+        let changes = vec![
+            (b"doge".to_vec(), Some(b"coin".to_vec())),
+            (b"docu".to_vec(), Some(b"value".to_vec())),
+        ];
+        let root = test_populate_trie(trie1, &empty_root, changes.clone());
+        // Trie: extension -> branch -> 2 leaves
+        {
+            let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
+            trie2.get(&root, b"doge");
+            // record extension, branch and one leaf, but not the other
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 3);
+        }
+
+        {
+            let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
+            let updates = vec![(b"doge".to_vec(), None)];
+            trie2.update(&root, updates.into_iter()).unwrap();
+            // record extension, branch and both leaves
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 4);
+        }
+
+        {
+            let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
+            let updates = vec![(b"dodo".to_vec(), Some(b"asdf".to_vec()))];
+            trie2.update(&root, updates.into_iter()).unwrap();
+            // record extension and branch, but not leaves
+            assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 2);
+        }
     }
 }

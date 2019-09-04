@@ -63,6 +63,7 @@ pub fn start_with_config(
         config.genesis_config.total_supply,
         config.genesis_config.max_inflation_rate,
         config.genesis_config.gas_price_adjustment_rate,
+        config.genesis_config.transaction_validity_period,
     );
 
     let view_client =

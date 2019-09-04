@@ -13,20 +13,19 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde_derive::{Deserialize, Serialize};
 
-use crate::runtime::account_id_to_shard_id;
+use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
+use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey, Signer};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
 use near_network::NetworkConfig;
-use near_primitives::account::Account;
-use near_primitives::crypto::signer::{EDSigner, InMemorySigner, KeyFile};
-use near_primitives::hash::hash;
+use near_primitives::account::AccessKey;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{
-    AccountId, Balance, BlockIndex, GasUsage, ReadablePublicKey, ShardId, ValidatorId,
-};
+use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ValidatorId};
+use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
@@ -46,11 +45,17 @@ pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 /// Attonear, 1/10^18 of NEAR.
 pub const ATTO_NEAR: Balance = 1;
 
+/// Block production tracking delay.
+pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
+
 /// Expected block production time in secs.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 
-/// Maximum time to delay block production until skip.
-pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
+/// Maximum time to delay block production without approvals.
+pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2;
+
+/// Maximum time until skipping the previous block.
+pub const MAX_BLOCK_WAIT_DELAY: u64 = 6;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -71,7 +76,7 @@ pub const MAX_ROUTES_TO_STORE: usize = 5;
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
 /// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: GasUsage = 10_000_000;
+pub const INITIAL_GAS_LIMIT: Gas = 10_000_000;
 
 /// Initial gas price.
 pub const INITIAL_GAS_PRICE: Balance = 100;
@@ -91,6 +96,9 @@ pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
 
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: u8 = 5;
+
+/// Number of blocks for which a given transaction is valid
+pub const TRANSACTION_VALIDITY_PERIOD: u64 = 100;
 
 pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
@@ -139,10 +147,14 @@ impl Default for Network {
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
+    /// Duration to check for producing / skipping block.
+    pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
-    /// Maximum duration before producing block or skipping height.
+    /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
+    /// Maximum duration before skipping given height.
+    pub max_block_wait_delay: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
 }
@@ -151,8 +163,10 @@ impl Default for Consensus {
     fn default() -> Self {
         Consensus {
             min_num_peers: 3,
+            block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
             min_block_production_delay: Duration::from_secs(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_secs(MAX_BLOCK_PRODUCTION_DELAY),
+            max_block_wait_delay: Duration::from_secs(MAX_BLOCK_WAIT_DELAY),
             produce_empty_blocks: true,
         }
     }
@@ -231,9 +245,10 @@ impl NearConfig {
                 version: Default::default(),
                 chain_id: genesis_config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
+                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
-                block_production_retry_delay: config.consensus.min_block_production_delay,
+                max_block_wait_delay: config.consensus.max_block_wait_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),
@@ -253,10 +268,11 @@ impl NearConfig {
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
+                transaction_validity_period: genesis_config.transaction_validity_period,
             },
             network_config: NetworkConfig {
-                public_key: network_key_pair.public_key,
-                secret_key: network_key_pair.secret_key,
+                public_key: network_key_pair.public_key.into(),
+                secret_key: network_key_pair.secret_key.into(),
                 account_id: block_producer.clone().map(|bp| bp.account_id.clone()),
                 addr: if config.network.addr.is_empty() {
                     None
@@ -304,11 +320,8 @@ impl NearConfig {
             block_producer.signer.write_to_file(&dir.join(self.config.validator_key_file.clone()));
         }
 
-        let network_signer = InMemorySigner::from_secret_key(
-            "".to_string(),
-            self.network_config.public_key.clone(),
-            self.network_config.secret_key.clone(),
-        );
+        let network_signer =
+            InMemorySigner::from_secret_key("".to_string(), self.network_config.secret_key.clone());
         network_signer.write_to_file(&dir.join(self.config.node_key_file.clone()));
 
         self.genesis_config.write_to_file(&dir.join(self.config.genesis_file.clone()));
@@ -344,7 +357,7 @@ pub struct GenesisConfig {
     /// Epoch length counted in blocks.
     pub epoch_length: BlockIndex,
     /// Initial gas limit.
-    pub gas_limit: GasUsage,
+    pub gas_limit: Gas,
     /// Initial gas price.
     pub gas_price: Balance,
     /// Criterion for kicking out validators (this is a number between 0 and 100)
@@ -355,8 +368,10 @@ pub struct GenesisConfig {
     pub runtime_config: RuntimeConfig,
     /// List of initial validators.
     pub validators: Vec<AccountInfo>,
-    /// Records in storage per each shard at genesis.
-    pub records: Vec<Vec<StateRecord>>,
+    /// Records in storage at genesis (get split into shards at genesis creation).
+    pub records: Vec<StateRecord>,
+    /// Number of blocks for which a given transaction is valid
+    pub transaction_validity_period: u64,
     /// Developer reward percentage (this is a number between 0 and 100)
     pub developer_reward_percentage: u8,
     /// Protocol treasury percentage (this is a number between 0 and 100)
@@ -371,16 +386,43 @@ pub struct GenesisConfig {
     pub protocol_treasury_account: AccountId,
 }
 
-fn get_initial_supply(records: &[Vec<StateRecord>]) -> Balance {
+fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
-    for shard_records in records {
-        for record in shard_records {
-            if let StateRecord::Account { account, .. } = record {
-                total_supply += account.amount;
-            }
+    for record in records {
+        if let StateRecord::Account { account, .. } = record {
+            total_supply += account.amount;
         }
     }
     total_supply
+}
+
+impl From<GenesisConfig> for ChainGenesis {
+    fn from(genesis_config: GenesisConfig) -> Self {
+        ChainGenesis::new(
+            genesis_config.genesis_time,
+            genesis_config.gas_limit,
+            genesis_config.gas_price,
+            genesis_config.total_supply,
+            genesis_config.max_inflation_rate,
+            genesis_config.gas_price_adjustment_rate,
+            genesis_config.transaction_validity_period,
+        )
+    }
+}
+
+fn add_protocol_account(records: &mut Vec<StateRecord>) {
+    let signer = InMemorySigner::from_seed(
+        PROTOCOL_TREASURY_ACCOUNT,
+        KeyType::ED25519,
+        PROTOCOL_TREASURY_ACCOUNT,
+    );
+    records.extend(state_records_account_with_key(
+        PROTOCOL_TREASURY_ACCOUNT,
+        &signer.public_key,
+        TESTING_INIT_BALANCE,
+        0,
+        CryptoHash::default(),
+    ));
 }
 
 impl GenesisConfig {
@@ -390,48 +432,37 @@ impl GenesisConfig {
         validators_per_shard: Vec<usize>,
     ) -> Self {
         let mut validators = vec![];
-        let mut records = validators_per_shard.iter().map(|_| vec![]).collect::<Vec<_>>();
-        let num_shards = validators_per_shard.len() as ShardId;
-        let default_test_contract =
-            include_bytes!("../../runtime/wasm/runtest/res/wasm_with_mem.wasm").as_ref();
-        let encoded_test_contract = to_base64(default_test_contract);
+        let mut records = vec![];
+        let mut path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
+        let default_test_contract = std::fs::read(path).unwrap();
+        let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
-            let signer = InMemorySigner::from_seed(account, account);
+            let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            let shard_id = account_id_to_shard_id(&account.to_string(), num_shards) as usize;
-            records[shard_id].push(StateRecord::Account {
-                account_id: account.to_string(),
-                account: Account {
-                    nonce: 0,
-                    amount: TESTING_INIT_BALANCE
-                        - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    public_keys: vec![signer.public_key],
+            records.extend(
+                state_records_account_with_key(
+                    account,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
                     code_hash,
-                    stake: if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            });
-            records[shard_id].push(StateRecord::Contract {
+                )
+                .into_iter(),
+            );
+            records.push(StateRecord::Contract {
                 account_id: account.to_string(),
                 code: encoded_test_contract.clone(),
             });
         }
-        let signer =
-            InMemorySigner::from_seed(PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_TREASURY_ACCOUNT);
-        records[0].push(StateRecord::account(
-            PROTOCOL_TREASURY_ACCOUNT,
-            &signer.public_key.to_readable().0,
-            TESTING_INIT_BALANCE,
-            0,
-        ));
+        add_protocol_account(&mut records);
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -455,6 +486,7 @@ impl GenesisConfig {
             total_supply,
             num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
             protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         }
     }
 
@@ -469,33 +501,30 @@ impl GenesisConfig {
     }
 
     pub fn testing_spec(num_accounts: usize, num_validators: usize) -> Self {
-        let mut records = vec![vec![]];
+        let mut records = vec![];
         let mut validators = vec![];
         for i in 0..num_accounts {
             let account_id = format!("near.{}", i);
-            let signer = InMemorySigner::from_seed(&account_id, &account_id);
+            let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
-            records[0].push(StateRecord::account(
-                &account_id,
-                &signer.public_key.to_readable().0,
-                TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-                if i < num_validators { TESTING_INIT_STAKE } else { 0 },
-            ));
+            records.extend(
+                state_records_account_with_key(
+                    &account_id,
+                    &signer.public_key,
+                    TESTING_INIT_BALANCE - if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    if i < num_validators { TESTING_INIT_STAKE } else { 0 },
+                    CryptoHash::default(),
+                )
+                .into_iter(),
+            );
         }
-        let signer =
-            InMemorySigner::from_seed(PROTOCOL_TREASURY_ACCOUNT, PROTOCOL_TREASURY_ACCOUNT);
-        records[0].push(StateRecord::account(
-            PROTOCOL_TREASURY_ACCOUNT,
-            &signer.public_key.to_readable().0,
-            TESTING_INIT_BALANCE,
-            0,
-        ));
+        add_protocol_account(&mut records);
         let total_supply = get_initial_supply(&records);
         GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
@@ -512,6 +541,7 @@ impl GenesisConfig {
             validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
             runtime_config: Default::default(),
             validators,
+            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
             records,
             developer_reward_percentage: DEVELOPER_PERCENT,
             protocol_reward_percentage: PROTOCOL_PERCENT,
@@ -561,6 +591,32 @@ fn random_chain_id() -> String {
     format!("test-chain-{}", thread_rng().sample_iter(&Alphanumeric).take(5).collect::<String>())
 }
 
+fn state_records_account_with_key(
+    account_id: &str,
+    public_key: &PublicKey,
+    amount: u128,
+    staked: u128,
+    code_hash: CryptoHash,
+) -> Vec<StateRecord> {
+    vec![
+        StateRecord::Account {
+            account_id: account_id.to_string(),
+            account: AccountView {
+                amount,
+                staked,
+                code_hash: code_hash.into(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            },
+        },
+        StateRecord::AccessKey {
+            account_id: account_id.to_string(),
+            public_key: public_key.clone().into(),
+            access_key: AccessKey::full_access().into(),
+        },
+    ]
+}
+
 /// Official TestNet configuration.
 pub fn testnet_genesis() -> GenesisConfig {
     let genesis_config_bytes = include_bytes!("../res/testnet.json");
@@ -604,12 +660,12 @@ pub fn init_configs(
             if let Some(account_id) =
                 account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
             {
-                let signer = InMemorySigner::new(account_id.clone());
+                let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
 
-            let network_signer = InMemorySigner::new("".to_string());
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
 
             testnet_genesis().write_to_file(&dir.join(config.genesis_file));
@@ -633,20 +689,21 @@ pub fn init_configs(
                 .to_string();
 
             let signer = if let Some(test_seed) = test_seed {
-                InMemorySigner::from_seed(&account_id, test_seed)
+                InMemorySigner::from_seed(&account_id, KeyType::ED25519, test_seed)
             } else {
-                InMemorySigner::new(account_id.clone())
+                InMemorySigner::from_random(account_id.clone(), KeyType::ED25519)
             };
             signer.write_to_file(&dir.join(config.validator_key_file));
 
-            let network_signer = InMemorySigner::new("".to_string());
+            let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let records = vec![vec![StateRecord::account(
+            let records = state_records_account_with_key(
                 &account_id,
-                &signer.public_key.to_readable().0,
+                &signer.public_key,
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
-            )]];
+                CryptoHash::default(),
+            );
             let total_supply = get_initial_supply(&records);
 
             let genesis_config = GenesisConfig {
@@ -665,16 +722,17 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.to_readable(),
+                    public_key: signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 }],
+                transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
                 records,
                 developer_reward_percentage: DEVELOPER_PERCENT,
                 protocol_reward_percentage: PROTOCOL_PERCENT,
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply,
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
+                protocol_treasury_account: account_id,
             };
             genesis_config.write_to_file(&dir.join(config.genesis_file));
             info!(target: "near", "Generated node key, validator key, genesis file in {}", dir.to_str().unwrap());
@@ -684,22 +742,31 @@ pub fn init_configs(
 
 pub fn create_testnet_configs_from_seeds(
     seeds: Vec<String>,
+    num_shards: usize,
     num_non_validators: usize,
     local_ports: bool,
 ) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
     let num_validators = seeds.len() - num_non_validators;
-    let signers =
-        seeds.iter().map(|seed| InMemorySigner::new(seed.to_string())).collect::<Vec<_>>();
-    let network_signers =
-        (0..seeds.len()).map(|_| InMemorySigner::from_random()).collect::<Vec<_>>();
-    let mut records = vec![vec![]];
+    let signers = seeds
+        .iter()
+        .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
+        .collect::<Vec<_>>();
+    let network_signers = seeds
+        .iter()
+        .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
+        .collect::<Vec<_>>();
+    let mut records = vec![];
     for (i, seed) in seeds.iter().enumerate() {
-        records[0].push(StateRecord::account(
-            seed,
-            &signers[i].public_key.to_readable().0,
-            TESTING_INIT_BALANCE,
-            TESTING_INIT_STAKE,
-        ));
+        records.extend(
+            state_records_account_with_key(
+                seed,
+                &signers[i].public_key,
+                TESTING_INIT_BALANCE,
+                TESTING_INIT_STAKE,
+                CryptoHash::default(),
+            )
+            .into_iter(),
+        );
     }
     let validators = seeds
         .iter()
@@ -707,18 +774,23 @@ pub fn create_testnet_configs_from_seeds(
         .take(seeds.len() - num_non_validators)
         .map(|(i, seed)| AccountInfo {
             account_id: seed.to_string(),
-            public_key: signers[i].public_key.to_readable(),
+            public_key: signers[i].public_key.into(),
             amount: TESTING_INIT_STAKE,
         })
         .collect::<Vec<_>>();
+
+    add_protocol_account(&mut records);
     let total_supply = get_initial_supply(&records);
+
     let genesis_config = GenesisConfig {
         protocol_version: PROTOCOL_VERSION,
         genesis_time: Utc::now(),
         chain_id: random_chain_id(),
         num_block_producers: num_validators,
-        block_producers_per_shard: vec![num_validators],
-        avg_fisherman_per_shard: vec![0],
+        block_producers_per_shard: (0..num_shards)
+            .map(|_| std::cmp::max(1, num_validators / num_shards))
+            .collect(),
+        avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
         dynamic_resharding: false,
         epoch_length: FAST_EPOCH_LENGTH,
         gas_limit: INITIAL_GAS_LIMIT,
@@ -728,6 +800,7 @@ pub fn create_testnet_configs_from_seeds(
         runtime_config: Default::default(),
         validators,
         records,
+        transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
         developer_reward_percentage: DEVELOPER_PERCENT,
         protocol_reward_percentage: PROTOCOL_PERCENT,
         max_inflation_rate: MAX_INFLATION_RATE,
@@ -760,6 +833,7 @@ pub fn create_testnet_configs_from_seeds(
 /// Create testnet configuration. If `local_ports` is true,
 /// sets up new ports for all nodes except the first one and sets boot node to it.
 pub fn create_testnet_configs(
+    num_shards: usize,
     num_validators: usize,
     num_non_validators: usize,
     prefix: &str,
@@ -769,6 +843,7 @@ pub fn create_testnet_configs(
         (0..(num_validators + num_non_validators))
             .map(|i| format!("{}{}", prefix, i))
             .collect::<Vec<_>>(),
+        num_shards,
         num_non_validators,
         local_ports,
     )
@@ -776,12 +851,13 @@ pub fn create_testnet_configs(
 
 pub fn init_testnet_configs(
     dir: &Path,
+    num_shards: usize,
     num_validators: usize,
     num_non_validators: usize,
     prefix: &str,
 ) {
     let (configs, signers, network_signers, genesis_config) =
-        create_testnet_configs(num_validators, num_non_validators, prefix, false);
+        create_testnet_configs(num_shards, num_validators, num_non_validators, prefix, false);
     for i in 0..(num_validators + num_non_validators) {
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
@@ -806,7 +882,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
         None
     };
     let network_signer = InMemorySigner::from_file(&dir.join(config.node_key_file.clone()));
-    NearConfig::new(config, &genesis_config, network_signer.into(), block_producer)
+    NearConfig::new(config, &genesis_config, (&network_signer).into(), block_producer)
 }
 
 pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -> NearConfig {
@@ -817,7 +893,7 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
         Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
         Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-    let signer = Arc::new(InMemorySigner::from_seed(seed, seed));
+    let signer = Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed));
     let block_producer = BlockProducer::from(signer.clone());
     NearConfig::new(config, &genesis_config, signer.into(), Some(block_producer))
 }

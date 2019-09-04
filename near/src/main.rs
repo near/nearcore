@@ -3,12 +3,12 @@ use std::fs;
 use std::path::Path;
 
 use actix::System;
-use clap::{App, Arg, crate_version, SubCommand};
+use clap::{crate_version, App, Arg, SubCommand};
 use log::{info, LevelFilter};
 
 use git_version::git_version;
-use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near::config::init_testnet_configs;
+use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
 
 fn init_logging(verbose: bool) {
@@ -31,7 +31,8 @@ fn init_logging(verbose: bool) {
 
 fn main() {
     let default_home = get_default_home();
-    let version = Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let version =
+        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
     let matches = App::new("NEAR Protocol Node").version(format!("{} (build {})", version.version, version.build).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(false))
         .arg(
@@ -50,10 +51,11 @@ fn main() {
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
+            .arg(Arg::with_name("s").long("shards").takes_value(true).help("Number of shards to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
-            .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").default_value("true").takes_value(true))
+            .arg(Arg::with_name("produce-empty-blocks").long("produce-empty-blocks").help("Set this to false to only produce blocks when there are txs or receipts (default true)").takes_value(true))
             .arg(Arg::with_name("boot-nodes").long("boot-nodes").help("Set the boot nodes to bootstrap network from").takes_value(true))
             .arg(Arg::with_name("min-peers").long("min-peers").help("Minimum number of peers to start syncing / producing blocks").takes_value(true))
             .arg(Arg::with_name("network-addr").long("network-addr").help("Customize network listening address (useful for running multiple nodes on the same machine)").takes_value(true))
@@ -86,8 +88,12 @@ fn main() {
                 .value_of("n")
                 .map(|x| x.parse().expect("Failed to parse number of non-validators"))
                 .unwrap_or(0);
+            let num_shards = args
+                .value_of("s")
+                .map(|x| x.parse().expect("Failed to parse number of shards"))
+                .unwrap_or(0);
             let prefix = args.value_of("prefix").unwrap_or("node");
-            init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
+            init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
         }
         ("run", Some(args)) => {
             // Load configs from home.

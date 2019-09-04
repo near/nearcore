@@ -1,19 +1,19 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use log::{info, warn};
+use log::{debug, warn};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, ShardId, ValidatorId, ValidatorStake,
 };
+use near_primitives::views::EpochValidatorInfo;
 use near_store::{Store, StoreUpdate, COL_BLOCK_INFO, COL_EPOCH_INFO};
 
 use crate::proposals::proposals_to_epoch_info;
 pub use crate::reward_calculator::RewardCalculator;
 use crate::types::EpochSummary;
 pub use crate::types::{BlockInfo, EpochConfig, EpochError, EpochInfo, RngSeed};
-use near_primitives::rpc::EpochValidatorInfo;
 
 mod proposals;
 mod reward_calculator;
@@ -215,7 +215,7 @@ impl EpochManager {
             &slashed_validators,
         );
         validator_kickout = validator_kickout.union(&kickout).cloned().collect();
-        info!(
+        debug!(
             "All proposals: {:?}, Kickouts: {:?}, Block Tracker: {:?}, Shard Tracker: {:?}, Num expected: {:?}",
             all_proposals, validator_kickout, block_validator_tracker, chunk_validator_tracker, num_expected_blocks
         );
@@ -494,7 +494,7 @@ impl EpochManager {
 
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let epoch_id = self.get_epoch_id(last_block_hash)?;
-        println!(
+        debug!(target: "epoch_manager",
             "epoch id: {:?}, prev_epoch_id: {:?}, prev_prev_epoch_id: {:?}",
             next_next_epoch_id, next_epoch_id, epoch_id
         );
@@ -503,7 +503,7 @@ impl EpochManager {
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
-        println!(
+        debug!(target: "epoch_manager",
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change
         );
@@ -522,6 +522,7 @@ impl EpochManager {
                 vec![prev_prev_stake, prev_stake, new_stake].into_iter().max().unwrap();
             stake_info.insert(account_id.to_string(), max_of_stakes);
         }
+        debug!(target: "epoch_manager", "stake_info: {:?}, validator_reward: {:?}", stake_info, validator_reward);
         Ok((stake_info, validator_reward))
     }
 
@@ -536,9 +537,9 @@ impl EpochManager {
         let next_validators = self.get_epoch_info(&next_epoch_id)?.validators.clone();
         let epoch_summary = self.collect_blocks_info(&epoch_id, block_hash)?;
         Ok(EpochValidatorInfo {
-            current_validators,
-            next_validators,
-            current_proposals: epoch_summary.all_proposals,
+            current_validators: current_validators.into_iter().map(Into::into).collect(),
+            next_validators: next_validators.into_iter().map(Into::into).collect(),
+            current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
         })
     }
 }
@@ -646,7 +647,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);
+        /*println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);*/
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
             .map_err(|err| EpochError::from(err))?;
