@@ -744,8 +744,9 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let network_signers = (0..seeds.len())
-        .map(|_| InMemorySigner::from_seed("", KeyType::ED25519, seed))
+    let network_signers = seeds
+        .iter()
+        .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
         .collect::<Vec<_>>();
     let mut records = vec![];
     for (i, seed) in seeds.iter().enumerate() {
