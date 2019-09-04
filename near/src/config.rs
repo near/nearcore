@@ -47,11 +47,17 @@ pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 /// Attonear, 1/10^18 of NEAR.
 pub const ATTO_NEAR: Balance = 1;
 
+/// Block production tracking delay.
+pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
+
 /// Expected block production time in secs.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 1;
 
-/// Maximum time to delay block production until skip.
-pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 6;
+/// Maximum time to delay block production without approvals.
+pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2;
+
+/// Maximum time until skipping the previous block.
+pub const MAX_BLOCK_WAIT_DELAY: u64 = 6;
 
 /// Expected epoch length.
 pub const EXPECTED_EPOCH_LENGTH: BlockIndex = (5 * 60) / MIN_BLOCK_PRODUCTION_DELAY;
@@ -139,10 +145,14 @@ impl Default for Network {
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
+    /// Duration to check for producing / skipping block.
+    pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
-    /// Maximum duration before producing block or skipping height.
+    /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
+    /// Maximum duration before skipping given height.
+    pub max_block_wait_delay: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
 }
@@ -151,8 +161,10 @@ impl Default for Consensus {
     fn default() -> Self {
         Consensus {
             min_num_peers: 3,
+            block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
             min_block_production_delay: Duration::from_secs(MIN_BLOCK_PRODUCTION_DELAY),
             max_block_production_delay: Duration::from_secs(MAX_BLOCK_PRODUCTION_DELAY),
+            max_block_wait_delay: Duration::from_secs(MAX_BLOCK_WAIT_DELAY),
             produce_empty_blocks: true,
         }
     }
@@ -231,9 +243,10 @@ impl NearConfig {
                 version: Default::default(),
                 chain_id: genesis_config.chain_id.clone(),
                 rpc_addr: config.rpc.addr.clone(),
+                block_production_tracking_delay: config.consensus.block_production_tracking_delay,
                 min_block_production_delay: config.consensus.min_block_production_delay,
                 max_block_production_delay: config.consensus.max_block_production_delay,
-                block_production_retry_delay: config.consensus.min_block_production_delay,
+                max_block_wait_delay: config.consensus.max_block_wait_delay,
                 block_expected_weight: 1000,
                 skip_sync_wait: config.network.skip_sync_wait,
                 sync_check_period: Duration::from_secs(10),

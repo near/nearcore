@@ -70,12 +70,14 @@ pub struct ClientConfig {
     pub chain_id: String,
     /// Listening rpc port for status.
     pub rpc_addr: String,
+    /// Duration to check for producing / skipping block.
+    pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
     pub min_block_production_delay: Duration,
-    /// Maximum duration before producing block or skipping height.
+    /// Maximum wait for approvals before producing block.
     pub max_block_production_delay: Duration,
-    /// Retry delay for block production to wait for catching up with shard state.
-    pub block_production_retry_delay: Duration,
+    /// Maximum duration before skipping given height.
+    pub max_block_wait_delay: Duration,
     /// Expected block weight (num of tx, gas, etc).
     pub block_expected_weight: u32,
     /// Skip waiting for sync (for testing or single node testnet).
@@ -124,9 +126,13 @@ impl ClientConfig {
             version: Default::default(),
             chain_id: "unittest".to_string(),
             rpc_addr: "0.0.0.0:3030".to_string(),
+            block_production_tracking_delay: Duration::from_millis(std::cmp::max(
+                10,
+                block_prod_time / 5,
+            )),
             min_block_production_delay: Duration::from_millis(block_prod_time),
-            max_block_production_delay: Duration::from_millis(3 * block_prod_time),
-            block_production_retry_delay: Duration::from_millis(block_prod_time),
+            max_block_production_delay: Duration::from_millis(2 * block_prod_time),
+            max_block_wait_delay: Duration::from_millis(3 * block_prod_time),
             block_expected_weight: 1000,
             skip_sync_wait,
             sync_check_period: Duration::from_millis(100),

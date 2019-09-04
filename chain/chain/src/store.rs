@@ -4,17 +4,16 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use cached::SizedCache;
 use log::debug;
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::TransactionResult;
 use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, ShardId};
-use near_primitives::utils::index_to_bytes;
+use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
     COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_EXTRA,
@@ -23,13 +22,17 @@ use near_store::{
 };
 
 use crate::error::{Error, ErrorKind};
-use crate::types::{Block, BlockHeader, ReceiptResponse, ShardFullChunkOrOnePart, Tip};
+use crate::types::{
+    Block, BlockHeader, LatestKnown, ReceiptResponse, ShardFullChunkOrOnePart, Tip,
+};
 use crate::RuntimeAdapter;
+use chrono::Utc;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
 const SYNC_HEAD_KEY: &[u8; 9] = b"SYNC_HEAD";
 const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
+const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 
 /// lru cache size
 const CACHE_SIZE: usize = 20;
@@ -111,11 +114,19 @@ pub trait ChainStoreAccess {
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
+
+    /// Returns latest known height and time it was seen.
+    fn get_latest_known(&mut self) -> Result<LatestKnown, Error>;
+
+    /// Save the latest known.
+    fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error>;
 }
 
 /// All chain-related database operations.
 pub struct ChainStore {
     store: Arc<Store>,
+    /// Latest known.
+    latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
@@ -148,6 +159,7 @@ impl ChainStore {
     pub fn new(store: Arc<Store>) -> ChainStore {
         ChainStore {
             store,
+            latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
             chunks: HashMap::new(),
@@ -460,6 +472,23 @@ impl ChainStoreAccess for ChainStore {
     fn get_blocks_to_catchup(&self, hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error> {
         Ok(self.store.get_ser(COL_BLOCKS_TO_CATCHUP, hash.as_ref())?.unwrap_or_else(|| vec![]))
     }
+
+    fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
+        if self.latest_known.is_none() {
+            self.latest_known = Some(option_to_not_found(
+                self.store.get_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY),
+                "LATEST_KNOWN_KEY",
+            )?);
+        }
+        Ok(self.latest_known.as_ref().unwrap().clone())
+    }
+
+    fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
+        let mut store_update = self.store.store_update();
+        store_update.set_ser(COL_BLOCK_MISC, LATEST_KNOWN_KEY, &latest_known)?;
+        self.latest_known = Some(latest_known);
+        store_update.commit().map_err(|err| err.into())
+    }
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -543,11 +572,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         Ok(ret)
     }
 
-    // WARNING
-    //
-    // Usually ChainStoreUpdate has some uncommitted changes
-    // and chain_store don't have access to them until they become committed.
-    // Make sure you're doing it right.
+    /// WARNING
+    ///
+    /// Usually ChainStoreUpdate has some uncommitted changes
+    /// and chain_store don't have access to them until they become committed.
+    /// Make sure you're doing it right.
     pub fn get_chain_store(&mut self) -> &mut T {
         return self.chain_store;
     }
@@ -700,18 +729,28 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
 
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
+
+    fn get_latest_known(&mut self) -> Result<LatestKnown, Error> {
+        self.chain_store.get_latest_known()
+    }
+
+    fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
+        self.chain_store.save_latest_known(latest_known)
+    }
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
-        self.save_body_head(t);
+        self.save_body_head(t)?;
         self.save_header_head(t)
     }
 
-    /// Update block body head.
-    pub fn save_body_head(&mut self, t: &Tip) {
+    /// Update block body head and latest known height.
+    pub fn save_body_head(&mut self, t: &Tip) -> Result<(), Error> {
+        self.try_save_latest_known(t.height)?;
         self.head = Some(t.clone());
+        Ok(())
     }
 
     /// Update block body tail.
@@ -749,6 +788,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         if t.height > 0 {
             self.update_block_index(t.height, t.prev_block_hash)?;
         }
+        self.try_save_latest_known(t.height)?;
         self.block_index.insert(t.height, Some(t.last_block_hash));
         self.header_head = Some(t.clone());
         Ok(())
@@ -757,6 +797,15 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Save "sync" head.
     pub fn save_sync_head(&mut self, t: &Tip) {
         self.sync_head = Some(t.clone());
+    }
+
+    /// Save new height if it's above currently latest known.
+    pub fn try_save_latest_known(&mut self, height: BlockIndex) -> Result<(), Error> {
+        let latest_known = self.get_latest_known().ok();
+        if latest_known.is_none() || height > latest_known.unwrap().height {
+            self.save_latest_known(LatestKnown { height, seen: to_timestamp(Utc::now()) })?;
+        }
+        Ok(())
     }
 
     /// Save block.
@@ -845,6 +894,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     pub fn add_state_dl_info(&mut self, info: StateSyncInfo) {
         self.add_state_dl_infos.push(info);
     }
+
     pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
         self.remove_state_dl_infos.push(hash);
     }

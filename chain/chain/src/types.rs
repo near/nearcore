@@ -277,6 +277,14 @@ pub trait RuntimeAdapter: Send + Sync {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 struct ReceiptList(Vec<Receipt>);
 
+/// The last known / checked height and time when we have processed it.
+/// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+pub struct LatestKnown {
+    pub height: BlockIndex,
+    pub seen: u64,
+}
+
 /// The tip of a fork. A handle to the fork ancestry from its leaf in the
 /// blockchain tree. References the max height and the latest and previous
 /// blocks for convenience and the total weight.

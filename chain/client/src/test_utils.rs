@@ -181,8 +181,8 @@ pub fn setup_mock_all_validators(
                                         peer_info: peer_info.clone(),
                                         chain_info: PeerChainInfo {
                                             genesis: Default::default(),
-                                            height: 5,
-                                            total_weight: 100.into(),
+                                            height: 0,
+                                            total_weight: 0.into(),
                                         },
                                     })
                                     .collect(),

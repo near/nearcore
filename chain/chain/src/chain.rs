@@ -15,7 +15,6 @@ use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, Sh
 use near_store::Store;
 
 use crate::byzantine_assert;
-
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
@@ -226,7 +225,7 @@ impl Chain {
                     runtime_adapter.add_validator_proposals(
                         CryptoHash::default(),
                         genesis.hash(),
-                        0,
+                        genesis.header.inner.height,
                         vec![],
                         vec![],
                         vec![],
@@ -499,7 +498,7 @@ impl Chain {
         let tip = Tip::from_header(prev_header);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.save_body_head(&tip);
+        chain_store_update.save_body_head(&tip)?;
         chain_store_update.save_body_tail(&tip);
         chain_store_update.commit()?;
 
@@ -1580,7 +1579,7 @@ impl<'a> ChainUpdate<'a> {
         if block.header.inner.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
-            self.chain_store_update.save_body_head(&tip);
+            self.chain_store_update.save_body_head(&tip)?;
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {

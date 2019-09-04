@@ -85,7 +85,7 @@ fn repro_1183() {
                                         to.to_string(),
                                         &InMemorySigner::from_seed(from, KeyType::ED25519, from),
                                         1,
-                                        block.hash(),
+                                        block.header.inner.prev_hash,
                                     ),
                                 ));
                             nonce_delta += 1
