@@ -20,7 +20,7 @@ use log::{debug, error, info, warn};
 use near_chain::types::{LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult};
 use near_chain::{
     byzantine_assert, Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis,
-    Provenance, RuntimeAdapter, ValidTransaction,
+    ChainStoreAccess, Provenance, RuntimeAdapter, ValidTransaction,
 };
 use near_chunks::ShardsManager;
 use near_crypto::Signature;
@@ -541,19 +541,6 @@ impl ClientActor {
             self.process_blocks_with_missing_chunks(ctx, block_hash);
         }
 
-        // Update latest known height if given block is indeed latest known.
-        let this_latest_known =
-            LatestKnown { height: block.header.inner.height, seen: to_timestamp(Utc::now()) };
-        let latest_known = self
-            .chain
-            .mut_store()
-            .get_latest_known()
-            .ok()
-            .unwrap_or_else(|| this_latest_known.clone());
-        if block.header.inner.height > latest_known.height {
-            unwrap_or_return!(self.chain.mut_store().save_latest_known(this_latest_known), ());
-        }
-
         if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
@@ -841,7 +828,10 @@ impl ClientActor {
         }
         let head = self.chain.head()?;
         let mut latest_known = self.chain.mut_store().get_latest_known()?;
-        assert!(head.height <= latest_known.height, "Latest known height is invalid");
+        assert!(
+            head.height <= latest_known.height,
+            format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
+        );
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
         if elapsed < self.config.max_block_wait_delay {
             let epoch_id =

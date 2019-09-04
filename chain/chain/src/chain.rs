@@ -12,14 +12,13 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, TransactionResult};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
-use near_primitives::utils::to_timestamp;
 use near_store::Store;
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    Block, BlockHeader, BlockStatus, LatestKnown, Provenance, ReceiptResponse, RuntimeAdapter,
+    Block, BlockHeader, BlockStatus, Provenance, ReceiptResponse, RuntimeAdapter,
     ShardFullChunkOrOnePart, Tip, ValidatorSignatureVerificationResult,
 };
 
@@ -249,10 +248,6 @@ impl Chain {
                     head = Tip::from_header(&genesis.header);
                     store_update.save_head(&head)?;
                     store_update.save_sync_head(&head);
-                    store_update.save_latest_known(LatestKnown {
-                        height: genesis.header.inner.height,
-                        seen: to_timestamp(Utc::now()),
-                    });
 
                     store_update.merge(state_store_update);
 
@@ -503,7 +498,7 @@ impl Chain {
         let tip = Tip::from_header(prev_header);
         // Update related heads now.
         let mut chain_store_update = self.mut_store().store_update();
-        chain_store_update.save_body_head(&tip);
+        chain_store_update.save_body_head(&tip)?;
         chain_store_update.save_body_tail(&tip);
         chain_store_update.commit()?;
 
@@ -1584,7 +1579,7 @@ impl<'a> ChainUpdate<'a> {
         if block.header.inner.total_weight > head.total_weight {
             let tip = Tip::from_header(&block.header);
 
-            self.chain_store_update.save_body_head(&tip);
+            self.chain_store_update.save_body_head(&tip)?;
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {
