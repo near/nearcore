@@ -189,6 +189,7 @@ impl RuntimeFeesConfig {
                 value_cost_per_byte: 0,
                 code_cost_per_byte: 0,
             },
+            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
         }
     }
 }
