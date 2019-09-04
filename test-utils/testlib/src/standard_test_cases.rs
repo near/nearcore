@@ -240,6 +240,22 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
+pub fn test_smart_contract_reward(node: impl Node) {
+    let node_user = node.user();
+    let root = node_user.get_state_root();
+    let bob = node_user.view_account(&bob_account()).unwrap();
+    assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+    let transaction_result =
+        node_user.function_call(alice_account(), bob_account(), "run_test", vec![], 1000000, 0);
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
+    assert_eq!(transaction_result.transactions.len(), 3);
+    let new_root = node_user.get_state_root();
+    assert_ne!(root, new_root);
+
+    let bob = node_user.view_account(&bob_account()).unwrap();
+    assert!(bob.amount > TESTING_INIT_BALANCE - TESTING_INIT_STAKE);
+}
+
 pub fn test_send_money_over_balance(node: impl Node) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();

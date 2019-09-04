@@ -6,6 +6,12 @@
 use serde::{Deserialize, Serialize};
 pub type Gas = u64;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct Fraction {
+    pub numerator: u64,
+    pub denominator: u64,
+}
+
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -44,6 +50,9 @@ pub struct RuntimeFeesConfig {
     pub action_creation_config: ActionCreationConfig,
 
     pub storage_usage_config: StorageUsageConfig,
+
+    /// Fraction of the burnt gas to reward to the contract account for execution.
+    pub burnt_gas_reward: Fraction,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -143,6 +152,7 @@ impl Default for RuntimeFeesConfig {
                 value_cost_per_byte: 1,
                 code_cost_per_byte: 1,
             },
+            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
         }
     }
 }

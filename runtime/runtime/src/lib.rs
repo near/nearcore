@@ -78,6 +78,7 @@ pub struct ApplyResult {
 #[derive(Debug)]
 pub struct ActionResult {
     pub gas_burnt: Gas,
+    pub burnt_gas_reward: Gas,
     pub gas_used: Gas,
     pub result: Result<ReturnData, Box<dyn std::error::Error>>,
     pub logs: Vec<LogEntry>,
@@ -88,6 +89,7 @@ pub struct ActionResult {
 impl ActionResult {
     pub fn merge(&mut self, mut next_result: ActionResult) {
         self.gas_burnt += next_result.gas_burnt;
+        self.burnt_gas_reward += next_result.burnt_gas_reward;
         self.gas_used += next_result.gas_used;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
@@ -109,6 +111,7 @@ impl Default for ActionResult {
     fn default() -> Self {
         Self {
             gas_burnt: 0,
+            burnt_gas_reward: 0,
             gas_used: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -449,6 +452,20 @@ impl Runtime {
             }
         };
 
+        if result.result.is_err() && result.burnt_gas_reward > 0 {
+            // The transaction has failed but we still need to provide contract rewards.
+            let mut account = get_account(state_update, account_id);
+            // We'll only provide the contract reward to the account, if the account existed before
+            // the execution has started.
+            if let Some(ref mut account) = account {
+                let burnt_gas_reward_balance =
+                    result.burnt_gas_reward as Balance * action_receipt.gas_price;
+                account.amount += burnt_gas_reward_balance;
+                set_account(state_update, account_id, account);
+                state_update.commit();
+            }
+        }
+
         // Generating outgoing data and receipts
         let transaction_result = if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result
         {
@@ -532,12 +549,11 @@ impl Runtime {
         let exec_gas = total_exec_fees(&self.config.transaction_costs, &action_receipt.actions)
             .expect(OVERFLOW_CHECKED_ERR)
             + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
-
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt
+            prepaid_gas + exec_gas - result.gas_burnt - result.burnt_gas_reward
         } else {
-            prepaid_gas + exec_gas - result.gas_used
+            prepaid_gas + exec_gas - result.gas_used - result.burnt_gas_reward
         };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {
