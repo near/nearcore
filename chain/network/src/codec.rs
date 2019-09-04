@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use bytes::{BufMut, BytesMut};
 use tokio::codec::{Decoder, Encoder};
 
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::types::PeerMessage;
 

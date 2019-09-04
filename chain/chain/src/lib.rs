@@ -1,4 +1,4 @@
-pub use chain::{Chain, MAX_ORPHAN_SIZE};
+pub use chain::{Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
 pub use store::{ChainStore, ChainStoreAccess};
 pub use types::{
@@ -10,4 +10,18 @@ mod chain;
 mod error;
 mod store;
 pub mod test_utils;
-mod types;
+pub mod types;
+
+#[cfg(feature = "byzantine_asserts")]
+#[macro_export]
+macro_rules! byzantine_assert {
+    ($cond: expr) => {
+        assert!($cond)
+    };
+}
+
+#[cfg(not(feature = "byzantine_asserts"))]
+#[macro_export]
+macro_rules! byzantine_assert {
+    ($cond: expr) => {};
+}

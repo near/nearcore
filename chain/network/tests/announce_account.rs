@@ -2,12 +2,13 @@ use actix::{Actor, Addr, AsyncContext, System};
 use chrono::{DateTime, Utc};
 use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
+use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::init_integration_logger;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,20 +26,24 @@ pub fn setup_network_node(
     let store = create_test_store();
     let mut config = NetworkConfig::from_seed(account_id, port);
     config.boot_nodes = convert_boot_nodes(boot_nodes);
+    let num_validators = validators.len();
 
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
         store.clone(),
-        validators.into_iter().map(Into::into).collect(),
+        vec![validators.into_iter().map(Into::into).collect()],
+        1,
+        1,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
+    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);
 
     let peer_manager = PeerManagerActor::create(move |ctx| {
         let client_actor = ClientActor::new(
-            ClientConfig::test(false),
+            ClientConfig::test(false, 100, num_validators),
             store.clone(),
-            genesis_time,
+            chain_genesis,
             runtime,
             config.public_key.clone().into(),
             ctx.address().recipient(),
@@ -61,7 +66,7 @@ fn check_account_id_propagation(
     adjacency_list: Vec<Vec<usize>>,
     max_wait_ms: u64,
 ) {
-    init_test_logger();
+    init_integration_logger();
 
     System::run(move || {
         let total_nodes = accounts_id.len();
@@ -103,26 +108,28 @@ fn check_account_id_propagation(
                         peer_managers.iter().map(|(_, counter)| counter.clone()).collect();
 
                     if count.load(Ordering::Relaxed) == 0 {
-                        actix::spawn(pm.send(NetworkRequests::FetchInfo { level: 1 }).then(
-                            move |res| {
-                                if let NetworkResponses::Info(NetworkInfo { routes, .. }) =
-                                    res.unwrap()
-                                {
-                                    println!("Routes of {}: {:?}", account_ids_copy[i], routes);
-                                    if routes.unwrap().len() == total_nodes {
-                                        count.fetch_add(1, Ordering::Relaxed);
+                        actix::spawn(pm.send(NetworkRequests::FetchInfo).then(move |res| {
+                            if let NetworkResponses::Info(NetworkInfo { known_producers, .. }) =
+                                res.unwrap()
+                            {
+                                // TODO: XXX fix the fact that this node is in routing table as well.
+                                println!(
+                                    "Known producers of {}: {:?}",
+                                    account_ids_copy[i], known_producers
+                                );
+                                if known_producers.len() > total_nodes - 1 {
+                                    count.fetch_add(1, Ordering::Relaxed);
 
-                                        if counters
-                                            .iter()
-                                            .all(|counter| counter.load(Ordering::Relaxed) == 1)
-                                        {
-                                            System::current().stop();
-                                        }
+                                    if counters
+                                        .iter()
+                                        .all(|counter| counter.load(Ordering::Relaxed) == 1)
+                                    {
+                                        System::current().stop();
                                     }
                                 }
-                                future::result(Ok(()))
-                            },
-                        ));
+                            }
+                            future::result(Ok(()))
+                        }));
                     }
                 }
             }),

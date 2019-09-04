@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
@@ -8,16 +7,19 @@ use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
-use borsh::{BorshDeserialize, BorshSerialize, Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use reed_solomon_erasure::Shard;
 use tokio::net::TcpStream;
 
+use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::receipt::Receipt;
+use near_primitives::merkle::MerklePath;
+use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
@@ -176,7 +178,7 @@ impl Handshake {
 struct AnnounceAccountRouteHeader {
     pub account_id: AccountId,
     pub peer_id: PeerId,
-    pub epoch_id: CryptoHash,
+    pub epoch_id: EpochId,
 }
 
 /// Account route description
@@ -193,7 +195,7 @@ pub struct AnnounceAccount {
     /// AccountId to be announced
     pub account_id: AccountId,
     /// This announcement is only valid for this `epoch`
-    pub epoch: CryptoHash,
+    pub epoch_id: EpochId,
     /// Complete route description to account id
     /// First element of the route (header) contains:
     ///     peer_id owner of the account_id
@@ -209,29 +211,33 @@ pub struct AnnounceAccount {
 impl AnnounceAccount {
     pub fn new(
         account_id: AccountId,
-        epoch_hash: CryptoHash,
+        epoch_id: EpochId,
         peer_id: PeerId,
         hash: CryptoHash,
         signature: Signature,
     ) -> Self {
         let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
-        Self { account_id, epoch: epoch_hash, route }
+        Self { account_id, epoch_id, route }
     }
 
     pub fn build_header_hash(
-        account_id: AccountId,
-        peer_id: PeerId,
-        epoch: CryptoHash,
+        account_id: &AccountId,
+        peer_id: &PeerId,
+        epoch_id: &EpochId,
     ) -> CryptoHash {
-        let header = AnnounceAccountRouteHeader { account_id, peer_id, epoch_id: epoch };
+        let header = AnnounceAccountRouteHeader {
+            account_id: account_id.clone(),
+            peer_id: peer_id.clone(),
+            epoch_id: epoch_id.clone(),
+        };
         hash(&header.try_to_vec().unwrap())
     }
 
     pub fn header_hash(&self) -> CryptoHash {
         AnnounceAccount::build_header_hash(
-            self.account_id.clone(),
-            self.route.first().unwrap().peer_id,
-            self.epoch,
+            &self.account_id,
+            &self.route.first().unwrap().peer_id,
+            &self.epoch_id,
         )
     }
 
@@ -281,9 +287,13 @@ pub enum PeerMessage {
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
-
+    StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
+
+    ChunkPartRequest(ChunkPartRequestMsg),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg),
+    ChunkPart(ChunkPartMsg),
+    ChunkOnePart(ChunkOnePart),
 }
 
 impl fmt::Display for PeerMessage {
@@ -301,8 +311,12 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
-            PeerMessage::StateResponse(_, _, _, _) => f.write_str("StateResponse"),
+            PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
+            PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
+            PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
+            PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
+            PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
         }
     }
 }
@@ -469,12 +483,10 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
-    /// Level denote how much information is going to be delivered.
-    /// Higher level implies more information. (This is useful for testing)
-    FetchInfo { level: usize },
+    FetchInfo,
     /// Sends block, either when block was just produced or when requested.
     Block { block: Block },
     /// Sends block header announcement, with possibly attaching approval for this block if
@@ -485,11 +497,22 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state for given shard at given state root.
-    StateRequest { shard_id: ShardId, hash: CryptoHash, peer_id: PeerId },
+    StateRequest { shard_id: ShardId, hash: CryptoHash, account_id: AccountId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
-    AnnounceAccount(AnnounceAccount),
+    AnnounceAccount(AnnounceAccount, bool),
+
+    /// Request chunk part
+    ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
+    /// Request chunk part and receipts
+    ChunkOnePartRequest { account_id: AccountId, one_part_request: ChunkOnePartRequestMsg },
+    /// Response to a peer with chunk part and receipts.
+    ChunkOnePartResponse { peer_id: PeerId, header_and_part: ChunkOnePart },
+    /// A chunk header and one part for another validator.
+    ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
+    /// A chunk part
+    ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
 }
 
 /// Combines peer address info and chain information.
@@ -506,8 +529,8 @@ pub struct NetworkInfo {
     pub most_weight_peers: Vec<FullPeerInfo>,
     pub sent_bytes_per_sec: u64,
     pub received_bytes_per_sec: u64,
-    // Only send full routes to accounts on demand
-    pub routes: Option<HashMap<AccountId, (PeerId, usize)>>,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<AccountId>,
 }
 
 #[derive(Debug)]
@@ -532,6 +555,16 @@ impl Message for NetworkRequests {
     type Result = NetworkResponses;
 }
 
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StateResponseInfo {
+    pub shard_id: ShardId,
+    pub hash: CryptoHash,
+    pub prev_chunk_extra: ChunkExtra,
+    pub payload: Vec<u8>,
+    pub outgoing_receipts: ReceiptResponse,
+    pub incoming_receipts: Vec<ReceiptResponse>,
+}
+
 #[derive(Debug)]
 pub enum NetworkClientMessages {
     /// Received transaction.
@@ -545,7 +578,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -553,9 +586,18 @@ pub enum NetworkClientMessages {
     /// State request.
     StateRequest(ShardId, CryptoHash),
     /// State response.
-    StateResponse(ShardId, CryptoHash, Vec<u8>, Vec<Receipt>),
+    StateResponse(StateResponseInfo),
     /// Account announcement that needs to be validated before being processed
     AnnounceAccount(AnnounceAccount),
+
+    /// Request chunk part
+    ChunkPartRequest(ChunkPartRequestMsg, PeerId),
+    /// Request chunk part
+    ChunkOnePartRequest(ChunkOnePartRequestMsg, PeerId),
+    /// A chunk part
+    ChunkPart(ChunkPartMsg),
+    /// A chunk header and one part
+    ChunkOnePart(ChunkOnePart),
 }
 
 pub enum NetworkClientResponses {
@@ -574,7 +616,7 @@ pub enum NetworkClientResponses {
     /// Headers response.
     BlockHeaders(Vec<BlockHeader>),
     /// Response to state request.
-    StateResponse { shard_id: ShardId, hash: CryptoHash, payload: Vec<u8>, receipts: Vec<Receipt> },
+    StateResponse(StateResponseInfo),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkClientResponses
@@ -625,4 +667,30 @@ where
 
 impl Message for QueryPeerStats {
     type Result = PeerStatsResult;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkPartRequestMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub height: BlockIndex,
+    pub part_id: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkOnePartRequestMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub height: BlockIndex,
+    pub part_id: u64,
+    pub recipient: AccountId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkPartMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub part_id: u64,
+    pub part: Shard,
+    pub merkle_path: MerklePath,
 }

@@ -3,7 +3,7 @@ use std::str;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use borsh::Serializable;
+use borsh::BorshSerialize;
 
 use near_crypto::{KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};

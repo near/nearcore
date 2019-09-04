@@ -29,6 +29,18 @@ pub struct RuntimeConfig {
     pub account_length_baseline_cost_per_block: Balance,
 }
 
+impl RuntimeConfig {
+    pub fn free() -> Self {
+        Self {
+            storage_cost_byte_per_block: 0,
+            poke_threshold: 0,
+            transaction_costs: RuntimeFeesConfig::free(),
+            wasm_config: Default::default(),
+            account_length_baseline_cost_per_block: 0,
+        }
+    }
+}
+
 pub fn safe_gas_to_balance(
     gas_price: Balance,
     gas: Gas,

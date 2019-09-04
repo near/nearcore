@@ -213,9 +213,7 @@ impl Peer {
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
-            None => {
-                return;
-            }
+            None => return,
         };
 
         // Wrap peer message into what client expects.
@@ -240,7 +238,7 @@ impl Peer {
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockApproval(account_id, hash, signature) => {
-                NetworkClientMessages::BlockApproval(account_id, hash, signature)
+                NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
             }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
             PeerMessage::BlockHeadersRequest(hashes) => {
@@ -252,9 +250,7 @@ impl Peer {
             PeerMessage::StateRequest(shard_id, hash) => {
                 NetworkClientMessages::StateRequest(shard_id, hash)
             }
-            PeerMessage::StateResponse(shard_id, hash, payload, receipts) => {
-                NetworkClientMessages::StateResponse(shard_id, hash, payload, receipts)
-            }
+            PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
                 if announce_account.peer_id_sender() != peer_id {
                     // Ban peer if tries to impersonate another peer.
@@ -264,6 +260,14 @@ impl Peer {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
+            PeerMessage::ChunkPartRequest(request) => {
+                NetworkClientMessages::ChunkPartRequest(request, peer_id)
+            }
+            PeerMessage::ChunkOnePartRequest(request) => {
+                NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
+            }
+            PeerMessage::ChunkPart(part) => NetworkClientMessages::ChunkPart(part),
+            PeerMessage::ChunkOnePart(one_part) => NetworkClientMessages::ChunkOnePart(one_part),
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
@@ -292,8 +296,8 @@ impl Peer {
                     Ok(NetworkClientResponses::BlockHeaders(headers)) => {
                         act.send_message(PeerMessage::BlockHeaders(headers))
                     }
-                    Ok(NetworkClientResponses::StateResponse { shard_id, hash, payload, receipts }) => {
-                        act.send_message(PeerMessage::StateResponse(shard_id, hash, payload, receipts))
+                    Ok(NetworkClientResponses::StateResponse(info)) => {
+                        act.send_message(PeerMessage::StateResponse(info))
                     }
                     Err(err) => {
                         error!(

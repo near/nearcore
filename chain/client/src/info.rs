@@ -20,8 +20,10 @@ pub struct InfoHelper {
     started: Instant,
     /// Total number of blocks processed.
     num_blocks_processed: u64,
-    /// Total number of transactions processed.
-    num_tx_processed: u64,
+    /// Total gas used during period.
+    gas_used: u64,
+    /// Total gas limit during period.
+    gas_limit: u64,
     /// Process id to query resources.
     pid: Option<Pid>,
     /// System reference.
@@ -40,7 +42,8 @@ impl InfoHelper {
         InfoHelper {
             started: Instant::now(),
             num_blocks_processed: 0,
-            num_tx_processed: 0,
+            gas_used: 0,
+            gas_limit: 0,
             pid: get_current_pid().ok(),
             sys: System::new(),
             telemetry_actor,
@@ -48,9 +51,10 @@ impl InfoHelper {
         }
     }
 
-    pub fn block_processed(&mut self, num_transactions: u64) {
+    pub fn block_processed(&mut self, gas_used: u64, gas_limit: u64) {
         self.num_blocks_processed += 1;
-        self.num_tx_processed += num_transactions;
+        self.gas_used += gas_used;
+        self.gas_limit += gas_limit;
     }
 
     pub fn info(
@@ -80,19 +84,20 @@ impl InfoHelper {
         let avg_bls = (self.num_blocks_processed as f64)
             / (self.started.elapsed().as_millis() as f64)
             * 1000.0;
-        let avg_tps =
-            (self.num_tx_processed as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0;
+        let avg_gas_used =
+            ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
         info!(target: "info", "{} {} {} {} {} {}",
               Yellow.bold().paint(display_sync_status(&sync_status, &head)),
               White.bold().paint(format!("{}/{}", if is_validator { "V" } else { "-" }, num_validators)),
               Cyan.bold().paint(format!("{:2}/{:?}/{:2} peers", network_info.num_active_peers, network_info.most_weight_peers.len(), network_info.peer_max_count)),
               Cyan.bold().paint(format!("⬇ {} ⬆ {}", pretty_bytes_per_sec(network_info.received_bytes_per_sec), pretty_bytes_per_sec(network_info.sent_bytes_per_sec))),
-              Green.bold().paint(format!("{:.2} bls {:.2} tps", avg_bls, avg_tps)),
+              Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory * 1024)))
         );
         self.started = Instant::now();
         self.num_blocks_processed = 0;
-        self.num_tx_processed = 0;
+        self.gas_used = 0;
+        self.gas_limit = 0;
 
         telemetry(
             &self.telemetry_actor,
@@ -201,5 +206,15 @@ fn pretty_bytes(num: u64) -> String {
         format!("{:.1} MiB", num as f64 / MEGABYTE as f64)
     } else {
         format!("{:.1} GiB", num as f64 / GIGABYTE as f64)
+    }
+}
+
+fn gas_used_per_sec(num: u64) -> String {
+    if num < 1000 {
+        format!("{} gas/s", num)
+    } else if num < 1_000_000 {
+        format!("{:.1} Kgas/s", num)
+    } else {
+        format!("{:.1} Mgas/s", num)
     }
 }

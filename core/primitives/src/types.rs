@@ -29,6 +29,16 @@ pub type Gas = u64;
 pub type ReceiptIndex = usize;
 pub type PromiseId = Vec<ReceiptIndex>;
 
+/// Epoch identifier -- wrapped hash, to make it easier to distinguish.
+#[derive(Hash, Eq, PartialEq, Clone, Debug, BorshSerialize, BorshDeserialize, Default)]
+pub struct EpochId(pub CryptoHash);
+
+impl AsRef<[u8]> for EpochId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
 /// Stores validator and its stake.
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct ValidatorStake {
@@ -53,6 +63,30 @@ impl PartialEq for ValidatorStake {
 }
 
 impl Eq for ValidatorStake {}
+
+/// Information after chunk was processed, used to produce or check next chunk.
+#[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
+pub struct ChunkExtra {
+    /// Post state root after applying give chunk.
+    pub state_root: MerkleHash,
+    /// Validator proposals produced by given chunk.
+    pub validator_proposals: Vec<ValidatorStake>,
+    /// Actually how much gas were used.
+    pub gas_used: Gas,
+    /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
+    pub gas_limit: Gas,
+}
+
+impl ChunkExtra {
+    pub fn new(
+        state_root: &MerkleHash,
+        validator_proposals: Vec<ValidatorStake>,
+        gas_used: Gas,
+        gas_limit: Gas,
+    ) -> Self {
+        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
+    }
+}
 
 /// Data structure for semver version and github tag or commit.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

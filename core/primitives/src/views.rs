@@ -16,13 +16,15 @@ use crate::serialize::{
     from_base, from_base64, option_base64_format, option_u128_dec_format, to_base, to_base64,
     u128_dec_format,
 };
+use crate::sharding::{ChunkHash, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, LogEntry, SignedTransaction, StakeAction,
     TransactionLog, TransactionResult, TransactionStatus, TransferAction,
 };
 use crate::types::{
-    AccountId, Balance, BlockIndex, Gas, Nonce, StorageUsage, ValidatorStake, Version,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StorageUsage, ValidatorStake,
+    Version,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -190,6 +192,7 @@ pub enum QueryResponse {
     Error(QueryError),
     AccessKey(Option<AccessKeyView>),
     AccessKeyList(Vec<AccessKeyInfoView>),
+    Validators(EpochValidatorInfo),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -259,7 +262,7 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHeaderView {
     pub height: BlockIndex,
-    pub epoch_hash: CryptoHashView,
+    pub epoch_id: CryptoHashView,
     pub prev_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
     pub tx_root: CryptoHashView,
@@ -268,6 +271,13 @@ pub struct BlockHeaderView {
     pub approval_sigs: Vec<Signature>,
     pub total_weight: u64,
     pub validator_proposals: Vec<ValidatorStakeView>,
+    pub chunk_mask: Vec<bool>,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
+    #[serde(with = "u128_dec_format")]
+    pub gas_price: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub total_supply: Balance,
     pub signature: Signature,
 }
 
@@ -275,7 +285,7 @@ impl From<BlockHeader> for BlockHeaderView {
     fn from(header: BlockHeader) -> Self {
         Self {
             height: header.inner.height,
-            epoch_hash: header.inner.epoch_hash.into(),
+            epoch_id: header.inner.epoch_id.0.into(),
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
             tx_root: header.inner.tx_root.into(),
@@ -294,6 +304,11 @@ impl From<BlockHeader> for BlockHeaderView {
                 .into_iter()
                 .map(|v| v.into())
                 .collect(),
+            chunk_mask: header.inner.chunk_mask,
+            gas_used: header.inner.gas_used,
+            gas_limit: header.inner.gas_limit,
+            gas_price: header.inner.gas_price,
+            total_supply: header.inner.total_supply,
             signature: header.signature.into(),
         }
     }
@@ -304,7 +319,7 @@ impl From<BlockHeaderView> for BlockHeader {
         let mut header = Self {
             inner: BlockHeaderInner {
                 height: view.height,
-                epoch_hash: view.epoch_hash.into(),
+                epoch_id: EpochId(view.epoch_id.into()),
                 prev_hash: view.prev_hash.into(),
                 prev_state_root: view.prev_state_root.into(),
                 tx_root: view.tx_root.into(),
@@ -321,6 +336,11 @@ impl From<BlockHeaderView> for BlockHeader {
                     .into_iter()
                     .map(|v| v.into())
                     .collect(),
+                chunk_mask: view.chunk_mask,
+                gas_limit: view.gas_limit,
+                gas_price: view.gas_price,
+                gas_used: view.gas_used,
+                total_supply: view.total_supply,
             },
             signature: view.signature.into(),
             hash: CryptoHash::default(),
@@ -330,9 +350,74 @@ impl From<BlockHeaderView> for BlockHeader {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ChunkHeaderView {
+    pub prev_block_hash: CryptoHashView,
+    pub prev_state_root: CryptoHashView,
+    pub encoded_merkle_root: CryptoHashView,
+    pub encoded_length: u64,
+    pub height_created: BlockIndex,
+    pub height_included: BlockIndex,
+    pub shard_id: ShardId,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
+    pub receipts_root: CryptoHashView,
+    pub validator_proposals: Vec<ValidatorStakeView>,
+    pub signature: Signature,
+}
+
+impl From<ShardChunkHeader> for ChunkHeaderView {
+    fn from(chunk: ShardChunkHeader) -> Self {
+        ChunkHeaderView {
+            prev_block_hash: chunk.inner.prev_block_hash.into(),
+            prev_state_root: chunk.inner.prev_state_root.into(),
+            encoded_merkle_root: chunk.inner.encoded_merkle_root.into(),
+            encoded_length: chunk.inner.encoded_length,
+            height_created: chunk.inner.height_created,
+            height_included: chunk.height_included,
+            shard_id: chunk.inner.shard_id,
+            gas_used: chunk.inner.gas_used,
+            gas_limit: chunk.inner.gas_limit,
+            receipts_root: chunk.inner.receipts_root.into(),
+            validator_proposals: chunk
+                .inner
+                .validator_proposals
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            signature: chunk.signature,
+        }
+    }
+}
+
+impl From<ChunkHeaderView> for ShardChunkHeader {
+    fn from(view: ChunkHeaderView) -> Self {
+        let mut header = ShardChunkHeader {
+            inner: ShardChunkHeaderInner {
+                prev_block_hash: view.prev_block_hash.into(),
+                prev_state_root: view.prev_state_root.into(),
+                encoded_merkle_root: view.encoded_merkle_root.into(),
+                encoded_length: view.encoded_length,
+                height_created: view.height_created,
+                shard_id: view.shard_id,
+                gas_used: view.gas_used,
+                gas_limit: view.gas_limit,
+                receipts_root: view.receipts_root.into(),
+                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+            },
+            height_included: view.height_included,
+            signature: view.signature.into(),
+            hash: ChunkHash::default(),
+        };
+        header.init();
+        header
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BlockView {
     pub header: BlockHeaderView,
+    pub chunks: Vec<ChunkHeaderView>,
     pub transactions: Vec<SignedTransactionView>,
 }
 
@@ -340,7 +425,8 @@ impl From<Block> for BlockView {
     fn from(block: Block) -> Self {
         BlockView {
             header: block.header.into(),
-            transactions: block.transactions.into_iter().map(|tx| tx.into()).collect(),
+            chunks: block.chunks.into_iter().map(Into::into).collect(),
+            transactions: block.transactions.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -582,7 +668,7 @@ impl FinalTransactionResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
     pub public_key: PublicKey,
@@ -717,4 +803,15 @@ impl TryFrom<ReceiptView> for Receipt {
             },
         })
     }
+}
+
+/// Information about this epoch validators and next epoch validators
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct EpochValidatorInfo {
+    /// Validators for the current epoch
+    pub current_validators: Vec<ValidatorStakeView>,
+    /// Validators for the next epoch
+    pub next_validators: Vec<ValidatorStakeView>,
+    /// Proposals in the current epoch
+    pub current_proposals: Vec<ValidatorStakeView>,
 }

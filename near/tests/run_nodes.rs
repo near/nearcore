@@ -5,13 +5,15 @@ use tempdir::TempDir;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_client::GetBlock;
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::init_test_logger;
+use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::types::BlockIndex;
 
-fn run_nodes(num_nodes: usize) {
-    init_test_logger();
+fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex) {
+    init_integration_logger();
 
     let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-    let genesis_config = GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
+    let mut genesis_config = GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
+    genesis_config.epoch_length = epoch_length;
 
     let mut near_configs = vec![];
     let first_node = open_port();
@@ -41,9 +43,11 @@ fn run_nodes(num_nodes: usize) {
     let view_client = view_clients.pop().unwrap();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
-            actix::spawn(view_client.send(GetBlock::Best).then(|res| {
+            actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
-                    Ok(Ok(b)) if b.header.height > 4 && b.header.total_weight > 6 => {
+                    Ok(Ok(b))
+                        if b.header.height > num_blocks && b.header.total_weight > num_blocks =>
+                    {
                         System::current().stop()
                     }
                     Err(_) => return futures::future::err(()),
@@ -63,10 +67,15 @@ fn run_nodes(num_nodes: usize) {
 /// Runs two nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_2() {
-    run_nodes(2);
+    heavy_test(|| {
+        run_nodes(2, 10, 30);
+    });
 }
 
+/// Runs 4 nodes that should produce blocks one after another.
 #[test]
 fn run_nodes_4() {
-    run_nodes(4);
+    heavy_test(|| {
+        run_nodes(4, 8, 32);
+    });
 }

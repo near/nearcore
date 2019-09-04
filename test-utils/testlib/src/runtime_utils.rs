@@ -51,7 +51,7 @@ pub fn get_runtime_and_trie_from_genesis(
                 )
             })
             .collect::<Vec<_>>(),
-        &genesis_config.records[0].clone(),
+        &genesis_config.records.clone(),
     );
     store_update.commit().unwrap();
     (runtime, trie, genesis_root)
