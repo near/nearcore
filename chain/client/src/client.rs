@@ -533,8 +533,8 @@ impl ClientActor {
             }
         };
 
-        // Count blocks and transactions processed both in SYNC and regular modes.
-        self.info_helper.block_processed(block.transactions.len() as u64);
+        // Count blocks and gas processed both in SYNC and regular modes.
+        self.info_helper.block_processed(block.header.inner.gas_used, block.header.inner.gas_limit);
 
         // Process orphaned chunk_one_parts
         if self.shards_mgr.process_orphaned_one_parts(block_hash) {
