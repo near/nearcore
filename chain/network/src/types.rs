@@ -245,8 +245,14 @@ impl AnnounceAccount {
         self.route.first().unwrap()
     }
 
-    pub fn peer_id_sender(&self) -> PeerId {
+    /// Peer Id sending this announcement.
+    pub fn peer_id(&self) -> PeerId {
         self.route.last().unwrap().peer_id
+    }
+
+    /// Peer Id of the originator of this announcement.
+    pub fn original_peer_id(&self) -> PeerId {
+        self.route.first().unwrap().peer_id
     }
 
     pub fn num_hops(&self) -> usize {
@@ -269,6 +275,88 @@ pub enum HandshakeFailureReason {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum RoutedMessageBody {
+    BlockApproval(AccountId, CryptoHash, Signature),
+    ForwardTx(SignedTransaction),
+    StateRequest(ShardId, CryptoHash),
+    ChunkPartRequest(ChunkPartRequestMsg),
+    ChunkOnePartRequest(ChunkOnePartRequestMsg),
+    ChunkOnePart(ChunkOnePart),
+}
+
+#[derive(Message)]
+pub struct RawRoutedMessage {
+    pub account_id: AccountId,
+    pub body: RoutedMessageBody,
+}
+
+impl RawRoutedMessage {
+    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+        let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
+        let signature = secret_key.sign(hash.as_ref());
+        RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessageMsg {
+    account_id: AccountId,
+    author: PeerId,
+    body: RoutedMessageBody,
+}
+
+/// RoutedMessage represent a package that will travel the network towards a specific account id.
+/// It contains the peer_id and signature from the original sender. Every intermediate peer in the
+/// route must verify that this signature is valid otherwise previous sender of this package should
+/// be banned. If the final receiver of this package finds that the body is invalid the original
+/// sender of the package should be banned instead. (Notice that this peer might not be connected
+/// to us)
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct RoutedMessage {
+    /// Account id which is directed this message
+    pub account_id: AccountId,
+    /// Original sender of this message
+    pub author: PeerId,
+    /// Signature from the author of the message. If this signature is invalid we should ban
+    /// last sender of this message. If the message is invalid we should ben author of the message.
+    pub signature: Signature,
+    /// Message
+    pub body: RoutedMessageBody,
+}
+
+impl RoutedMessage {
+    pub fn build_hash(
+        account_id: &AccountId,
+        author: &PeerId,
+        body: &RoutedMessageBody,
+    ) -> CryptoHash {
+        hash(
+            &RoutedMessageMsg {
+                account_id: account_id.clone(),
+                author: author.clone(),
+                body: body.clone(),
+            }
+            .try_to_vec()
+            .expect("Failed to serialize"),
+        )
+    }
+
+    fn hash(&self) -> CryptoHash {
+        RoutedMessage::build_hash(&self.account_id, &self.author, &self.body)
+    }
+
+    pub fn verify(&self) -> bool {
+        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+    }
+}
+
+impl Message for RoutedMessage {
+    type Result = bool;
+}
+
+// TODO(MarX): We have duplicated types of messages for now while routing between non-validators
+//  is necessary. Some message are routed and others are directed between peers.
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
@@ -282,13 +370,13 @@ pub enum PeerMessage {
 
     BlockRequest(CryptoHash),
     Block(Block),
-    BlockApproval(AccountId, CryptoHash, Signature),
 
     Transaction(SignedTransaction),
 
     StateRequest(ShardId, CryptoHash),
     StateResponse(StateResponseInfo),
     AnnounceAccount(AnnounceAccount),
+    Routed(RoutedMessage),
 
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
@@ -308,11 +396,18 @@ impl fmt::Display for PeerMessage {
             PeerMessage::BlockHeaderAnnounce(_) => f.write_str("BlockHeaderAnnounce"),
             PeerMessage::BlockRequest(_) => f.write_str("BlockRequest"),
             PeerMessage::Block(_) => f.write_str("Block"),
-            PeerMessage::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
             PeerMessage::Transaction(_) => f.write_str("Transaction"),
             PeerMessage::StateRequest(_, _) => f.write_str("StateRequest"),
             PeerMessage::StateResponse(_) => f.write_str("StateResponse"),
             PeerMessage::AnnounceAccount(_) => f.write_str("AnnounceAccount"),
+            PeerMessage::Routed(routed_message) => match routed_message.body {
+                RoutedMessageBody::BlockApproval(_, _, _) => f.write_str("BlockApproval"),
+                RoutedMessageBody::ForwardTx(_) => f.write_str("ForwardTx"),
+                RoutedMessageBody::StateRequest(_, _) => f.write_str("StateResponse"),
+                RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
+                RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
+                RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+            },
             PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
@@ -341,6 +436,10 @@ pub struct NetworkConfig {
     pub max_send_peers: u32,
     /// Duration for checking on stats from the peers.
     pub peer_stats_period: Duration,
+    /// Time to persist Accounts Id in the router without removing them.
+    pub ttl_account_id_router: Duration,
+    /// Maximum number of routes that we should keep track for each Account id in the Routing Table.
+    pub max_routes_to_store: usize,
 }
 
 /// Status of the known peers.
@@ -501,7 +600,7 @@ pub enum NetworkRequests {
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
-    AnnounceAccount(AnnounceAccount, bool),
+    AnnounceAccount(AnnounceAccount),
 
     /// Request chunk part
     ChunkPartRequest { account_id: AccountId, part_request: ChunkPartRequestMsg },
@@ -607,6 +706,8 @@ pub enum NetworkClientResponses {
     ValidTx,
     /// Invalid transaction inserted into mempool as response to Transaction.
     InvalidTx(String),
+    /// Valid transaction but since we are not validators we send this transaction to current validators.
+    ForwardTx(AccountId, SignedTransaction),
     /// Ban peer for malicious behaviour.
     Ban { ban_reason: ReasonForBan },
     /// Chain information.

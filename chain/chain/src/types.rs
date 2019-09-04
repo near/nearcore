@@ -52,6 +52,7 @@ pub enum Provenance {
 }
 
 /// Information about valid transaction that was processed by chain + runtime.
+#[derive(Debug)]
 pub struct ValidTransaction {
     pub transaction: SignedTransaction,
 }

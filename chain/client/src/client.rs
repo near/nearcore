@@ -5,7 +5,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
@@ -20,7 +20,7 @@ use log::{debug, error, info, warn};
 use near_chain::types::{LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult};
 use near_chain::{
     byzantine_assert, Block, BlockApproval, BlockHeader, BlockStatus, Chain, ChainGenesis,
-    ChainStoreAccess, Provenance, RuntimeAdapter, ValidTransaction,
+    ChainStoreAccess, Provenance, RuntimeAdapter,
 };
 use near_chunks::ShardsManager;
 use near_crypto::Signature;
@@ -87,8 +87,10 @@ pub struct ClientActor {
     block_sync: BlockSync,
     /// Keeps track of syncing state.
     state_sync: StateSync,
+    /// Last height we announced our accounts as validators.
+    last_validator_announce_height: Option<BlockIndex>,
     /// Last time we announced our accounts as validators.
-    last_val_announce_height: Option<BlockIndex>,
+    last_validator_announce_time: Option<Instant>,
     /// Info helper.
     info_helper: InfoHelper,
     /// economics constants
@@ -163,7 +165,8 @@ impl ClientActor {
             header_sync,
             block_sync,
             state_sync,
-            last_val_announce_height: None,
+            last_validator_announce_height: None,
+            last_validator_announce_time: None,
             info_helper,
             econ_config: EconConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
@@ -235,6 +238,30 @@ impl ClientActor {
             Err(reason_for_ban) => AccountAnnounceVerificationResult::Invalid(reason_for_ban),
         }
     }
+
+    /// Determine if I am a validator in current epoch for specified shard.
+    fn active_validator(&self) -> Result<bool, Error> {
+        let head = self.chain.head()?;
+
+        let account_id = if let Some(bp) = self.block_producer.as_ref() {
+            &bp.account_id
+        } else {
+            return Ok(false);
+        };
+
+        let block_proposers = self
+            .runtime_adapter
+            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
+        Ok(block_proposers
+            .into_iter()
+            .find_map(
+                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
+            )
+            .unwrap_or(false))
+    }
 }
 
 impl Actor for ClientActor {
@@ -265,16 +292,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => match self.validate_tx(tx.clone()) {
-                Ok((valid_transaction, shard_id)) => {
-                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                    NetworkClientResponses::ValidTx
-                }
-                Err(err) => {
-                    debug!(target: "client", "Invalid tx: {} -- {:?}", err.to_string(), tx);
-                    NetworkClientResponses::InvalidTx(err)
-                }
-            },
+            NetworkClientMessages::Transaction(tx) => self.process_tx(tx),
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -329,7 +347,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     NetworkClientResponses::NoResponse
                 } else {
                     warn!(target: "client", "Banning node for sending invalid block approval: {} {} {}", account_id, hash, signature);
-                    NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
+                    NetworkClientResponses::NoResponse
+
+                    // TODO(1259): The originator of this message is not the immediate sender so we should not ban him.
+                    // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
@@ -466,7 +487,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     AccountAnnounceVerificationResult::Valid => {
                         actix::spawn(
                             self.network_actor
-                                .send(NetworkRequests::AnnounceAccount(announce_account, false))
+                                .send(NetworkRequests::AnnounceAccount(announce_account))
                                 .map_err(|e| error!(target: "client", "{}", e))
                                 .map(|_| ()),
                         );
@@ -652,7 +673,7 @@ impl ClientActor {
             }
         }
 
-        self.check_send_announce_account(block.header.inner.prev_hash);
+        self.check_send_announce_account(block.hash());
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
@@ -709,13 +730,23 @@ impl ClientActor {
         }
         let block_producer = self.block_producer.as_ref().unwrap();
 
+        let now = Instant::now();
+        // Check that we haven't announced it too recently
+        if let Some(last_validator_announce_time) = self.last_validator_announce_time {
+            // Don't make announcement if have passed less than half of the time in which other peers
+            // should remove our Account Id from their Routing Tables.
+            if 2 * (now - last_validator_announce_time) < self.config.ttl_account_id_router {
+                return;
+            }
+        }
+
         let epoch_start_height =
             unwrap_or_return!(self.runtime_adapter.get_epoch_start_height(&prev_block_hash), ());
 
-        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_val_announce_height);
+        debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_validator_announce_height);
 
-        if let Some(last_val_announce_height) = self.last_val_announce_height {
-            if last_val_announce_height >= epoch_start_height {
+        if let Some(last_validator_announce_height) = self.last_validator_announce_height {
+            if last_validator_announce_height >= epoch_start_height {
                 // This announcement was already done!
                 return;
             }
@@ -731,24 +762,21 @@ impl ClientActor {
         if let Ok(validators) =
             self.runtime_adapter.get_epoch_block_producers(&next_epoch_id, &prev_block_hash)
         {
-            // TODO(MarX): Use HashSet in validator manager to do fast searching.
             if validators.iter().any(|(account_id, _)| (account_id == &block_producer.account_id)) {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
-                self.last_val_announce_height = Some(epoch_start_height);
+                self.last_validator_announce_height = Some(epoch_start_height);
+                self.last_validator_announce_time = Some(now);
                 let (hash, signature) = self.sign_announce_account(&next_epoch_id).unwrap();
 
                 actix::spawn(
                     self.network_actor
-                        .send(NetworkRequests::AnnounceAccount(
-                            AnnounceAccount::new(
-                                block_producer.account_id.clone(),
-                                next_epoch_id,
-                                self.node_id,
-                                hash,
-                                signature,
-                            ),
-                            true,
-                        ))
+                        .send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
+                            block_producer.account_id.clone(),
+                            next_epoch_id,
+                            self.node_id,
+                            hash,
+                            signature,
+                        )))
                         .map_err(|e| error!(target: "client", "{:?}", e))
                         .map(|_| ()),
                 );
@@ -1291,26 +1319,69 @@ impl ClientActor {
     }
 
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn validate_tx(
-        &mut self,
-        tx: SignedTransaction,
-    ) -> Result<(ValidTransaction, ShardId), String> {
-        let head = self.chain.head().map_err(|err| err.to_string())?;
+    fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
+        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
             head.height,
             self.config.transaction_validity_period,
         ) {
-            return Err("Transaction has either expired or is from a different fork".to_string());
+            debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
+            return NetworkClientResponses::InvalidTx(
+                "Transaction has either expired or from a different fork".to_string(),
+            );
         }
-        let state_root = self
-            .chain
-            .get_chunk_extra(&head.last_block_hash, shard_id)
-            .map_err(|err| err.to_string())?
-            .state_root
-            .clone();
-        self.runtime_adapter.validate_tx(shard_id, state_root, tx).map(|vtx| (vtx, shard_id))
+        let state_root = unwrap_or_return!(
+            self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
+            NetworkClientResponses::NoResponse
+        )
+        .state_root
+        .clone();
+        match self.runtime_adapter.validate_tx(shard_id, state_root, tx) {
+            Ok(valid_transaction) => {
+                let active_validator = unwrap_or_return!(self.active_validator(), {
+                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                    NetworkClientResponses::NoResponse
+                });
+
+                // If I'm not an active validator I should forward tx to next validators.
+                if active_validator {
+                    debug!(
+                        "MOO recording a transaction. I'm {:?}, {}",
+                        self.block_producer.as_ref().unwrap().account_id,
+                        shard_id
+                    );
+                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                    NetworkClientResponses::ValidTx
+                } else {
+                    // TODO(MarX): Forward tx even if I am a validator.
+                    let head = unwrap_or_return!(self.chain.head(), {
+                        warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                        NetworkClientResponses::NoResponse
+                    });
+
+                    // TODO(MarX): How many validators ahead of current time should we forward tx?
+                    let target_height = head.height + 2;
+
+                    let validator = unwrap_or_return!(
+                        self.runtime_adapter.get_chunk_producer(
+                            &head.epoch_id,
+                            target_height,
+                            shard_id
+                        ),
+                        {
+                            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                            NetworkClientResponses::NoResponse
+                        }
+                    );
+
+                    NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
+                }
+            }
+            Err(err) => NetworkClientResponses::InvalidTx(err),
+        }
     }
 
     /// Check whether need to (continue) sync.

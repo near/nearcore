@@ -104,6 +104,8 @@ pub struct ClientConfig {
     pub num_block_producers: ValidatorId,
     /// Maximum blocks ahead of us before becoming validators to announce account.
     pub announce_account_horizon: BlockIndex,
+    /// Time to persist Accounts Id in the router without removing them.
+    pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockIndex,
     /// Horizon to step from the latest block when fetching state.
@@ -146,6 +148,7 @@ impl ClientConfig {
             epoch_length: 10,
             num_block_producers,
             announce_account_horizon: 5,
+            ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),

@@ -68,6 +68,10 @@ pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 200;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
 pub const FAST_EPOCH_LENGTH: u64 = 60;
 
+/// Time to persist Accounts Id in the router without removing them in seconds.
+pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
+/// Maximum amount of routes to store for each account id.
+pub const MAX_ROUTES_TO_STORE: usize = 5;
 /// Expected number of blocks per year
 pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
 
@@ -258,6 +262,7 @@ impl NearConfig {
                 epoch_length: genesis_config.epoch_length,
                 num_block_producers: genesis_config.num_block_producers,
                 announce_account_horizon: genesis_config.epoch_length / 2,
+                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
                 // TODO(1047): this should be adjusted depending on the speed of sync of state.
                 block_fetch_horizon: 50,
                 state_fetch_horizon: 5,
@@ -292,6 +297,8 @@ impl NearConfig {
                 max_send_peers: 512,
                 peer_expiration_duration: Duration::from_secs(7 * 24 * 60 * 60),
                 peer_stats_period: Duration::from_secs(5),
+                ttl_account_id_router: Duration::from_secs(TTL_ACCOUNT_ID_ROUTER),
+                max_routes_to_store: MAX_ROUTES_TO_STORE,
             },
             telemetry_config: config.telemetry,
             rpc_config: config.rpc,
