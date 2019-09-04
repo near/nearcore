@@ -12,7 +12,6 @@
     "poke_threshold": 60
   },
   "records": [
-    [
       {
         "Account": {
           "account": {
@@ -20917,7 +20916,6 @@
           "account_id": "zimmer"
         }
       }
-    ]
   ],
   "validators": [
     {
