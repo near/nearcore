@@ -572,7 +572,12 @@ impl StateSync {
             unwrap_or_return!(runtime_adapter.get_epoch_block_producers(&epoch_hash, &hash), None)
                 .iter()
                 .filter_map(|(account_id, _slashed)| {
-                    if runtime_adapter.cares_about_shard(account_id, &prev_block_hash, shard_id) {
+                    if runtime_adapter.cares_about_shard(
+                        Some(account_id),
+                        &prev_block_hash,
+                        shard_id,
+                        false,
+                    ) {
                         Some(account_id.clone())
                     } else {
                         None

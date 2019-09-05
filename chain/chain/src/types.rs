@@ -156,18 +156,32 @@ pub trait RuntimeAdapter: Send + Sync {
 
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
 
+    /// Whether the client cares about some shard right now.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client is tracking the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client tracks.
     fn cares_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        is_me: bool,
     ) -> bool;
 
+    /// Whether the client cares about some shard in the next epoch.
+    /// * If `account_id` is None, `is_me` is not checked and the
+    /// result indicates whether the client will track the shard
+    /// * If `account_id` is not None, it is supposed to be a validator
+    /// account and `is_me` indicates whether we check what shards
+    /// the client will track.
     fn will_care_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        is_me: bool,
     ) -> bool;
 
     /// Returns true, if given hash is last block in it's epoch.

@@ -653,15 +653,21 @@ impl Chain {
         me: &Option<AccountId>,
         parent_hash: &CryptoHash,
     ) -> Vec<ShardId> {
-        match me {
-            None => vec![],
-            Some(me) => (0..self.runtime_adapter.num_shards())
-                .filter(|shard_id| {
-                    self.runtime_adapter.will_care_about_shard(me, parent_hash, *shard_id)
-                        && !self.runtime_adapter.cares_about_shard(me, parent_hash, *shard_id)
-                })
-                .collect(),
-        }
+        (0..self.runtime_adapter.num_shards())
+            .filter(|shard_id| {
+                self.runtime_adapter.will_care_about_shard(
+                    me.as_ref(),
+                    parent_hash,
+                    *shard_id,
+                    true,
+                ) && !self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    parent_hash,
+                    *shard_id,
+                    true,
+                )
+            })
+            .collect()
     }
 
     /// Check if any block with missing chunk is ready to be processed
@@ -1184,30 +1190,25 @@ impl<'a> ChainUpdate<'a> {
         {
             let shard_id = shard_id as ShardId;
             let care_about_shard = match mode {
-                ApplyChunksMode::ThisEpoch => me.as_ref().map_or_else(
-                    || false,
-                    |me| {
-                        self.runtime_adapter.cares_about_shard(
-                            me,
-                            &block.header.inner.prev_hash,
-                            shard_id,
-                        )
-                    },
+                ApplyChunksMode::ThisEpoch => self.runtime_adapter.cares_about_shard(
+                    me.as_ref(),
+                    &block.header.inner.prev_hash,
+                    shard_id,
+                    true,
                 ),
-                ApplyChunksMode::NextEpoch => me.as_ref().map_or_else(
-                    || false,
-                    |me| {
-                        self.runtime_adapter.will_care_about_shard(
-                            me,
-                            &block.header.inner.prev_hash,
-                            shard_id,
-                        ) && !self.runtime_adapter.cares_about_shard(
-                            me,
-                            &block.header.inner.prev_hash,
-                            shard_id,
-                        )
-                    },
-                ),
+                ApplyChunksMode::NextEpoch => {
+                    self.runtime_adapter.will_care_about_shard(
+                        me.as_ref(),
+                        &block.header.inner.prev_hash,
+                        shard_id,
+                        true,
+                    ) && !self.runtime_adapter.cares_about_shard(
+                        me.as_ref(),
+                        &block.header.inner.prev_hash,
+                        shard_id,
+                        true,
+                    )
+                }
             };
             if care_about_shard {
                 if chunk_header.height_included == block.header.inner.height {

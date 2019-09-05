@@ -9,8 +9,8 @@ use futures::future::Future;
 use tempdir::TempDir;
 
 use near::config::TESTING_INIT_STAKE;
-use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
-use near_chain::{Block, Chain};
+use near::{load_test_config, start_with_config, GenesisConfig};
+use near_chain::Block;
 use near_client::{ClientActor, GetBlock};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
@@ -18,17 +18,7 @@ use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockIndex, EpochId};
-use near_store::test_utils::create_test_store;
-
-/// Utility to generate genesis header from config for testing purposes.
-fn genesis_block(genesis_config: GenesisConfig) -> Block {
-    let dir = TempDir::new("unused").unwrap();
-    let store = create_test_store();
-    let runtime =
-        Arc::new(NightshadeRuntime::new(dir.path(), store.clone(), genesis_config.clone()));
-    let mut chain = Chain::new(store, runtime, &genesis_config.into()).unwrap();
-    chain.get_block(&chain.genesis().hash()).unwrap().clone()
-}
+use testlib::genesis_block;
 
 // This assumes that there is no index skipped. Otherwise epoch hash calculation will be wrong.
 fn add_blocks(
