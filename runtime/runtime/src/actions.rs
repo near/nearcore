@@ -1,7 +1,7 @@
-use crate::config::RuntimeConfig;
-use crate::ext::RuntimeExt;
-use crate::{ActionResult, ApplyState};
-use borsh::ser::Serializable;
+use std::sync::Arc;
+
+use borsh::BorshSerialize;
+
 use near_primitives::account::Account;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;
@@ -21,7 +21,10 @@ use near_store::{
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
-use std::sync::Arc;
+
+use crate::config::RuntimeConfig;
+use crate::ext::RuntimeExt;
+use crate::{ActionResult, ApplyState};
 
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;

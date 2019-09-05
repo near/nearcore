@@ -95,17 +95,3 @@ impl From<PeerAddr> for PeerInfo {
         PeerInfo { id: node_addr.id, addr: Some(node_addr.addr), account_id: None }
     }
 }
-
-pub type PeersInfo = Vec<PeerInfo>;
-
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-pub struct Handshake {
-    /// Protocol version.
-    pub version: u32,
-    /// Sender's peer id.
-    pub peer_id: PeerId,
-    /// Sender's listening addr.
-    pub listen_port: Option<u16>,
-    /// Sender's information about known peers.
-    pub peers_info: PeersInfo,
-}

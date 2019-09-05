@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
-use borsh::Deserializable;
+use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
 use ansi_term::Color::Red;
@@ -128,14 +128,17 @@ fn load_trie(
     store: Arc<Store>,
     home_dir: &Path,
     near_config: &NearConfig,
-) -> (NightshadeRuntime, CryptoHash, BlockIndex) {
+) -> (NightshadeRuntime, Vec<CryptoHash>, BlockIndex) {
     let mut chain_store = ChainStore::new(store.clone());
 
     let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
     let head = chain_store.head().unwrap();
-    let last_header = chain_store.get_block_header(&head.last_block_hash).unwrap().clone();
-    let state_root = chain_store.get_post_state_root(&head.last_block_hash).unwrap();
-    (runtime, *state_root, last_header.inner.height)
+    let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
+    let mut state_roots = vec![];
+    for chunk in last_block.chunks.iter() {
+        state_roots.push(chunk.inner.prev_state_root);
+    }
+    (runtime, state_roots, last_block.header.inner.height)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -160,20 +163,20 @@ fn print_chain(
                 println!("{: >3} {}", header.inner.height, format_hash(header.hash()));
             } else {
                 let parent_header = chain_store.get_block_header(&header.inner.prev_hash).unwrap();
-                let (epoch_id, offset) =
-                    runtime.get_epoch_offset(header.inner.prev_hash, index).unwrap();
-                cur_epoch_id = Some(epoch_id);
-                if offset == 0 {
+                let epoch_id =
+                    runtime.get_epoch_id_from_prev_block(&header.inner.prev_hash).unwrap();
+                cur_epoch_id = Some(epoch_id.clone());
+                if runtime.is_next_block_epoch_start(&header.inner.prev_hash).unwrap() {
                     println!("{:?}", account_id_to_blocks);
                     account_id_to_blocks = HashMap::new();
                     println!(
                         "Epoch {} Validators {:?}",
-                        format_hash(epoch_id),
-                        runtime.get_epoch_block_proposers(&epoch_id, &header.hash()).unwrap()
+                        format_hash(epoch_id.0),
+                        runtime.get_epoch_block_producers(&epoch_id, &header.hash()).unwrap()
                     );
                 }
                 let block_producer =
-                    runtime.get_block_proposer(&epoch_id, header.inner.height).unwrap();
+                    runtime.get_block_producer(&epoch_id, header.inner.height).unwrap();
                 account_id_to_blocks
                     .entry(block_producer.clone())
                     .and_modify(|e| *e += 1)
@@ -188,8 +191,8 @@ fn print_chain(
                 );
             }
         } else {
-            if let Some(epoch_id) = cur_epoch_id {
-                let block_producer = runtime.get_block_proposer(&epoch_id, index).unwrap();
+            if let Some(epoch_id) = &cur_epoch_id {
+                let block_producer = runtime.get_block_producer(epoch_id, index).unwrap();
                 println!("{: >3} {} | {: >10}", index, Red.bold().paint("MISSING"), block_producer);
             } else {
                 println!("{: >3} {}", index, Red.bold().paint("MISSING"));
@@ -219,6 +222,9 @@ fn replay_chain(
                     header.inner.validator_proposals,
                     vec![],
                     vec![],
+                    header.inner.gas_used,
+                    header.inner.gas_price,
+                    header.inner.total_supply,
                 )
                 .unwrap();
         }
@@ -299,24 +305,33 @@ fn main() {
             }
         }
         ("state", Some(_args)) => {
-            let (runtime, state_root, height) = load_trie(store, &home_dir, &near_config);
-            println!("Storage root is {}, block height is {}", state_root, height);
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                print_state_entry(key, value);
+            let (runtime, state_roots, height) = load_trie(store, &home_dir, &near_config);
+            println!("Storage roots are {:?}, block height is {}", state_roots, height);
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    print_state_entry(key, value);
+                }
             }
         }
         ("dump_state", Some(args)) => {
-            let (runtime, state_root, height) = load_trie(store, home_dir, &near_config);
+            let (runtime, state_roots, height) = load_trie(store, home_dir, &near_config);
             let output_path = args.value_of("output").map(|path| Path::new(path)).unwrap();
-            println!("Saving state at {} @ {} into {}", state_root, height, output_path.display());
-            near_config.genesis_config.records = vec![vec![]];
-            let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
-            for item in trie {
-                let (key, value) = item.unwrap();
-                if let Some(sr) = kv_to_state_record(key, value) {
-                    near_config.genesis_config.records[0].push(sr);
+            println!(
+                "Saving state at {:?} @ {} into {}",
+                state_roots,
+                height,
+                output_path.display()
+            );
+            near_config.genesis_config.records = vec![];
+            for state_root in state_roots {
+                let trie = TrieIterator::new(&runtime.trie, &state_root).unwrap();
+                for item in trie {
+                    let (key, value) = item.unwrap();
+                    if let Some(sr) = kv_to_state_record(key, value) {
+                        near_config.genesis_config.records.push(sr);
+                    }
                 }
             }
             near_config.genesis_config.write_to_file(&output_path);

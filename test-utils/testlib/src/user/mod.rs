@@ -83,7 +83,7 @@ pub trait User {
             self.get_access_key_nonce_for_signer(&signer_id).unwrap_or_default() + 1,
             signer_id,
             receiver_id,
-            self.signer(),
+            &*self.signer(),
             actions,
             block_hash,
         );

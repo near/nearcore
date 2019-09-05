@@ -1,7 +1,7 @@
 use std::collections::btree_map::BTreeMap;
 use std::collections::HashMap;
 
-use near_chain::{Block, ValidTransaction};
+use near_chain::ValidTransaction;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 
@@ -51,10 +51,10 @@ impl TransactionPool {
 
     /// Quick reconciliation step - evict all transactions that already in the block
     /// or became invalid after it.
-    pub fn reconcile_block(&mut self, block: &Block) {
-        for signed_transaction in block.transactions.iter() {
-            let signer_id = &signed_transaction.transaction.signer_id;
-            let nonce = signed_transaction.transaction.nonce;
+    pub fn remove_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
+            let signer_id = &transaction.transaction.signer_id;
+            let nonce = transaction.transaction.nonce;
             let mut remove_map = false;
             if let Some(map) = self.transactions.get_mut(signer_id) {
                 map.remove(&nonce);
@@ -64,6 +64,14 @@ impl TransactionPool {
                 self.num_transactions -= 1;
                 self.transactions.remove(signer_id);
             }
+        }
+    }
+
+    /// Reintroduce transactions back during the reorg
+    pub fn reintroduce_transactions(&mut self, transactions: &Vec<SignedTransaction>) {
+        for transaction in transactions.iter() {
+            let transaction = transaction.clone();
+            self.insert_transaction(ValidTransaction { transaction });
         }
     }
 
@@ -99,7 +107,7 @@ mod tests {
                     i,
                     "alice.near".to_string(),
                     "bob.near".to_string(),
-                    signer.clone(),
+                    &*signer,
                     i as Balance,
                     CryptoHash::default(),
                 )

@@ -18,6 +18,8 @@ members = [
     "runtime/near-vm-runner",
     "runtime/near-vm-runner-standalone",
     "chain/chain",
+    "chain/chunks",
+    "chain/epoch_manager",
     "chain/pool",
     "chain/client",
     "chain/network",

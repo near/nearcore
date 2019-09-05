@@ -7,7 +7,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
-use borsh::ser::Serializable;
+use borsh::BorshSerialize;
 use kvdb::DBValue;
 
 use near_crypto::{PublicKey, ReadablePublicKey};
@@ -20,12 +20,11 @@ use near_primitives::transaction::{
     Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
 };
 use near_primitives::utils::{
-    account_to_shard_id, create_nonce_with_nonce, key_for_pending_data_count,
-    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
-    ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, key_for_pending_data_count, key_for_postponed_receipt,
+    key_for_postponed_receipt_id, key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
@@ -59,8 +58,6 @@ pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub struct ApplyState {
     /// Previous Merkle root of the state.
     pub root: MerkleHash,
-    /// Shard index.
-    pub shard_id: ShardId,
     /// Currently building block index.
     pub block_index: BlockIndex,
     /// Hash of previous committed block.
@@ -71,10 +68,9 @@ pub struct ApplyState {
 
 pub struct ApplyResult {
     pub root: MerkleHash,
-    pub shard_id: ShardId,
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub new_receipts: HashMap<ShardId, Vec<Receipt>>,
+    pub new_receipts: Vec<Receipt>,
     pub tx_result: Vec<TransactionLog>,
     pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
@@ -243,7 +239,7 @@ impl Runtime {
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         new_local_receipts: &mut Vec<Receipt>,
-        new_receipts: &mut HashMap<ShardId, Vec<Receipt>>,
+        new_receipts: &mut Vec<Receipt>,
     ) -> TransactionLog {
         let mut result = TransactionResult::default();
         match self.apply_signed_transaction(state_update, apply_state, signed_transaction) {
@@ -252,10 +248,7 @@ impl Runtime {
                 if receipt.receiver_id == signed_transaction.transaction.signer_id {
                     new_local_receipts.push(receipt);
                 } else {
-                    new_receipts
-                        .entry(account_to_shard_id(&receipt.receiver_id))
-                        .or_insert_with(|| vec![])
-                        .push(receipt);
+                    new_receipts.push(receipt);
                 }
                 state_update.commit();
                 result.status = TransactionStatus::Completed;
@@ -360,7 +353,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        new_receipts: &mut HashMap<ShardId, Vec<Receipt>>,
+        new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> TransactionLog {
         let action_receipt = match receipt.receipt {
@@ -492,7 +485,7 @@ impl Runtime {
             data
         };
 
-        // Generating receipt IDs and mapping receipts into shards
+        // Generating receipt IDs
         let transaction_new_receipt_ids = result
             .new_receipts
             .into_iter()
@@ -505,10 +498,7 @@ impl Runtime {
                     ReceiptEnum::Action(_) => true,
                     _ => false,
                 };
-                new_receipts
-                    .entry(account_to_shard_id(&new_receipt.receiver_id))
-                    .or_insert_with(|| vec![])
-                    .push(new_receipt);
+                new_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
                 } else {
@@ -570,7 +560,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
-        new_receipts: &mut HashMap<ShardId, Vec<Receipt>>,
+        new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
     ) -> Option<TransactionLog> {
         let account_id = &receipt.receiver_id;
@@ -681,10 +671,10 @@ impl Runtime {
         &self,
         mut state_update: TrieUpdate,
         apply_state: &ApplyState,
-        prev_receipts: &[Vec<Receipt>],
+        prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyResult, Box<dyn std::error::Error>> {
-        let mut new_receipts = HashMap::new();
+        let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut tx_result = vec![];
@@ -715,7 +705,7 @@ impl Runtime {
             ));
         }
 
-        for receipt in local_receipts.iter().chain(prev_receipts.iter().flatten()) {
+        for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
             self.process_receipt(
                 &mut state_update,
                 apply_state,
@@ -731,7 +721,6 @@ impl Runtime {
             root: trie_changes.new_root,
             trie_changes,
             validator_proposals,
-            shard_id: apply_state.shard_id,
             new_receipts,
             tx_result,
             largest_tx_nonce,

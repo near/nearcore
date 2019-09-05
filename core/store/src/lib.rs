@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{fmt, io};
 
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
@@ -32,15 +32,20 @@ pub const COL_BLOCK: Option<u32> = Some(1);
 pub const COL_BLOCK_HEADER: Option<u32> = Some(2);
 pub const COL_BLOCK_INDEX: Option<u32> = Some(3);
 pub const COL_STATE: Option<u32> = Some(4);
-pub const COL_STATE_REF: Option<u32> = Some(5);
+pub const COL_CHUNK_EXTRA: Option<u32> = Some(5);
 pub const COL_TRANSACTION_RESULT: Option<u32> = Some(6);
-pub const COL_RECEIPTS: Option<u32> = Some(7);
-pub const COL_PEERS: Option<u32> = Some(8);
-pub const COL_PROPOSALS: Option<u32> = Some(9);
-pub const COL_VALIDATORS: Option<u32> = Some(10);
-pub const COL_LAST_EPOCH_PROPOSALS: Option<u32> = Some(11);
-pub const COL_VALIDATOR_PROPOSALS: Option<u32> = Some(12);
-const NUM_COLS: u32 = 13;
+pub const COL_OUTGOING_RECEIPTS: Option<u32> = Some(7);
+pub const COL_INCOMING_RECEIPTS: Option<u32> = Some(8);
+pub const COL_PEERS: Option<u32> = Some(9);
+pub const COL_EPOCH_INFO: Option<u32> = Some(10);
+pub const COL_BLOCK_INFO: Option<u32> = Some(11);
+pub const COL_CHUNKS: Option<u32> = Some(12);
+pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
+/// Blocks for which chunks need to be applied after the state is downloaded for a particular epoch
+pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
+/// Blocks for which the state is being downloaded
+pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
+const NUM_COLS: u32 = 16;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -55,7 +60,7 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Deserializable>(
+    pub fn get_ser<T: BorshDeserialize>(
         &self,
         column: Option<u32>,
         key: &[u8],
@@ -109,7 +114,7 @@ impl StoreUpdate {
         self.transaction.put(column, key, value)
     }
 
-    pub fn set_ser<T: Serializable>(
+    pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: Option<u32>,
         key: &[u8],
@@ -167,7 +172,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Deserializable + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,
@@ -191,12 +196,12 @@ pub fn create_store(path: &str) -> Arc<Store> {
 }
 
 /// Reads an object from Trie.
-pub fn get<T: Deserializable>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
+pub fn get<T: BorshDeserialize>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
     state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
 }
 
 /// Writes an object into Trie.
-pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
     value
         .try_to_vec()
         .ok()

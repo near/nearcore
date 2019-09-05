@@ -37,6 +37,8 @@ impl NetworkConfig {
             peer_expiration_duration: Duration::from_secs(60 * 60),
             max_send_peers: 512,
             peer_stats_period: Duration::from_secs(5),
+            ttl_account_id_router: Duration::from_secs(60 * 60),
+            max_routes_to_store: 1,
         }
     }
 }
@@ -126,4 +128,8 @@ impl Actor for WaitOrTimeout {
     fn started(&mut self, ctx: &mut Context<Self>) {
         self.wait_or_timeout(ctx);
     }
+}
+
+pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
+    values.iter().map(|x| x.to_string()).collect()
 }
