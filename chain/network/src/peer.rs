@@ -18,11 +18,13 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, Handshake, NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage,
-    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
-    ReasonForBan, SendMessage, Unregister, HandshakeFailureReason, PROTOCOL_VERSION
+    Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages, PeerChainInfo,
+    PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister,
+    PROTOCOL_VERSION,
 };
-use crate::{NetworkClientResponses, PeerManagerActor};
+use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
+use futures::Future;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -209,6 +211,11 @@ impl Peer {
             .spawn(ctx);
     }
 
+    fn ban_peer(&mut self, ctx: &mut Context<Peer>, ban_reason: ReasonForBan) {
+        self.peer_status = PeerStatus::Banned(ban_reason);
+        ctx.stop();
+    }
+
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
         let peer_id = match self.peer_info.as_ref() {
@@ -237,9 +244,6 @@ impl Peer {
             PeerMessage::Transaction(transaction) => {
                 NetworkClientMessages::Transaction(transaction)
             }
-            PeerMessage::BlockApproval(account_id, hash, signature) => {
-                NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
-            }
             PeerMessage::BlockRequest(hash) => NetworkClientMessages::BlockRequest(hash),
             PeerMessage::BlockHeadersRequest(hashes) => {
                 NetworkClientMessages::BlockHeadersRequest(hashes)
@@ -252,14 +256,32 @@ impl Peer {
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
-                if announce_account.peer_id_sender() != peer_id {
-                    // Ban peer if tries to impersonate another peer.
-                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidPeerId);
+                if announce_account.peer_id() != peer_id {
+                    self.ban_peer(ctx, ReasonForBan::InvalidPeerId);
                     return;
                 } else {
                     NetworkClientMessages::AnnounceAccount(announce_account)
                 }
             }
+            // All Routed messages received at this point are for us.
+            PeerMessage::Routed(routed_message) => match routed_message.body {
+                RoutedMessageBody::BlockApproval(account_id, hash, signature) => {
+                    NetworkClientMessages::BlockApproval(account_id, hash, signature, peer_id)
+                }
+                RoutedMessageBody::ForwardTx(transaction) => {
+                    NetworkClientMessages::Transaction(transaction)
+                }
+                RoutedMessageBody::StateRequest(shard_id, hash) => {
+                    NetworkClientMessages::StateRequest(shard_id, hash)
+                }
+                RoutedMessageBody::ChunkPartRequest(request) => {
+                    NetworkClientMessages::ChunkPartRequest(request, peer_id)
+                }
+                RoutedMessageBody::ChunkOnePartRequest(request) => {
+                    NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
+                }
+                RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
+            },
             PeerMessage::ChunkPartRequest(request) => {
                 NetworkClientMessages::ChunkPartRequest(request, peer_id)
             }
@@ -276,19 +298,25 @@ impl Peer {
                 return;
             }
         };
+
         self.client_addr
             .send(network_client_msg)
             .into_actor(self)
             .then(|res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
                 match res {
+                    Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
+                        act.peer_manager_addr.do_send(RawRoutedMessage {
+                            account_id,
+                            body: RoutedMessageBody::ForwardTx(tx)
+                        })
+                    }
                     Ok(NetworkClientResponses::InvalidTx(err)) => {
                         warn!(target: "network", "Received invalid tx from peer {}: {}", act.peer_info, err);
                         // TODO: count as malicious behaviour?
                     }
                     Ok(NetworkClientResponses::Ban { ban_reason }) => {
-                        act.peer_status = PeerStatus::Banned(ban_reason);
-                        ctx.stop();
+                        act.ban_peer(ctx, ban_reason);
                     }
                     Ok(NetworkClientResponses::Block(block)) => {
                         act.send_message(PeerMessage::Block(block))
@@ -367,7 +395,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
                         error!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {}, their genesis: {}", peer_info, self.genesis, genesis);
-                    },
+                    }
                     HandshakeFailureReason::ProtocolVersionMismatch(version) => {
                         error!(target: "network", "Unable to connect to a node ({}) due to a network protocol version mismatch. Our version: {}, their: {}", peer_info, PROTOCOL_VERSION, version);
                     }
@@ -382,7 +410,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::GenesisMismatch(self.genesis))
+                            HandshakeFailureReason::GenesisMismatch(self.genesis),
+                        ),
                     });
                     return;
                     // Connection will be closed by a handshake timeout
@@ -392,7 +421,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.address().do_send(SendMessage {
                         message: PeerMessage::HandshakeFailure(
                             self.node_info.clone(),
-                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION))
+                            HandshakeFailureReason::ProtocolVersionMismatch(PROTOCOL_VERSION),
+                        ),
                     });
                 }
                 if handshake.chain_info.genesis != self.genesis {
@@ -456,6 +486,38 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Ready, PeerMessage::PeersResponse(peers)) => {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
+            }
+            (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
+                debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.account_id);
+
+                // Receive invalid routed message from peer.
+                if !routed_message.verify() {
+                    actix::spawn(
+                        self.peer_manager_addr
+                            .send(NetworkRequests::BanPeer {
+                                peer_id: self.node_info.id,
+                                ban_reason: ReasonForBan::InvalidSignature,
+                            })
+                            .map_err(|e| error!(target: "client", "{}", e))
+                            .map(|_| ()),
+                    );
+
+                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidSignature);
+                } else {
+                    self.peer_manager_addr
+                        .send(routed_message.clone())
+                        .into_actor(self)
+                        .then(move |res, act, ctx| {
+                            if res.unwrap_or(false) {
+                                act.receive_client_message(
+                                    ctx,
+                                    PeerMessage::Routed(routed_message),
+                                );
+                            }
+                            actix::fut::ok(())
+                        })
+                        .spawn(ctx);
+                }
             }
             (_, PeerStatus::Ready, msg) => {
                 self.receive_client_message(ctx, msg);

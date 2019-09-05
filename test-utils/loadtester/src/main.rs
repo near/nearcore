@@ -31,7 +31,8 @@ fn configure_logging(log_level: log::LevelFilter) {
 fn main() {
     configure_logging(log::LevelFilter::Debug);
     let genesis_config = GenesisConfig::testing_spec(400, 10);
-    let accounts: Vec<_> = genesis_config.records[0]
+    let accounts: Vec<_> = genesis_config
+        .records
         .iter()
         .filter_map(|r| match r {
             StateRecord::Account { account_id, .. } => Some(account_id.clone()),

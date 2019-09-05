@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
 };
 use near_primitives::utils::{
     create_nonce_with_nonce, key_for_pending_data_count, key_for_postponed_receipt,
@@ -58,8 +58,6 @@ pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub struct ApplyState {
     /// Previous Merkle root of the state.
     pub root: MerkleHash,
-    /// Shard index.
-    pub shard_id: ShardId,
     /// Currently building block index.
     pub block_index: BlockIndex,
     /// Hash of previous committed block.
@@ -70,7 +68,6 @@ pub struct ApplyState {
 
 pub struct ApplyResult {
     pub root: MerkleHash,
-    pub shard_id: ShardId,
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
@@ -488,7 +485,7 @@ impl Runtime {
             data
         };
 
-        // Generating receipt IDs and mapping receipts into shards
+        // Generating receipt IDs
         let transaction_new_receipt_ids = result
             .new_receipts
             .into_iter()
@@ -724,7 +721,6 @@ impl Runtime {
             root: trie_changes.new_root,
             trie_changes,
             validator_proposals,
-            shard_id: apply_state.shard_id,
             new_receipts,
             tx_result,
             largest_tx_nonce,

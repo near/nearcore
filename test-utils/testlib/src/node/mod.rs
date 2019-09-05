@@ -145,8 +145,7 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let (configs, signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
     for seed in seeds {
-        genesis_config.records[0]
-            .push(StateRecord::Contract { account_id: seed, code: code.clone() });
+        genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }
     near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
 }
