@@ -448,23 +448,24 @@ impl Runtime {
             Err(e) => {
                 state_update.rollback();
                 result.logs.push(format!("Runtime error: {}", e));
+
+                if result.burnt_gas_reward > 0 {
+                    // The transaction has failed but we still need to provide contract rewards.
+                    let mut account = get_account(state_update, account_id);
+                    // We'll only provide the contract reward to the account, if the account existed before
+                    // the execution has started.
+                    if let Some(ref mut account) = account {
+                        let burnt_gas_reward_balance =
+                            result.burnt_gas_reward as Balance * action_receipt.gas_price;
+                        account.amount += burnt_gas_reward_balance;
+                        set_account(state_update, account_id, account);
+                        state_update.commit();
+                    }
+                }
+
                 TransactionStatus::Failed
             }
         };
-
-        if result.result.is_err() && result.burnt_gas_reward > 0 {
-            // The transaction has failed but we still need to provide contract rewards.
-            let mut account = get_account(state_update, account_id);
-            // We'll only provide the contract reward to the account, if the account existed before
-            // the execution has started.
-            if let Some(ref mut account) = account {
-                let burnt_gas_reward_balance =
-                    result.burnt_gas_reward as Balance * action_receipt.gas_price;
-                account.amount += burnt_gas_reward_balance;
-                set_account(state_update, account_id, account);
-                state_update.commit();
-            }
-        }
 
         // Generating outgoing data and receipts
         let transaction_result = if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result
