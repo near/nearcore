@@ -55,8 +55,6 @@ test_cargo:
     - *install_protos
     script:
     - rustc --version && cargo --version
-    # - ./scripts/run_clippy.sh
-    # - ./scripts/build_wasm.sh
     - cargo check --all --tests --benches
     - cargo test --all --verbose
     after_script:
@@ -134,16 +132,4 @@ test_nearlib:
    - release_build
    script:
    - ./scripts/test_nearlib.sh
-   only:
-   - schedules
 
-#test_pynear:
-#    stage: libs
-#    before_script:
-#        - *install_protos
-#        - *setup_python
-#    dependencies:
-#        - release_build
-#    script:
-#    - export NEAR_DEVNET_EXE=../devnet
-#    - cd pynear && python setup.py test
