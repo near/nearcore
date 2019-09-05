@@ -287,20 +287,17 @@ impl Chain {
         // Before saving the very first block in the epoch,
         // we ensure that the block contains the correct data.
         // It is sufficient to check the correctness of tx_root, state_root
-        // and that the re-computed hash of the block matches the stated hash
-
-        // 1. Checking correctness of hash of the header
-        if block.hash() != block.header.hash {
-            return Err(ErrorKind::InvalidBlockHash.into());
-        }
-
-        // 2. Checking state_root validity
+        // of the block matches the stated hash
+        //
+        // NOTE: we don't need to re-compute hash of entire block
+        // because we always call BlockHeader::init() when we received a block
+        //
+        // 1. Checking state_root validity
         let state_root = Block::compute_state_root(&block.chunks);
         if block.header.inner.prev_state_root != state_root {
             return Err(ErrorKind::InvalidStateRoot.into());
         }
-
-        // 3. Checking tx_root validity
+        // 2. Checking tx_root validity
         let tx_root = Block::compute_tx_root(&block.transactions);
         if block.header.inner.tx_root != tx_root {
             return Err(ErrorKind::InvalidTxRoot.into());
