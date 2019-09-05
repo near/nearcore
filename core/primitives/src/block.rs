@@ -246,8 +246,6 @@ impl Block {
         max_inflation_rate: u8,
         signer: Arc<dyn Signer>,
     ) -> Self {
-        // TODO: merkelize transactions.
-        let tx_root = CryptoHash::default();
         let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
             (
                 (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
@@ -295,7 +293,7 @@ impl Block {
                 height,
                 prev.hash(),
                 Block::compute_state_root(&chunks),
-                tx_root,
+                Block::compute_tx_root(&transactions),
                 Utc::now(),
                 approval_mask,
                 approval_sigs,
@@ -313,6 +311,13 @@ impl Block {
             chunks,
             transactions,
         }
+    }
+
+    pub fn compute_tx_root(transactions: &Vec<SignedTransaction>) -> CryptoHash {
+        merklize(
+            &transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>(),
+        )
+            .0
     }
 
     pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
