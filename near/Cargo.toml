@@ -35,7 +35,6 @@ near-jsonrpc = { path = "../chain/jsonrpc" }
 near-verifier = { path = "../runtime/verifier" }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
-near-shard-tracker = { path = "../chain/shard_tracker" }
 
 [dev-dependencies]
 tempdir = "0.3"

@@ -19,6 +19,7 @@ use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
+mod shard_tracker;
 
 const STORE_PATH: &str = "data";
 

@@ -22,9 +22,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
-use near_primitives::utils::{
-    account_id_to_shard_id, prefix_for_access_key, ACCOUNT_DATA_SEPARATOR,
-};
+use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
@@ -39,7 +37,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
-use near_shard_tracker::ShardTracker;
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 

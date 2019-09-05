@@ -1,14 +1,17 @@
-use crate::error::Error;
-use near_epoch_manager::EpochManager;
-use near_primitives::hash::CryptoHash;
+use byteorder::{LittleEndian, ReadBytesExt};
+use near_epoch_manager::{EpochError, EpochManager};
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::utils::account_id_to_shard_id;
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use std::sync::{Arc, RwLock};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
-pub mod error;
+pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
+    let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
+    cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
+}
 
 /// Tracker that tracks shard ids and accounts. It maintains two items: `tracked_accounts` and
 /// `tracked_shards`. The shards that are actually tracked are the union of shards that `tracked_accounts`
@@ -76,6 +79,7 @@ impl ShardTracker {
     /// Track a list of accounts. The tracking will take effect immediately because
     /// even if we want to start tracking the accounts in the next epoch, it cannot harm
     /// us to start tracking them earlier.
+    #[allow(unused)]
     pub fn track_accounts(&mut self, account_ids: &[AccountId]) {
         for account_id in account_ids.iter() {
             self.track_account(account_id);
@@ -88,6 +92,7 @@ impl ShardTracker {
     }
 
     /// Track a list of shards. Similar to tracking accounts, the tracking starts immediately.
+    #[allow(unused)]
     pub fn track_shards(&mut self, shard_ids: &[ShardId]) {
         for shard_id in shard_ids.iter() {
             self.track_shard(*shard_id);
@@ -124,10 +129,10 @@ impl ShardTracker {
         }
     }
 
-    fn update_epoch(&mut self, block_hash: &CryptoHash) -> Result<(), Error> {
+    fn update_epoch(&mut self, block_hash: &CryptoHash) -> Result<(), EpochError> {
         let epoch_id = {
             let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-            epoch_manager.get_epoch_id(block_hash).map_err(Error::EpochManagerError)?
+            epoch_manager.get_epoch_id(block_hash)?
         };
         if self.current_epoch_id != epoch_id {
             // if epoch id has changed, we need to flush the pending removals
@@ -139,11 +144,12 @@ impl ShardTracker {
     }
 
     /// Stop tracking a list of accounts in the next epoch.
+    #[allow(unused)]
     pub fn untrack_accounts(
         &mut self,
         block_hash: &CryptoHash,
         account_ids: Vec<AccountId>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), EpochError> {
         self.update_epoch(block_hash)?;
         for account_id in account_ids {
             self.pending_untracked_accounts.insert(account_id);
@@ -152,11 +158,12 @@ impl ShardTracker {
     }
 
     /// Stop tracking a list of shards in the next epoch.
+    #[allow(unused)]
     pub fn untrack_shards(
         &mut self,
         block_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), EpochError> {
         self.update_epoch(block_hash)?;
         for shard_id in shard_ids {
             self.pending_untracked_shards.insert(shard_id);
@@ -215,12 +222,11 @@ impl ShardTracker {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ShardTracker, POISONED_LOCK_ERR};
+    use super::{account_id_to_shard_id, ShardTracker, POISONED_LOCK_ERR};
     use near_crypto::{KeyType, PublicKey};
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::{BlockIndex, EpochId, ShardId, ValidatorStake};
-    use near_primitives::utils::account_id_to_shard_id;
     use near_store::test_utils::create_test_store;
     use std::collections::HashSet;
     use std::sync::{Arc, RwLock};
