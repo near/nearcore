@@ -455,7 +455,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         //     not collect the parts currently. It will result in chunk not included
                         //     in the next block.
                         if self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                            &self.block_producer.as_ref().map(|x| x.account_id.clone()),
+                            self.block_producer.as_ref().map(|x| &x.account_id),
                             prev_block_hash,
                             one_part_msg.shard_id,
                             true,
@@ -673,12 +673,11 @@ impl ClientActor {
     }
 
     fn remove_transactions_for_block(&mut self, me: AccountId, block: &Block) {
-        let me = Some(me);
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                    &me,
+                    Some(&me),
                     block.header.inner.prev_hash,
                     shard_id,
                     true,
@@ -694,12 +693,11 @@ impl ClientActor {
     }
 
     fn reintroduce_transactions_for_block(&mut self, me: AccountId, block: &Block) {
-        let me = Some(me);
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
             let shard_id = shard_id as ShardId;
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
-                    &me,
+                    Some(&me),
                     block.header.inner.prev_hash,
                     shard_id,
                     false,
@@ -1581,8 +1579,6 @@ impl ClientActor {
                 _ => false,
             };
             if sync_state {
-                let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
-
                 let (sync_hash, mut new_shard_sync) = match &self.sync_status {
                     SyncStatus::StateSync(sync_hash, shard_sync) => {
                         let mut need_to_restart = false;
@@ -1621,10 +1617,15 @@ impl ClientActor {
                     _ => (unwrap_or_run_later!(self.find_sync_hash()), HashMap::default()),
                 };
 
+                let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
                 let shards_to_sync = (0..self.runtime_adapter.num_shards())
                     .filter(|x| {
-                        self.shards_mgr
-                            .cares_about_shard_this_or_next_epoch(&me, sync_hash, *x, true)
+                        self.shards_mgr.cares_about_shard_this_or_next_epoch(
+                            me.as_ref(),
+                            sync_hash,
+                            *x,
+                            true,
+                        )
                     })
                     .collect();
                 match unwrap_or_run_later!(self.state_sync.run(

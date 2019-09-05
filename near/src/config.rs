@@ -24,14 +24,11 @@ use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ValidatorId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
-
-use near_chain::ChainGenesis;
-use near_primitives::utils::account_id_to_shard_id;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
