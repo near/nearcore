@@ -105,7 +105,7 @@ impl External for MockedExternal {
         }
     }
 
-    fn receipt_create(
+    fn create_receipt(
         &mut self,
         receipt_indices: Vec<u64>,
         receiver_id: String,

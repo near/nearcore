@@ -96,10 +96,8 @@ wrapped_imports! {
     // #######################
     // # Promise API actions #
     // #######################
-    /*
     promise_batch_action_create_account<[promise_index: u64] -> []>,
     promise_batch_action_deploy_contract<[promise_index: u64, code_len: u64, code_ptr: u64] -> []>,
-    */
     promise_batch_action_function_call<[
         promise_index: u64,
         method_name_len: u64,
@@ -109,7 +107,6 @@ wrapped_imports! {
         amount_ptr: u64,
         gas: u64
     ] -> []>,
-    /*
     promise_batch_action_transfer<[promise_index: u64, amount_ptr: u64] -> []>,
     promise_batch_action_stake<[
         promise_index: u64,
@@ -137,14 +134,13 @@ wrapped_imports! {
     promise_batch_action_delete_key<[
         promise_index: u64,
         public_key_len: u64,
-        public_key_ptr: u64,
+        public_key_ptr: u64
     ] -> []>,
-    promise_batch_action_delete_key<[
+    promise_batch_action_delete_account<[
         promise_index: u64,
         beneficiary_id_len: u64,
-        beneficiary_id_ptr: u64,
+        beneficiary_id_ptr: u64
     ] -> []>,
-    */
     // #######################
     // # Promise API results #
     // #######################
