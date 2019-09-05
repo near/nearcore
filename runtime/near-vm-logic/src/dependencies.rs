@@ -63,11 +63,16 @@ pub trait External {
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
+    ) -> Result<ReceiptIndex>;
+
+    fn append_action_function_call(
+        &mut self,
+        receipt_index: ReceiptIndex,
         method_name: Vec<u8>,
         arguments: Vec<u8>,
         attached_deposit: Balance,
         prepaid_gas: Gas,
-    ) -> Result<ReceiptIndex>;
+    ) -> Result<()>;
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
 }

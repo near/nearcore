@@ -71,6 +71,15 @@ impl<'a> RuntimeExt<'a> {
             })
             .collect()
     }
+
+    fn append_action(&mut self, receipt_index: u64, action: Action) {
+        self.action_receipts
+            .get_mut(receipt_index as usize)
+            .expect("receipt index should be present")
+            .1
+            .actions
+            .push(action);
+    }
 }
 
 impl<'a> External for RuntimeExt<'a> {
@@ -154,10 +163,6 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         receipt_indices: Vec<u64>,
         receiver_id: String,
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        attached_deposit: u128,
-        prepaid_gas: u64,
     ) -> Result<u64, ExternalError> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
@@ -177,17 +182,32 @@ impl<'a> External for RuntimeExt<'a> {
             gas_price: self.gas_price,
             output_data_receivers: vec![],
             input_data_ids,
-            actions: vec![Action::FunctionCall(FunctionCallAction {
+            actions: vec![],
+        };
+        let new_receipt_index = self.action_receipts.len() as u64;
+        self.action_receipts.push((receiver_id, new_receipt));
+        Ok(new_receipt_index)
+    }
+
+    fn append_action_function_call(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::FunctionCall(FunctionCallAction {
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| ExternalError::InvalidMethodName)?,
                 args,
                 gas: prepaid_gas,
                 deposit: attached_deposit,
-            })],
-        };
-        let new_receipt_index = self.action_receipts.len() as u64;
-        self.action_receipts.push((receiver_id, new_receipt));
-        Ok(new_receipt_index)
+            }),
+        );
+        Ok(())
     }
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
