@@ -35,6 +35,7 @@ pub enum ExternalError {
     InvalidIteratorIndex,
     InvalidAccountId,
     InvalidMethodName,
+    StorageError,
 }
 
 pub type Result<T> = ::std::result::Result<T, ExternalError>;
@@ -80,6 +81,7 @@ impl std::fmt::Display for ExternalError {
             InvalidIteratorIndex => write!(f, "VM Logic returned an invalid iterator index"),
             InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
             InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
+            StorageError => write!(f, "Storage error"),
         }
     }
 }

@@ -17,15 +17,6 @@ impl<'a> From<&'a CryptoHash> for String {
     }
 }
 
-impl TryFrom<String> for CryptoHash {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        let bytes = from_base(&s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
-        Self::try_from(bytes)
-    }
-}
-
 impl Default for CryptoHash {
     fn default() -> Self {
         CryptoHash(Digest(Default::default()))
@@ -46,18 +37,35 @@ impl AsMut<[u8]> for CryptoHash {
 
 impl BaseDecode for CryptoHash {}
 
-impl borsh::Serializable for CryptoHash {
-    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+impl borsh::BorshSerialize for CryptoHash {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         writer.write(&(self.0).0)?;
         Ok(())
     }
 }
 
-impl borsh::Deserializable for CryptoHash {
-    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+impl borsh::BorshDeserialize for CryptoHash {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; 32];
         reader.read(&mut bytes)?;
         Ok(CryptoHash(Digest(bytes)))
+    }
+}
+
+impl TryFrom<&str> for CryptoHash {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let bytes = from_base(s).map_err::<Self::Error, _>(|e| format!("{}", e).into())?;
+        Self::try_from(bytes)
+    }
+}
+
+impl TryFrom<String> for CryptoHash {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        <Self as TryFrom<&str>>::try_from(&s.as_str())
     }
 }
 
@@ -78,7 +86,7 @@ impl TryFrom<Vec<u8>> for CryptoHash {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(v.as_ref())
+        <Self as TryFrom<&[u8]>>::try_from(v.as_ref())
     }
 }
 

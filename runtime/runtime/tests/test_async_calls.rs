@@ -31,6 +31,7 @@ pub struct StandaloneRuntime {
     runtime: Runtime,
     trie: Arc<Trie>,
     signer: InMemorySigner,
+    shard_id: u64,
 }
 
 impl StandaloneRuntime {
@@ -86,7 +87,6 @@ impl StandaloneRuntime {
         let apply_state = ApplyState {
             root: genesis_root,
             // Put each runtime into a separate shard.
-            shard_id: runtime_idx,
             block_index: 0,
             // Parent block hash is not updated, because we are not producing actual blocks.
             parent_block_hash: Default::default(),
@@ -94,14 +94,14 @@ impl StandaloneRuntime {
             epoch_length: 4,
         };
 
-        Self { ethash_dir, apply_state, runtime, trie, signer }
+        Self { ethash_dir, apply_state, runtime, trie, signer, shard_id: runtime_idx }
     }
 
     pub fn process_block(
         &mut self,
-        receipts: Vec<Vec<Receipt>>,
+        receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-    ) -> (HashMap<ShardId, Vec<Receipt>>, Vec<TransactionLog>) {
+    ) -> (Vec<Receipt>, Vec<TransactionLog>) {
         let state_update = TrieUpdate::new(self.trie.clone(), self.apply_state.root);
         let apply_result =
             self.runtime.apply(state_update, &self.apply_state, &receipts, &transactions).unwrap();
@@ -174,7 +174,7 @@ impl RuntimeGroup {
         runtime: Arc<Mutex<StandaloneRuntime>>,
     ) -> JoinHandle<()> {
         thread::spawn(move || loop {
-            let shard_id = runtime.lock().unwrap().apply_state.shard_id;
+            let shard_id = runtime.lock().unwrap().shard_id;
             println!("Shard {} started", shard_id);
             std::io::stdout().flush().ok().unwrap();
 
@@ -195,7 +195,7 @@ impl RuntimeGroup {
 
             let mailbox = mailboxes.get_mut(&shard_id).unwrap();
             let (new_receipts, transaction_results) = runtime.lock().unwrap().process_block(
-                vec![mailbox.incoming_receipts.drain(..).collect()],
+                mailbox.incoming_receipts.drain(..).collect(),
                 mailbox.incoming_transactions.drain(..).collect(),
             );
             println!(
@@ -204,10 +204,8 @@ impl RuntimeGroup {
                 shard_id
             );
             std::io::stdout().flush().ok().unwrap();
-            for (shard_id, receipts) in new_receipts {
-                let locked_other_mailbox = mailboxes.get_mut(&1).unwrap();
-                locked_other_mailbox.incoming_receipts.extend(receipts);
-            }
+            let locked_other_mailbox = mailboxes.get_mut(&1).unwrap();
+            locked_other_mailbox.incoming_receipts.extend(new_receipts);
             group.mailboxes.1.notify_all();
         })
     }
@@ -222,7 +220,7 @@ fn test_simple() {
         1,
         standalone_runtime.signer.account_id.clone(),
         standalone_runtime.signer.account_id.clone(),
-        Arc::new(standalone_runtime.signer.clone()),
+        &standalone_runtime.signer.clone(),
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),
@@ -236,9 +234,8 @@ fn test_simple() {
     let mut transactions_to_process = vec![signed_transaction];
     loop {
         let (mut new_receipts, transaction_results) =
-            standalone_runtime.process_block(vec![receipts_to_process], transactions_to_process);
-        let shard_id = standalone_runtime.apply_state.shard_id;
-        receipts_to_process = new_receipts.remove(&shard_id).unwrap_or(vec![]);
+            standalone_runtime.process_block(receipts_to_process, transactions_to_process);
+        receipts_to_process = new_receipts;
         transactions_to_process = vec![];
         println!("{:#?}", transaction_results);
         if receipts_to_process.is_empty() && transactions_to_process.is_empty() {
@@ -258,7 +255,7 @@ fn test_three_shards() {
         1,
         signer_sender.account_id.clone(),
         signer_receiver.account_id.clone(),
-        Arc::new(signer_sender),
+        &signer_sender,
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "sum_n".to_string(),
             args: 10u64.to_le_bytes().to_vec(),

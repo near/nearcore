@@ -1,14 +1,14 @@
+use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Display, Formatter};
 use std::io::{Error, ErrorKind, Read, Write};
 
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
+use rand::rngs::{OsRng, StdRng};
+use rand::SeedableRng;
 use serde_derive::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
-use rand::rngs::{OsRng, StdRng};
-use rand::SeedableRng;
-use std::cmp::Ordering;
 
 lazy_static! {
     pub static ref SECP256K1: secp256k1::Secp256k1 = secp256k1::Secp256k1::new();
@@ -137,15 +137,15 @@ impl Display for PublicKey {
     }
 }
 
-impl Serializable for PublicKey {
-    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+impl BorshSerialize for PublicKey {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             PublicKey::ED25519(public_key) => {
-                0u8.write(writer)?;
+                0u8.serialize(writer)?;
                 writer.write(&public_key.0)?;
             }
             PublicKey::SECP256K1(public_key) => {
-                1u8.write(writer)?;
+                1u8.serialize(writer)?;
                 writer.write(&public_key.0)?;
             }
         }
@@ -153,9 +153,9 @@ impl Serializable for PublicKey {
     }
 }
 
-impl Deserializable for PublicKey {
-    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::read(reader)?)
+impl BorshDeserialize for PublicKey {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(reader)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
@@ -189,7 +189,7 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         ReadablePublicKey::new(&s.as_str())
             .try_into()
             .map_err(|err: Box<std::error::Error>| serde::de::Error::custom(err.to_string()))
@@ -332,7 +332,7 @@ impl<'de> serde::Deserialize<'de> for SecretKey {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         let (key_type, key_data) =
             split_key_type_data(s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {
@@ -435,15 +435,15 @@ impl Signature {
     }
 }
 
-impl Serializable for Signature {
-    fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+impl BorshSerialize for Signature {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
             Signature::ED25519(signature) => {
-                0u8.write(writer)?;
+                0u8.serialize(writer)?;
                 writer.write(&signature.0)?;
             }
             Signature::SECP256K1(signature) => {
-                1u8.write(writer)?;
+                1u8.serialize(writer)?;
                 writer.write(&signature.0)?;
             }
         }
@@ -451,9 +451,9 @@ impl Serializable for Signature {
     }
 }
 
-impl Deserializable for Signature {
-    fn read<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let key_type = KeyType::try_from(u8::read(reader)?)
+impl BorshDeserialize for Signature {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let key_type = KeyType::try_from(u8::deserialize(reader)?)
             .map_err(|err| Error::new(ErrorKind::InvalidData, err.to_string()))?;
         match key_type {
             KeyType::ED25519 => {
@@ -497,7 +497,7 @@ impl<'de> serde::Deserialize<'de> for Signature {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
         let (key_type, key_data) =
             split_key_type_data(s).map_err(|err| serde::de::Error::custom(err.to_string()))?;
         match key_type {

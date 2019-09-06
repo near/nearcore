@@ -52,6 +52,7 @@ impl std::fmt::Display for PrepareError {
 
 #[derive(Debug, Clone, PartialEq)]
 /// Error that occurs when trying to run a method from a smart contract.
+/// TODO handling for StorageError
 pub enum VMError {
     /// Error occurs during the preparation of smart contract.
     PrepareError(String),

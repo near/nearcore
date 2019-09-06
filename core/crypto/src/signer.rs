@@ -17,6 +17,23 @@ pub trait Signer: Sync + Send {
     fn write_to_file(&self, path: &Path);
 }
 
+/// Signer that returns empty signature. Used for genesis block and testing.
+pub struct EmptySigner {}
+
+impl Signer for EmptySigner {
+    fn public_key(&self) -> PublicKey {
+        PublicKey::empty(KeyType::ED25519)
+    }
+
+    fn sign(&self, _data: &[u8]) -> Signature {
+        Signature::empty(KeyType::ED25519)
+    }
+
+    fn write_to_file(&self, _path: &Path) {
+        unimplemented!()
+    }
+}
+
 /// Signer that keeps secret key in memory.
 #[derive(Clone)]
 pub struct InMemorySigner {

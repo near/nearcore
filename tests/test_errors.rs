@@ -13,7 +13,7 @@ use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
-    let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1);
+    let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1, vec![1]);
     let mut near_config = load_test_config("alice.near", open_port(), &genesis_config);
     near_config.client_config.skip_sync_wait = true;
 
@@ -31,7 +31,7 @@ fn test_check_tx_error_log() {
         1,
         "bob.near".to_string(),
         "test.near".to_string(),
-        signer.clone(),
+        &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: 1_000 }),
@@ -60,7 +60,7 @@ fn test_deliver_tx_error_log() {
         1,
         "alice.near".to_string(),
         "test.near".to_string(),
-        signer.clone(),
+        &*signer,
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),

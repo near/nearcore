@@ -39,7 +39,7 @@ impl Generator {
             }
         };
 
-        SignedTransaction::send_money(nonce, acc_from, acc_to, signer_from.clone(), 1, block_hash)
+        SignedTransaction::send_money(nonce, acc_from, acc_to, &*signer_from, 1, block_hash)
     }
 
     /// Returns transactions that deploy test contract to an every account used by the node.
@@ -59,7 +59,7 @@ impl Generator {
                 nonce,
                 contract_id.clone(),
                 contract_id,
-                signer.clone(),
+                &*signer,
                 vec![Action::DeployContract(DeployContractAction { code: wasm_binary.to_vec() })],
                 block_hash,
             ));
@@ -86,7 +86,7 @@ impl Generator {
             nonce,
             acc_from.clone(),
             acc_from,
-            signer_from.clone(),
+            &*signer_from,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "setKeyValue".to_string(),
                 args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value)
@@ -119,7 +119,7 @@ impl Generator {
             nonce,
             acc_from.clone(),
             acc_from,
-            signer_from.clone(),
+            &*signer_from,
             vec![Action::FunctionCall(FunctionCallAction {
                 method_name: "heavy_storage_blocks".to_string(),
                 args: "{\"n\":1000}".as_bytes().to_vec(),

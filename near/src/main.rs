@@ -51,6 +51,7 @@ fn main() {
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
+            .arg(Arg::with_name("s").long("shards").takes_value(true).help("Number of shards to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("prefix").long("prefix").takes_value(true).help("Prefix the directory name for each node with (node results in node0, node1, ...) (default \"node\")"))
         )
         .subcommand(SubCommand::with_name("run").about("Runs NEAR node")
@@ -87,8 +88,12 @@ fn main() {
                 .value_of("n")
                 .map(|x| x.parse().expect("Failed to parse number of non-validators"))
                 .unwrap_or(0);
+            let num_shards = args
+                .value_of("s")
+                .map(|x| x.parse().expect("Failed to parse number of shards"))
+                .unwrap_or(0);
             let prefix = args.value_of("prefix").unwrap_or("node");
-            init_testnet_configs(home_dir, num_validators, num_non_validators, prefix);
+            init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
         }
         ("run", Some(args)) => {
             // Load configs from home.

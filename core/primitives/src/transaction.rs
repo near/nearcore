@@ -1,8 +1,7 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{PublicKey, Signature, Signer};
 
@@ -151,7 +150,7 @@ impl SignedTransaction {
         nonce: Nonce,
         signer_id: AccountId,
         receiver_id: AccountId,
-        signer: Arc<dyn Signer>,
+        signer: &dyn Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
     ) -> Self {
@@ -163,25 +162,7 @@ impl SignedTransaction {
             block_hash,
             actions,
         }
-        .sign(&*signer)
-    }
-
-    pub fn send_money(
-        nonce: Nonce,
-        signer_id: AccountId,
-        receiver_id: AccountId,
-        signer: Arc<dyn Signer>,
-        deposit: Balance,
-        block_hash: CryptoHash,
-    ) -> SignedTransaction {
-        Self::from_actions(
-            nonce,
-            signer_id,
-            receiver_id,
-            signer,
-            vec![Action::Transfer(TransferAction { deposit })],
-            block_hash,
-        )
+        .sign(signer)
     }
 }
 
@@ -233,7 +214,7 @@ impl fmt::Debug for TransactionResult {
     }
 }
 
-#[derive(PartialEq, Clone, Default, Debug)]
+#[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
 pub struct TransactionLog {
     /// Hash of a transaction or a receipt that generated this result.
     pub hash: CryptoHash,
@@ -257,7 +238,8 @@ pub fn check_tx_history(
     validity_period: BlockIndex,
 ) -> bool {
     if let Some(base_header) = base_header {
-        current_height - base_header.inner.height <= validity_period
+        current_height >= base_header.inner.height
+            && current_height - base_header.inner.height <= validity_period
     } else {
         false
     }
@@ -267,7 +249,7 @@ pub fn check_tx_history(
 mod tests {
     use std::convert::TryInto;
 
-    use borsh::Deserializable;
+    use borsh::BorshDeserialize;
 
     use near_crypto::{InMemorySigner, KeyType, ReadablePublicKey, Signature};
 

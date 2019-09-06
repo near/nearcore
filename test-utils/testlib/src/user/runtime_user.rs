@@ -71,7 +71,7 @@ impl RuntimeUser {
     pub fn apply_all(
         &self,
         apply_state: ApplyState,
-        prev_receipts: Vec<Vec<Receipt>>,
+        prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
     ) {
         let mut cur_apply_state = apply_state;
@@ -80,7 +80,7 @@ impl RuntimeUser {
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let state_update = TrieUpdate::new(client.trie.clone(), cur_apply_state.root);
-            let mut apply_result =
+            let apply_result =
                 client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
             for transaction_result in apply_result.tx_result.into_iter() {
                 self.transaction_results
@@ -94,17 +94,14 @@ impl RuntimeUser {
             }
             cur_apply_state = ApplyState {
                 root: apply_result.root,
-                shard_id: cur_apply_state.shard_id,
                 block_index: cur_apply_state.block_index,
                 parent_block_hash: cur_apply_state.parent_block_hash,
                 epoch_length: client.epoch_length,
             };
-            let new_receipts: Vec<_> =
-                apply_result.new_receipts.drain().flat_map(|(_, v)| v).collect();
-            for receipt in new_receipts.iter() {
+            for receipt in apply_result.new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
             }
-            receipts = vec![new_receipts];
+            receipts = apply_result.new_receipts;
             txs = vec![];
         }
     }
@@ -113,7 +110,6 @@ impl RuntimeUser {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
             root: client.state_root,
-            shard_id: 0,
             parent_block_hash: CryptoHash::default(),
             block_index: 0,
             epoch_length: client.epoch_length,
@@ -185,7 +181,7 @@ impl User for RuntimeUser {
     }
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
-        self.apply_all(self.apply_state(), vec![vec![receipt]], vec![]);
+        self.apply_all(self.apply_state(), vec![receipt], vec![]);
         Ok(())
     }
 

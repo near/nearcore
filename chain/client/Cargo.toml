@@ -15,8 +15,8 @@ rand = "0.6.5"
 serde_derive = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
 sysinfo = "0.9.0"
+cached = { git = "https://github.com/nearprotocol/cached", rev = "7e472eddef68607e344d5a106a0e6705d92e55be" }
 
 borsh = { git = "https://github.com/nearprotocol/borsh.git" }
 
@@ -26,4 +26,10 @@ near-store = { path = "../../core/store" }
 near-chain = { path = "../chain" }
 near-network = { path = "../network" }
 near-pool = { path = "../pool" }
+near-chunks = { path = "../chunks" }
 near-telemetry = { path = "../telemetry" }
+
+[features]
+# if enabled, we assert in most situations that are impossible unless some byzantine behavior is observed.
+byzantine_asserts = ["near-chain/byzantine_asserts"]
+expensive_tests = []
