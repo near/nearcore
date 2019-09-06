@@ -27,8 +27,8 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
+    TrieUpdate, WrappedTrieChanges,
 };
 use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
@@ -137,7 +137,7 @@ impl NightshadeRuntime {
 
         for (account_id, max_of_stakes) in stake_info {
             if self.account_id_to_shard_id(&account_id) == shard_id {
-                let account: Option<Account> = get_account(state_update, &account_id);
+                let account: Option<Account> = get_account(state_update, &account_id)?;
                 if let Some(mut account) = account {
                     if let Some(reward) = validator_reward.get(&account_id) {
                         debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.staked);
@@ -164,7 +164,7 @@ impl NightshadeRuntime {
         }
         if self.account_id_to_shard_id(&self.genesis_config.protocol_treasury_account) == shard_id {
             let mut protocol_treasury_account =
-                get_account(state_update, &self.genesis_config.protocol_treasury_account).unwrap();
+                get_account(state_update, &self.genesis_config.protocol_treasury_account)?.unwrap();
             protocol_treasury_account.amount +=
                 *validator_reward.get(&self.genesis_config.protocol_treasury_account).unwrap();
             set_account(
@@ -415,7 +415,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _shard_id: ShardId,
         state_root: MerkleHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String> {
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let verifier = TransactionVerifier::new(&state_update);
         if let Err(err) = verifier.verify_transaction(&transaction) {
@@ -494,8 +494,14 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
-                .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
+            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update).map_err(
+                |e| {
+                    if let Some(e) = e.downcast_ref::<StorageError>() {
+                        panic!(e.to_string())
+                    }
+                    Error::from(ErrorKind::ValidatorError(e.to_string()))
+                },
+            )?;
         }
 
         let apply_state = ApplyState {
@@ -508,7 +514,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_result = self
             .runtime
             .apply(state_update, &apply_state, &receipts, &transactions)
-            .map_err(|err| Error::from(ErrorKind::Other(err.to_string())))?;
+            .expect("Storage error. Corrupted db or invalid state");
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
@@ -707,14 +713,14 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    let access_key = get_access_key_raw(&state_update, &key)
+                    let access_key = get_access_key_raw(&state_update, &key)?
                         .ok_or("Missing key from iterator")?;
                     PublicKey::try_from_slice(public_key)
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 

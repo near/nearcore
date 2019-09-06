@@ -1378,7 +1378,7 @@ impl ClientActor {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => NetworkClientResponses::InvalidTx(err),
+            Err(err) => NetworkClientResponses::InvalidTx(err.to_string()),
         }
     }
 

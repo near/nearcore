@@ -107,7 +107,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: MerkleHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String>;
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>>;
 
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(

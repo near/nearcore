@@ -17,7 +17,7 @@ use near_primitives::utils::{
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
     get_access_key, get_code, remove_account, set_access_key, set_code, total_account_storage,
-    TrieUpdate,
+    StorageError, TrieUpdate,
 };
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::VMContext;
@@ -83,13 +83,10 @@ pub(crate) fn get_code_with_cache(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     account: &Account,
-) -> Result<Arc<ContractCode>, String> {
+) -> Result<Option<Arc<ContractCode>>, StorageError> {
     debug!(target:"runtime", "Calling the contract at account {}", account_id);
     let code_hash = account.code_hash;
-    let code = || {
-        get_code(state_update, account_id)
-            .ok_or_else(|| format!("cannot find contract code for account {}", account_id.clone()))
-    };
+    let code = || get_code(state_update, account_id);
     crate::cache::get_code_with_cache(code_hash, code)
 }
 
@@ -106,13 +103,17 @@ pub(crate) fn action_function_call(
     action_hash: &CryptoHash,
     config: &RuntimeConfig,
     is_last_action: bool,
-) {
+) -> Result<(), StorageError> {
     let account = account.as_mut().unwrap();
     let code = match get_code_with_cache(state_update, account_id, &account) {
-        Ok(code) => code,
+        Ok(Some(code)) => code,
+        Ok(None) => {
+            result.result =
+                Err(format!("cannot find contract code for account {}", account_id.clone()).into());
+            return Ok(());
+        }
         Err(e) => {
-            result.result = Err(e.into());
-            return;
+            return Err(e);
         }
     };
     let mut runtime_ext = RuntimeExt::new(
@@ -164,7 +165,7 @@ pub(crate) fn action_function_call(
             result.gas_burnt += outcome.burnt_gas;
             result.logs.extend(outcome.logs.into_iter());
         }
-        return;
+        return Ok(());
     }
     let outcome = outcome.unwrap();
     result.logs.extend(outcome.logs.into_iter());
@@ -174,6 +175,7 @@ pub(crate) fn action_function_call(
     result.gas_used += outcome.used_gas;
     result.result = Ok(outcome.return_data);
     result.new_receipts.append(&mut runtime_ext.into_receipts(account_id));
+    Ok(())
 }
 
 pub(crate) fn action_stake(
@@ -244,16 +246,17 @@ pub(crate) fn action_deploy_contract(
     account: &mut Option<Account>,
     account_id: &AccountId,
     deploy_contract: &DeployContractAction,
-) {
+) -> Result<(), StorageError> {
     let account = account.as_mut().unwrap();
     let code = ContractCode::new(deploy_contract.code.clone());
-    let prev_code = get_code(state_update, account_id);
+    let prev_code = get_code(state_update, account_id)?;
     let prev_code_length = prev_code.map(|code| code.code.len() as u64).unwrap_or_default();
     let storage_config = RuntimeFeesConfig::default().storage_usage_config;
     account.storage_usage -= prev_code_length * storage_config.code_cost_per_byte;
     account.storage_usage += (code.code.len() as u64) * storage_config.code_cost_per_byte;
     account.code_hash = code.get_hash();
     set_code(state_update, &account_id, &code);
+    Ok(())
 }
 
 pub(crate) fn action_delete_account(
@@ -288,16 +291,16 @@ pub(crate) fn action_delete_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_key: &DeleteKeyAction,
-) {
+) -> Result<(), StorageError> {
     let account = account.as_mut().unwrap();
-    let access_key = get_access_key(state_update, account_id, &delete_key.public_key);
+    let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if access_key.is_none() {
         result.result = Err(format!(
             "Account {:?} tries to remove an access key that doesn't exist",
             account_id
         )
         .into());
-        return;
+        return Ok(());
     }
     // Remove access key
     state_update.remove(&key_for_access_key(account_id, &delete_key.public_key));
@@ -309,6 +312,7 @@ pub(crate) fn action_delete_key(
         as u64)
         * storage_config.value_cost_per_byte;
     account.storage_usage -= storage_config.data_record_cost;
+    Ok(())
 }
 
 pub(crate) fn action_add_key(
@@ -317,15 +321,15 @@ pub(crate) fn action_add_key(
     result: &mut ActionResult,
     account_id: &AccountId,
     add_key: &AddKeyAction,
-) {
+) -> Result<(), StorageError> {
     let account = account.as_mut().unwrap();
-    if get_access_key(state_update, account_id, &add_key.public_key).is_some() {
+    if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
         result.result = Err(format!(
             "The public key {:?} is already used for an existing access key",
             &add_key.public_key
         )
         .into());
-        return;
+        return Ok(());
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
     let storage_config = RuntimeFeesConfig::default().storage_usage_config;
@@ -336,6 +340,7 @@ pub(crate) fn action_add_key(
         as u64)
         * storage_config.value_cost_per_byte;
     account.storage_usage += storage_config.data_record_cost;
+    Ok(())
 }
 
 pub(crate) fn check_actor_permissions(
