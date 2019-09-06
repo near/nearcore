@@ -237,7 +237,7 @@ impl Runtime {
         })
     }
 
-    pub fn process_transaction(
+    fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -565,7 +565,7 @@ impl Runtime {
         }
     }
 
-    pub fn process_receipt(
+    fn process_receipt(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -650,7 +650,7 @@ impl Runtime {
                 }
                 if pending_data_count == 0 {
                     // All input data is available. Executing the receipt. It will cleanup
-                    // input data from the state.
+                    // received data from the state.
                     return Some(self.apply_action_receipt(
                         state_update,
                         apply_state,
