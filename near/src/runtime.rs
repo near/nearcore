@@ -4,7 +4,7 @@ use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
-use borsh::Deserializable;
+use borsh::BorshDeserialize;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::{debug, error, info};

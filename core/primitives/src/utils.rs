@@ -1,7 +1,7 @@
 use std::convert::AsRef;
 use std::fmt;
 
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use regex::Regex;

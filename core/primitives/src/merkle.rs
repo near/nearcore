@@ -1,6 +1,6 @@
 use crate::hash::hash;
 use crate::types::MerkleHash;
-use borsh::Serializable;
+use borsh::BorshSerialize;
 
 pub type MerklePath = Vec<(MerkleHash, Direction)>;
 
@@ -17,7 +17,7 @@ fn combine_hash(hash1: MerkleHash, hash2: MerkleHash) -> MerkleHash {
 }
 
 /// Merklize an array of items. If the array is empty, returns hash of 0
-pub fn merklize<T: Serializable>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
+pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
     if arr.is_empty() {
         return (MerkleHash::default(), vec![]);
     }
@@ -75,7 +75,7 @@ pub fn merklize<T: Serializable>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
 }
 
 /// Verify merkle path for given item and corresponding path.
-pub fn verify_path<T: Serializable>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
+pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item: &T) -> bool {
     let mut hash = hash(&item.try_to_vec().expect("Failed to serialize"));
     for (h, d) in path {
         match d {

@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use futures::Future;
 use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;

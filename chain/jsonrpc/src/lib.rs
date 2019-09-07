@@ -6,7 +6,7 @@ use std::time::Duration;
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
 use actix_web::{App, Error as HttpError, http, HttpResponse, HttpServer, middleware, web};
-use borsh::Deserializable;
+use borsh::BorshDeserialize;
 use futures03::{compat::Future01CompatExt as _, FutureExt as _, TryFutureExt as _};
 use futures::future::Future;
 use serde::de::DeserializeOwned;

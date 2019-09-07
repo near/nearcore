@@ -2,7 +2,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use near_crypto::{PublicKey, Signature, Signer};
 
@@ -267,7 +267,7 @@ pub fn check_tx_history(
 mod tests {
     use std::convert::TryInto;
 
-    use borsh::Deserializable;
+    use borsh::BorshDeserialize;
 
     use near_crypto::{InMemorySigner, KeyType, ReadablePublicKey, Signature};
 

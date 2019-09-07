@@ -117,7 +117,7 @@ impl TryFrom<&str> for PublicKey {
     }
 }
 
-impl borsh::Serializable for PublicKey {
+impl borsh::BorshSerialize for PublicKey {
     fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         // TODO: support other curves here.
         writer.write(&vec![0])?;
@@ -126,7 +126,7 @@ impl borsh::Serializable for PublicKey {
     }
 }
 
-impl borsh::Deserializable for PublicKey {
+impl borsh::BorshDeserialize for PublicKey {
     fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::PUBLICKEYBYTES + 1];
         reader.read(&mut bytes)?;
@@ -214,7 +214,7 @@ impl TryFrom<&str> for Signature {
     }
 }
 
-impl borsh::Serializable for Signature {
+impl borsh::BorshSerialize for Signature {
     fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         // TODO: add crypto curve.
         writer.write(&vec![0])?;
@@ -223,7 +223,7 @@ impl borsh::Serializable for Signature {
     }
 }
 
-impl borsh::Deserializable for Signature {
+impl borsh::BorshDeserialize for Signature {
     fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         // TODO: add crypto curve.
         let mut bytes = [0; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES + 1];

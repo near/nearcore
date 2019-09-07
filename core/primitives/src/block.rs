@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::prelude::{DateTime, Utc};
 
 use near_crypto::{KeyType, PublicKey, Signature, Signer};

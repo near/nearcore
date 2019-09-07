@@ -83,7 +83,7 @@ pub struct FunctionCallPermission {
 
 #[cfg(test)]
 mod tests {
-    use borsh::Serializable;
+    use borsh::BorshSerialize;
 
     use crate::hash::hash;
     use crate::serialize::to_base;

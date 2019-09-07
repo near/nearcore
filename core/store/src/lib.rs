@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::{fmt, io};
 
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction, KeyValueDB};
@@ -55,7 +55,7 @@ impl Store {
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
-    pub fn get_ser<T: Deserializable>(
+    pub fn get_ser<T: BorshDeserialize>(
         &self,
         column: Option<u32>,
         key: &[u8],
@@ -109,7 +109,7 @@ impl StoreUpdate {
         self.transaction.put(column, key, value)
     }
 
-    pub fn set_ser<T: Serializable>(
+    pub fn set_ser<T: BorshSerialize>(
         &mut self,
         column: Option<u32>,
         key: &[u8],
@@ -167,7 +167,7 @@ impl fmt::Debug for StoreUpdate {
     }
 }
 
-pub fn read_with_cache<'a, T: Deserializable + 'a>(
+pub fn read_with_cache<'a, T: BorshDeserialize + 'a>(
     storage: &Store,
     col: Option<u32>,
     cache: &'a mut SizedCache<Vec<u8>, T>,
@@ -191,12 +191,12 @@ pub fn create_store(path: &str) -> Arc<Store> {
 }
 
 /// Reads an object from Trie.
-pub fn get<T: Deserializable>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
+pub fn get<T: BorshDeserialize>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
     state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
 }
 
 /// Writes an object into Trie.
-pub fn set<T: Serializable>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
+pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: Vec<u8>, value: &T) {
     value
         .try_to_vec()
         .ok()
