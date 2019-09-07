@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use actix::System;
-use clap::{crate_version, App, Arg, SubCommand};
+use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 use log::{info, LevelFilter};
 
 use git_version::git_version;
@@ -33,7 +33,9 @@ fn main() {
     let default_home = get_default_home();
     let version =
         Version { version: crate_version!().to_string(), build: git_version!().to_string() };
-    let matches = App::new("NEAR Protocol Node").version(format!("{} (build {})", version.version, version.build).as_str())
+    let matches = App::new("NEAR Protocol Node")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .version(format!("{} (build {})", version.version, version.build).as_str())
         .arg(Arg::with_name("verbose").long("verbose").help("Verbose logging").takes_value(false))
         .arg(
             Arg::with_name("home")
