@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
-use borsh::Deserializable;
+use borsh::BorshDeserialize;
 use clap::{App, Arg, SubCommand};
 
 use ansi_term::Color::Red;

@@ -2,7 +2,7 @@ use std::collections::{hash_map::Iter, HashMap, HashSet};
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use chrono::Utc;
 use log::debug;
 use rand::seq::SliceRandom;

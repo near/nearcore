@@ -11,7 +11,7 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use futures::Future;
 use log::{debug, error, info, warn};

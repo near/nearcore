@@ -1,7 +1,7 @@
 use crate::config::RuntimeConfig;
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
-use borsh::ser::Serializable;
+use borsh::ser::BorshSerialize;
 use near_primitives::account::Account;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::CryptoHash;

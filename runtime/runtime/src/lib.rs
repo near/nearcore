@@ -7,7 +7,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
-use borsh::ser::Serializable;
+use borsh::ser::BorshSerialize;
 use kvdb::DBValue;
 
 use near_crypto::{PublicKey, ReadablePublicKey};

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bencher::Bencher;
-use borsh::{Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};

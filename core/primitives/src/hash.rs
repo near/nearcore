@@ -46,15 +46,15 @@ impl AsMut<[u8]> for CryptoHash {
 
 impl BaseDecode for CryptoHash {}
 
-impl borsh::Serializable for CryptoHash {
-    fn write<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+impl borsh::BorshSerialize for CryptoHash {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
         writer.write(&(self.0).0)?;
         Ok(())
     }
 }
 
-impl borsh::Deserializable for CryptoHash {
-    fn read<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+impl borsh::BorshDeserialize for CryptoHash {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
         let mut bytes = [0; 32];
         reader.read(&mut bytes)?;
         Ok(CryptoHash(Digest(bytes)))

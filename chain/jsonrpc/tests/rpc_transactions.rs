@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use actix::{Actor, System};
-use borsh::Serializable;
+use borsh::BorshSerialize;
 use futures::future::Future;
 
 use futures::future;

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
-use borsh::{BorshDeserialize, BorshSerialize, Deserializable, Serializable};
+use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
