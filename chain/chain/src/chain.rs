@@ -241,7 +241,13 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit),
+                            ChunkExtra::new(
+                                state_root,
+                                vec![],
+                                0,
+                                chain_genesis.gas_limit,
+                                genesis.header.inner.gas_price,
+                            ),
                         );
                     }
 
@@ -1298,6 +1304,7 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.gas_used,
                             gas_limit,
+                            block.header.inner.gas_price,
                         ),
                     );
                     // Save resulting receipts.

@@ -944,7 +944,19 @@ impl ClientActor {
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
-        debug!("Creating a chunk with {} transactions for shard {}", transactions.len(), shard_id);
+        let transactions_len = transactions.len();
+        let filtered_transactions = self.runtime_adapter.filter_transactions(
+            next_height,
+            chunk_extra.gas_price,
+            chunk_extra.state_root,
+            transactions,
+        );
+        debug!(
+            "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
+            filtered_transactions.len(),
+            transactions_len,
+            shard_id
+        );
 
         let ReceiptResponse(_, receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
@@ -977,7 +989,7 @@ impl ClientActor {
                 chunk_extra.gas_used,
                 chunk_extra.gas_limit,
                 chunk_extra.validator_proposals.clone(),
-                &transactions,
+                &filtered_transactions,
                 &receipts,
                 receipts_root,
                 block_producer.signer.clone(),
@@ -991,7 +1003,7 @@ impl ClientActor {
             "Produced chunk at height {} for shard {} with {} txs and {} receipts, I'm {}, chunk_hash: {}",
             next_height,
             shard_id,
-            transactions.len(),
+            filtered_transactions.len(),
             receipts.len(),
             block_producer.account_id,
             encoded_chunk.chunk_hash().0,
@@ -1331,13 +1343,17 @@ impl ClientActor {
                 "Transaction has either expired or from a different fork".to_string(),
             );
         }
-        let state_root = unwrap_or_return!(
+        let chunk_extra = unwrap_or_return!(
             self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
             NetworkClientResponses::NoResponse
-        )
-        .state_root
-        .clone();
-        match self.runtime_adapter.validate_tx(shard_id, state_root, tx) {
+        );
+
+        match self.runtime_adapter.validate_tx(
+            head.height + 1,
+            chunk_extra.gas_price,
+            chunk_extra.state_root.clone(),
+            tx,
+        ) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);

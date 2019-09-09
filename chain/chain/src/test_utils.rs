@@ -389,10 +389,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
+    fn filter_transactions(
+        &self,
+        _block_index: u64,
+        _gas_price: u128,
+        _state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        transactions
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        _state_root: MerkleHash,
+        _block_index: BlockIndex,
+        _gas_price: Balance,
+        _state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         Ok(ValidTransaction { transaction })

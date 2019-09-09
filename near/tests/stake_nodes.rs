@@ -17,7 +17,6 @@ use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{QueryResponse, ValidatorInfo};
-use testlib::fees_utils::stake_cost;
 use testlib::genesis_hash;
 
 #[derive(Clone)]
@@ -283,7 +282,6 @@ fn test_validator_join() {
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
-        let stake_cost = stake_cost();
 
         let stake_transaction = SignedTransaction::stake(
             1,
@@ -331,9 +329,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.staked == 0
-                                            && result.amount == TESTING_INIT_BALANCE - stake_cost
-                                        {
+                                        if result.staked == 0 {
                                             done1_copy2.store(true, Ordering::SeqCst);
                                         }
                                         futures::future::ok(())
@@ -350,12 +346,7 @@ fn test_validator_join() {
                                 })
                                 .then(move |res| match res.unwrap().unwrap() {
                                     QueryResponse::ViewAccount(result) => {
-                                        if result.staked == TESTING_INIT_STAKE
-                                            && result.amount
-                                                == TESTING_INIT_BALANCE
-                                                    - TESTING_INIT_STAKE
-                                                    - stake_cost
-                                        {
+                                        if result.staked == TESTING_INIT_STAKE {
                                             done2_copy2.store(true, Ordering::SeqCst);
                                         }
 

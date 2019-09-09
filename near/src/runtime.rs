@@ -30,7 +30,6 @@ use near_store::{
     get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
     TrieUpdate, WrappedTrieChanges,
 };
-use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -412,17 +411,44 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let verifier = TransactionVerifier::new(&state_update);
-        if let Err(err) = verifier.verify_transaction(&transaction) {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+
+        if let Err(err) = self.runtime.verify_and_charge_transaction(
+            &mut state_update,
+            &apply_state,
+            &transaction,
+        ) {
             debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
             return Err(err);
         }
         Ok(ValidTransaction { transaction })
+    }
+
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        transactions
+            .into_iter()
+            .filter(|transaction| {
+                self.runtime
+                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
+                    .is_ok()
+            })
+            .collect()
     }
 
     fn add_validator_proposals(
@@ -505,10 +531,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
 
         let apply_state = ApplyState {
-            root: *state_root,
             block_index,
-            parent_block_hash: *prev_block_hash,
             epoch_length: self.genesis_config.epoch_length,
+            gas_price: 1,
         };
 
         let apply_result = self
