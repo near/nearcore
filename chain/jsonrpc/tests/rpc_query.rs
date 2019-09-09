@@ -16,7 +16,18 @@ fn test_block() {
 
         let mut client = new_client(&format!("http://{}", addr));
         actix::spawn(client.block(0).then(|res| {
-            assert_eq!(res.unwrap().header.height, 0);
+            let res = res.unwrap();
+            assert_eq!(res.header.height, 0);
+            assert_eq!(res.header.epoch_hash.0, &[0; 32]);
+            assert_eq!(res.header.hash.0.len(), 32);
+            assert_eq!(res.header.prev_hash.0, &[0; 32]);
+            assert_eq!(res.header.prev_state_root.0, &[0; 32]);
+            assert_eq!(res.header.tx_root.0, &[0; 32]);
+            assert!(res.header.timestamp > 0);
+            assert_eq!(res.header.approval_mask.len(), 0);
+            assert_eq!(res.header.approval_sigs.len(), 0);
+            assert_eq!(res.header.total_weight, 0);
+            assert_eq!(res.header.validator_proposals.len(), 0);
             System::current().stop();
             future::result(Ok(()))
         }));
