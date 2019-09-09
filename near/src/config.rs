@@ -587,6 +587,7 @@ pub fn init_configs(
     chain_id: Option<&str>,
     account_id: Option<&str>,
     test_seed: Option<&str>,
+    num_shards: ShardId,
     fast: bool,
 ) {
     fs::create_dir_all(dir).expect("Failed to create directory");
@@ -653,22 +654,23 @@ pub fn init_configs(
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
-            let records = state_records_account_with_key(
+            let mut records = state_records_account_with_key(
                 &account_id,
                 &signer.public_key,
                 TESTING_INIT_BALANCE,
                 TESTING_INIT_STAKE,
                 CryptoHash::default(),
             );
+            add_protocol_account(&mut records);
             let total_supply = get_initial_supply(&records);
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
                 genesis_time: Utc::now(),
                 chain_id,
-                num_block_producers: 1,
-                block_producers_per_shard: vec![1],
-                avg_fisherman_per_shard: vec![0],
+                num_block_producers: 50,
+                block_producers_per_shard: (0..num_shards).map(|_| 50).collect(),
+                avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
                 epoch_length: if fast { FAST_EPOCH_LENGTH } else { EXPECTED_EPOCH_LENGTH },
                 gas_limit: INITIAL_GAS_LIMIT,
@@ -711,59 +713,11 @@ pub fn create_testnet_configs_from_seeds(
         .iter()
         .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
         .collect::<Vec<_>>();
-    let mut records = vec![];
-    for (i, seed) in seeds.iter().enumerate() {
-        records.extend(
-            state_records_account_with_key(
-                seed,
-                &signers[i].public_key,
-                TESTING_INIT_BALANCE,
-                TESTING_INIT_STAKE,
-                CryptoHash::default(),
-            )
-            .into_iter(),
-        );
-    }
-    let validators = seeds
-        .iter()
-        .enumerate()
-        .take(seeds.len() - num_non_validators)
-        .map(|(i, seed)| AccountInfo {
-            account_id: seed.to_string(),
-            public_key: signers[i].public_key.into(),
-            amount: TESTING_INIT_STAKE,
-        })
-        .collect::<Vec<_>>();
-
-    add_protocol_account(&mut records);
-    let total_supply = get_initial_supply(&records);
-
-    let genesis_config = GenesisConfig {
-        protocol_version: PROTOCOL_VERSION,
-        genesis_time: Utc::now(),
-        chain_id: random_chain_id(),
-        num_block_producers: num_validators,
-        block_producers_per_shard: (0..num_shards)
-            .map(|_| std::cmp::max(1, num_validators / num_shards))
-            .collect(),
-        avg_fisherman_per_shard: (0..num_shards).map(|_| 0).collect(),
-        dynamic_resharding: false,
-        epoch_length: FAST_EPOCH_LENGTH,
-        gas_limit: INITIAL_GAS_LIMIT,
-        gas_price: INITIAL_GAS_PRICE,
-        gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-        validator_kickout_threshold: VALIDATOR_KICKOUT_THRESHOLD,
-        runtime_config: Default::default(),
-        validators,
-        records,
-        transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-        developer_reward_percentage: DEVELOPER_PERCENT,
-        protocol_reward_percentage: PROTOCOL_PERCENT,
-        max_inflation_rate: MAX_INFLATION_RATE,
-        total_supply,
-        num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-        protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.to_string(),
-    };
+    let genesis_config = GenesisConfig::test_sharded(
+        seeds.iter().map(|s| s.as_str()).collect(),
+        seeds.len() - num_non_validators,
+        (0..num_shards).map(|_| std::cmp::max(1, num_validators / num_shards)).collect(),
+    );
     let mut configs = vec![];
     let first_node_port = open_port();
     for i in 0..seeds.len() {

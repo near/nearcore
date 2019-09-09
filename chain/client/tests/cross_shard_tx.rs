@@ -79,14 +79,16 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
-    use near_primitives::rpc::QueryResponse;
-    use near_primitives::rpc::QueryResponse::ViewAccount;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
+    use near_primitives::views::QueryResponse;
+    use near_primitives::views::QueryResponse::ViewAccount;
 
     fn send_tx(
         num_validators: usize,
@@ -96,16 +98,24 @@ mod tests {
         to: AccountId,
         amount: u128,
         nonce: u64,
+        block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
+        let signer = InMemorySigner::from_seed(
+            &format!("test{}", connector_ordinal),
+            KeyType::ED25519,
+            &format!("test{}", connector_ordinal),
+        );
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::create_payment_tx(
+                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
+                    nonce,
                     from.clone(),
                     to.clone(),
+                    &signer,
                     amount,
-                    nonce,
+                    block_hash,
                 )))
                 .then(move |x| {
                     match x.unwrap() {
@@ -119,6 +129,7 @@ mod tests {
                                 to,
                                 amount,
                                 nonce,
+                                block_hash,
                             );
                         }
                         NetworkClientResponses::ValidTx => {
@@ -147,6 +158,7 @@ mod tests {
         observed_balances: Arc<RwLock<Vec<u128>>>,
         presumable_epoch: Arc<RwLock<usize>>,
         num_iters: usize,
+        block_hash: CryptoHash,
     ) {
         let res = res.unwrap();
 
@@ -184,6 +196,7 @@ mod tests {
                                 observed_balances1,
                                 presumable_epoch1,
                                 num_iters,
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -195,13 +208,11 @@ mod tests {
         if let ViewAccount(view_account_result) = query_response {
             let mut expected = 0;
             for i in 0..8 {
-                if validators[i] == view_account_result.account_id {
+                if validators[i] == account_id {
                     expected = balances.read().unwrap()[i];
                     observed_balances.write().unwrap()[i] = view_account_result.amount;
                 }
             }
-
-            assert_eq!(account_id, view_account_result.account_id);
 
             if view_account_result.amount == expected {
                 let mut successful_queries_local = successful_queries.write().unwrap();
@@ -229,6 +240,7 @@ mod tests {
                         validators[to].to_string(),
                         amount,
                         next_nonce as u64,
+                        block_hash,
                     );
 
                     let connectors_ = connectors.write().unwrap();
@@ -275,6 +287,7 @@ mod tests {
                                         observed_balances1,
                                         presumable_epoch1,
                                         num_iters,
+                                        block_hash,
                                     );
                                     future::result(Ok(()))
                                 }),
@@ -320,6 +333,7 @@ mod tests {
                                 observed_balances,
                                 presumable_epoch1,
                                 num_iters,
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -419,6 +433,7 @@ mod tests {
                                 observed_balances1,
                                 presumable_epoch1,
                                 num_iters,
+                                CryptoHash::default(),
                             );
                             future::result(Ok(()))
                         }),
