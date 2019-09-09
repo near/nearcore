@@ -31,7 +31,7 @@ use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000;
