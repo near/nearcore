@@ -26,7 +26,7 @@ impl RewardCalculator {
         let max_inflation =
             self.max_inflation_rate as u128 * total_supply * self.epoch_length as u128
                 / (100 * self.num_blocks_per_year as u128);
-        // TODO: correctly calculate total fees
+        // TODO(#1281): correctly calculate total fees
         let total_tx_fee = gas_price * total_gas_used as u128;
         let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
         let epoch_total_reward =
