@@ -18,11 +18,11 @@ fn test_block() {
         actix::spawn(client.block(0).then(|res| {
             let res = res.unwrap();
             assert_eq!(res.header.height, 0);
-            assert!(res.header.epoch_hash.0.len() > 0);
-            assert!(res.header.hash.0.len() > 0);
-            assert!(res.header.prev_hash.0.len() > 0);
-            assert!(res.header.prev_state_root.0.len() > 0);
-            assert!(res.header.tx_root.0.len() > 0);
+            assert_eq!(res.header.epoch_hash.0, &[0; 32]);
+            assert_eq!(res.header.hash.0.len(), 32);
+            assert_eq!(res.header.prev_hash.0, &[0; 32]);
+            assert_eq!(res.header.prev_state_root.0, &[0; 32]);
+            assert_eq!(res.header.tx_root.0, &[0; 32]);
             assert!(res.header.timestamp > 0);
             assert_eq!(res.header.approval_mask.len(), 0);
             assert_eq!(res.header.approval_sigs.len(), 0);
