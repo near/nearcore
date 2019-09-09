@@ -25,7 +25,7 @@ use near_primitives::utils::{from_timestamp, to_timestamp};
 use crate::peer::Peer;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
