@@ -467,7 +467,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             })
                             .unwrap_or(false)
                         {
-                            self.shards_mgr.request_chunks(vec![one_part_msg.header]);
+                            self.shards_mgr.request_chunks(vec![one_part_msg.header]).unwrap();
                         } else {
                             // We are getting here either because we don't care about the shard, or
                             //    because we see the one part before we see the block.
@@ -1134,7 +1134,7 @@ impl ClientActor {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks);
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
     }
 
@@ -1169,7 +1169,7 @@ impl ClientActor {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks);
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
         result.map(|_| ())
     }
@@ -1217,7 +1217,7 @@ impl ClientActor {
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.shards_mgr.request_chunks(missing_chunks);
+                    self.shards_mgr.request_chunks(missing_chunks).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1497,7 +1497,7 @@ impl ClientActor {
                         self.on_block_accepted(ctx, hash, status, provenance);
                     }
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks);
+                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
                     }
                 }
             }
@@ -1675,7 +1675,7 @@ impl ClientActor {
                             self.on_block_accepted(ctx, hash, status, provenance);
                         }
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.shards_mgr.request_chunks(missing_chunks);
+                            self.shards_mgr.request_chunks(missing_chunks).unwrap();
                         }
 
                         self.sync_status =

@@ -91,7 +91,7 @@ fn main() {
             let num_shards = args
                 .value_of("s")
                 .map(|x| x.parse().expect("Failed to parse number of shards"))
-                .unwrap_or(0);
+                .unwrap_or(1);
             let prefix = args.value_of("prefix").unwrap_or("node");
             init_testnet_configs(home_dir, num_shards, num_validators, num_non_validators, prefix);
         }

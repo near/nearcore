@@ -17,7 +17,7 @@ pub struct RuntimeNode {
 impl RuntimeNode {
     pub fn new(account_id: &AccountId) -> Self {
         let genesis_config =
-            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
         Self::new_from_genesis(account_id, genesis_config)
     }
 

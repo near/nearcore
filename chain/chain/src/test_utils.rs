@@ -687,8 +687,8 @@ pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..6].to_string()
 }
 
-// Displays chain from given store.
-pub fn display_chain(chain: &mut Chain) {
+/// Displays chain from given store.
+pub fn display_chain(chain: &mut Chain, tail: bool) {
     let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
@@ -699,7 +699,9 @@ pub fn display_chain(chain: &mut Chain) {
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
             .clone();
-        headers.push(header);
+        if !tail || header.inner.height + 10 > head.height {
+            headers.push(header);
+        }
     }
     headers.sort_by(|h_left, h_right| {
         if h_left.inner.height > h_right.inner.height {

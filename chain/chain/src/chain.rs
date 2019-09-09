@@ -327,8 +327,6 @@ impl Chain {
             {
                 return Ok(Some(new_res));
             }
-        } else {
-            crate::test_utils::display_chain(self);
         }
         res
     }
