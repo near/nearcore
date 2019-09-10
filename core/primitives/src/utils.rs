@@ -129,16 +129,14 @@ pub fn system_account() -> AccountId {
 pub fn is_valid_account_id(account_id: &AccountId) -> bool {
     account_id.len() >= MIN_ACCOUNT_ID_LEN
         && account_id.len() <= MAX_ACCOUNT_ID_LEN
-        && Regex::new(r"^(([a-z\d]+[\-_])*[a-z\d]+[\.@])*([a-z\d]+[\-_])*[a-z\d]+$")
-            .unwrap()
-            .is_match(account_id)
+        && VALID_ACCOUNT_ID.is_match(account_id)
 }
 
 pub fn is_valid_top_level_account_id(account_id: &AccountId) -> bool {
     account_id.len() >= MIN_ACCOUNT_ID_LEN
         && account_id.len() <= MAX_ACCOUNT_ID_LEN
         && account_id != &system_account()
-        && Regex::new(r"^([a-z\d]+[\-_])*[a-z\d]+$").unwrap().is_match(account_id)
+        && VALID_TOP_LEVEL_ACCOUNT_ID.is_match(account_id)
 }
 
 /// Returns true if the signer_id can create a direct sub-account with the given account Id.
