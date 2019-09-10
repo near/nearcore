@@ -84,3 +84,37 @@ pub fn test_read_write() {
         run(vec![], &code, b"read_value", &mut fake_external, context, &config, &promise_results);
     assert_run_result(result, 20);
 }
+
+fn run_test_ext(method: &[u8], expected: &[u8]) {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/res/test_contract_rs.wasm");
+    let code = fs::read(path).unwrap();
+    let mut fake_external = MockedExternal::new();
+    let config = Config::default();
+    let context = create_context(&[]);
+
+    let (outcome, err) =
+        run(vec![], &code, &method, &mut fake_external, context, &config, &[]);
+
+    if let Some(_) = err {
+        panic!("Failed execution: {:?}", err);
+    }
+
+    if let Some(VMOutcome { return_data, .. }) = outcome {
+        if let ReturnData::Value(value) = return_data {
+            assert_eq!(&value, &expected);
+        } else {
+            panic!("Value was not returned");
+        }
+    } else {
+        panic!("Failed execution");
+    }
+}
+
+#[test]
+pub fn test_externals() {
+    run_test_ext(b"ext_account_id", CURRENT_ACCOUNT_ID.as_bytes());
+    run_test_ext(b"ext_signer_id", SIGNER_ACCOUNT_ID.as_bytes());
+    run_test_ext(b"ext_predecessor_account_id", PREDECESSOR_ACCOUNT_ID.as_bytes());
+    run_test_ext(b"ext_signer_pk", &SIGNER_ACCOUNT_PK);
+}

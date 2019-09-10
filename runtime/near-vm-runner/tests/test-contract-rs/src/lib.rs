@@ -87,116 +87,140 @@ extern "C" {
 }
 
 #[no_mangle]
-pub fn write_key_value() {
-    unsafe {
-        input(0);
-        if register_len(0) != 2 * size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; 2 * size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
+pub unsafe fn ext_predecessor_account_id() {
+    predecessor_account_id(0);
+    let data = vec![0; register_len(0) as usize];
+    read_register(0, data.as_ptr() as *const u64 as u64);
 
-        let key = &data[0..size_of::<u64>()];
-        let value = &data[size_of::<u64>()..];
-        let result = storage_write(
-            key.len() as u64,
-            key.as_ptr() as u64,
-            value.len() as u64,
-            value.as_ptr() as u64,
-            1,
-        );
-        value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
+    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_signer_pk() {
+    signer_account_pk(0);
+    let data = vec![0; register_len(0) as usize];
+    read_register(0, data.as_ptr() as *const u64 as u64);
+
+    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_signer_id() {
+    signer_account_id(0);
+    let data = vec![0; register_len(0) as usize];
+    read_register(0, data.as_ptr() as *const u64 as u64);
+
+    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn ext_account_id() {
+    current_account_id(0);
+    let data = vec![0; register_len(0) as usize];
+    read_register(0, data.as_ptr() as *const u64 as u64);
+
+    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn write_key_value() {
+    input(0);
+    if register_len(0) != 2 * size_of::<u64>() as u64 {
+        panic()
+    }
+    let data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+
+    let key = &data[0..size_of::<u64>()];
+    let value = &data[size_of::<u64>()..];
+    let result = storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        value.len() as u64,
+        value.as_ptr() as u64,
+        1,
+    );
+    value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
+}
+
+#[no_mangle]
+pub unsafe fn read_value() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
+    }
+    let key = [0u8; size_of::<u64>()];
+    read_register(0, key.as_ptr() as u64);
+    let result = storage_read(key.len() as u64, key.as_ptr() as u64, 1);
+    if result == 1 {
+        let value = [0u8; size_of::<u64>()];
+        read_register(1, value.as_ptr() as u64);
+        value_return(value.len() as u64, &value as *const u8 as u64);
     }
 }
 
 #[no_mangle]
-pub fn read_value() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let key = [0u8; size_of::<u64>()];
-        read_register(0, key.as_ptr() as u64);
-        let result = storage_read(key.len() as u64, key.as_ptr() as u64, 1);
-        if result == 1 {
-            let value = [0u8; size_of::<u64>()];
-            read_register(1, value.as_ptr() as u64);
-            value_return(value.len() as u64, &value as *const u8 as u64);
-        }
-    }
+pub unsafe fn log_something() {
+    let data = b"hello";
+    log_utf8(data.len() as u64, data.as_ptr() as _);
 }
 
 #[no_mangle]
-pub fn log_something() {
-    unsafe {
-        let data = b"hello";
-        log_utf8(data.len() as u64, data.as_ptr() as _);
-    }
+pub unsafe fn run_test() {
+    let value: [u8; 4] = 10i32.to_le_bytes();
+    value_return(value.len() as u64, value.as_ptr() as _);
 }
 
 #[no_mangle]
-pub fn run_test() {
-    unsafe {
-        let value: [u8; 4] = 10i32.to_le_bytes();
-        value_return(value.len() as u64, value.as_ptr() as _);
+pub unsafe fn sum_with_input() {
+    input(0);
+    if register_len(0) != 2 * size_of::<u64>() as u64 {
+        panic()
     }
-}
+    let data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
 
-#[no_mangle]
-pub fn sum_with_input() {
-    unsafe {
-        input(0);
-        if register_len(0) != 2 * size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; 2 * size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-
-        let mut key = [0u8; size_of::<u64>()];
-        let mut value = [0u8; size_of::<u64>()];
-        key.copy_from_slice(&data[..size_of::<u64>()]);
-        value.copy_from_slice(&data[size_of::<u64>()..]);
-        let key = u64::from_le_bytes(key);
-        let value = u64::from_le_bytes(value);
-        let result = key + value;
-        value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
-    }
+    let mut key = [0u8; size_of::<u64>()];
+    let mut value = [0u8; size_of::<u64>()];
+    key.copy_from_slice(&data[..size_of::<u64>()]);
+    value.copy_from_slice(&data[size_of::<u64>()..]);
+    let key = u64::from_le_bytes(key);
+    let value = u64::from_le_bytes(value);
+    let result = key + value;
+    value_return(size_of::<u64>() as u64, &result as *const u64 as u64);
 }
 
 /// Writes and reads some data into/from storage. Uses 8-bit key/values.
 #[no_mangle]
-pub fn benchmark_storage_8b() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        let n: u64 = u64::from_le_bytes(data);
-
-        let mut sum = 0u64;
-        for i in 0..n {
-            let el = i.to_le_bytes();
-            storage_write(
-                el.len() as u64,
-                el.as_ptr() as u64,
-                el.len() as u64,
-                el.as_ptr() as u64,
-                0,
-            );
-
-            let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
-            if result == 1 {
-                let value = [0u8; size_of::<u64>()];
-                read_register(0, value.as_ptr() as u64);
-                sum += u64::from_le_bytes(value);
-            }
-        }
-
-        value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
+pub unsafe fn benchmark_storage_8b() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
     }
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let n: u64 = u64::from_le_bytes(data);
+
+    let mut sum = 0u64;
+    for i in 0..n {
+        let el = i.to_le_bytes();
+        storage_write(
+            el.len() as u64,
+            el.as_ptr() as u64,
+            el.len() as u64,
+            el.as_ptr() as u64,
+            0,
+        );
+
+        let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
+        if result == 1 {
+            let value = [0u8; size_of::<u64>()];
+            read_register(0, value.as_ptr() as u64);
+            sum += u64::from_le_bytes(value);
+        }
+    }
+
+    value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
 }
 
 #[inline]
@@ -208,151 +232,139 @@ fn generate_data(data: &mut [u8]) {
 
 /// Writes and reads some data into/from storage. Uses 10KiB key/values.
 #[no_mangle]
-pub fn benchmark_storage_10kib() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        let n: u64 = u64::from_le_bytes(data);
-
-        let mut el = [0u8; 10 << 10];
-        generate_data(&mut el);
-
-        let mut sum = 0u64;
-        for i in 0..n {
-            el[..size_of::<u64>()].copy_from_slice(&i.to_le_bytes());
-            storage_write(
-                el.len() as u64,
-                el.as_ptr() as u64,
-                el.len() as u64,
-                el.as_ptr() as u64,
-                0,
-            );
-
-            let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
-            if result == 1 {
-                let el = [0u8; 10 << 10];
-                read_register(0, el.as_ptr() as u64);
-                let mut value = [0u8; size_of::<u64>()];
-                value.copy_from_slice(&el[0..size_of::<u64>()]);
-                sum += u64::from_le_bytes(value);
-            }
-        }
-
-        value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
+pub unsafe fn benchmark_storage_10kib() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
     }
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let n: u64 = u64::from_le_bytes(data);
+
+    let mut el = [0u8; 10 << 10];
+    generate_data(&mut el);
+
+    let mut sum = 0u64;
+    for i in 0..n {
+        el[..size_of::<u64>()].copy_from_slice(&i.to_le_bytes());
+        storage_write(
+            el.len() as u64,
+            el.as_ptr() as u64,
+            el.len() as u64,
+            el.as_ptr() as u64,
+            0,
+        );
+
+        let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
+        if result == 1 {
+            let el = [0u8; 10 << 10];
+            read_register(0, el.as_ptr() as u64);
+            let mut value = [0u8; size_of::<u64>()];
+            value.copy_from_slice(&el[0..size_of::<u64>()]);
+            sum += u64::from_le_bytes(value);
+        }
+    }
+
+    value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
 }
 
 /// Passes through input into output.
 #[no_mangle]
-pub fn pass_through() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        value_return(data.len() as u64, data.as_ptr() as u64);
+pub unsafe fn pass_through() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
     }
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    value_return(data.len() as u64, data.as_ptr() as u64);
 }
 
 /// Sums numbers.
 #[no_mangle]
-pub fn sum_n() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        let n = u64::from_le_bytes(data);
+pub unsafe fn sum_n() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
+    }
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let n = u64::from_le_bytes(data);
 
-        let mut sum = 0u64;
-        for i in 0..n {
-            sum += i;
-        }
+    let mut sum = 0u64;
+    for i in 0..n {
+        sum += i;
+    }
 
-        let data = sum.to_le_bytes();
-        value_return(data.len() as u64, data.as_ptr() as u64);
+    let data = sum.to_le_bytes();
+    value_return(data.len() as u64, data.as_ptr() as u64);
+}
+
+#[no_mangle]
+pub unsafe fn insert_strings() {
+    input(0);
+    if register_len(0) != 2 * size_of::<u64>() as u64 {
+        panic()
+    }
+    let data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+
+    let mut from = [0u8; size_of::<u64>()];
+    let mut to = [0u8; size_of::<u64>()];
+    from.copy_from_slice(&data[..size_of::<u64>()]);
+    to.copy_from_slice(&data[size_of::<u64>()..]);
+    let from = u64::from_le_bytes(from);
+    let to = u64::from_le_bytes(to);
+    let s = vec![b'a'; to as usize];
+    for i in from..to {
+        let mut key = s[(to - i) as usize..].to_vec();
+        key.push(b'b');
+        let value = b"x";
+        storage_write(
+            key.len() as u64,
+            key.as_ptr() as u64,
+            value.len() as u64,
+            value.as_ptr() as u64,
+            0,
+        );
     }
 }
 
 #[no_mangle]
-pub fn insert_strings() {
-    unsafe {
-        input(0);
-        if register_len(0) != 2 * size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; 2 * size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
+pub unsafe fn delete_strings() {
+    input(0);
+    if register_len(0) != 2 * size_of::<u64>() as u64 {
+        panic()
+    }
+    let data = [0u8; 2 * size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
 
-        let mut from = [0u8; size_of::<u64>()];
-        let mut to = [0u8; size_of::<u64>()];
-        from.copy_from_slice(&data[..size_of::<u64>()]);
-        to.copy_from_slice(&data[size_of::<u64>()..]);
-        let from = u64::from_le_bytes(from);
-        let to = u64::from_le_bytes(to);
-        let s = vec![b'a'; to as usize];
-        for i in from..to {
-            let mut key = s[(to - i) as usize..].to_vec();
-            key.push(b'b');
-            let value = b"x";
-            storage_write(
-                key.len() as u64,
-                key.as_ptr() as u64,
-                value.len() as u64,
-                value.as_ptr() as u64,
-                0,
-            );
-        }
+    let mut from = [0u8; size_of::<u64>()];
+    let mut to = [0u8; size_of::<u64>()];
+    from.copy_from_slice(&data[..size_of::<u64>()]);
+    to.copy_from_slice(&data[size_of::<u64>()..]);
+    let from = u64::from_le_bytes(from);
+    let to = u64::from_le_bytes(to);
+    let s = vec![b'a'; to as usize];
+    for i in from..to {
+        let mut key = s[(to - i) as usize..].to_vec();
+        key.push(b'b');
+        storage_remove(key.len() as u64, key.as_ptr() as u64, 0);
     }
 }
 
 #[no_mangle]
-pub fn delete_strings() {
-    unsafe {
-        input(0);
-        if register_len(0) != 2 * size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; 2 * size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-
-        let mut from = [0u8; size_of::<u64>()];
-        let mut to = [0u8; size_of::<u64>()];
-        from.copy_from_slice(&data[..size_of::<u64>()]);
-        to.copy_from_slice(&data[size_of::<u64>()..]);
-        let from = u64::from_le_bytes(from);
-        let to = u64::from_le_bytes(to);
-        let s = vec![b'a'; to as usize];
-        for i in from..to {
-            let mut key = s[(to - i) as usize..].to_vec();
-            key.push(b'b');
-            storage_remove(key.len() as u64, key.as_ptr() as u64, 0);
-        }
+pub unsafe fn recurse() {
+    input(0);
+    if register_len(0) != size_of::<u64>() as u64 {
+        panic()
     }
-}
-
-#[no_mangle]
-pub fn recurse() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        let n = u64::from_le_bytes(data);
-        let res = internal_recurse(n);
-        let data = res.to_le_bytes();
-        value_return(data.len() as u64, data.as_ptr() as u64);
-    }
+    let data = [0u8; size_of::<u64>()];
+    read_register(0, data.as_ptr() as u64);
+    let n = u64::from_le_bytes(data);
+    let res = internal_recurse(n);
+    let data = res.to_le_bytes();
+    value_return(data.len() as u64, data.as_ptr() as u64);
 }
 
 #[no_mangle]
