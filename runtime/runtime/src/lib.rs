@@ -266,21 +266,20 @@ impl Runtime {
                             &function_call_permission.receiver_id,
                         ).into());
                     }
-                    if !function_call_permission.method_names.is_empty() {
-                        if function_call_permission
+                    if function_call_permission.method_names.is_empty()
+                        || function_call_permission
                             .method_names
                             .iter()
-                            .find(|method_name| &function_call.method_name == *method_name)
-                            .is_none()
-                        {
-                            return Err(format!(
-                                "Transaction method name {:?} isn't allowed by the access key",
-                                &function_call.method_name
-                            )
-                            .into());
-                        }
+                            .any(|method_name| &function_call.method_name == method_name)
+                    {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "Transaction method name {:?} isn't allowed by the access key",
+                            &function_call.method_name
+                        )
+                        .into())
                     }
-                    Ok(())
                 } else {
                     Err("The used access key requires exactly one FunctionCall action".to_string())
                 }
