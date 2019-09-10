@@ -2,7 +2,6 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
-use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -45,6 +44,7 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 use std::cmp::min;
+use std::ops::Sub;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -675,10 +675,12 @@ impl ClientActor {
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
-        let total_approvals =
+        let _total_approvals =
             total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
-        if self.approvals.len() < total_approvals
-            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
+        // TODO(#1287): Reenable block approval
+        if false
+        //        if self.approvals.len() < total_approvals
+        //            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
             // Schedule itself for (max BP delay - how much time passed).
             ctx.run_later(
