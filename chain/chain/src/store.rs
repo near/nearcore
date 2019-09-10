@@ -18,9 +18,9 @@ use near_primitives::types::{BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
-    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHUNKS, COL_CHUNK_EXTRA,
-    COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS,
-    COL_TRANSACTION_RESULT,
+    COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHALLENGED_BLOCKS, COL_CHUNKS,
+    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS,
+    COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
@@ -127,6 +127,8 @@ pub trait ChainStoreAccess {
     ) -> Result<&Vec<ReceiptProof>, Error>;
     /// Returns transaction result for given tx hash.
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error>;
+    /// Returns whether the block with the given hash was challenged
+    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
 
@@ -420,6 +422,13 @@ impl ChainStoreAccess for ChainStore {
         self.latest_known = Some(latest_known);
         store_update.commit().map_err(|err| err.into())
     }
+
+    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
+        return Ok(self
+            .store
+            .get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?
+            .unwrap_or_else(|| false));
+    }
 }
 
 /// Provides layer to update chain without touching the underlying database.
@@ -445,6 +454,7 @@ pub struct ChainStoreUpdate<'a, T> {
     remove_blocks_to_catchup: Vec<CryptoHash>,
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
+    challenged_blocks: HashSet<CryptoHash>,
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
@@ -469,6 +479,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             remove_blocks_to_catchup: vec![],
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
+            challenged_blocks: HashSet::default(),
         }
     }
 
@@ -661,13 +672,20 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
     fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error> {
         self.chain_store.save_latest_known(latest_known)
     }
+
+    fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
+        if self.challenged_blocks.contains(&hash) {
+            return Ok(true);
+        }
+        return self.chain_store.is_block_challenged(hash);
+    }
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
-        self.save_header_head(t)
+        self.save_header_head_if_not_challenged(t)
     }
 
     /// Update block body head and latest known height.
@@ -682,7 +700,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.tail = Some(t.clone());
     }
 
-    fn update_block_index(&mut self, height: BlockIndex, hash: CryptoHash) -> Result<(), Error> {
+    fn update_block_index_if_not_challenged(
+        &mut self,
+        height: BlockIndex,
+        hash: CryptoHash,
+    ) -> Result<(), Error> {
         let mut prev_hash = hash;
         let mut prev_height = height;
         loop {
@@ -699,6 +721,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
                     return Ok(());
                 }
                 _ => {
+                    if self.is_block_challenged(&header_hash)? {
+                        return Err(ErrorKind::ChallengedBlockOnChain.into());
+                    }
                     self.block_index.insert(header_height, Some(header_hash));
                     prev_hash = header_prev_hash;
                     prev_height = header_height;
@@ -708,11 +733,26 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     }
 
     /// Update header head and height to hash index for this branch.
-    pub fn save_header_head(&mut self, t: &Tip) -> Result<(), Error> {
+    pub fn save_header_head_if_not_challenged(&mut self, t: &Tip) -> Result<(), Error> {
         if t.height > 0 {
-            self.update_block_index(t.height, t.prev_block_hash)?;
+            self.update_block_index_if_not_challenged(t.height, t.prev_block_hash)?;
         }
         self.try_save_latest_known(t.height)?;
+
+        match &self.header_head() {
+            Ok(prev_tip) => {
+                if prev_tip.height > t.height {
+                    for height in (t.height + 1)..=prev_tip.height {
+                        self.block_index.insert(height, None);
+                    }
+                }
+            }
+            Err(err) => match err.kind() {
+                ErrorKind::DBNotFoundErr(_) => {}
+                e => return Err(e.into()),
+            },
+        }
+
         self.block_index.insert(t.height, Some(t.last_block_hash));
         self.header_head = Some(t.clone());
         Ok(())
@@ -821,6 +861,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
     pub fn remove_state_dl_info(&mut self, hash: CryptoHash) {
         self.remove_state_dl_infos.push(hash);
+    }
+
+    pub fn save_challenged_block(&mut self, hash: CryptoHash) {
+        self.challenged_blocks.insert(hash);
     }
 
     /// Merge another StoreUpdate into this one
@@ -933,6 +977,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         }
         for hash in self.remove_state_dl_infos {
             store_update.delete(COL_STATE_DL_INFOS, hash.as_ref());
+        }
+        for hash in self.challenged_blocks {
+            store_update.set_ser(COL_CHALLENGED_BLOCKS, hash.as_ref(), &true)?;
         }
         for other in self.store_updates {
             store_update.merge(other);
