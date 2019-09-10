@@ -1285,6 +1285,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1334,6 +1335,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &vec![],
                             &vec![],
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 

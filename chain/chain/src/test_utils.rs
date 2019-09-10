@@ -389,10 +389,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
+    fn filter_transactions(
+        &self,
+        _block_index: u64,
+        _gas_price: u128,
+        _state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        transactions
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        _state_root: MerkleHash,
+        _block_index: BlockIndex,
+        _gas_price: Balance,
+        _state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         Ok(ValidTransaction { transaction })
@@ -422,6 +433,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -518,7 +530,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price: 0,
+                            gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],

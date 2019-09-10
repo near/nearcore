@@ -448,7 +448,7 @@ pub fn test_swap_key(node: impl Node) {
     let signer2 = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
     let node_user = node.user();
     let root = node_user.get_state_root();
-    let money_used = 10;
+    let money_used = 10000;
     node_user.create_account(
         account_id.clone(),
         eve_dot_alice_account(),
@@ -668,8 +668,8 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     node_user.set_signer(signer2.clone());
 
     let method_name = "run_test";
-    let function_call_cost = function_call_cost(method_name.as_bytes().len() as u64);
     let gas = 1000000;
+    let function_call_cost = function_call_cost(method_name.as_bytes().len() as u64, gas);
     let root = node_user.get_state_root();
     let transaction_result =
         node_user.function_call(account_id.clone(), bob_account(), method_name, vec![], gas, 0);
@@ -685,7 +685,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
             AccessKey {
                 nonce: 1,
                 permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                    allowance: Some(FUNCTION_CALL_AMOUNT - gas as Balance - function_call_cost),
+                    allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost),
                     receiver_id: bob_account(),
                     method_names: vec![],
                 }),
@@ -815,7 +815,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
         alice_account(),
         eve_dot_alice_account(),
         node.signer().public_key(),
-        10,
+        10000,
     );
     assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
     assert_eq!(transaction_result.transactions.len(), 2);
@@ -904,14 +904,22 @@ pub fn test_delete_account_no_account(node: impl Node) {
 }
 
 pub fn test_delete_account_while_staking(node: impl Node) {
+    let money_used = 1000;
     let node_user = node.user();
     let _ = node_user.create_account(
         alice_account(),
         eve_dot_alice_account(),
         node.signer().public_key(),
-        10,
+        money_used,
     );
-    let _ = node_user.stake(eve_dot_alice_account(), node.signer().public_key(), 10);
+    let stake_fee = stake_cost();
+    let transaction_result = node_user.stake(
+        eve_dot_alice_account(),
+        node.signer().public_key(),
+        money_used - stake_fee,
+    );
+    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
+    assert_eq!(transaction_result.transactions.len(), 2);
     let transaction_result = node_user.delete_account(alice_account(), eve_dot_alice_account());
     assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
     assert_eq!(transaction_result.transactions.len(), 2);
