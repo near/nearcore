@@ -243,7 +243,7 @@ impl Block {
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
-        max_inflation_rate: u8,
+        inflation: Option<Balance>,
         signer: Arc<dyn Signer>,
     ) -> Self {
         // TODO: merkelize transactions.
@@ -283,10 +283,7 @@ impl Block {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
         };
-        let total_tx_fee = gas_used as u128 * prev.inner.gas_price;
-        let max_inflation = max_inflation_rate as u128 * prev.inner.total_supply / (100 * 365);
-        let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
-        let new_total_supply = prev.inner.total_supply + inflation;
+        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0);
 
         let total_weight =
             (prev.inner.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();

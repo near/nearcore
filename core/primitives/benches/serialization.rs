@@ -45,7 +45,7 @@ fn create_block() -> Block {
         transactions,
         HashMap::default(),
         0,
-        0,
+        Some(0),
         signer.clone(),
     )
 }
