@@ -75,8 +75,6 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
-    /// Price for the gas to be used to produce the chunk.
-    pub gas_price: Balance,
 }
 
 impl ChunkExtra {
@@ -85,9 +83,8 @@ impl ChunkExtra {
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
-        gas_price: Balance,
     ) -> Self {
-        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit, gas_price }
+        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
     }
 }
 

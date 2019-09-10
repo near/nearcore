@@ -500,6 +500,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = if generate_storage_proof {
@@ -530,11 +531,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
         }
 
-        let apply_state = ApplyState {
-            block_index,
-            epoch_length: self.genesis_config.epoch_length,
-            gas_price: 1,
-        };
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
 
         let apply_result = self
             .runtime
@@ -812,6 +810,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
             transactions: &Vec<SignedTransaction>,
+            gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
                 .apply_transactions(
@@ -822,6 +821,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    gas_price,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -910,6 +910,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
                 for (shard_id, mut shard_receipts) in receipts {

@@ -433,6 +433,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -529,7 +530,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price: 0,
+                            gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],

@@ -241,13 +241,7 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(
-                                state_root,
-                                vec![],
-                                0,
-                                chain_genesis.gas_limit,
-                                genesis.header.inner.gas_price,
-                            ),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit),
                         );
                     }
 
@@ -1291,6 +1285,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1304,7 +1299,6 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.gas_used,
                             gas_limit,
-                            block.header.inner.gas_price,
                         ),
                     );
                     // Save resulting receipts.
@@ -1341,6 +1335,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &vec![],
                             &vec![],
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 

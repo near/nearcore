@@ -944,10 +944,11 @@ impl ClientActor {
 
         let transactions =
             self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
+        let block_header = self.chain.get_block_header(&prev_block_hash)?;
         let transactions_len = transactions.len();
         let filtered_transactions = self.runtime_adapter.filter_transactions(
             next_height,
-            chunk_extra.gas_price,
+            block_header.inner.gas_price,
             chunk_extra.state_root,
             transactions,
         );
@@ -1343,17 +1344,20 @@ impl ClientActor {
                 "Transaction has either expired or from a different fork".to_string(),
             );
         }
-        let chunk_extra = unwrap_or_return!(
+        let gas_price = unwrap_or_return!(
+            self.chain.get_block_header(&head.last_block_hash),
+            NetworkClientResponses::NoResponse
+        )
+        .inner
+        .gas_price;
+        let state_root = unwrap_or_return!(
             self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
             NetworkClientResponses::NoResponse
-        );
+        )
+        .state_root
+        .clone();
 
-        match self.runtime_adapter.validate_tx(
-            head.height + 1,
-            chunk_extra.gas_price,
-            chunk_extra.state_root.clone(),
-            tx,
-        ) {
+        match self.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
@@ -1370,12 +1374,6 @@ impl ClientActor {
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
                     NetworkClientResponses::ValidTx
                 } else {
-                    // TODO(MarX): Forward tx even if I am a validator.
-                    let head = unwrap_or_return!(self.chain.head(), {
-                        warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                        NetworkClientResponses::NoResponse
-                    });
-
                     // TODO(MarX): How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
 
