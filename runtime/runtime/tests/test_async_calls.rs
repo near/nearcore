@@ -1,9 +1,9 @@
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
-use near_primitives::hash::hash;
-use near_primitives::receipt::Receipt;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
-use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction, TransactionLog};
+use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
@@ -12,7 +12,6 @@ use node_runtime::config::RuntimeConfig;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::{ApplyState, Runtime, StateRecord};
 use std::collections::HashMap;
-use std::io::Write;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -97,15 +96,17 @@ impl RuntimeMailbox {
     }
 }
 
+#[derive(Default)]
 pub struct RuntimeGroup {
     mailboxes: (Mutex<HashMap<String, RuntimeMailbox>>, Condvar),
     runtimes: Vec<Arc<Mutex<StandaloneRuntime>>>,
-}
 
-impl Default for RuntimeGroup {
-    fn default() -> Self {
-        Self { mailboxes: (Mutex::new(HashMap::new()), Condvar::new()), runtimes: vec![] }
-    }
+    /// Account id of the runtime on which the transaction was executed mapped to the transactions.
+    executed_transactions: Mutex<HashMap<String, Vec<SignedTransaction>>>,
+    /// Account id of the runtime on which the receipt was executed mapped to the list of the receipts.
+    executed_receipts: Mutex<HashMap<String, Vec<Receipt>>>,
+    /// List of the transaction logs.
+    transaction_logs: Mutex<Vec<TransactionLog>>,
 }
 
 impl RuntimeGroup {
@@ -164,7 +165,7 @@ impl RuntimeGroup {
                 .0
                 .lock()
                 .unwrap()
-                .get_mut(&transaction.transaction.receiver_id)
+                .get_mut(&transaction.transaction.signer_id)
                 .unwrap()
                 .incoming_transactions
                 .push(transaction);
@@ -183,35 +184,39 @@ impl RuntimeGroup {
     ) -> JoinHandle<()> {
         thread::spawn(move || loop {
             let account_id = runtime.lock().unwrap().account_id();
-            println!("Shard {} started", account_id);
-            std::io::stdout().flush().ok().unwrap();
 
             let mut mailboxes = group.mailboxes.0.lock().unwrap();
             loop {
                 if !mailboxes.get(&account_id).unwrap().is_emtpy() {
-                    println!("Shard {} got transactions/receipts", account_id);
-                    std::io::stdout().flush().ok().unwrap();
                     break;
                 }
                 if mailboxes.values().all(|m| m.is_emtpy()) {
-                    println!("Shard {}. All mailboxed are empty. Exiting.", account_id);
-                    std::io::stdout().flush().ok().unwrap();
                     return;
                 }
                 mailboxes = group.mailboxes.1.wait(mailboxes).unwrap();
             }
 
             let mailbox = mailboxes.get_mut(&account_id).unwrap();
+            group
+                .executed_receipts
+                .lock()
+                .unwrap()
+                .entry(account_id.clone())
+                .or_insert_with(Vec::new)
+                .extend(mailbox.incoming_receipts.clone());
+            group
+                .executed_transactions
+                .lock()
+                .unwrap()
+                .entry(account_id.clone())
+                .or_insert_with(Vec::new)
+                .extend(mailbox.incoming_transactions.clone());
+
             let (new_receipts, transaction_results) = runtime.lock().unwrap().process_block(
                 mailbox.incoming_receipts.drain(..).collect(),
                 mailbox.incoming_transactions.drain(..).collect(),
             );
-            println!(
-                "Processed transactions/receipts {} on shard_id {}",
-                transaction_results.len(),
-                account_id
-            );
-            std::io::stdout().flush().ok().unwrap();
+            group.transaction_logs.lock().unwrap().extend(transaction_results);
             for new_receipt in new_receipts {
                 let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();
                 locked_other_mailbox.incoming_receipts.push(new_receipt);
@@ -219,10 +224,145 @@ impl RuntimeGroup {
             group.mailboxes.1.notify_all();
         })
     }
+
+    /// Get receipt that was executed by the given runtime based on hash.
+    pub fn get_receipt(&self, executing_runtime: &str, hash: &CryptoHash) -> Receipt {
+        self.executed_receipts
+            .lock()
+            .unwrap()
+            .get(executing_runtime)
+            .expect("Runtime not found")
+            .iter()
+            .find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
+            .expect("Runtime does not contain the receipt with the given hash.")
+    }
+
+    /// Get transaction log produced by the execution of given transaction/receipt
+    /// identified by `producer_hash`.
+    pub fn get_produced_receipt_hashes(&self, producer_hash: &CryptoHash) -> TransactionLog {
+        self.transaction_logs
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|tl| if &tl.hash == producer_hash { Some(tl.clone()) } else { None })
+            .expect("The execution log of the given receipt is missing")
+    }
+
+    pub fn get_receipt_debug(&self, hash: &CryptoHash) -> (String, Receipt) {
+        for (executed_runtime, tls) in self.executed_receipts.lock().unwrap().iter() {
+            if let Some(res) =
+                tls.iter().find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
+            {
+                return (executed_runtime.clone(), res);
+            }
+        }
+        unimplemented!()
+    }
+}
+/// Binds a tuple to a vector.
+/// # Examples:
+///
+/// ```
+/// let v = vec![1,2,3];
+/// tuplet!((a,b,c) = v);
+/// assert_eq!(a, &1);
+/// assert_eq!(b, &2);
+/// assert_eq!(c, &3);
+/// ```
+macro_rules! tuplet {
+    {() = $v:expr} => {
+        assert!($v.is_empty());
+    };
+    {($y:ident) = $v:expr } => {
+        let $y = &$v[0];
+        assert_eq!($v.len(), 1);
+    };
+    { ($y:ident $(, $x:ident)*) = $v:expr } => {
+        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]) );
+    };
+    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*) } => {
+        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]) )
+    };
+    { $v:expr ; $j:expr ; () ; $accu:expr } => { {
+            assert_eq!($v.len(), $j);
+            $accu
+    } }
+}
+
+macro_rules! assert_receipts {
+    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+        let transaction_log = $group.get_produced_receipt_hashes(&$transaction.get_hash());
+        tuplet!(( $($receipt),* ) = transaction_log.result.receipts);
+    };
+    ($group:ident, $from:expr => $receipt:ident @ $to:expr,
+    $receipt_pat:pat,
+    $receipt_assert:block,
+    $actions_name:ident,
+    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
+     => [ $($produced_receipt:ident),*] ) => {
+        let r = $group.get_receipt($to, $receipt);
+        assert_eq!(r.predecessor_id, $from.to_string());
+        assert_eq!(r.receiver_id, $to.to_string());
+        match &r.receipt {
+            $receipt_pat => {
+                $receipt_assert
+                tuplet!(( $($action_name),* ) = $actions_name);
+                $(
+                    match $action_name {
+                        $action_pat => {
+                            $action_assert
+                        }
+                        _ => panic!("Action {:#?} does not satisfy the pattern {}", $action_name, stringify!($action_pat)),
+                    }
+                )*
+            }
+            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
+        }
+       let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
+       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts);
+    };
+    ($group:ident, $from:expr => $receipt:ident @ $to:expr,
+    $receipt_pat:pat,
+    $receipt_assert:block
+     => [ $($produced_receipt:ident),*] ) => {
+        let r = $group.get_receipt($to, $receipt);
+        assert_eq!(r.predecessor_id, $from.to_string());
+        assert_eq!(r.receiver_id, $to.to_string());
+        match &r.receipt {
+            $receipt_pat => {
+                $receipt_assert
+            }
+            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
+        }
+       let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
+       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts);
+    };
+}
+
+/// A short form for refunds.
+/// ```
+/// assert_refund!(group, ref1 @ "near.0");
+/// ```
+/// expands into:
+/// ```
+/// assert_receipts!(group, "system" => ref1 @ "near.0",
+///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+///                  actions,
+///                  a0, Action::Transfer(TransferAction{..}), {}
+///                  => []);
+/// ```
+macro_rules! assert_refund {
+ ($group:ident, $receipt:ident @ $to:expr) => {
+        assert_receipts!($group, "system" => $receipt @ $to,
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         actions,
+                         a0, Action::Transfer(TransferAction{..}), {}
+                         => []);
+ }
 }
 
 #[test]
-fn test_three_shards() {
+fn test_simple_func_call() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
     let group = RuntimeGroup::new(2, wasm_binary);
     let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
@@ -242,8 +382,162 @@ fn test_three_shards() {
         group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
     );
 
-    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction]);
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
     for h in handles {
         h.join().unwrap();
     }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near.0" => r0 @ "near.1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{..}), {}
+                     => [ref1] );
+    assert_refund!(group, ref1 @ "near.0");
+}
+
+// single promise, no callback (A->B)
+#[test]
+fn test_single_promise_no_callback() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let group = RuntimeGroup::new(3, wasm_binary);
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "near.2",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": 0,
+        "gas": 300_000,
+        }, "id": 0 }
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: 1_000_000,
+            deposit: 0,
+        })],
+        group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near.0" => r0 @ "near.1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near.1" => r1 @ "near.2",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref1]);
+    assert_refund!(group, ref0 @ "near.0");
+    assert_refund!(group, ref1 @ "near.0");
+}
+
+// single promise with callback (A->B=>A)
+#[test]
+fn test_single_promise_with_callback() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let group = RuntimeGroup::new(4, wasm_binary);
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "near.2",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": 0,
+        "gas": 300_000,
+        }, "id": 0 },
+        {"then": {
+        "promise_index": 0,
+        "account_id": "near.3",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": 0,
+        "gas": 300_000,
+        }, "id": 1}
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: 1_000_000,
+            deposit: 0,
+        })],
+        group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near.0" => r0 @ "near.1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, r2, ref0] );
+    let data_id;
+    assert_receipts!(group, "near.1" => r1 @ "near.2",
+                     ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
+                        assert_eq!(output_data_receivers.len(), 1);
+                        data_id = output_data_receivers[0].data_id.clone();
+                     },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref1]);
+    assert_receipts!(group, "near.1" => r2 @ "near.3",
+                     ReceiptEnum::Action(ActionReceipt{actions, input_data_ids, ..}), {
+                        assert_eq!(input_data_ids.len(), 1);
+                        assert_eq!(data_id, input_data_ids[0].clone());
+                     },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref2]);
+
+    assert_refund!(group, ref0 @ "near.0");
+    assert_refund!(group, ref1 @ "near.0");
+    assert_refund!(group, ref2 @ "near.0");
+    //    println!("{:#?}", group.get_receipt_debug(&r1));
+    //    println!("{:#?}", group.get_receipt_debug(&r2));
 }

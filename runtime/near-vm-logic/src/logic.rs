@@ -741,6 +741,7 @@ impl<'a> VMLogic<'a> {
                 buf.push(el);
             }
         }
+        let val = buf[0] as u64;
         let str = String::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         let message = format!("LOG: {}", str);
         self.logs.push(message);
