@@ -32,6 +32,7 @@ pub fn epoch_info(
     stake_change: BTreeMap<AccountId, Balance>,
     total_gas_used: Gas,
     validator_reward: HashMap<AccountId, Balance>,
+    inflation: u128,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -54,6 +55,7 @@ pub fn epoch_info(
         stake_change,
         total_gas_used,
         validator_reward,
+        inflation,
     }
 }
 

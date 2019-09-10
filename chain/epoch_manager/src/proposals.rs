@@ -42,6 +42,7 @@ pub fn proposals_to_epoch_info(
     validator_kickout: HashSet<AccountId>,
     validator_reward: HashMap<AccountId, Balance>,
     total_gas_used: Gas,
+    inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
     //println!("validator reward: {:?}", validator_reward);
@@ -151,6 +152,7 @@ pub fn proposals_to_epoch_info(
         stake_change: final_stake_change,
         total_gas_used,
         validator_reward,
+        inflation,
     })
 }
 
@@ -179,6 +181,7 @@ mod tests {
                 HashSet::new(),
                 HashMap::default(),
                 0,
+                0
             )
             .unwrap(),
             epoch_info(
@@ -189,6 +192,7 @@ mod tests {
                 change_stake(vec![("test1", 1_000_000)]),
                 0,
                 HashMap::default(),
+                0
             )
         );
         assert_eq!(
@@ -211,6 +215,7 @@ mod tests {
                 HashSet::new(),
                 HashMap::default(),
                 0,
+                0
             )
             .unwrap(),
             epoch_info(
@@ -232,6 +237,7 @@ mod tests {
                 ]),
                 0,
                 HashMap::default(),
+                0
             )
         );
     }

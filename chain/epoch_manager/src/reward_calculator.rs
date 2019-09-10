@@ -20,20 +20,22 @@ impl RewardCalculator {
         total_gas_used: Gas,
         gas_price: Balance,
         total_supply: Balance,
-    ) -> HashMap<AccountId, Balance> {
+    ) -> (HashMap<AccountId, Balance>, Balance) {
         let mut res = HashMap::new();
         let num_validators = validator_online_ratio.len();
-        let total_tx_fee = gas_price * total_gas_used as u128;
         let max_inflation =
             self.max_inflation_rate as u128 * total_supply * self.epoch_length as u128
                 / (100 * self.num_blocks_per_year as u128);
+        // TODO(#1281): correctly calculate total fees
+        let total_tx_fee = gas_price * total_gas_used as u128;
+        let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
         let epoch_total_reward =
             max(max_inflation, self.validator_reward_percentage as u128 * total_tx_fee / 100);
         let epoch_protocol_treasury =
             epoch_total_reward * self.protocol_reward_percentage as u128 / 100;
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
-            return res;
+            return (res, inflation);
         }
         let epoch_per_validator_reward =
             (epoch_total_reward - epoch_protocol_treasury) / num_validators as u128;
@@ -45,6 +47,6 @@ impl RewardCalculator {
             };
             res.insert(account_id, reward);
         }
-        res
+        (res, inflation)
     }
 }

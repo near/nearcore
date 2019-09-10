@@ -47,7 +47,7 @@ fn build_chain_with_orhpans() {
         vec![],
         HashMap::default(),
         0,
-        0,
+        Some(0),
         signer.clone(),
     );
     assert_eq!(
@@ -132,7 +132,7 @@ fn test_apply_expired_tx() {
         vec![tx],
         HashMap::default(),
         0,
-        0,
+        Some(0),
         signer.clone(),
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
@@ -165,7 +165,7 @@ fn test_tx_wrong_fork() {
         vec![tx],
         HashMap::default(),
         0,
-        0,
+        Some(0),
         signer.clone(),
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
