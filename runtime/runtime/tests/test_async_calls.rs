@@ -259,6 +259,117 @@ fn test_two_promises_no_callbacks() {
     assert_refund!(group, ref0 @ "near.0");
     assert_refund!(group, ref1 @ "near.0");
     assert_refund!(group, ref2 @ "near.0");
-    //    println!("{:#?}", group.get_receipt_debug(&r1));
-    //    println!("{:#?}", group.get_receipt_debug(&r2));
+}
+
+// two promises, with two callbacks (A->B->C=>D=>E) where call to E is initialized by completion of D.
+#[test]
+fn test_two_promises_with_two_callbacks() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let group = RuntimeGroup::new(6, wasm_binary);
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "near.2",
+        "method_name": "call_promise",
+        "arguments": [
+            {"create": {
+            "account_id": "near.3",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": 0,
+            "gas": 1_000_000,
+            }, "id": 0},
+
+            {"then": {
+            "promise_index": 0,
+            "account_id": "near.4",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": 0,
+            "gas": 1_000_000,
+            }, "id": 1}
+        ],
+        "amount": 0,
+        "gas": 3_000_000,
+        }, "id": 0 },
+
+        {"then": {
+        "promise_index": 0,
+        "account_id": "near.5",
+        "method_name": "call_promise",
+        "arguments": [],
+        "amount": 0,
+        "gas": 3_000_000,
+        }, "id": 1}
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: 10_000_000,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near.0" => r0 @ "near.1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 10_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, cb1, ref0] );
+    assert_receipts!(group, "near.1" => r1 @ "near.2",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 3_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r2, cb2, ref1]);
+    assert_receipts!(group, "near.2" => r2 @ "near.3",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref2]);
+    assert_receipts!(group, "near.2" => cb2 @ "near.4",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref3]);
+    assert_receipts!(group, "near.1" => cb1 @ "near.5",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 3_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref4]);
+
+    assert_refund!(group, ref0 @ "near.0");
+    assert_refund!(group, ref1 @ "near.0");
+    assert_refund!(group, ref2 @ "near.0");
+    assert_refund!(group, ref3 @ "near.0");
+    assert_refund!(group, ref4 @ "near.0");
 }
