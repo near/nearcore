@@ -132,7 +132,7 @@ fn receive_network_block() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                None,
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block, PeerInfo::random().id, false));
@@ -182,7 +182,7 @@ fn receive_network_block_header() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                None,
                 signer,
             );
             client.do_send(NetworkClientMessages::BlockHeader(
@@ -228,7 +228,7 @@ fn produce_block_with_approvals() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                Some(0),
                 signer1,
             );
             for i in 3..11 {
@@ -289,7 +289,7 @@ fn invalid_blocks() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                Some(0),
                 signer.clone(),
             );
             block.header.inner.prev_state_root = hash(&[1]);
@@ -307,7 +307,7 @@ fn invalid_blocks() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                Some(0),
                 signer.clone(),
             );
             client.do_send(NetworkClientMessages::Block(block2, PeerInfo::random().id, false));
@@ -320,7 +320,7 @@ fn invalid_blocks() {
                 vec![],
                 HashMap::default(),
                 0,
-                0,
+                Some(0),
                 signer,
             );
             client.do_send(NetworkClientMessages::Block(block3, PeerInfo::random().id, false));
