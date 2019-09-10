@@ -139,41 +139,22 @@ extern "C" {
     fn storage_iter_next(iterator_id: u64, key_register_id: u64, value_register_id: u64) -> u64;
 }
 
-#[no_mangle]
-pub unsafe fn ext_predecessor_account_id() {
-    predecessor_account_id(0);
-    let data = vec![0; register_len(0) as usize];
-    read_register(0, data.as_ptr() as *const u64 as u64);
-
-    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+macro_rules! ext_test {
+    ($export_func:ident, $call_ext:expr) => {
+        #[no_mangle]
+        pub unsafe fn $export_func() {
+            $call_ext(0);
+            let data = vec![0; register_len(0) as usize];
+            read_register(0, data.as_ptr() as *const u64 as u64);
+            value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+        }
+    };
 }
 
-#[no_mangle]
-pub unsafe fn ext_signer_pk() {
-    signer_account_pk(0);
-    let data = vec![0; register_len(0) as usize];
-    read_register(0, data.as_ptr() as *const u64 as u64);
-
-    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
-}
-
-#[no_mangle]
-pub unsafe fn ext_signer_id() {
-    signer_account_id(0);
-    let data = vec![0; register_len(0) as usize];
-    read_register(0, data.as_ptr() as *const u64 as u64);
-
-    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
-}
-
-#[no_mangle]
-pub unsafe fn ext_account_id() {
-    current_account_id(0);
-    let data = vec![0; register_len(0) as usize];
-    read_register(0, data.as_ptr() as *const u64 as u64);
-
-    value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
-}
+ext_test!(ext_predecessor_account_id, predecessor_account_id);
+ext_test!(ext_signer_pk, signer_account_pk);
+ext_test!(ext_signer_id, signer_account_id);
+ext_test!(ext_account_id, current_account_id);
 
 #[no_mangle]
 pub unsafe fn write_key_value() {
