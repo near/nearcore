@@ -24,7 +24,7 @@ use near_network::NetworkConfig;
 use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::{to_base64, u128_dec_format};
-use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ValidatorId};
+use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorId};
 use near_primitives::views::AccountView;
 use near_telemetry::TelemetryConfig;
 use node_runtime::config::RuntimeConfig;
@@ -182,6 +182,8 @@ pub struct Config {
     pub telemetry: TelemetryConfig,
     pub network: Network,
     pub consensus: Consensus,
+    pub tracked_accounts: Vec<AccountId>,
+    pub tracked_shards: Vec<ShardId>,
 }
 
 impl Default for Config {
@@ -194,6 +196,8 @@ impl Default for Config {
             telemetry: TelemetryConfig::default(),
             network: Network::default(),
             consensus: Consensus::default(),
+            tracked_accounts: vec![],
+            tracked_shards: vec![],
         }
     }
 }
@@ -269,6 +273,8 @@ impl NearConfig {
                 block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
                 transaction_validity_period: genesis_config.transaction_validity_period,
+                tracked_accounts: config.tracked_accounts,
+                tracked_shards: config.tracked_shards,
             },
             network_config: NetworkConfig {
                 public_key: network_key_pair.public_key.into(),

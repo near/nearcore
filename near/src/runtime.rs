@@ -14,7 +14,7 @@ use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction
 use near_crypto::{PublicKey, ReadablePublicKey, Signature};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
@@ -27,16 +27,16 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
+    TrieUpdate, WrappedTrieChanges,
 };
-use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
+use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -49,20 +49,28 @@ pub struct NightshadeRuntime {
     pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     runtime: Runtime,
-    epoch_manager: RwLock<EpochManager>,
+    epoch_manager: Arc<RwLock<EpochManager>>,
+    shard_tracker: ShardTracker,
 }
 
 impl NightshadeRuntime {
-    pub fn new(home_dir: &Path, store: Arc<Store>, genesis_config: GenesisConfig) -> Self {
+    pub fn new(
+        home_dir: &Path,
+        store: Arc<Store>,
+        genesis_config: GenesisConfig,
+        initial_tracking_accounts: Vec<AccountId>,
+        initial_tracking_shards: Vec<ShardId>,
+    ) -> Self {
         let trie = Arc::new(Trie::new(store.clone()));
         let mut ethash_dir = home_dir.to_owned();
         ethash_dir.push(ETHASH_CACHE_PATH);
         let ethash_provider = Arc::new(Mutex::new(EthashProvider::new(ethash_dir.as_path())));
         let runtime = Runtime::new(genesis_config.runtime_config.clone(), ethash_provider.clone());
         let trie_viewer = TrieViewer::new(ethash_provider);
+        let num_shards = genesis_config.block_producers_per_shard.len() as ShardId;
         let initial_epoch_config = EpochConfig {
             epoch_length: genesis_config.epoch_length,
-            num_shards: genesis_config.block_producers_per_shard.len() as ShardId,
+            num_shards,
             num_block_producers: genesis_config.num_block_producers,
             block_producers_per_shard: genesis_config.block_producers_per_shard.clone(),
             avg_fisherman_per_shard: genesis_config.avg_fisherman_per_shard.clone(),
@@ -76,7 +84,7 @@ impl NightshadeRuntime {
             protocol_reward_percentage: genesis_config.protocol_reward_percentage,
             protocol_treasury_account: genesis_config.protocol_treasury_account.to_string(),
         };
-        let epoch_manager = RwLock::new(
+        let epoch_manager = Arc::new(RwLock::new(
             EpochManager::new(
                 store.clone(),
                 initial_epoch_config,
@@ -96,8 +104,23 @@ impl NightshadeRuntime {
                     .collect(),
             )
             .expect("Failed to start Epoch Manager"),
+        ));
+        let shard_tracker = ShardTracker::new(
+            initial_tracking_accounts,
+            initial_tracking_shards,
+            EpochId::default(),
+            epoch_manager.clone(),
+            num_shards,
         );
-        NightshadeRuntime { genesis_config, store, trie, runtime, trie_viewer, epoch_manager }
+        NightshadeRuntime {
+            genesis_config,
+            store,
+            trie,
+            runtime,
+            trie_viewer,
+            epoch_manager,
+            shard_tracker,
+        }
     }
 
     /// Iterates over validator accounts in the given shard and updates their accounts to return stake
@@ -113,7 +136,7 @@ impl NightshadeRuntime {
 
         for (account_id, max_of_stakes) in stake_info {
             if self.account_id_to_shard_id(&account_id) == shard_id {
-                let account: Option<Account> = get_account(state_update, &account_id);
+                let account: Option<Account> = get_account(state_update, &account_id)?;
                 if let Some(mut account) = account {
                     if let Some(reward) = validator_reward.get(&account_id) {
                         debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.staked);
@@ -140,7 +163,7 @@ impl NightshadeRuntime {
         }
         if self.account_id_to_shard_id(&self.genesis_config.protocol_treasury_account) == shard_id {
             let mut protocol_treasury_account =
-                get_account(state_update, &self.genesis_config.protocol_treasury_account).unwrap();
+                get_account(state_update, &self.genesis_config.protocol_treasury_account)?.unwrap();
             protocol_treasury_account.amount +=
                 *validator_reward.get(&self.genesis_config.protocol_treasury_account).unwrap();
             set_account(
@@ -153,11 +176,6 @@ impl NightshadeRuntime {
 
         Ok(())
     }
-}
-
-pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
-    let mut cursor = Cursor::new((hash(&account_id.clone().into_bytes()).0).0);
-    cursor.read_u64::<LittleEndian>().expect("Must not happened") % (num_shards)
 }
 
 pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId) -> ShardId {
@@ -350,26 +368,22 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn cares_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        is_me: bool,
     ) -> bool {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .cares_about_shard_from_prev_block(parent_hash, account_id, shard_id)
-            .unwrap_or(false)
+        self.shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
     fn will_care_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        is_me: bool,
     ) -> bool {
-        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
-        epoch_manager
-            .cares_about_shard_next_epoch_from_prev_block(parent_hash, account_id, shard_id)
-            .unwrap_or(false)
+        self.shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
@@ -395,19 +409,51 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
     }
 
+    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let verifier = TransactionVerifier::new(&state_update);
-        if let Err(err) = verifier.verify_transaction(&transaction) {
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+
+        if let Err(err) = self.runtime.verify_and_charge_transaction(
+            &mut state_update,
+            &apply_state,
+            &transaction,
+        ) {
             debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
             return Err(err);
         }
         Ok(ValidTransaction { transaction })
+    }
+
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        transactions
+            .into_iter()
+            .filter(|transaction| {
+                self.runtime
+                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
+                    .is_ok()
+            })
+            .collect()
     }
 
     fn add_validator_proposals(
@@ -459,6 +505,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = if generate_storage_proof {
@@ -479,21 +526,23 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
-                .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
+            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update).map_err(
+                |e| {
+                    if let Some(e) = e.downcast_ref::<StorageError>() {
+                        panic!(e.to_string())
+                    }
+                    Error::from(ErrorKind::ValidatorError(e.to_string()))
+                },
+            )?;
         }
 
-        let apply_state = ApplyState {
-            root: *state_root,
-            block_index,
-            parent_block_hash: *prev_block_hash,
-            epoch_length: self.genesis_config.epoch_length,
-        };
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
 
         let apply_result = self
             .runtime
             .apply(state_update, &apply_state, &receipts, &transactions)
-            .map_err(|err| Error::from(ErrorKind::Other(err.to_string())))?;
+            .expect("Storage error. Corrupted db or invalid state");
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
@@ -692,14 +741,14 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    let access_key = get_access_key_raw(&state_update, &key)
+                    let access_key = get_access_key_raw(&state_update, &key)?
                         .ok_or("Missing key from iterator")?;
                     PublicKey::try_from_slice(public_key)
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -766,6 +815,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
             transactions: &Vec<SignedTransaction>,
+            gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
                 .apply_transactions(
@@ -776,6 +826,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    gas_price,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -797,6 +848,8 @@ mod test {
             prefix: &str,
             validators: Vec<Vec<AccountId>>,
             epoch_length: BlockIndex,
+            initial_tracked_accounts: Vec<AccountId>,
+            initial_tracked_shards: Vec<ShardId>,
         ) -> Self {
             let dir = TempDir::new(prefix).unwrap();
             let store = create_store(&get_store_path(dir.path()));
@@ -810,7 +863,13 @@ mod test {
             // No fees mode.
             genesis_config.runtime_config = RuntimeConfig::free();
             genesis_config.epoch_length = epoch_length;
-            let runtime = NightshadeRuntime::new(dir.path(), store, genesis_config.clone());
+            let runtime = NightshadeRuntime::new(
+                dir.path(),
+                store,
+                genesis_config.clone(),
+                initial_tracked_accounts,
+                initial_tracked_shards,
+            );
             let (store_update, state_roots) = runtime.genesis_state();
             store_update.commit().unwrap();
             let genesis_hash = hash(&vec![0]);
@@ -856,6 +915,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
                 for (shard_id, mut shard_receipts) in receipts {
@@ -928,7 +988,8 @@ mod test {
         init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_validator_rotation", vec![validators.clone()], 2);
+        let mut env =
+            TestEnv::new("test_validator_rotation", vec![validators.clone()], 2, vec![], vec![]);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1008,7 +1069,13 @@ mod test {
     fn test_validator_stake_change() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_validator_stake_change", vec![validators.clone()], 2);
+        let mut env = TestEnv::new(
+            "test_validator_stake_change",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1047,8 +1114,13 @@ mod test {
     fn test_validator_stake_change_multiple_times() {
         let num_nodes = 4;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_stake_change_multiple_times", vec![validators.clone()], 4);
+        let mut env = TestEnv::new(
+            "test_validator_stake_change_multiple_times",
+            vec![validators.clone()],
+            4,
+            vec![],
+            vec![],
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1170,7 +1242,13 @@ mod test {
     #[test]
     fn test_verify_validator_signature() {
         let validators = (0..2).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let env = TestEnv::new("verify_validator_signature_failure", vec![validators.clone()], 2);
+        let env = TestEnv::new(
+            "verify_validator_signature_failure",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+        );
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
@@ -1188,7 +1266,13 @@ mod test {
     #[test]
     fn test_verify_validator_signature_failure() {
         let validators = (0..2).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let env = TestEnv::new("verify_validator_signature_failure", vec![validators.clone()], 2);
+        let env = TestEnv::new(
+            "verify_validator_signature_failure",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+        );
         let data = [0; 32];
         let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
         let signature = signer.sign(&data);
@@ -1207,7 +1291,7 @@ mod test {
     fn test_state_sync() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2);
+        let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1217,7 +1301,8 @@ mod test {
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
         let state_dump = env.runtime.dump_state(0, env.state_roots[0]).unwrap();
-        let mut new_env = TestEnv::new("test_state_sync", vec![validators.clone()], 2);
+        let mut new_env =
+            TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
             let prev_hash = hash(&[new_env.head.height as u8]);
             let cur_hash = hash(&[(new_env.head.height + 1) as u8]);
@@ -1280,6 +1365,8 @@ mod test {
             "test_multiple_shards",
             vec![first_shard_validators, second_shard_validators],
             4,
+            vec![],
+            vec![],
         );
         let block_producers: Vec<_> = validators
             .iter()
@@ -1318,8 +1405,13 @@ mod test {
     fn test_get_validator_info() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let mut env =
-            TestEnv::new("test_validator_get_validator_info", vec![validators.clone()], 2);
+        let mut env = TestEnv::new(
+            "test_validator_get_validator_info",
+            vec![validators.clone()],
+            2,
+            vec![],
+            vec![],
+        );
         let block_producers: Vec<_> = validators
             .iter()
             .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
@@ -1391,5 +1483,72 @@ mod test {
             }
             _ => panic!("wrong response"),
         }
+    }
+
+    #[test]
+    fn test_care_about_shard() {
+        let num_nodes = 2;
+        let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
+        let mut env = TestEnv::new(
+            "test_validator_get_validator_info",
+            vec![validators.clone(), vec![validators[0].clone()]],
+            2,
+            vec![validators[1].clone()],
+            vec![],
+        );
+        let block_producers: Vec<_> = validators
+            .iter()
+            .map(|id| InMemorySigner::from_seed(id, KeyType::ED25519, id).into())
+            .collect();
+        let staking_transaction = stake(1, &block_producers[1], 0);
+        env.step(vec![vec![staking_transaction], vec![]], vec![true, true]);
+        env.step(vec![vec![], vec![]], vec![true, true]);
+        assert!(env.runtime.cares_about_shard(
+            Some(&validators[0]),
+            &env.head.last_block_hash,
+            0,
+            true
+        ));
+        assert!(!env.runtime.cares_about_shard(
+            Some(&validators[0]),
+            &env.head.last_block_hash,
+            1,
+            true
+        ));
+        assert!(
+            env.runtime.cares_about_shard(Some(&validators[1]), &env.head.last_block_hash, 0, true),
+            true
+        );
+        assert!(env.runtime.cares_about_shard(
+            Some(&validators[1]),
+            &env.head.last_block_hash,
+            1,
+            true
+        ));
+
+        assert!(env.runtime.will_care_about_shard(
+            Some(&validators[0]),
+            &env.head.last_block_hash,
+            0,
+            true
+        ));
+        assert!(env.runtime.will_care_about_shard(
+            Some(&validators[0]),
+            &env.head.last_block_hash,
+            1,
+            true
+        ));
+        assert!(env.runtime.will_care_about_shard(
+            Some(&validators[1]),
+            &env.head.last_block_hash,
+            0,
+            true
+        ));
+        assert!(!env.runtime.will_care_about_shard(
+            Some(&validators[1]),
+            &env.head.last_block_hash,
+            1,
+            true
+        ));
     }
 }

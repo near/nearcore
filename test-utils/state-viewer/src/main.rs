@@ -131,7 +131,13 @@ fn load_trie(
 ) -> (NightshadeRuntime, Vec<CryptoHash>, BlockIndex) {
     let mut chain_store = ChainStore::new(store.clone());
 
-    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     let head = chain_store.head().unwrap();
     let last_block = chain_store.get_block(&head.last_block_hash).unwrap().clone();
     let mut state_roots = vec![];
@@ -153,7 +159,13 @@ fn print_chain(
     end_index: BlockIndex,
 ) {
     let mut chain_store = ChainStore::new(store.clone());
-    let runtime = NightshadeRuntime::new(&home_dir, store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     let mut account_id_to_blocks = HashMap::new();
     let mut cur_epoch_id = None;
     for index in start_index..=end_index {
@@ -210,7 +222,13 @@ fn replay_chain(
 ) {
     let mut chain_store = ChainStore::new(store.clone());
     let new_store = create_test_store();
-    let runtime = NightshadeRuntime::new(&home_dir, new_store, near_config.genesis_config.clone());
+    let runtime = NightshadeRuntime::new(
+        &home_dir,
+        new_store,
+        near_config.genesis_config.clone(),
+        near_config.client_config.tracked_accounts.clone(),
+        near_config.client_config.tracked_shards.clone(),
+    );
     for index in start_index..=end_index {
         if let Ok(block_hash) = chain_store.get_block_hash_by_height(index) {
             let header = chain_store.get_block_header(&block_hash).unwrap().clone();

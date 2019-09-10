@@ -50,6 +50,8 @@ pub struct EpochInfo {
     pub total_gas_used: Gas,
     /// Validator reward for the epoch
     pub validator_reward: HashMap<AccountId, Balance>,
+    /// Total inflation in the epoch
+    pub inflation: Balance,
 }
 
 /// Information per each block.

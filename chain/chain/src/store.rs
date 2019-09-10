@@ -305,13 +305,14 @@ impl ChainStoreAccess for ChainStore {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();
-                if me.as_ref().map_or_else(
-                    || false,
-                    |me| {
-                        runtime_adapter.cares_about_shard(me, &parent_hash, shard_id)
-                            || runtime_adapter.will_care_about_shard(me, &parent_hash, shard_id)
-                    },
-                ) {
+                if runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+                    || runtime_adapter.will_care_about_shard(
+                        me.as_ref(),
+                        &parent_hash,
+                        shard_id,
+                        true,
+                    )
+                {
                     let entry = self.chunks.entry(chunk_hash.clone());
                     match entry {
                         Entry::Occupied(_) => (),
@@ -352,13 +353,9 @@ impl ChainStoreAccess for ChainStore {
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included != height {
                 ret.push(ShardFullChunkOrOnePart::NoChunk);
-            } else if me.as_ref().map_or_else(
-                || false,
-                |me| {
-                    runtime_adapter.cares_about_shard(&me, &parent_hash, shard_id)
-                        || runtime_adapter.will_care_about_shard(&me, &parent_hash, shard_id)
-                },
-            ) {
+            } else if runtime_adapter.cares_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+                || runtime_adapter.will_care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
+            {
                 ret.push(ShardFullChunkOrOnePart::FullChunk(
                     self.chunks.get(&chunk_header.chunk_hash()).unwrap(),
                 ));

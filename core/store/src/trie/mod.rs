@@ -8,11 +8,10 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::{Cached, SizedCache};
 pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
-use log::error;
 
 use near_primitives::hash::{hash, CryptoHash};
 
-use crate::{Store, StoreUpdate, COL_STATE};
+use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
 use self::nibble_slice::NibbleSlice;
 
@@ -308,9 +307,10 @@ impl RcTrieNode {
 }
 
 pub trait TrieStorage: Send + Sync {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)>;
-
-    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32>;
+    /// Get bytes of a serialized TrieNode.
+    /// # Errors
+    /// StorageError if the storage fails internally or the hash is not present.
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError>;
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
         None
@@ -323,19 +323,16 @@ pub trait TrieStorage: Send + Sync {
 
 pub struct TrieRecordingStorage {
     storage: TrieCachingStorage,
-    recorded: Arc<Mutex<HashMap<CryptoHash, Option<Vec<u8>>>>>,
+    recorded: Arc<Mutex<HashMap<CryptoHash, Vec<u8>>>>,
 }
 
 impl TrieStorage for TrieRecordingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<Vec<u8>> {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
         let result = self.storage.retrieve_raw_bytes(hash);
-        self.recorded.lock().expect(POISONED_LOCK_ERR).insert(*hash, result.clone());
+        if let Ok(val) = &result {
+            self.recorded.lock().expect(POISONED_LOCK_ERR).insert(*hash, val.clone());
+        }
         result
-    }
-
-    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
-        debug_assert!(false, "retrieve_rc should not be called when recording");
-        self.storage.retrieve_rc(hash)
     }
 
     fn as_recording_storage(&self) -> Option<&TrieRecordingStorage> {
@@ -348,13 +345,10 @@ pub struct TrieMemoryPartialStorage {
 }
 
 impl TrieStorage for TrieMemoryPartialStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<Vec<u8>> {
-        self.recorded_storage.get(hash).cloned()
-    }
-
-    fn retrieve_rc(&self, _hash: &CryptoHash) -> Option<u32> {
-        debug_assert!(false, "retrieve_rc should not be called when replaying recorded");
-        None
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        self.recorded_storage
+            .get(hash)
+            .map_or_else(|| Err(StorageError::TrieNodeMissing), |val| Ok(val.clone()))
     }
 }
 
@@ -368,46 +362,66 @@ impl TrieCachingStorage {
         // TODO defend from huge values in cache
         TrieCachingStorage { store, cache: Arc::new(Mutex::new(SizedCache::with_size(10000))) }
     }
-}
 
-impl TrieStorage for TrieCachingStorage {
-    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Option<(Vec<u8>)> {
-        let result = {
-            let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-            if let Some(val) = (*guard).cache_get(hash) {
-                val.as_ref().map(|vec| vec[0..vec.len() - 4].to_vec())
-            } else {
-                let result = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
-                    Some(bytes)
-                } else {
-                    None
-                };
-                let raw_node = result.as_ref().map(|vec| vec[0..vec.len() - 4].to_vec());
-                (*guard).cache_set(*hash, result);
-                raw_node
-            }
-        };
-        // the only time a node can be missing from storage is if we're validating with partial
-        // storage and try to read something that's not there.
-        debug_assert!(result.is_some());
-        result
+    fn vec_to_rc(val: &Option<Vec<u8>>) -> Result<u32, StorageError> {
+        val.as_ref()
+            .map(|vec| {
+                RcTrieNode::decode_raw(&vec).map(|(_bytes, rc)| rc).map_err(|_| {
+                    StorageError::StorageInconsistentState("RcTrieNode decode failed".to_string())
+                })
+            })
+            .unwrap_or_else(|| Ok(0))
     }
 
-    fn retrieve_rc(&self, hash: &CryptoHash) -> Option<u32> {
+    fn vec_to_bytes(val: &Option<Vec<u8>>) -> Result<Vec<u8>, StorageError> {
+        val.as_ref()
+            .map(|vec| {
+                RcTrieNode::decode_raw(&vec).map(|(bytes, _rc)| bytes.to_vec()).map_err(|_| {
+                    StorageError::StorageInconsistentState("RcTrieNode decode failed".to_string())
+                })
+            })
+            // not StorageError::TrieNodeMissing because it's only for TrieMemoryPartialStorage
+            .unwrap_or_else(|| {
+                Err(StorageError::StorageInconsistentState("Trie node missing".to_string()))
+            })
+    }
+
+    /// Get storage refcount, or 0 if hash is not present
+    /// # Errors
+    /// StorageError::StorageInternalError if the storage fails internally.
+    fn retrieve_rc(&self, hash: &CryptoHash) -> Result<u32, StorageError> {
         let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
         if let Some(val) = (*guard).cache_get(hash) {
-            val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1)
+            Self::vec_to_rc(val)
         } else {
-            let val = if let Ok(Some(bytes)) = self.store.get(COL_STATE, hash.as_ref()) {
-                Some(bytes)
-            } else {
-                None
-            };
-            let rc =
-                val.as_ref().map(|vec| RcTrieNode::decode_raw(&vec).expect("failed to decode").1);
+            let val = self
+                .store
+                .get(COL_STATE, hash.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?;
+            let rc = Self::vec_to_rc(&val);
             (*guard).cache_set(*hash, val);
             rc
         }
+    }
+}
+
+impl TrieStorage for TrieCachingStorage {
+    fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
+        let result = {
+            let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+            if let Some(val) = (*guard).cache_get(hash) {
+                Self::vec_to_bytes(val)
+            } else {
+                let val = self
+                    .store
+                    .get(COL_STATE, hash.as_ref())
+                    .map_err(|_| StorageError::StorageInternalError)?;
+                let raw_node = Self::vec_to_bytes(&val);
+                (*guard).cache_set(*hash, val);
+                raw_node
+            }
+        };
+        result
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
@@ -461,7 +475,12 @@ impl TrieChanges {
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.insertions.iter() {
-            let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
+            let storage_rc = trie
+                .storage
+                .as_caching_storage()
+                .expect("Must be caching storage")
+                .retrieve_rc(&key)
+                .unwrap_or_default();
             let bytes = RcTrieNode::encode(&value, storage_rc + rc)?;
             store_update.set(COL_STATE, key.as_ref(), &bytes);
         }
@@ -475,7 +494,12 @@ impl TrieChanges {
     ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
         for (key, value, rc) in self.deletions.iter() {
-            let storage_rc = trie.storage.retrieve_rc(&key).unwrap_or_default();
+            let storage_rc = trie
+                .storage
+                .as_caching_storage()
+                .expect("Must be caching storage")
+                .retrieve_rc(&key)
+                .unwrap_or_default();
             assert!(*rc <= storage_rc);
             if *rc < storage_rc {
                 let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
@@ -562,17 +586,7 @@ impl Trie {
     pub fn recorded_storage(&self) -> Option<PartialStorage> {
         let storage = self.storage.as_recording_storage()?;
         let mut guard = storage.recorded.lock().expect(POISONED_LOCK_ERR);
-        let mut nodes = Vec::new();
-        for (k, v) in guard.drain() {
-            if let Some(v) = v {
-                nodes.push((k, v));
-            } else {
-                debug_assert!(
-                    false,
-                    "Recorded a read of a missing node. This should never happen."
-                );
-            }
-        }
+        let mut nodes: Vec<_> = guard.drain().collect();
         nodes.sort();
         Some(PartialStorage { nodes })
     }
@@ -586,56 +600,57 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         hash: &CryptoHash,
-    ) -> Result<StorageHandle, Box<dyn std::error::Error>> {
+    ) -> Result<StorageHandle, StorageError> {
         if *hash == Trie::empty_root() {
             Ok(memory.store(TrieNode::Empty))
         } else {
-            if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
-                match RawTrieNode::decode(&bytes) {
-                    Ok(value) => {
-                        let result = memory.store(TrieNode::new(value));
-                        memory
-                            .refcount_changes
-                            .entry(*hash)
-                            .or_insert_with(|| (bytes.to_vec(), 0))
-                            .1 -= 1;
-                        Ok(result)
-                    }
-                    Err(_) => Err(format!("Failed to decode node {}", hash).into()),
+            let bytes = self.storage.retrieve_raw_bytes(hash)?;
+            match RawTrieNode::decode(&bytes) {
+                Ok(value) => {
+                    let result = memory.store(TrieNode::new(value));
+                    memory
+                        .refcount_changes
+                        .entry(*hash)
+                        .or_insert_with(|| (bytes.to_vec(), 0))
+                        .1 -= 1;
+                    Ok(result)
                 }
-            } else {
-                Err(format!("Node {} not found in storage", hash).into())
+                Err(_) => Err(StorageError::StorageInconsistentState(
+                    format!("Failed to decode node {}", hash).into(),
+                )),
             }
         }
     }
 
-    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, String> {
+    fn retrieve_node(&self, hash: &CryptoHash) -> Result<TrieNode, StorageError> {
         if *hash == Trie::empty_root() {
             return Ok(TrieNode::Empty);
         }
-        if let Some(bytes) = self.storage.retrieve_raw_bytes(hash) {
-            match RawTrieNode::decode(&bytes) {
-                Ok(value) => Ok(TrieNode::new(value)),
-                Err(_) => Err(format!("Failed to decode node {}", hash)),
-            }
-        } else {
-            Err(format!("Node {} not found in storage", hash))
+        let bytes = self.storage.retrieve_raw_bytes(hash)?;
+        match RawTrieNode::decode(&bytes) {
+            Ok(value) => Ok(TrieNode::new(value)),
+            Err(_) => Err(StorageError::StorageInconsistentState(format!(
+                "Failed to decode node {}",
+                hash
+            ))),
         }
     }
 
-    fn lookup(&self, root: &CryptoHash, mut key: NibbleSlice) -> Result<Option<Vec<u8>>, String> {
+    fn lookup(
+        &self,
+        root: &CryptoHash,
+        mut key: NibbleSlice,
+    ) -> Result<Option<Vec<u8>>, StorageError> {
         let mut hash = *root;
 
         loop {
             if hash == Trie::empty_root() {
                 return Ok(None);
             }
-            let node = match self.storage.retrieve_raw_bytes(&hash) {
-                Some(bytes) => {
-                    RawTrieNode::decode(&bytes).map_err(|_| "Failed to decode node".to_string())?
-                }
-                _ => return Err(format!("Node {} not found in storage", hash)),
-            };
+            let bytes = self.storage.retrieve_raw_bytes(&hash)?;
+            let node = RawTrieNode::decode(&bytes).map_err(|_| {
+                StorageError::StorageInconsistentState("RawTrieNode decode failed".to_string())
+            })?;
 
             match node {
                 RawTrieNode::Leaf(existing_key, value) => {
@@ -671,15 +686,9 @@ impl Trie {
         }
     }
 
-    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Option<Vec<u8>> {
+    pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         let key = NibbleSlice::new(key);
-        match self.lookup(root, key) {
-            Ok(value) => value,
-            Err(err) => {
-                error!(target: "store", "Failed to lookup key={:?} for root={:?}: {}", key, root, err);
-                None
-            }
-        }
+        self.lookup(root, key)
     }
 
     /// Allowed to mutate nodes in NodesStorage.
@@ -690,7 +699,7 @@ impl Trie {
         node: StorageHandle,
         partial: NibbleSlice,
         value: Vec<u8>,
-    ) -> Result<StorageHandle, Box<dyn std::error::Error>> {
+    ) -> Result<StorageHandle, StorageError> {
         let root_handle = node;
         let mut handle = node;
         let mut value = Some(value);
@@ -843,7 +852,7 @@ impl Trie {
         memory: &mut NodesStorage,
         node: StorageHandle,
         partial: NibbleSlice,
-    ) -> Result<(StorageHandle, bool), Box<dyn std::error::Error>> {
+    ) -> Result<(StorageHandle, bool), StorageError> {
         let mut handle = node;
         let mut partial = partial;
         let root_node = handle;
@@ -931,7 +940,7 @@ impl Trie {
         &self,
         memory: &mut NodesStorage,
         path: Vec<StorageHandle>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), StorageError> {
         for handle in path.into_iter().rev() {
             match memory.destroy(handle) {
                 TrieNode::Empty => {
@@ -989,7 +998,7 @@ impl Trie {
         handle: StorageHandle,
         key: Vec<u8>,
         child: NodeHandle,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), StorageError> {
         let child = match child {
             NodeHandle::Hash(hash) => self.move_node_to_mutable(memory, &hash)?,
             NodeHandle::InMemory(h) => h,
@@ -1024,7 +1033,7 @@ impl Trie {
         old_root: &CryptoHash,
         memory: NodesStorage,
         node: StorageHandle,
-    ) -> Result<TrieChanges, Box<dyn std::error::Error>> {
+    ) -> Result<TrieChanges, StorageError> {
         let mut stack: Vec<(StorageHandle, FlattenNodesCrumb)> = Vec::new();
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
@@ -1089,7 +1098,7 @@ impl Trie {
                 },
                 TrieNode::Leaf(key, value) => RawTrieNode::Leaf(key.clone(), value.clone()),
             };
-            raw_node.encode_into(&mut buffer)?;
+            raw_node.encode_into(&mut buffer).expect("Encode can never fail");
             let key = hash(&buffer);
 
             let (_value, rc) =
@@ -1121,11 +1130,7 @@ impl Trie {
         (insertions, deletions)
     }
 
-    pub fn update<I>(
-        &self,
-        root: &CryptoHash,
-        changes: I,
-    ) -> Result<TrieChanges, Box<dyn std::error::Error>>
+    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> Result<TrieChanges, StorageError>
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
@@ -1147,10 +1152,7 @@ impl Trie {
         Trie::flatten_nodes(root, memory, root_node)
     }
 
-    pub fn iter<'a>(
-        &'a self,
-        root: &CryptoHash,
-    ) -> Result<TrieIterator<'a>, Box<dyn std::error::Error>> {
+    pub fn iter<'a>(&'a self, root: &CryptoHash) -> Result<TrieIterator<'a>, StorageError> {
         TrieIterator::new(self, root)
     }
 
@@ -1181,7 +1183,7 @@ impl Trie {
     }
 }
 
-pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), String>;
+pub type TrieItem<'a> = Result<(Vec<u8>, DBValue), StorageError>;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 enum CrumbStatus {
@@ -1221,22 +1223,20 @@ pub struct TrieIterator<'a> {
 impl<'a> TrieIterator<'a> {
     #![allow(clippy::new_ret_no_self)]
     /// Create a new iterator.
-    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(trie: &'a Trie, root: &CryptoHash) -> Result<Self, StorageError> {
         let mut r = TrieIterator {
             trie,
             trail: Vec::with_capacity(8),
             key_nibbles: Vec::with_capacity(64),
             root: *root,
         };
-        if let Ok(node) = trie.retrieve_node(root) {
-            r.descend_into_node(&node);
-            return Ok(r);
-        }
-        Err(format!("Root hash {} not found", root).into())
+        let node = trie.retrieve_node(root)?;
+        r.descend_into_node(&node);
+        return Ok(r);
     }
 
     /// Position the iterator on the first element with key => `key`.
-    pub fn seek(&mut self, key: &[u8]) -> Result<(), String> {
+    pub fn seek(&mut self, key: &[u8]) -> Result<(), StorageError> {
         self.trail.clear();
         self.key_nibbles.clear();
         let mut hash = NodeHandle::Hash(self.root);
@@ -1324,7 +1324,7 @@ impl<'a> Iterator for TrieIterator<'a> {
         enum IterStep {
             Continue,
             PopTrail,
-            Descend(Result<Box<TrieNode>, String>),
+            Descend(Result<Box<TrieNode>, StorageError>),
         }
         loop {
             let iter_step = {
@@ -1419,7 +1419,7 @@ mod tests {
             trie.update(root, other_changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for (key, value) in changes {
-            assert_eq!(trie.get(&root, &key), value);
+            assert_eq!(trie.get(&root, &key), Ok(value));
         }
         root
     }
@@ -1432,7 +1432,7 @@ mod tests {
             trie.update(root, other_delete_changes.drain(..)).unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         for (key, _) in delete_changes {
-            assert_eq!(trie.get(&root, &key), None);
+            assert_eq!(trie.get(&root, &key), Ok(None));
         }
         root
     }
@@ -1461,7 +1461,7 @@ mod tests {
     fn test_basic_trie() {
         let trie = create_trie();
         let empty_root = Trie::empty_root();
-        assert_eq!(trie.get(&empty_root, &[122]), None);
+        assert_eq!(trie.get(&empty_root, &[122]), Ok(None));
         let changes = vec![
             (b"doge".to_vec(), Some(b"coin".to_vec())),
             (b"docu".to_vec(), Some(b"value".to_vec())),
@@ -1711,7 +1711,7 @@ mod tests {
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
 
         let trie2 = Arc::new(Trie::new(store));
-        assert_eq!(trie2.get(&root, b"doge"), Some(b"coin".to_vec()));
+        assert_eq!(trie2.get(&root, b"doge"), Ok(Some(b"coin".to_vec())));
     }
 
     // TODO: somehow also test that we don't record unnecessary nodes
@@ -1731,14 +1731,15 @@ mod tests {
         let root = test_populate_trie(trie1, &empty_root, changes.clone());
 
         let trie2 = Trie::new(store).recording_reads();
-        trie2.get(&root, b"dog");
-        trie2.get(&root, b"horse");
+        trie2.get(&root, b"dog").unwrap();
+        trie2.get(&root, b"horse").unwrap();
         let partial_storage = trie2.recorded_storage();
 
         let trie3 = Trie::from_recorded_storage(partial_storage.unwrap());
 
-        assert_eq!(trie3.get(&root, b"dog"), Some(b"puppy".to_vec()));
-        assert_eq!(trie3.get(&root, b"horse"), Some(b"stallion".to_vec()));
+        assert_eq!(trie3.get(&root, b"dog"), Ok(Some(b"puppy".to_vec())));
+        assert_eq!(trie3.get(&root, b"horse"), Ok(Some(b"stallion".to_vec())));
+        assert_eq!(trie3.get(&root, b"doge"), Err(StorageError::TrieNodeMissing));
     }
 
     #[test]
@@ -1754,7 +1755,7 @@ mod tests {
         // Trie: extension -> branch -> 2 leaves
         {
             let trie2 = Trie::new(Arc::clone(&store)).recording_reads();
-            trie2.get(&root, b"doge");
+            trie2.get(&root, b"doge").unwrap();
             // record extension, branch and one leaf, but not the other
             assert_eq!(trie2.recorded_storage().unwrap().nodes.len(), 3);
         }

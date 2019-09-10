@@ -195,9 +195,47 @@ pub fn create_store(path: &str) -> Arc<Store> {
     Arc::new(Store::new(db))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageError {
+    /// Key-value db internal failure
+    StorageInternalError,
+    /// Storage is PartialStorage and requested a missing trie node
+    TrieNodeMissing,
+    /// Either invalid state or key-value db is corrupted.
+    /// For PartialStorage it cannot be corrupted.
+    /// Error message is unreliable and for debugging purposes only. It's also probably ok to
+    /// panic in every place that produces this error.
+    /// We can check if db is corrupted by verifying everything in the state trie.
+    StorageInconsistentState(String),
+}
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.write_str(&format!("{:?}", self))
+    }
+}
+
+impl std::error::Error for StorageError {}
+
 /// Reads an object from Trie.
-pub fn get<T: BorshDeserialize>(state_update: &TrieUpdate, key: &[u8]) -> Option<T> {
-    state_update.get(key).and_then(|data| T::try_from_slice(&data).ok())
+/// # Errors
+/// see StorageError
+pub fn get<T: BorshDeserialize>(
+    state_update: &TrieUpdate,
+    key: &[u8],
+) -> Result<Option<T>, StorageError> {
+    state_update.get(key).and_then(|opt| {
+        opt.map_or_else(
+            || Ok(None),
+            |data| {
+                T::try_from_slice(&data)
+                    .map_err(|_| {
+                        StorageError::StorageInconsistentState("Failed to deserialize".to_string())
+                    })
+                    .map(Some)
+            },
+        )
+    })
 }
 
 /// Writes an object into Trie.
@@ -218,7 +256,10 @@ pub fn set_account(state_update: &mut TrieUpdate, key: &AccountId, account: &Acc
     set(state_update, key_for_account(key), account)
 }
 
-pub fn get_account(state_update: &TrieUpdate, key: &AccountId) -> Option<Account> {
+pub fn get_account(
+    state_update: &TrieUpdate,
+    key: &AccountId,
+) -> Result<Option<Account>, StorageError> {
     get(state_update, &key_for_account(key))
 }
 
@@ -235,7 +276,7 @@ pub fn get_received_data(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     data_id: &CryptoHash,
-) -> Option<ReceivedData> {
+) -> Result<Option<ReceivedData>, StorageError> {
     get(state_update, &key_for_received_data(account_id, data_id))
 }
 
@@ -248,7 +289,7 @@ pub fn get_receipt(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     receipt_id: &CryptoHash,
-) -> Option<Receipt> {
+) -> Result<Option<Receipt>, StorageError> {
     get(state_update, &key_for_postponed_receipt(account_id, receipt_id))
 }
 
@@ -265,11 +306,14 @@ pub fn get_access_key(
     state_update: &TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
-) -> Option<AccessKey> {
+) -> Result<Option<AccessKey>, StorageError> {
     get(state_update, &key_for_access_key(account_id, public_key))
 }
 
-pub fn get_access_key_raw(state_update: &TrieUpdate, key: &[u8]) -> Option<AccessKey> {
+pub fn get_access_key_raw(
+    state_update: &TrieUpdate,
+    key: &[u8],
+) -> Result<Option<AccessKey>, StorageError> {
     get(state_update, key)
 }
 
@@ -277,10 +321,13 @@ pub fn set_code(state_update: &mut TrieUpdate, account_id: &AccountId, code: &Co
     state_update.set(key_for_code(account_id), DBValue::from_vec(code.code.clone()));
 }
 
-pub fn get_code(state_update: &TrieUpdate, account_id: &AccountId) -> Option<ContractCode> {
+pub fn get_code(
+    state_update: &TrieUpdate,
+    account_id: &AccountId,
+) -> Result<Option<ContractCode>, StorageError> {
     state_update
         .get(&key_for_code(account_id))
-        .and_then(|code| Some(ContractCode::new(code.to_vec())))
+        .map(|opt| opt.map(|code| ContractCode::new(code.to_vec())))
 }
 
 /// Removes account, code and all access keys associated to it.

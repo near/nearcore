@@ -343,9 +343,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn cares_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        _is_me: bool,
     ) -> bool {
         let validators = &self.validators[self.get_epoch_and_valset(*parent_hash).unwrap().1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
@@ -354,9 +355,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
         assert!(offset + validators_per_shard as usize <= validators.len());
-        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-            if validator.account_id == *account_id {
-                return true;
+        if let Some(account_id) = account_id {
+            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+                if validator.account_id == *account_id {
+                    return true;
+                }
             }
         }
         false
@@ -364,9 +367,10 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn will_care_about_shard(
         &self,
-        account_id: &AccountId,
+        account_id: Option<&AccountId>,
         parent_hash: &CryptoHash,
         shard_id: ShardId,
+        _is_me: bool,
     ) -> bool {
         let validators = &self.validators
             [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
@@ -375,20 +379,33 @@ impl RuntimeAdapter for KeyValueRuntime {
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
         let coef = validators.len() as ShardId / self.num_shards();
         let offset = (shard_id * coef / validators_per_shard * validators_per_shard) as usize;
-        for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
-            if validator.account_id == *account_id {
-                return true;
+        if let Some(account_id) = account_id {
+            for validator in validators[offset..offset + (validators_per_shard as usize)].iter() {
+                if validator.account_id == *account_id {
+                    return true;
+                }
             }
         }
         false
     }
 
+    fn filter_transactions(
+        &self,
+        _block_index: u64,
+        _gas_price: u128,
+        _state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        transactions
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        _state_root: MerkleHash,
+        _block_index: BlockIndex,
+        _gas_price: Balance,
+        _state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String> {
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         Ok(ValidTransaction { transaction })
     }
 
@@ -416,6 +433,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -512,7 +530,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price: 0,
+                            gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
@@ -655,6 +673,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             Some(block_header) => Ok(block_header.inner.height),
             None => Ok(0),
         }
+    }
+
+    fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
+        Ok(0)
     }
 }
 

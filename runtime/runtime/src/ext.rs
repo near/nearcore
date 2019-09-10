@@ -76,20 +76,30 @@ impl<'a> RuntimeExt<'a> {
 impl<'a> External for RuntimeExt<'a> {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        let evicted = self
+            .trie_update
+            .get(&storage_key)
+            .map_err(|_| ExternalError::StorageError)?
+            .map(DBValue::into_vec);
         self.trie_update.set(storage_key, DBValue::from_slice(value));
         Ok(evicted)
     }
 
     fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        let value = self.trie_update.get(&storage_key);
-        Ok(value.map(|buf| buf.into_vec()))
+        self.trie_update
+            .get(&storage_key)
+            .map_err(|_| ExternalError::StorageError)
+            .map(|opt| opt.map(DBValue::into_vec))
     }
 
     fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
         let storage_key = self.create_storage_key(key);
-        let evicted = self.trie_update.get(&storage_key).map(DBValue::into_vec);
+        let evicted = self
+            .trie_update
+            .get(&storage_key)
+            .map_err(|_| ExternalError::StorageError)?
+            .map(DBValue::into_vec);
         self.trie_update.remove(&storage_key);
         Ok(evicted)
     }
@@ -140,7 +150,11 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(result.map(|key| {
             (
                 key[self.storage_prefix.len()..].to_vec(),
-                self.trie_update.get(&key).expect("key is guaranteed to be there").into_vec(),
+                self.trie_update
+                    .get(&key)
+                    .expect("error cannot happen")
+                    .expect("key is guaranteed to be there")
+                    .into_vec(),
             )
         }))
     }

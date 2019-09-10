@@ -19,6 +19,7 @@ use near_chain::ChainGenesis;
 
 pub mod config;
 mod runtime;
+mod shard_tracker;
 
 const STORE_PATH: &str = "data";
 
@@ -52,8 +53,13 @@ pub fn start_with_config(
     config: NearConfig,
 ) -> (Addr<ClientActor>, Addr<ViewClientActor>) {
     let store = create_store(&get_store_path(home_dir));
-    let runtime =
-        Arc::new(NightshadeRuntime::new(home_dir, store.clone(), config.genesis_config.clone()));
+    let runtime = Arc::new(NightshadeRuntime::new(
+        home_dir,
+        store.clone(),
+        config.genesis_config.clone(),
+        config.client_config.tracked_accounts.clone(),
+        config.client_config.tracked_shards.clone(),
+    ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
     let chain_genesis = ChainGenesis::new(

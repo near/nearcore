@@ -24,29 +24,31 @@ impl<'a> TransactionVerifier<'a> {
     pub fn verify_transaction(
         &self,
         signed_transaction: &SignedTransaction,
-    ) -> Result<VerificationData, String> {
+    ) -> Result<VerificationData, Box<dyn std::error::Error>> {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
             return Err(format!(
                 "Invalid signer account ID {:?} according to requirements",
                 signer_id
-            ));
+            )
+            .into());
         }
-        let signer = match get_account(self.state_update, signer_id) {
+        let signer = match get_account(self.state_update, signer_id)? {
             Some(signer) => signer,
             None => {
-                return Err(format!("Signer {:?} does not exist", signer_id));
+                return Err(format!("Signer {:?} does not exist", signer_id).into());
             }
         };
         let access_key =
-            match get_access_key(self.state_update, &signer_id, &transaction.public_key) {
+            match get_access_key(self.state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
                     return Err(format!(
                         "Signer {:?} doesn't have access key with the given public_key {}",
                         signer_id, &transaction.public_key,
-                    ));
+                    )
+                    .into());
                 }
             };
 
@@ -54,14 +56,16 @@ impl<'a> TransactionVerifier<'a> {
             return Err(format!(
                 "Transaction nonce {} must be larger than nonce of the used access key {}",
                 transaction.nonce, access_key.nonce,
-            ));
+            )
+            .into());
         }
 
         if !is_valid_account_id(&transaction.receiver_id) {
             return Err(format!(
                 "Invalid receiver account ID {:?} according to requirements",
                 transaction.receiver_id
-            ));
+            )
+            .into());
         }
 
         let hash = signed_transaction.get_hash();
@@ -69,7 +73,8 @@ impl<'a> TransactionVerifier<'a> {
             return Err(format!(
                 "Transaction is not signed with a public key of the signer {:?}",
                 signer_id,
-            ));
+            )
+            .into());
         }
 
         // TODO: Calculate transaction cost
@@ -85,7 +90,8 @@ impl<'a> TransactionVerifier<'a> {
                 if transaction.actions.len() != 1 {
                     return Err(
                         "Transaction has more than 1 actions and is using function call access key"
-                            .to_string(),
+                            .to_string()
+                            .into(),
                     );
                 }
                 if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
@@ -94,7 +100,7 @@ impl<'a> TransactionVerifier<'a> {
                             "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
                             &transaction.receiver_id,
                             &function_call_permission.receiver_id,
-                        ));
+                        ).into());
                     }
                     if !function_call_permission.method_names.is_empty() {
                         if function_call_permission
@@ -106,7 +112,8 @@ impl<'a> TransactionVerifier<'a> {
                             return Err(format!(
                                 "Transaction method name {:?} isn't allowed by the access key",
                                 &function_call.method_name
-                            ));
+                            )
+                            .into());
                         }
                     }
                     Ok(VerificationData {
@@ -116,7 +123,9 @@ impl<'a> TransactionVerifier<'a> {
                         access_key,
                     })
                 } else {
-                    Err("The used access key requires exactly one FunctionCall action".to_string())
+                    Err("The used access key requires exactly one FunctionCall action"
+                        .to_string()
+                        .into())
                 }
             }
         }
