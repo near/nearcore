@@ -2,7 +2,6 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
-use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -681,13 +680,13 @@ impl ClientActor {
             && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
             // Schedule itself for (max BP delay - how much time passed).
-            ctx.run_later(
-                self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
-                move |act, ctx| {
-                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
-                },
-            );
-            return Ok(());
+            //            ctx.run_later(
+            //                self.config.max_block_production_delay.sub(self.last_block_processed.elapsed()),
+            //                move |act, ctx| {
+            //                    act.produce_block(ctx, head.last_block_hash, last_height, next_height);
+            //                },
+            //            );
+            //            return Ok(());
         }
 
         // If we are not producing empty blocks, skip this and call handle scheduling for the next block.
