@@ -410,6 +410,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
     }
 
+    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
+    }
+
     fn validate_tx(
         &self,
         _shard_id: ShardId,

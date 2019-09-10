@@ -662,6 +662,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             None => Ok(0),
         }
     }
+
+    fn get_epoch_inflation(&self, _epoch_id: &EpochId) -> Result<u128, Error> {
+        Ok(0)
+    }
 }
 
 pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {

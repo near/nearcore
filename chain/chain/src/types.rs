@@ -197,6 +197,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get epoch start for given block hash.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
 
+    /// Get inflation for a certain epoch
+    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+
     /// Add proposals for validators.
     fn add_validator_proposals(
         &self,

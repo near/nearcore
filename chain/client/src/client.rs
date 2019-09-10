@@ -53,7 +53,6 @@ use crate::{sync, StatusResponse};
 /// Economics config taken from genesis config
 struct EconConfig {
     gas_price_adjustment_rate: u8,
-    max_inflation_rate: u8,
 }
 
 enum AccountAnnounceVerificationResult {
@@ -170,7 +169,6 @@ impl ClientActor {
             info_helper,
             econ_config: EconConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
-                max_inflation_rate: chain_genesis.max_inflation_rate,
             },
         })
     }
@@ -1093,6 +1091,14 @@ impl ClientActor {
             .get_epoch_id_from_prev_block(&head.last_block_hash)
             .expect("Epoch hash should exist at this point");
 
+        let inflation = if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
+            let next_epoch_id =
+                self.runtime_adapter.get_next_epoch_id_from_prev_block(&head.last_block_hash)?;
+            Some(self.runtime_adapter.get_epoch_inflation(&next_epoch_id)?)
+        } else {
+            None
+        };
+
         let block = Block::produce(
             &prev_header,
             next_height,
@@ -1101,7 +1107,7 @@ impl ClientActor {
             transactions,
             self.approvals.drain().collect(),
             self.econ_config.gas_price_adjustment_rate,
-            self.econ_config.max_inflation_rate,
+            inflation,
             block_producer.signer.clone(),
         );
 
