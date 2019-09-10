@@ -30,6 +30,7 @@ pub struct StandaloneRuntime {
     runtime: Runtime,
     trie: Arc<Trie>,
     signer: InMemorySigner,
+    root: MerkleHash,
 }
 
 impl StandaloneRuntime {
@@ -48,21 +49,18 @@ impl StandaloneRuntime {
         let runtime = Runtime::new(runtime_config, ethash_provider);
         let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
 
-        let (store_update, genesis_root) =
-            runtime.apply_genesis_state(trie_update, &[], state_records);
+        let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
         store_update.commit().unwrap();
 
         let apply_state = ApplyState {
-            root: genesis_root,
             // Put each runtime into a separate shard.
             block_index: 0,
-            // Parent block hash is not updated, because we are not producing actual blocks.
-            parent_block_hash: Default::default(),
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
+            gas_price: 1,
         };
 
-        Self { ethash_dir, apply_state, runtime, trie, signer }
+        Self { ethash_dir, apply_state, runtime, trie, signer, root }
     }
 
     pub fn process_block(
@@ -70,14 +68,13 @@ impl StandaloneRuntime {
         receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
     ) -> (Vec<Receipt>, Vec<TransactionLog>) {
-        let state_update = TrieUpdate::new(self.trie.clone(), self.apply_state.root);
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         let apply_result =
             self.runtime.apply(state_update, &self.apply_state, &receipts, &transactions).unwrap();
 
-        let (store_update, _) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
+        self.root = root;
         store_update.commit().unwrap();
-
-        self.apply_state.root = apply_result.root.clone();
         self.apply_state.block_index += 1;
 
         (apply_result.new_receipts, apply_result.tx_result)
@@ -379,7 +376,7 @@ fn test_simple_func_call() {
             gas: 1_000_000,
             deposit: 0,
         })],
-        group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
+        CryptoHash::default(),
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -426,7 +423,7 @@ fn test_single_promise_no_callback() {
             gas: 1_000_000,
             deposit: 0,
         })],
-        group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
+        CryptoHash::default(),
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -456,7 +453,7 @@ fn test_single_promise_no_callback() {
     assert_refund!(group, ref1 @ "near.0");
 }
 
-// single promise with callback (A->B=>A)
+// single promise with callback (A->B=>C)
 #[test]
 fn test_single_promise_with_callback() {
     let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
@@ -493,7 +490,7 @@ fn test_single_promise_with_callback() {
             gas: 1_000_000,
             deposit: 0,
         })],
-        group.runtimes[0].lock().unwrap().apply_state.parent_block_hash,
+        CryptoHash::default(),
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -528,6 +525,84 @@ fn test_single_promise_with_callback() {
                         assert_eq!(input_data_ids.len(), 1);
                         assert_eq!(data_id, input_data_ids[0].clone());
                      },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 300_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [ref2]);
+
+    assert_refund!(group, ref0 @ "near.0");
+    assert_refund!(group, ref1 @ "near.0");
+    assert_refund!(group, ref2 @ "near.0");
+}
+
+// two promises, no callbacks (A->B->C)
+#[test]
+fn test_two_promises_no_callbacks() {
+    let wasm_binary: &[u8] = include_bytes!("../../near-vm-runner/tests/res/test_contract_rs.wasm");
+    let group = RuntimeGroup::new(4, wasm_binary);
+    let signer_sender = group.runtimes[0].lock().unwrap().signer.clone();
+    let signer_receiver = group.runtimes[1].lock().unwrap().signer.clone();
+
+    let data = serde_json::json!([
+        {"create": {
+        "account_id": "near.2",
+        "method_name": "call_promise",
+        "arguments": [
+            {"create": {
+            "account_id": "near.3",
+            "method_name": "call_promise",
+            "arguments": [],
+            "amount": 0,
+            "gas": 300_000,
+            }, "id": 0}
+        ],
+        "amount": 0,
+        "gas": 600_000,
+        }, "id": 0 },
+
+    ]);
+
+    let signed_transaction = SignedTransaction::from_actions(
+        1,
+        signer_sender.account_id.clone(),
+        signer_receiver.account_id.clone(),
+        &signer_sender,
+        vec![Action::FunctionCall(FunctionCallAction {
+            method_name: "call_promise".to_string(),
+            args: serde_json::to_vec(&data).unwrap(),
+            gas: 1_000_000,
+            deposit: 0,
+        })],
+        CryptoHash::default(),
+    );
+
+    let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    use near_primitives::transaction::*;
+    assert_receipts!(group, signed_transaction => [r0]);
+    assert_receipts!(group, "near.0" => r0 @ "near.1",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 1_000_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r1, ref0] );
+    assert_receipts!(group, "near.1" => r1 @ "near.2",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), { },
+                     actions,
+                     a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
+                        assert_eq!(*gas, 600_000);
+                        assert_eq!(*deposit, 0);
+                     }
+                     => [r2, ref1]);
+    assert_receipts!(group, "near.2" => r2 @ "near.3",
+                     ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::FunctionCall(FunctionCallAction{gas, deposit, ..}), {
                         assert_eq!(*gas, 300_000);
