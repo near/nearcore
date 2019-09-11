@@ -25,7 +25,7 @@ fn test_keyvalue_runtime_balances() {
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
-        let (_, x) = setup_mock_all_validators(
+        let (_, conn) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -35,7 +35,7 @@ fn test_keyvalue_runtime_balances() {
                 (NetworkResponses::NoResponse, true)
             })),
         );
-        *connectors.write().unwrap() = x;
+        *connectors.write().unwrap() = conn;
 
         let connectors_ = connectors.write().unwrap();
         let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
@@ -379,7 +379,7 @@ mod tests {
                 observed_balances_local.push(0);
             }
 
-            let (genesis_block, x) = setup_mock_all_validators(
+            let (genesis_block, conn) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -389,7 +389,7 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
-            *connectors.write().unwrap() = x;
+            *connectors.write().unwrap() = conn;
             let block_hash = genesis_block.hash();
 
             let connectors_ = connectors.write().unwrap();

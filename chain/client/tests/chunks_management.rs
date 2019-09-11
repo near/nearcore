@@ -56,7 +56,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
         let mut part_msgs = 0;
         let mut part_request_msgs = 0;
 
-        *connectors.write().unwrap() = setup_mock_all_validators(
+        let (_, conn) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -120,6 +120,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
                 (NetworkResponses::NoResponse, true)
             })),
         );
+        *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].1.clone();
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
