@@ -224,7 +224,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 69823,
+            storage_usage: 64919,
         }
     );
     let result2 = node_user.view_account(&bob_account()).unwrap();
@@ -235,7 +235,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 69823,
+            storage_usage: 64919,
         }
     );
 }
