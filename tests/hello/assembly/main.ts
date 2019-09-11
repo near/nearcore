@@ -182,6 +182,13 @@ export function callPromiseAll(args: PromiseArgs): void {
       new u128(args.balance));
 
   promise = ContractPromise.all([promise, promise2]);
+
+  promise = promise.then(
+      context.contractName,
+      args.callback,
+      inputArgs.encode().serialize(),
+      args.callbackGas,
+      new u128(args.callbackBalance as u64));
 }
 
 export function callbackWithName(args: PromiseArgs): MyCallbackResult {
