@@ -2,15 +2,24 @@ use std::time::Duration;
 
 use actix_web::client::Client;
 use futures::Future;
+use serde::Deserialize;
 use serde::Serialize;
 
 use near_primitives::types::BlockIndex;
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, QueryResponse, StatusResponse, TransactionResultView,
+    BlockView, CryptoHashView, FinalTransactionResult, QueryResponse, StatusResponse,
+    TransactionResultView,
 };
 
 pub mod message;
 use crate::message::{from_slice, Message};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockId {
+    Height(BlockIndex),
+    Hash(CryptoHashView),
+}
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -169,7 +178,7 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn health(&mut self) -> RpcRequest<()>;
     pub fn tx(&mut self, hash: String) -> RpcRequest<FinalTransactionResult>;
     pub fn tx_details(&mut self, hash: String) -> RpcRequest<TransactionResultView>;
-    pub fn block(&mut self, height: BlockIndex) -> RpcRequest<BlockView>;
+    pub fn block(&mut self, id: BlockId) -> RpcRequest<BlockView>;
 });
 
 /// Create new JSON RPC client that connects to the given address.
