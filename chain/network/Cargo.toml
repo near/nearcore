@@ -16,7 +16,7 @@ serde_derive = "1.0"
 rand = "0.6.5"
 reed-solomon-erasure = "3.1.1"
 
-borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+borsh = "0.2.2"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
