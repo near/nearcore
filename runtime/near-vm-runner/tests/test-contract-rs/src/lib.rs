@@ -144,17 +144,62 @@ macro_rules! ext_test {
         #[no_mangle]
         pub unsafe fn $export_func() {
             $call_ext(0);
-            let data = vec![0; register_len(0) as usize];
-            read_register(0, data.as_ptr() as *const u64 as u64);
-            value_return(data.len() as u64, data.as_ptr() as *const u64 as u64);
+            let result = vec![0; register_len(0) as usize];
+            read_register(0, result.as_ptr() as *const u64 as u64);
+            value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
         }
     };
 }
 
+macro_rules! ext_test_u64 {
+    ($export_func:ident, $call_ext:expr) => {
+        #[no_mangle]
+        pub unsafe fn $export_func() {
+            let mut result = [0u8; size_of::<u64>()];
+            result.copy_from_slice(&$call_ext().to_le_bytes());
+            value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+        }
+    };
+}
+
+macro_rules! ext_test_u128 {
+    ($export_func:ident, $call_ext:expr) => {
+        #[no_mangle]
+        pub unsafe fn $export_func() {
+            let result = &[0u8; size_of::<u128>()];
+            $call_ext(result.as_ptr() as *const u64 as u64);
+            value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+        }
+    };
+}
+
+ext_test_u64!(ext_storage_usage, storage_usage);
+ext_test_u64!(ext_block_index, block_index);
+ext_test_u64!(ext_used_gas, used_gas);
+ext_test_u64!(ext_prepaid_gas, prepaid_gas);
+
+
+ext_test!(ext_random_seed, random_seed);
 ext_test!(ext_predecessor_account_id, predecessor_account_id);
 ext_test!(ext_signer_pk, signer_account_pk);
 ext_test!(ext_signer_id, signer_account_id);
 ext_test!(ext_account_id, current_account_id);
+
+ext_test_u128!(ext_account_balance, account_balance);
+ext_test_u128!(ext_attached_deposit, attached_deposit);
+
+
+
+#[no_mangle]
+pub unsafe fn ext_sha256() {
+    input(0);
+    let bytes = vec![0; register_len(0) as usize];
+    read_register(0, bytes.as_ptr() as *const u64 as u64);
+    sha256(bytes.len() as u64, bytes.as_ptr() as *const u64 as u64, 0);
+    let result = vec![0; register_len(0) as usize];
+    read_register(0, result.as_ptr() as *const u64 as u64);
+    value_return(result.len() as u64, result.as_ptr() as *const u64 as u64);
+}
 
 #[no_mangle]
 pub unsafe fn write_key_value() {
