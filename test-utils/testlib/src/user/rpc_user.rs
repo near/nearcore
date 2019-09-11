@@ -18,6 +18,7 @@ use near_primitives::views::{
 };
 
 use crate::user::User;
+use near_jsonrpc_client::BlockId;
 
 pub struct RpcUser {
     signer: Arc<dyn Signer>,
@@ -77,7 +78,9 @@ impl User for RpcUser {
     }
 
     fn get_block(&self, index: u64) -> Option<BlockView> {
-        System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
+        System::new("actix")
+            .block_on(self.client.write().unwrap().block(BlockId::Height(index)))
+            .ok()
     }
 
     fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
