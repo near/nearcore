@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use std::path::PathBuf;
 
 use env_logger::Builder;
 
@@ -30,8 +31,9 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let genesis_config = GenesisConfig::testing_spec(400, 10);
-    let accounts: Vec<_> = genesis_config.records[0]
+    let genesis_config = GenesisConfig::from_file(&PathBuf::from("/tmp/local-near/node0/genesis.json"));
+    let accounts: Vec<_> = genesis_config
+        .records[0]
         .iter()
         .filter_map(|r| match r {
             StateRecord::Account { account_id, .. } => Some(account_id.clone()),
@@ -40,16 +42,16 @@ fn main() {
         .collect();
 
     let addrs = [
-        "35.236.106.188:3030",
-        "35.235.115.64:3030",
-        "35.235.75.161:3030",
-        "35.236.113.178:3030",
-        "35.236.42.186:3030",
-        "35.236.29.55:3030",
-        "35.235.84.221:3030",
-        "35.236.44.50:3030",
-        "35.236.84.38:3030",
-        "35.236.37.104:3030",
+        "127.0.0.1:3030",
+        "127.0.0.1:3031",
+//        "127.0.0.1:3032",
+//        "127.0.0.1:3033",
+//        "127.0.0.1:3034",
+//        "127.0.0.1:3035",
+//        "127.0.0.1:3036",
+//        "127.0.0.1:3037",
+//        "127.0.0.1:3038",
+//        "127.0.0.1:3039",
     ];
 
     let num_nodes = addrs.len();
@@ -64,6 +66,6 @@ fn main() {
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 1600, TransactionType::Set);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 700, TransactionType::Set);
     handle.join().unwrap();
 }

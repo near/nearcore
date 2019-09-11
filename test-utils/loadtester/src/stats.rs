@@ -82,6 +82,10 @@ impl Stats {
         let mut total_tx = 0u64;
         loop {
             total_tx += get_result(|| {
+                println!("curr_height {} MAX_BLOCKS_FETCH {} to_height {}",
+                curr_height,
+                MAX_BLOCKS_FETCH,
+                self.to_height.unwrap());
                 node.get_transactions(
                     curr_height,
                     min(curr_height + MAX_BLOCKS_FETCH, self.to_height.unwrap()),

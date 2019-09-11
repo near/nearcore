@@ -21,7 +21,7 @@ use crate::user::User;
 
 pub struct RpcUser {
     signer: Arc<dyn Signer>,
-    client: RwLock<JsonRpcClient>,
+    pub client: RwLock<JsonRpcClient>,
 }
 
 impl RpcUser {

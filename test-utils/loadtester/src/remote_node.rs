@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::format;
 
 use borsh::BorshSerialize;
 use futures::Future;
@@ -10,20 +11,24 @@ use reqwest::Client as SyncClient;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::hash::CryptoHash;
-use near_primitives::serialize::from_base;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
+use near_primitives::serialize::{to_base64};
+use testlib::user::rpc_user::RpcUser;
 use std::convert::TryInto;
+use testlib::user::User;
+use near_jsonrpc::client::{new_client, JsonRpcClient};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
 pub const MAX_BLOCKS_FETCH: u64 = 20;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
+const VALUE_NOT_NUM_ERR: &str = "Value is not number";
 
 /// Maximum number of times we retry a single RPC.
-const MAX_RETRIES_PER_RPC: usize = 10;
+const MAX_RETRIES_PER_RPC: usize = 1;
 const MAX_RETRIES_REACHED_ERR: &str = "Exceeded maximum number of retries per RPC";
 
 /// Maximum time we wait for the given RPC.
@@ -86,6 +91,7 @@ where
         match f() {
             Ok(r) => return r,
             Err(err) => {
+                println!("{:?}", err);
                 if curr == MAX_RETRIES_PER_RPC - 1 {
                     panic!("{}: {}", MAX_RETRIES_REACHED_ERR, err);
                 } else {
@@ -99,10 +105,12 @@ where
 impl RemoteNode {
     pub fn new(addr: SocketAddr, signers_accs: &[AccountId]) -> Arc<RwLock<Self>> {
         let url = format!("http://{}", addr);
+        println!("{:?}", signers_accs);
         let signers: Vec<_> = signers_accs
             .iter()
             .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
             .collect();
+        println!("{:?}", signers.len());
         let nonces = vec![0; signers.len()];
         let async_client = Arc::new(
             AsyncClient::builder()
@@ -144,17 +152,9 @@ impl RemoteNode {
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/abci_query");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("path", format!("\"access_key/{}/{}\"", account_id, public_key))])
-            .send()?
-            .json()?;
-        let bytes =
-            from_base(response["result"]["response"]["value"].as_str().ok_or(VALUE_NOT_STR_ERR)?)?;
-        let s = std::str::from_utf8(&bytes)?;
-        Ok(serde_json::from_str(s)?)
+        let user = RpcUser::new(&self.addr.to_string(), self.signers.first().unwrap().clone());
+        let access_key = user.get_access_key(account_id, public_key)?;
+        Ok(access_key)
     }
 
     fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -167,15 +167,24 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+        println!("add_transaction_async, {:?}", transaction);
+        let client = new_client(&self.addr.to_string());
         let bytes = transaction.try_to_vec().unwrap();
-        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
-        let response = self
-            .async_client
-            .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
-            .send()
-            .map(|_| ())
-            .map_err(|err| format!("{}", err));
+        let response = client.broadcast_tx_async(to_base64(&bytes))
+           .map(|_| ())
+           .map_err(|err| format!("{}", err))
+        ;
+
+//        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
+//        println!("to url {}", &url);
+//        let response = self
+//            .async_client
+//            .post(url.as_str())
+//            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
+//            .send()
+//            .map(|_| ())
+//            .map_err(|err| format!("{}", err));
+//        println!("Get response");
         Box::new(response)
     }
 
@@ -209,18 +218,20 @@ impl RemoteNode {
     }
 
     pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        println!("aaa");
         let url = format!("{}{}", self.url, "/status");
-        let response: serde_json::Value = self.sync_client.post(url.as_str()).send()?.json()?;
-        Ok(response["result"]["sync_info"]["latest_block_height"]
-            .as_str()
-            .ok_or(VALUE_NOT_STR_ERR)?
-            .parse()?)
+        println!("{}", url);
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        println!("bbb");
+        Ok(response["sync_info"]["latest_block_height"]
+            .as_u64()
+            .ok_or(VALUE_NOT_NUM_ERR)?)
     }
 
     pub fn get_current_block_hash(&self) -> Result<CryptoHash, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        let response: serde_json::Value = self.sync_client.post(url.as_str()).send()?.json()?;
-        Ok(response["result"]["sync_info"]["latest_block_hash"]
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        Ok(response["sync_info"]["latest_block_hash"]
             .as_str()
             .ok_or(VALUE_NOT_STR_ERR)?
             .to_string()
@@ -255,6 +266,7 @@ impl RemoteNode {
         min_height: u64,
         max_height: u64,
     ) -> Result<u64, Box<dyn std::error::Error>> {
+        println!("max_height {} min_height {}", max_height, min_height);
         assert!(max_height - min_height <= MAX_BLOCKS_FETCH, "Too many blocks to fetch");
         let url = format!("{}{}", self.url, "/blockchain");
         let response: serde_json::Value = self
