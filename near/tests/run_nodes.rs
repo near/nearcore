@@ -1,12 +1,13 @@
-use actix::{Actor, System};
+use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_client::GetBlock;
+use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
 use near_primitives::types::{BlockIndex, ShardId};
+use testlib::start_nodes;
 
 fn run_nodes(
     num_shards: usize,
@@ -15,56 +16,8 @@ fn run_nodes(
     epoch_length: BlockIndex,
     num_blocks: BlockIndex,
 ) {
-    init_integration_logger();
-
-    let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let mut genesis_config = GenesisConfig::test_sharded(
-        seeds.iter().map(|s| s.as_str()).collect(),
-        num_validators,
-        (0..num_shards).map(|_| num_validators).collect(),
-    );
-    genesis_config.epoch_length = epoch_length;
-
-    let validators = (0..num_validators).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
-    let mut near_configs = vec![];
-    let first_node = open_port();
-    for i in 0..num_nodes {
-        let mut near_config = load_test_config(
-            if i < num_validators { &validators[i] } else { "" },
-            if i == 0 { first_node } else { open_port() },
-            &genesis_config,
-        );
-        near_config.client_config.min_num_peers = num_nodes - 1;
-        if i > 0 {
-            near_config.network_config.boot_nodes =
-                convert_boot_nodes(vec![("near.0", first_node)]);
-        }
-        // if non validator, add some shards to track.
-        if i >= num_validators {
-            let shards_per_node = num_shards / (num_nodes - num_validators);
-            let (from, to) = (
-                ((i - num_validators) * shards_per_node) as ShardId,
-                ((i - num_validators + 1) * shards_per_node) as ShardId,
-            );
-            near_config.client_config.tracked_shards.extend(&(from..to).collect::<Vec<_>>());
-        }
-        near_configs.push(near_config);
-    }
-
-    let system = System::new("NEAR");
-
-    let dirs = (0..num_nodes)
-        .map(|i| {
-            TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
-        })
-        .collect::<Vec<_>>();
-    let mut view_clients = vec![];
-    for (i, near_config) in near_configs.into_iter().enumerate() {
-        let (_client, view_client) = start_with_config(dirs[i].path(), near_config);
-        view_clients.push(view_client)
-    }
-
-    let view_client = view_clients.pop().unwrap();
+    let clients = start_nodes(num_shards, num_nodes, num_validators, epoch_length, num_blocks);
+    let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {

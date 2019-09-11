@@ -106,18 +106,18 @@ impl ShardsManager {
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
         return self.runtime_adapter.cares_about_shard(
             account_id.clone(),
-            &parent_hash,
+            parent_hash,
             shard_id,
             is_me,
         ) || self.runtime_adapter.will_care_about_shard(
             account_id,
-            &parent_hash,
+            parent_hash,
             shard_id,
             is_me,
         );
@@ -130,6 +130,7 @@ impl ShardsManager {
         shard_id: ShardId,
         part_id: u64,
         chunk_hash: ChunkHash,
+        tracking_shards: HashSet<ShardId>,
     ) -> Result<(), near_chain::Error> {
         let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
             account_id: self.runtime_adapter.get_chunk_producer(epoch_id, height, shard_id)?,
@@ -138,7 +139,7 @@ impl ShardsManager {
                 chunk_hash,
                 height,
                 part_id,
-                recipient: self.me.clone().unwrap(),
+                tracking_shards,
             },
         });
         Ok(())
@@ -162,6 +163,16 @@ impl ShardsManager {
             let chunk_hash = chunk_header.chunk_hash();
 
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
+            let tracking_shards = (0..self.runtime_adapter.num_shards())
+                .filter(|shard_id| {
+                    self.cares_about_shard_this_or_next_epoch(
+                        self.me.as_ref(),
+                        &parent_hash,
+                        *shard_id,
+                        true,
+                    )
+                })
+                .collect::<HashSet<_>>();
 
             if !self.encoded_chunks.contains_key(&chunk_hash) {
                 if self.requested_one_parts.cache_get(&chunk_hash).is_some() {
@@ -181,6 +192,7 @@ impl ShardsManager {
                                 shard_id,
                                 part_id,
                                 chunk_hash.clone(),
+                                tracking_shards.clone(),
                             )?;
                         }
                     }
@@ -193,20 +205,21 @@ impl ShardsManager {
                     ) {
                         assert!(requested_one_part)
                     };
+                }
 
-                    if !requested_one_part {
-                        let mut rng = rand::thread_rng();
+                if !requested_one_part {
+                    let mut rng = rand::thread_rng();
 
-                        let part_id = rng.gen::<u64>()
-                            % (self.runtime_adapter.num_total_parts(&parent_hash) as u64);
-                        self.request_one_part(
-                            &epoch_id,
-                            height,
-                            shard_id,
-                            part_id,
-                            chunk_hash.clone(),
-                        )?;
-                    }
+                    let part_id = rng.gen::<u64>()
+                        % (self.runtime_adapter.num_total_parts(&parent_hash) as u64);
+                    self.request_one_part(
+                        &epoch_id,
+                        height,
+                        shard_id,
+                        part_id,
+                        chunk_hash.clone(),
+                        tracking_shards.clone(),
+                    )?;
                 }
             } else {
                 if self.requested_chunks.cache_get(&chunk_hash).is_some() {
@@ -333,31 +346,21 @@ impl ShardsManager {
 
     fn receipts_recipient_filter(
         &self,
-        recipient: &AccountId,
-        prev_block_hash: CryptoHash,
+        tracking_shards: &HashSet<ShardId>,
         receipts: &Vec<Receipt>,
         receipts_proofs: &Vec<MerklePath>,
     ) -> (Vec<Receipt>, Vec<MerklePath>) {
         let one_part_receipts = receipts
             .iter()
             .filter(|&receipt| {
-                self.cares_about_shard_this_or_next_epoch(
-                    Some(&recipient),
-                    prev_block_hash,
-                    self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id),
-                    false,
-                )
+                tracking_shards
+                    .contains(&self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id))
             })
             .cloned()
             .collect();
         let mut one_part_receipts_proofs = vec![];
         for shard in 0..self.runtime_adapter.num_shards() {
-            if self.cares_about_shard_this_or_next_epoch(
-                Some(&recipient),
-                prev_block_hash,
-                shard,
-                false,
-            ) {
+            if tracking_shards.contains(&shard) {
                 one_part_receipts_proofs.push(receipts_proofs[shard as usize].clone())
             }
         }
@@ -382,8 +385,7 @@ impl ShardsManager {
                     self.runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
                 let (receipts_root, receipts_proofs) = merklize(&receipts_hashes);
                 let (one_part_receipts, one_part_receipts_proofs) = self.receipts_recipient_filter(
-                    &request.recipient,
-                    chunk.header.inner.prev_block_hash,
+                    &request.tracking_shards,
                     &chunk.receipts,
                     &receipts_proofs,
                 );
@@ -434,7 +436,7 @@ impl ShardsManager {
             let shard_id = part.shard_id;
             self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 shard_id,
                 true,
             )
@@ -606,7 +608,7 @@ impl ShardsManager {
         for shard_id in 0..self.runtime_adapter.num_shards() {
             if self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 shard_id,
                 true,
             ) {
@@ -668,7 +670,7 @@ impl ShardsManager {
         // If we do not follow this shard, having the one part is sufficient to include the chunk in the block
         if !self.cares_about_shard_this_or_next_epoch(
             self.me.as_ref(),
-            prev_block_hash,
+            &prev_block_hash,
             one_part.shard_id,
             true,
         ) {
@@ -703,7 +705,7 @@ impl ShardsManager {
 
                             if self.cares_about_shard_this_or_next_epoch(
                                 self.me.as_ref(),
-                                block_hash,
+                                &block_hash,
                                 shard_id,
                                 true,
                             ) {
@@ -843,12 +845,18 @@ impl ShardsManager {
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
-            let (one_part_receipts, one_part_receipts_proofs) = self.receipts_recipient_filter(
-                &to_whom,
-                prev_block_hash,
-                &receipts,
-                &receipts_proofs,
-            );
+            let tracking_shards = (0..self.runtime_adapter.num_shards())
+                .filter(|shard_id| {
+                    self.cares_about_shard_this_or_next_epoch(
+                        Some(&to_whom),
+                        &prev_block_hash,
+                        *shard_id,
+                        false,
+                    )
+                })
+                .collect();
+            let (one_part_receipts, one_part_receipts_proofs) =
+                self.receipts_recipient_filter(&tracking_shards, &receipts, &receipts_proofs);
             let one_part = self.create_chunk_one_part(
                 chunk_hash.clone(),
                 &encoded_chunk,

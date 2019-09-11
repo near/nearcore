@@ -454,7 +454,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         //     in the next block.
                         if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                             self.block_producer.as_ref().map(|x| &x.account_id),
-                            prev_block_hash,
+                            &prev_block_hash,
                             one_part_msg.shard_id,
                             true,
                         ) && self
@@ -676,7 +676,7 @@ impl ClientActor {
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    block.header.inner.prev_hash,
+                    &block.header.inner.prev_hash,
                     shard_id,
                     true,
                 ) {
@@ -696,7 +696,7 @@ impl ClientActor {
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    block.header.inner.prev_hash,
+                    &block.header.inner.prev_hash,
                     shard_id,
                     false,
                 ) {
@@ -856,38 +856,37 @@ impl ClientActor {
             head.height <= latest_known.height,
             format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
         );
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        // Get who is the block producer for the upcoming `latest_known.height + 1` block.
+        let next_block_producer_account =
+            self.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
+
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
-        if elapsed < self.config.max_block_wait_delay {
-            let epoch_id =
-                self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-            // Get who is the block producer for the upcoming `latest_known.height + 1` block.
-            let next_block_producer_account =
-                self.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
-            if let Some(block_producer) = &self.block_producer {
-                if block_producer.account_id.clone() == next_block_producer_account {
-                    // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
-                    if elapsed >= self.config.min_block_production_delay {
-                        if let Err(err) = self.produce_block(ctx, latest_known.height + 1, elapsed)
-                        {
-                            // If there is an error, report it and let it retry on the next loop step.
-                            error!(target: "client", "Block production failed: {:?}", err);
-                        }
-                    }
-                } else {
-                    // Next block producer is not this client, so just go for another loop iteration.
+        if self.block_producer.as_ref().map(|bp| bp.account_id.clone())
+            == Some(next_block_producer_account)
+        {
+            // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
+            if elapsed >= self.config.min_block_production_delay {
+                if let Err(err) = self.produce_block(ctx, latest_known.height + 1, elapsed) {
+                    // If there is an error, report it and let it retry on the next loop step.
+                    error!(target: "client", "Block production failed: {:?}", err);
                 }
             }
         } else {
-            // Upcoming block has not been seen in max block production delay, suggest to skip.
-            if !self.config.produce_empty_blocks {
-                // If we are not producing empty blocks, we always wait for a block to be produced.
-                // Used exclusively for testing.
-                return Ok(());
+            if elapsed < self.config.max_block_wait_delay {
+                // Next block producer is not this client, so just go for another loop iteration.
+            } else {
+                // Upcoming block has not been seen in max block production delay, suggest to skip.
+                if !self.config.produce_empty_blocks {
+                    // If we are not producing empty blocks, we always wait for a block to be produced.
+                    // Used exclusively for testing.
+                    return Ok(());
+                }
+                debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
+                latest_known.height += 1;
+                latest_known.seen = to_timestamp(Utc::now());
+                self.chain.mut_store().save_latest_known(latest_known)?;
             }
-            debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
-            latest_known.height += 1;
-            latest_known.seen = to_timestamp(Utc::now());
-            self.chain.mut_store().save_latest_known(latest_known)?;
         }
         Ok(())
     }
@@ -1643,7 +1642,7 @@ impl ClientActor {
                     .filter(|x| {
                         self.shards_mgr.cares_about_shard_this_or_next_epoch(
                             me.as_ref(),
-                            sync_hash,
+                            &sync_hash,
                             *x,
                             true,
                         )
