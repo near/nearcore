@@ -65,6 +65,12 @@ pub struct ApplyState {
     pub gas_price: Balance,
 }
 
+#[derive(Debug)]
+pub struct VerificationResult {
+    pub gas_burnt: Gas,
+    pub gas_used: Gas,
+}
+
 pub struct ApplyResult {
     pub root: MerkleHash,
     pub trie_changes: TrieChanges,
@@ -76,7 +82,6 @@ pub struct ApplyResult {
 #[derive(Debug)]
 pub struct ActionResult {
     pub gas_burnt: Gas,
-    pub burnt_gas_reward: Gas,
     pub gas_used: Gas,
     pub result: Result<ReturnData, Box<dyn std::error::Error>>,
     pub logs: Vec<LogEntry>,
@@ -87,7 +92,6 @@ pub struct ActionResult {
 impl ActionResult {
     pub fn merge(&mut self, mut next_result: ActionResult) {
         self.gas_burnt += next_result.gas_burnt;
-        self.burnt_gas_reward += next_result.burnt_gas_reward;
         self.gas_used += next_result.gas_used;
         self.result = next_result.result;
         self.logs.append(&mut next_result.logs);
@@ -109,7 +113,6 @@ impl Default for ActionResult {
     fn default() -> Self {
         Self {
             gas_burnt: 0,
-            burnt_gas_reward: 0,
             gas_used: 0,
             result: Ok(ReturnData::None),
             logs: vec![],
@@ -151,7 +154,7 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<VerificationResult, Box<dyn std::error::Error>> {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
@@ -205,28 +208,29 @@ impl Runtime {
 
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = transaction.nonce;
-
-        let mut total_cost_gas: Gas = safe_add_gas(
-            self.config
-                .transaction_costs
-                .action_receipt_creation_config
-                .send_fee(sender_is_receiver),
-            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
-        )?;
-        total_cost_gas = safe_add_gas(
-            total_cost_gas,
+        let mut gas_burnt: Gas = self
+            .config
+            .transaction_costs
+            .action_receipt_creation_config
+            .send_fee(sender_is_receiver);
+        gas_burnt = safe_add_gas(
+            gas_burnt,
             total_send_fees(
                 &self.config.transaction_costs,
                 sender_is_receiver,
                 &transaction.actions,
             )?,
         )?;
-        total_cost_gas = safe_add_gas(
-            total_cost_gas,
+        let mut gas_used = safe_add_gas(
+            gas_burnt,
+            self.config.transaction_costs.action_receipt_creation_config.exec_fee(),
+        )?;
+        gas_used = safe_add_gas(
+            gas_used,
             total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
         )?;
-        total_cost_gas = safe_add_gas(total_cost_gas, total_prepaid_gas(&transaction.actions)?)?;
-        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, total_cost_gas)?;
+        gas_used = safe_add_gas(gas_used, total_prepaid_gas(&transaction.actions)?)?;
+        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
         total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             format!(
@@ -290,36 +294,19 @@ impl Runtime {
         }?;
 
         set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
+
+        // Account reward for gas burnt.
+        signer.amount += (gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
+            / self.config.transaction_costs.burnt_gas_reward.denominator)
+            as Balance
+            * apply_state.gas_price;
+
         set_account(state_update, &signer_id, &signer);
 
-        Ok(())
+        Ok(VerificationResult { gas_burnt, gas_used })
     }
 
     /// Processes signed transaction, charges fees and generates the receipt
-    fn apply_signed_transaction(
-        &self,
-        state_update: &mut TrieUpdate,
-        apply_state: &ApplyState,
-        signed_transaction: &SignedTransaction,
-    ) -> Result<Receipt, Box<dyn std::error::Error>> {
-        self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)?;
-        let transaction = &signed_transaction.transaction;
-        Ok(Receipt {
-            predecessor_id: transaction.signer_id.clone(),
-            receiver_id: transaction.receiver_id.clone(),
-            receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
-
-            receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: transaction.signer_id.clone(),
-                signer_public_key: transaction.public_key,
-                gas_price: apply_state.gas_price,
-                output_data_receivers: vec![],
-                input_data_ids: vec![],
-                actions: transaction.actions.clone(),
-            }),
-        })
-    }
-
     pub fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
@@ -328,28 +315,55 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
     ) -> Result<TransactionLog, StorageError> {
-        let mut result = TransactionResult::default();
-        match self.apply_signed_transaction(state_update, apply_state, signed_transaction) {
-            Ok(receipt) => {
-                result.receipts.push(receipt.receipt_id);
-                if receipt.receiver_id == signed_transaction.transaction.signer_id {
-                    new_local_receipts.push(receipt);
-                } else {
-                    new_receipts.push(receipt);
+        let result =
+            match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
+            {
+                Ok(verification_result) => {
+                    state_update.commit();
+                    let transaction = &signed_transaction.transaction;
+                    let receipt = Receipt {
+                        predecessor_id: transaction.signer_id.clone(),
+                        receiver_id: transaction.receiver_id.clone(),
+                        receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
+
+                        receipt: ReceiptEnum::Action(ActionReceipt {
+                            signer_id: transaction.signer_id.clone(),
+                            signer_public_key: transaction.public_key,
+                            gas_price: apply_state.gas_price,
+                            output_data_receivers: vec![],
+                            input_data_ids: vec![],
+                            actions: transaction.actions.clone(),
+                        }),
+                    };
+                    let receipt_id = receipt.receipt_id;
+                    if receipt.receiver_id == signed_transaction.transaction.signer_id {
+                        new_local_receipts.push(receipt);
+                    } else {
+                        new_receipts.push(receipt);
+                    }
+                    TransactionResult {
+                        status: TransactionStatus::Completed,
+                        logs: vec![],
+                        receipts: vec![receipt_id],
+                        result: None,
+                        gas_burnt: verification_result.gas_burnt,
+                    }
                 }
-                state_update.commit();
-                result.status = TransactionStatus::Completed;
-            }
-            Err(s) => {
-                state_update.rollback();
-                if let Some(e) = s.downcast_ref::<StorageError>() {
-                    // TODO fix error type in apply_signed_transaction
-                    return Err(e.clone());
+                Err(s) => {
+                    state_update.rollback();
+                    if let Some(e) = s.downcast_ref::<StorageError>() {
+                        // TODO fix error type in apply_signed_transaction
+                        return Err(e.clone());
+                    }
+                    TransactionResult {
+                        status: TransactionStatus::Failed,
+                        logs: vec![format!("Runtime error: {}", s)],
+                        receipts: vec![],
+                        result: None,
+                        gas_burnt: 0,
+                    }
                 }
-                result.logs.push(format!("Runtime error: {}", s));
-                result.status = TransactionStatus::Failed;
-            }
-        };
+            };
         Self::print_log(&result.logs);
         Ok(TransactionLog { hash: signed_transaction.get_hash(), result })
     }
@@ -526,8 +540,14 @@ impl Runtime {
             }
         }
 
-        // Calculating and generating refunds
-        self.generate_refund_receipts(receipt, action_receipt, &mut result);
+        // If the receipt is a refund, then we consider it free without burnt gas.
+        if receipt.predecessor_id == system_account() {
+            result.gas_burnt = 0;
+            result.gas_used = 0;
+        } else {
+            // Calculating and generating refunds
+            self.generate_refund_receipts(receipt, action_receipt, &mut result);
+        }
 
         // Moving validator proposals
         validator_proposals.append(&mut result.validator_proposals);
@@ -541,24 +561,22 @@ impl Runtime {
             Err(e) => {
                 state_update.rollback();
                 result.logs.push(format!("Runtime error: {}", e));
-
-                if result.burnt_gas_reward > 0 {
-                    // The transaction has failed but we still need to provide contract rewards.
-                    let mut account = get_account(state_update, account_id);
-                    // We'll only provide the contract reward to the account, if the account existed before
-                    // the execution has started.
-                    if let Some(ref mut account) = account {
-                        let burnt_gas_reward_balance =
-                            result.burnt_gas_reward as Balance * action_receipt.gas_price;
-                        account.amount += burnt_gas_reward_balance;
-                        set_account(state_update, account_id, account);
-                        state_update.commit();
-                    }
-                }
-
                 TransactionStatus::Failed
             }
         };
+
+        // Adding burnt gas reward if the account exists.
+        let gas_reward = result.gas_burnt
+            * self.config.transaction_costs.burnt_gas_reward.numerator
+            / self.config.transaction_costs.burnt_gas_reward.denominator;
+        if gas_reward > 0 {
+            let mut account = get_account(state_update, account_id)?;
+            if let Some(ref mut account) = account {
+                account.amount += gas_reward as Balance * action_receipt.gas_price;
+                set_account(state_update, account_id, account);
+                state_update.commit();
+            }
+        }
 
         // Generating outgoing data and receipts
         let transaction_result = if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result
@@ -627,6 +645,7 @@ impl Runtime {
                 logs: result.logs,
                 receipts: transaction_new_receipt_ids,
                 result: transaction_result,
+                gas_burnt: result.gas_burnt,
             },
         })
     }
@@ -645,9 +664,9 @@ impl Runtime {
             + self.config.transaction_costs.action_receipt_creation_config.exec_fee();
         let mut deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
-            prepaid_gas + exec_gas - result.gas_burnt - result.burnt_gas_reward
+            prepaid_gas + exec_gas - result.gas_burnt
         } else {
-            prepaid_gas + exec_gas - result.gas_used - result.burnt_gas_reward
+            prepaid_gas + exec_gas - result.gas_used
         };
         let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {
@@ -655,10 +674,10 @@ impl Runtime {
             deposit_refund += gas_balance_refund;
             gas_balance_refund = 0;
         }
-        if deposit_refund > 0 && &receipt.predecessor_id != &system_account() {
+        if deposit_refund > 0 {
             result.new_receipts.push(Receipt::new_refund(&receipt.predecessor_id, deposit_refund));
         }
-        if gas_balance_refund > 0 && &action_receipt.signer_id != &system_account() {
+        if gas_balance_refund > 0 {
             result
                 .new_receipts
                 .push(Receipt::new_refund(&action_receipt.signer_id, gas_balance_refund));

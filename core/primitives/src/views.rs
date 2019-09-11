@@ -593,6 +593,7 @@ pub struct TransactionResultView {
     pub logs: Vec<LogEntry>,
     pub receipts: Vec<CryptoHashView>,
     pub result: Option<String>,
+    pub gas_burnt: Gas,
 }
 
 impl From<TransactionResult> for TransactionResultView {
@@ -602,6 +603,7 @@ impl From<TransactionResult> for TransactionResultView {
             logs: result.logs,
             receipts: result.receipts.into_iter().map(|h| h.into()).collect(),
             result: result.result.map(|v| to_base64(&v)),
+            gas_burnt: result.gas_burnt,
         }
     }
 }
@@ -613,6 +615,7 @@ impl From<TransactionResultView> for TransactionResult {
             logs: view.logs,
             receipts: view.receipts.into_iter().map(|h| h.into()).collect(),
             result: view.result.map(|v| from_base64(&v).unwrap()),
+            gas_burnt: view.gas_burnt,
         }
     }
 }

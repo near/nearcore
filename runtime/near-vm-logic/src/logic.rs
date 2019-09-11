@@ -820,16 +820,8 @@ impl<'a> VMLogic<'a> {
             self.burnt_gas.checked_add(burn_gas as _).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             self.used_gas.checked_add(use_gas as _).ok_or(HostError::IntegerOverflow)?;
-        let burnt_gas_reward = new_burnt_gas
-            .checked_mul(self.config.runtime_fees.burnt_gas_reward.numerator)
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_div(self.config.runtime_fees.burnt_gas_reward.denominator)
-            .ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas_with_gas_reward =
-            new_used_gas.checked_add(burnt_gas_reward).ok_or(HostError::IntegerOverflow)?;
-        if self.context.free_of_charge
-            || (new_burnt_gas <= self.config.max_gas_burnt
-                && new_used_gas_with_gas_reward <= self.context.prepaid_gas)
+        if new_burnt_gas <= self.config.max_gas_burnt
+            && (self.context.free_of_charge || new_used_gas <= self.context.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
@@ -838,27 +830,13 @@ impl<'a> VMLogic<'a> {
             use std::cmp::min;
             let res = if new_burnt_gas > self.config.max_gas_burnt {
                 Err(HostError::GasLimitExceeded)
-            } else if new_used_gas_with_gas_reward > self.context.prepaid_gas {
+            } else if new_used_gas > self.context.prepaid_gas {
                 Err(HostError::GasExceeded)
             } else {
                 unreachable!()
             };
 
-            // Max burnt gas calculated based on the upper limit and another limit, such as the
-            // burnt gas plus the contract gas reward doesn't exceed the prepaid gas.
-            // The second limit is computed as `prepaid_gas * (1 + burnt_gas_reward)`
-            let max_burnt_gas = min(
-                self.config.max_gas_burnt,
-                self.context
-                    .prepaid_gas
-                    .checked_mul(
-                        self.config.runtime_fees.burnt_gas_reward.denominator
-                            + self.config.runtime_fees.burnt_gas_reward.numerator,
-                    )
-                    .ok_or(HostError::IntegerOverflow)?
-                    .checked_div(self.config.runtime_fees.burnt_gas_reward.denominator)
-                    .ok_or(HostError::IntegerOverflow)?,
-            );
+            let max_burnt_gas = min(self.config.max_gas_burnt, self.context.prepaid_gas);
             self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
             self.used_gas = min(new_used_gas, self.context.prepaid_gas);
 

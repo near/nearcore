@@ -158,18 +158,10 @@ pub(crate) fn action_function_call(
         &config.wasm_config,
         promise_results,
     );
-    let burnt_gas_reward = match &outcome {
-        Some(outcome) => {
-            outcome.burnt_gas * config.transaction_costs.burnt_gas_reward.numerator
-                / config.transaction_costs.burnt_gas_reward.denominator
-        }
-        None => 0,
-    };
     if let Some(err) = err {
         result.result =
             Err(format!("wasm async call execution failed with error: {:?}", err).into());
         if let Some(outcome) = outcome {
-            result.burnt_gas_reward += burnt_gas_reward;
             result.gas_burnt += outcome.burnt_gas;
             result.logs.extend(outcome.logs.into_iter());
         }
@@ -177,11 +169,8 @@ pub(crate) fn action_function_call(
     }
     let outcome = outcome.unwrap();
     result.logs.extend(outcome.logs.into_iter());
-    let burnt_gas_reward_balance = burnt_gas_reward as Balance * action_receipt.gas_price;
-    // We apply reward to the balance immediately. It will be rolled back in case of a future error.
-    account.amount = outcome.balance + burnt_gas_reward_balance;
+    account.amount = outcome.balance;
     account.storage_usage = outcome.storage_usage;
-    result.burnt_gas_reward += burnt_gas_reward;
     result.gas_burnt += outcome.burnt_gas;
     result.gas_used += outcome.used_gas;
     result.result = Ok(outcome.return_data);
