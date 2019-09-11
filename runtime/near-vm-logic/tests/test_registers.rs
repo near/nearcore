@@ -64,3 +64,14 @@ fn test_many_registers() {
         Err(HostError::MemoryAccessViolation) as Result<(), HostError>
     )
 }
+
+#[test]
+fn test_register_is_not_used() {
+    let mut ext = MockedExternal::new();
+    let context = get_context(vec![]);
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::new();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+    assert_eq!(logic.register_len(0), Ok(std::u64::MAX));
+}

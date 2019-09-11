@@ -225,7 +225,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 254500,
+            storage_usage: 69823,
         }
     );
     let reward = gas_burnt_to_reward(transaction_result.transactions[1].result.gas_burnt);
@@ -237,7 +237,7 @@ pub fn test_send_money(node: impl Node) {
             staked: TESTING_INIT_STAKE,
             code_hash: default_code_hash().into(),
             storage_paid_at: 0,
-            storage_usage: 254500,
+            storage_usage: 69823,
         }
     );
 }

@@ -307,7 +307,7 @@ impl Runtime {
     }
 
     /// Processes signed transaction, charges fees and generates the receipt
-    pub fn process_transaction(
+    fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
@@ -684,7 +684,7 @@ impl Runtime {
         }
     }
 
-    pub fn process_receipt(
+    fn process_receipt(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
