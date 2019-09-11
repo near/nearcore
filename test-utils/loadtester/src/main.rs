@@ -1,16 +1,17 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
-use std::path::PathBuf;
 
+use clap::{App, Arg};
 use env_logger::Builder;
 
-use near::config::GenesisConfig;
+use near::{get_default_home, load_config};
+use node_runtime::StateRecord;
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
 use crate::transactions_generator::TransactionType;
-use node_runtime::StateRecord;
 
 pub mod remote_node;
 pub mod sampler;
@@ -31,9 +32,30 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
-    let genesis_config = GenesisConfig::from_file(&PathBuf::from("/tmp/local-near/node0/genesis.json"));
-    let accounts: Vec<_> = genesis_config
-        .records[0]
+
+    let default_home = get_default_home();
+    let matches = App::new("loadtester")
+        .arg(
+            Arg::with_name("home")
+                .long("home")
+                .default_value(&default_home)
+                .help("Directory to load genesis config (default \"~/.near\")")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("num-nodes")
+                .default_value("1")
+                .help("Number of local nodes to test")
+                .takes_value(true),
+        )
+        .get_matches();
+    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
+    let num_nodes =
+        matches.value_of("num-nodes").map(|v| v.parse().expect("Must be integer")).unwrap_or(1);
+
+    let config = load_config(home_dir);
+
+    let accounts: Vec<_> = config.genesis_config.records[0]
         .iter()
         .filter_map(|r| match r {
             StateRecord::Account { account_id, .. } => Some(account_id.clone()),
@@ -41,18 +63,7 @@ fn main() {
         })
         .collect();
 
-    let addrs = [
-        "127.0.0.1:3030",
-        "127.0.0.1:3031",
-//        "127.0.0.1:3032",
-//        "127.0.0.1:3033",
-//        "127.0.0.1:3034",
-//        "127.0.0.1:3035",
-//        "127.0.0.1:3036",
-//        "127.0.0.1:3037",
-//        "127.0.0.1:3038",
-//        "127.0.0.1:3039",
-    ];
+    let addrs = (0..num_nodes).map(|i| format!("127.0.0.1:{}", 3030 + i)).collect::<Vec<_>>();
 
     let num_nodes = addrs.len();
     let accounts_per_node = accounts.len() / num_nodes;

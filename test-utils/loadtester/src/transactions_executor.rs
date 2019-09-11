@@ -52,7 +52,7 @@ impl Executor {
         }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {
-            tokio::run(futures::lazy(move || {
+            tokio::runtime::current_thread::run(futures::lazy(move || {
                 // Channels into which we can signal to send a transaction.
                 let mut signal_tx = vec![];
                 let all_account_ids: Vec<_> = nodes
@@ -78,7 +78,7 @@ impl Executor {
                         signal_tx.push(tx);
                         // Spawn a task that sends transactions only from the given account making
                         // sure the nonces are correct.
-                        tokio::spawn(
+                        tokio::runtime::current_thread::spawn(
                             rx.map_err(|e| println!("Error in 82 {}", e))
                                 .for_each(move |_| {
                                     let stats = stats.clone();

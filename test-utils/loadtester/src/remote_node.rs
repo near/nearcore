@@ -1,24 +1,23 @@
+use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::format;
 
 use borsh::BorshSerialize;
 use futures::Future;
-use reqwest::r#async::Client as AsyncClient;
 use reqwest::Client as SyncClient;
 
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_jsonrpc::client::new_client;
 use near_primitives::hash::CryptoHash;
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
-use near_primitives::serialize::{to_base64};
-use testlib::user::rpc_user::RpcUser;
 use std::convert::TryInto;
+use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
-use near_jsonrpc::client::{new_client, JsonRpcClient};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
@@ -40,7 +39,6 @@ pub struct RemoteNode {
     pub signers: Vec<Arc<InMemorySigner>>,
     pub nonces: Vec<Nonce>,
     pub url: String,
-    async_client: Arc<AsyncClient>,
     sync_client: SyncClient,
 }
 
@@ -112,20 +110,13 @@ impl RemoteNode {
             .collect();
         println!("{:?}", signers.len());
         let nonces = vec![0; signers.len()];
-        let async_client = Arc::new(
-            AsyncClient::builder()
-                .use_rustls_tls()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .build()
-                .unwrap(),
-        );
 
         let sync_client = SyncClient::builder()
             .use_rustls_tls()
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .unwrap();
-        let mut result = Self { addr, signers, nonces, url, async_client, sync_client };
+        let mut result = Self { addr, signers, nonces, url, sync_client };
 
         // Wait for the node to be up.
         wait(|| result.health_ok());
@@ -141,7 +132,9 @@ impl RemoteNode {
             .iter()
             .zip(self.signers.iter().map(|s| &s.public_key))
             .map(|(account_id, public_key)| {
-                get_result(|| self.get_access_key(&account_id, &public_key)).unwrap().nonce
+                get_result(|| self.get_access_key(&account_id, &public_key))
+                    .expect("No access key for given public key")
+                    .nonce
             })
             .collect();
         self.nonces = nonces;
@@ -166,25 +159,24 @@ impl RemoteNode {
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        println!("add_transaction_async, {:?}", transaction);
-        let client = new_client(&self.addr.to_string());
+    ) -> Box<dyn Future<Item = (), Error = String>> {
+        let mut client = new_client(&self.url);
         let bytes = transaction.try_to_vec().unwrap();
-        let response = client.broadcast_tx_async(to_base64(&bytes))
-           .map(|_| ())
-           .map_err(|err| format!("{}", err))
-        ;
+        let response = client
+            .broadcast_tx_async(to_base64(&bytes))
+            .map(|_| ())
+            .map_err(|err| format!("{}", err));
 
-//        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
-//        println!("to url {}", &url);
-//        let response = self
-//            .async_client
-//            .post(url.as_str())
-//            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
-//            .send()
-//            .map(|_| ())
-//            .map_err(|err| format!("{}", err));
-//        println!("Get response");
+        //        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
+        //        println!("to url {}", &url);
+        //        let response = self
+        //            .async_client
+        //            .post(url.as_str())
+        //            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
+        //            .send()
+        //            .map(|_| ())
+        //            .map_err(|err| format!("{}", err));
+        //        println!("Get response");
         Box::new(response)
     }
 
@@ -223,9 +215,7 @@ impl RemoteNode {
         println!("{}", url);
         let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
         println!("bbb");
-        Ok(response["sync_info"]["latest_block_height"]
-            .as_u64()
-            .ok_or(VALUE_NOT_NUM_ERR)?)
+        Ok(response["sync_info"]["latest_block_height"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
     }
 
     pub fn get_current_block_hash(&self) -> Result<CryptoHash, Box<dyn std::error::Error>> {
