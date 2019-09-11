@@ -1277,14 +1277,13 @@ impl<'a> ChainUpdate<'a> {
                     transactions.extend(chunk.transactions.iter().cloned());
 
                     if transactions.iter().any(|t| {
-                        t.transaction.block_hash == CryptoHash::default()
-                            || !check_tx_history(
-                                self.chain_store_update
-                                    .get_block_header(&t.transaction.block_hash)
-                                    .ok(),
-                                block.header.inner.height,
-                                self.transaction_validity_period,
-                            )
+                        !check_tx_history(
+                            self.chain_store_update
+                                .get_block_header(&t.transaction.block_hash)
+                                .ok(),
+                            block.header.inner.height,
+                            self.transaction_validity_period,
+                        )
                     }) {
                         debug!(target: "chain", "Invalid transactions in the block: {:?}", transactions);
                         return Err(ErrorKind::InvalidTransactions.into());

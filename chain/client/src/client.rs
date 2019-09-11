@@ -1340,13 +1340,11 @@ impl ClientActor {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        if tx.transaction.block_hash == CryptoHash::default()
-            || !check_tx_history(
-                self.chain.get_block_header(&tx.transaction.block_hash).ok(),
-                head.height,
-                self.config.transaction_validity_period,
-            )
-        {
+        if !check_tx_history(
+            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
+            head.height,
+            self.config.transaction_validity_period,
+        ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(
                 "Transaction has either expired or from a different fork".to_string(),

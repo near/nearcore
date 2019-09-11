@@ -9,13 +9,14 @@ use futures::future;
 use futures::future::Future;
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::ChainGenesis;
+use near_chain::{Chain, ChainGenesis};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
+use near_primitives::block::Block;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
@@ -35,7 +36,7 @@ pub fn setup(
     recipient: Recipient<NetworkRequests>,
     tx_validity_period: BlockIndex,
     genesis_time: DateTime<Utc>,
-) -> (ClientActor, ViewClientActor) {
+) -> (Block, ClientActor, ViewClientActor) {
     let store = create_test_store();
     let num_validators = validators.iter().map(|x| x.len()).sum();
     let runtime = Arc::new(KeyValueRuntime::new_with_validators(
@@ -46,6 +47,10 @@ pub fn setup(
     ));
     let chain_genesis =
         ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, tx_validity_period);
+
+    let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
+    let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
+
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
@@ -62,7 +67,7 @@ pub fn setup(
         telemetry,
     )
     .unwrap();
-    (client, view_client)
+    (genesis_block, client, view_client)
 }
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
@@ -104,7 +109,7 @@ pub fn setup_mock_with_validity_period(
             Box::new(Some(resp))
         }))
         .start();
-        let (client, view_client) = setup(
+        let (_, client, view_client) = setup(
             vec![validators],
             1,
             1,
@@ -129,7 +134,7 @@ pub fn setup_mock_all_validators(
     skip_sync_wait: bool,
     block_prod_time: u64,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
-) -> Vec<(Addr<ClientActor>, Addr<ViewClientActor>)> {
+) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
     let key_pairs = key_pairs.clone();
     let genesis_time = Utc::now();
@@ -143,6 +148,7 @@ pub fn setup_mock_all_validators(
     let mut locked_connectors = connectors.write().unwrap();
 
     let announced_accounts = Arc::new(RwLock::new(HashSet::new()));
+    let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as ShardId;
 
     for account_id in validators.iter().flatten().cloned() {
@@ -150,6 +156,7 @@ pub fn setup_mock_all_validators(
         let view_client_addr1 = view_client_addr.clone();
         let validators_clone1 = validators_clone.clone();
         let validators_clone2 = validators_clone.clone();
+        let genesis_block1 = genesis_block.clone();
         let key_pairs = key_pairs.clone();
         let connectors1 = connectors.clone();
         let network_mock1 = network_mock.clone();
@@ -309,7 +316,7 @@ pub fn setup_mock_all_validators(
                 Box::new(Some(resp))
             }))
             .start();
-            let (client, view_client) = setup(
+            let (block, client, view_client) = setup(
                 validators_clone1.clone(),
                 validator_groups,
                 num_shards,
@@ -321,12 +328,14 @@ pub fn setup_mock_all_validators(
                 genesis_time,
             );
             *view_client_addr1.write().unwrap() = Some(view_client.start());
+            *genesis_block1.write().unwrap() = Some(block);
             client
         });
         ret.push((client_addr, view_client_addr.clone().read().unwrap().clone().unwrap()));
     }
     *locked_connectors = ret.clone();
-    ret
+    let value = genesis_block.read().unwrap();
+    (value.clone().unwrap(), ret)
 }
 
 /// Sets up ClientActor and ViewClientActor without network.

@@ -25,7 +25,7 @@ fn test_keyvalue_runtime_balances() {
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
-        *connectors.write().unwrap() = setup_mock_all_validators(
+        let (_, x) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -35,6 +35,7 @@ fn test_keyvalue_runtime_balances() {
                 (NetworkResponses::NoResponse, true)
             })),
         );
+        *connectors.write().unwrap() = x;
 
         let connectors_ = connectors.write().unwrap();
         let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
@@ -101,11 +102,7 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
-        let signer = InMemorySigner::from_seed(
-            &format!("test{}", connector_ordinal),
-            KeyType::ED25519,
-            &format!("test{}", connector_ordinal),
-        );
+        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
@@ -342,9 +339,8 @@ mod tests {
         }
     }
 
-    fn test_cross_shard_tx_common(rotate_validators: bool) {
+    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool) {
         let validator_groups = 4;
-        let num_iters = 64;
         init_test_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
@@ -383,7 +379,7 @@ mod tests {
                 observed_balances_local.push(0);
             }
 
-            *connectors.write().unwrap() = setup_mock_all_validators(
+            let (genesis_block, x) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -393,6 +389,8 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
+            *connectors.write().unwrap() = x;
+            let block_hash = genesis_block.hash();
 
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));
@@ -433,7 +431,7 @@ mod tests {
                                 observed_balances1,
                                 presumable_epoch1,
                                 num_iters,
-                                CryptoHash::default(),
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -448,11 +446,16 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(false);
+        test_cross_shard_tx_common(64, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_8_iterations() {
+        test_cross_shard_tx_common(8, false);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation() {
-        test_cross_shard_tx_common(true);
+        test_cross_shard_tx_common(64, true);
     }
 }
