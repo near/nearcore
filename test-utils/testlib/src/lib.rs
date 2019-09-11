@@ -1,4 +1,4 @@
-use actix::{Addr, System};
+use actix::Addr;
 use near::{load_test_config, start_with_config, GenesisConfig, NightshadeRuntime};
 use near_chain::{Chain, ChainGenesis};
 use near_client::{ClientActor, ViewClientActor};
@@ -66,13 +66,13 @@ pub fn genesis_block(genesis_config: GenesisConfig) -> Block {
 
 pub fn start_nodes(
     num_shards: usize,
-    num_nodes: usize,
+    dirs: &[TempDir],
     num_validators: usize,
     epoch_length: BlockIndex,
-    num_blocks: BlockIndex,
 ) -> Vec<(Addr<ClientActor>, Addr<ViewClientActor>)> {
     init_integration_logger();
 
+    let num_nodes = dirs.len();
     let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
     let mut genesis_config = GenesisConfig::test_sharded(
         seeds.iter().map(|s| s.as_str()).collect(),
@@ -107,13 +107,6 @@ pub fn start_nodes(
         near_configs.push(near_config);
     }
 
-    let system = System::new("NEAR");
-
-    let dirs = (0..num_nodes)
-        .map(|i| {
-            TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
-        })
-        .collect::<Vec<_>>();
     let mut res = vec![];
     for (i, near_config) in near_configs.into_iter().enumerate() {
         let (client, view_client) = start_with_config(dirs[i].path(), near_config);

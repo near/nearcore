@@ -16,7 +16,13 @@ fn run_nodes(
     epoch_length: BlockIndex,
     num_blocks: BlockIndex,
 ) {
-    let clients = start_nodes(num_shards, num_nodes, num_validators, epoch_length, num_blocks);
+    let system = System::new("NEAR");
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let clients = start_nodes(num_shards, &dirs, num_validators, epoch_length);
     let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {

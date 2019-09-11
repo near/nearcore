@@ -10,13 +10,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{TransactionResult, TransactionStatus};
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, FinalTransactionStatus, QueryResponse, TransactionLogView,
-    TransactionResultView,
+    BlockView, ChunkView, FinalTransactionResult, FinalTransactionStatus, QueryResponse,
+    TransactionLogView, TransactionResultView,
 };
 use near_store::Store;
 
 use crate::types::{Error, GetBlock, Query, TxStatus};
-use crate::TxDetails;
+use crate::{GetChunk, TxDetails};
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
@@ -141,6 +141,25 @@ impl Handler<GetBlock> for ViewClientActor {
             GetBlock::Hash(hash) => self.chain.get_block(&hash).map(Clone::clone),
         }
         .map(|block| block.into())
+        .map_err(|err| err.to_string())
+    }
+}
+
+impl Handler<GetChunk> for ViewClientActor {
+    type Result = Result<ChunkView, String>;
+
+    fn handle(&mut self, msg: GetChunk, _: &mut Self::Context) -> Self::Result {
+        match msg {
+            GetChunk::ChunkHash(chunk_hash) => self.chain.get_chunk(&chunk_hash).map(Clone::clone),
+            GetChunk::BlockHash(block_hash, shard_id) => {
+                self.chain.get_block(&block_hash).map(Clone::clone).and_then(|block| {
+                    self.chain
+                        .get_chunk(&block.chunks[shard_id as usize].chunk_hash())
+                        .map(Clone::clone)
+                })
+            }
+        }
+        .map(|chunk| chunk.into())
         .map_err(|err| err.to_string())
     }
 }

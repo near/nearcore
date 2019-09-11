@@ -683,7 +683,7 @@ impl ClientActor {
                     self.shards_mgr.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
             }
@@ -703,7 +703,7 @@ impl ClientActor {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
             }

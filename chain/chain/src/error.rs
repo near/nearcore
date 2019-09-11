@@ -3,7 +3,7 @@ use std::io;
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
 pub struct Error {
@@ -18,7 +18,9 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Chunks missing.
+    #[fail(display = "Chunk Missing: {:?}", _0)]
+    ChunkMissing(ChunkHash),
+    /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
     /// Peer abusively sending us an old block we already have
@@ -121,6 +123,7 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
+            | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)

@@ -760,7 +760,7 @@ pub fn display_chain(chain: &mut Chain, tail: bool) {
                             chunk_header.inner.shard_id,
                         )
                         .unwrap();
-                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
+                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
                             chunk_header.inner.height_created,
