@@ -163,6 +163,34 @@ export function callPromise(args: PromiseArgs): void {
   promise.returnAsResult();
 }
 
+export function callPromiseAll(args: PromiseArgs): void {
+  let inputArgs: InputPromiseArgs = { args: args.args };
+  let balance = args.balance as u64;
+
+  let promise = ContractPromise.create(
+      args.receiver,
+      args.methodName,
+      inputArgs.encode().serialize(),
+      args.gas,
+      new u128(args.balance));
+
+   let promise2 = ContractPromise.create(
+      args.receiver,
+      args.methodName,
+      inputArgs.encode().serialize(),
+      args.gas,
+      new u128(args.balance));
+
+  promise = ContractPromise.all([promise, promise2]);
+
+  promise = promise.then(
+      context.contractName,
+      args.callback,
+      inputArgs.encode().serialize(),
+      args.callbackGas,
+      new u128(args.callbackBalance as u64));
+}
+
 export function callbackWithName(args: PromiseArgs): MyCallbackResult {
   let contractResults = ContractPromise.getResults();
   let allRes = Array.create<MyContractPromiseResult>(contractResults.length);
