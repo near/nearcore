@@ -21,7 +21,13 @@ fn test_block() {
             assert_eq!(res.header.epoch_id.0, &[0; 32]);
             assert_eq!(res.header.hash.0.len(), 32);
             assert_eq!(res.header.prev_hash.0, &[0; 32]);
-            assert_eq!(res.header.prev_state_root.0, &[0; 32]);
+            assert_eq!(
+                res.header.prev_state_root.0,
+                &[
+                    102, 104, 122, 173, 248, 98, 189, 119, 108, 143, 193, 139, 142, 159, 142, 32,
+                    8, 151, 20, 133, 110, 226, 51, 179, 144, 42, 89, 29, 13, 95, 41, 37
+                ]
+            );
             assert_eq!(res.header.tx_root.0, &[0; 32]);
             assert!(res.header.timestamp > 0);
             assert_eq!(res.header.approval_mask.len(), 0);
