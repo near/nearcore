@@ -640,9 +640,11 @@ impl ClientActor {
         last_height: BlockIndex,
         next_height: BlockIndex,
     ) -> Result<(), Error> {
-        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
-            Error::BlockProducer("Called without block producer info.".to_string())
-        })?;
+        let block_producer = self
+            .block_producer
+            .as_ref()
+            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
+            .clone();
         let head = self.chain.head()?;
         // If last height changed, this process should stop as we spun up another one.
         if head.height != last_height {
@@ -707,10 +709,21 @@ impl ClientActor {
         let validator_proposals =
             self.chain.get_post_validator_proposals(&head.last_block_hash)?.clone();
 
-        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
-
         // Take transactions from the pool.
-        let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
+        let transactions = self
+            .tx_pool
+            .prepare_transactions(self.config.block_expected_weight)?
+            .into_iter()
+            .filter(|t| {
+                check_tx_history(
+                    self.chain.get_block_header(&t.transaction.block_hash).ok(),
+                    head.height,
+                    self.config.transaction_validity_period,
+                )
+            })
+            .collect();
+
+        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // At this point, the previous epoch hash must be available
         let (epoch_hash, _) = self
