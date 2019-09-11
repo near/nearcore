@@ -32,6 +32,8 @@ use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
 const MAX_CHUNK_REQUESTS_TO_KEEP_PER_SHARD: usize = 128;
 const ORPHANED_ONE_PART_CACHE_SIZE: usize = 1024;
+const REQUEST_ONE_PARTS_CACHE_SIZE: usize = 1024;
+const REQUEST_CHUNKS_CACHE_SIZE: usize = 1024;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -58,8 +60,8 @@ pub struct ShardsManager {
 
     orphaned_one_parts: SizedCache<(CryptoHash, ShardId, u64), ChunkOnePart>,
 
-    requested_one_parts: HashSet<ChunkHash>,
-    requested_chunks: HashSet<ChunkHash>,
+    requested_one_parts: SizedCache<ChunkHash, ()>,
+    requested_chunks: SizedCache<ChunkHash, ()>,
 
     requests_fifo: VecDeque<(ShardId, ChunkHash, PeerId, u64)>,
     requests: HashMap<(ShardId, ChunkHash, u64), HashSet<(PeerId)>>,
@@ -82,8 +84,8 @@ impl ShardsManager {
             merkle_paths: HashMap::new(),
             block_hash_to_chunk_headers: HashMap::new(),
             orphaned_one_parts: SizedCache::with_size(ORPHANED_ONE_PART_CACHE_SIZE),
-            requested_one_parts: HashSet::new(),
-            requested_chunks: HashSet::new(),
+            requested_one_parts: SizedCache::with_size(REQUEST_ONE_PARTS_CACHE_SIZE),
+            requested_chunks: SizedCache::with_size(REQUEST_CHUNKS_CACHE_SIZE),
             requests_fifo: VecDeque::new(),
             requests: HashMap::new(),
         }
@@ -162,10 +164,10 @@ impl ShardsManager {
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
 
             if !self.encoded_chunks.contains_key(&chunk_hash) {
-                if self.requested_one_parts.contains(&chunk_hash) {
+                if self.requested_one_parts.cache_get(&chunk_hash).is_some() {
                     continue;
                 }
-                self.requested_one_parts.insert(chunk_hash.clone());
+                self.requested_one_parts.cache_set(chunk_hash.clone(), ());
 
                 let mut requested_one_part = false;
                 if let Some(me) = self.me.as_ref() {
@@ -207,10 +209,10 @@ impl ShardsManager {
                     }
                 }
             } else {
-                if self.requested_chunks.contains(&chunk_hash) {
+                if self.requested_chunks.cache_get(&chunk_hash).is_some() {
                     continue;
                 }
-                self.requested_chunks.insert(chunk_hash.clone());
+                self.requested_chunks.cache_set(chunk_hash.clone(), ());
 
                 for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
                     let part_id = part_id as u64;
