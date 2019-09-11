@@ -21,6 +21,7 @@ use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
+use near::config::INITIAL_GAS_PRICE;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -74,30 +75,23 @@ impl RuntimeUser {
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
     ) {
-        let mut cur_apply_state = apply_state;
         let mut receipts = prev_receipts;
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
-            let state_update = TrieUpdate::new(client.trie.clone(), cur_apply_state.root);
+            let state_update = TrieUpdate::new(client.trie.clone(), client.state_root);
             let apply_result =
-                client.runtime.apply(state_update, &cur_apply_state, &receipts, &txs).unwrap();
+                client.runtime.apply(state_update, &apply_state, &receipts, &txs).unwrap();
             for transaction_result in apply_result.tx_result.into_iter() {
                 self.transaction_results
                     .borrow_mut()
                     .insert(transaction_result.hash, transaction_result.result.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
+            client.state_root = apply_result.root;
             if apply_result.new_receipts.is_empty() {
-                client.state_root = apply_result.root;
                 return;
             }
-            cur_apply_state = ApplyState {
-                root: apply_result.root,
-                block_index: cur_apply_state.block_index,
-                parent_block_hash: cur_apply_state.parent_block_hash,
-                epoch_length: client.epoch_length,
-            };
             for receipt in apply_result.new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
             }
@@ -109,10 +103,9 @@ impl RuntimeUser {
     fn apply_state(&self) -> ApplyState {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
-            root: client.state_root,
-            parent_block_hash: CryptoHash::default(),
             block_index: 0,
             epoch_length: client.epoch_length,
+            gas_price: INITIAL_GAS_PRICE,
         }
     }
 

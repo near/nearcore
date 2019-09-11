@@ -2071,7 +2071,6 @@ dependencies = [
  "near-primitives 0.1.0",
  "near-store 0.1.0",
  "near-telemetry 0.1.0",
- "near-verifier 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2338,15 +2337,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "near-verifier"
-version = "0.1.0"
-dependencies = [
- "near-crypto 0.1.0",
- "near-primitives 0.1.0",
- "near-store 0.1.0",
-]
-
-[[package]]
 name = "near-vm-logic"
 version = "0.2.3"
 dependencies = [
@@ -2442,7 +2432,6 @@ dependencies = [
  "near-primitives 0.1.0",
  "near-runtime-fees 0.2.1",
  "near-store 0.1.0",
- "near-verifier 0.1.0",
  "near-vm-logic 0.2.3",
  "near-vm-runner 0.2.4",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",

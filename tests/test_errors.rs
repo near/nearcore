@@ -72,11 +72,11 @@ fn test_deliver_tx_error_log() {
         block_hash,
     );
 
-    let tx_result = node.user().commit_transaction(tx).unwrap();
+    let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
-        tx_result.transactions[0].result.logs[0],
+        tx_result,
         format!(
-        "Runtime error: Sender alice.near does not have enough balance 999999950000000 for operation costing {}",
+            "RpcError {{ code: -32000, message: \"Server error\", data: Some(String(\"Sender alice.near does not have enough balance 999999950000000 for operation costing {}\")) }}",
             TESTING_INIT_BALANCE + 1 + cost
         )
     );
