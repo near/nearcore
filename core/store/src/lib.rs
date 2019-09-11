@@ -10,6 +10,8 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
@@ -21,8 +23,6 @@ pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
 
 pub mod test_utils;
 mod trie;
