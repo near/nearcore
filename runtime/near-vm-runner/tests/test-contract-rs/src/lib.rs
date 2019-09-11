@@ -363,3 +363,74 @@ fn internal_recurse(n: u64) -> u64 {
         internal_recurse(n - 1) + 1
     }
 }
+
+// Can be used for debugging
+#[no_mangle]
+fn log_u64(msg: u64) {
+    unsafe {
+        log_utf8(8, &msg as *const u64 as u64);
+    }
+}
+
+#[no_mangle]
+fn call_promise() {
+    unsafe {
+        input(0);
+        let data = vec![0u8; register_len(0) as usize];
+        read_register(0, data.as_ptr() as u64);
+        let input_args: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        for arg in input_args.as_array().unwrap() {
+            let actual_id = if let Some(create) = arg.get("create") {
+                let account_id = create["account_id"].as_str().unwrap().as_bytes();
+                let method_name = create["method_name"].as_str().unwrap().as_bytes();
+                let arguments = serde_json::to_vec(&create["arguments"]).unwrap();
+                let amount = create["amount"].as_i64().unwrap() as u128;
+                let gas = create["gas"].as_i64().unwrap() as u64;
+                promise_create(
+                    account_id.len() as u64,
+                    account_id.as_ptr() as u64,
+                    method_name.len() as u64,
+                    method_name.as_ptr() as u64,
+                    arguments.len() as u64,
+                    arguments.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                    gas,
+                )
+            } else if let Some(then) = arg.get("then") {
+                let promise_index = then["promise_index"].as_i64().unwrap() as u64;
+                let account_id = then["account_id"].as_str().unwrap().as_bytes();
+                let method_name = then["method_name"].as_str().unwrap().as_bytes();
+                let arguments = serde_json::to_vec(&then["arguments"]).unwrap();
+                let amount = then["amount"].as_i64().unwrap() as u128;
+                let gas = then["gas"].as_i64().unwrap() as u64;
+                promise_then(
+                    promise_index,
+                    account_id.len() as u64,
+                    account_id.as_ptr() as u64,
+                    method_name.len() as u64,
+                    method_name.as_ptr() as u64,
+                    arguments.len() as u64,
+                    arguments.as_ptr() as u64,
+                    &amount as *const u128 as *const u64 as u64,
+                    gas,
+                )
+            } else if let Some(and) = arg.get("and") {
+                let and = and.as_array().unwrap();
+                let mut curr = and[0].as_i64().unwrap() as u64;
+                for other in &and[1..] {
+                    curr = promise_and(curr, other.as_i64().unwrap() as u64);
+                }
+                curr
+            } else {
+                unimplemented!()
+            };
+            let expected_id = arg["id"].as_i64().unwrap() as u64;
+            assert_eq!(actual_id, expected_id);
+            if let Some(ret) = arg.get("return") {
+                if ret.as_bool().unwrap() == true {
+                    promise_return(actual_id);
+                }
+            }
+        }
+    }
+}
