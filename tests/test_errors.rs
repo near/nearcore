@@ -55,7 +55,7 @@ fn test_deliver_tx_error_log() {
     let node = start_node();
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
-    let cost = testlib::fees_utils::create_account_transfer_full_key_cost();
+    let cost = testlib::fees_utils::create_account_transfer_full_key_cost_no_reward();
     let tx = SignedTransaction::from_actions(
         1,
         "alice.near".to_string(),

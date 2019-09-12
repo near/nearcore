@@ -558,6 +558,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         logs: vec![],
                         receipts: new_receipt_hashes,
                         result: None,
+                        gas_burnt: 0,
                     },
                 });
             }

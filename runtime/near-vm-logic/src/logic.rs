@@ -820,25 +820,24 @@ impl<'a> VMLogic<'a> {
             self.burnt_gas.checked_add(burn_gas as _).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas =
             self.used_gas.checked_add(use_gas as _).ok_or(HostError::IntegerOverflow)?;
-        if self.context.free_of_charge
-            || (new_burnt_gas < self.config.max_gas_burnt
-                && new_used_gas < self.context.prepaid_gas)
+        if new_burnt_gas <= self.config.max_gas_burnt
+            && (self.context.free_of_charge || new_used_gas <= self.context.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
             Ok(())
         } else {
             use std::cmp::min;
-            let res = if new_burnt_gas >= self.config.max_gas_burnt {
+            let res = if new_burnt_gas > self.config.max_gas_burnt {
                 Err(HostError::GasLimitExceeded)
-            } else if new_used_gas >= self.context.prepaid_gas {
+            } else if new_used_gas > self.context.prepaid_gas {
                 Err(HostError::GasExceeded)
             } else {
                 unreachable!()
             };
 
-            self.burnt_gas =
-                min(self.context.prepaid_gas, min(new_burnt_gas, self.config.max_gas_burnt));
+            let max_burnt_gas = min(self.config.max_gas_burnt, self.context.prepaid_gas);
+            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
             self.used_gas = min(new_used_gas, self.context.prepaid_gas);
 
             res
