@@ -1351,6 +1351,7 @@ impl<'a> ChainUpdate<'a> {
                         .get_chunk_extra(&prev_block.hash(), shard_id)?
                         .clone();
 
+                    // TODO(1306): Transactions directly included in the block are not getting applied if chunk is skipped.
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(
