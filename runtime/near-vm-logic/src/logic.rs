@@ -13,10 +13,6 @@ use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostError>;
 
-/// Separator to split `method_names` into a vector of method names in
-/// `promise_batch_action_add_key_with_function_call`.
-const METHOD_NAMES_SEPARATOR: u8 = b',';
-
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -890,13 +886,15 @@ impl<'a> VMLogic<'a> {
         let allowance = if allowance > 0 { Some(allowance) } else { None };
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let method_names = Self::memory_get(self.memory, method_names_ptr, method_names_len)?;
+        // Use `,` separator to split `method_names` into a vector of method names.
         let method_names = method_names
-            .split(|c| *c == METHOD_NAMES_SEPARATOR)
+            .split(|c| *c == b',')
             .map(|v| if v.is_empty() { Err(HostError::EmptyMethodName) } else { Ok(v.to_vec()) })
             .collect::<Result<Vec<_>>>()?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
+        // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
         self.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,

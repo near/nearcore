@@ -107,9 +107,11 @@ pub struct RuntimeGroup {
 }
 
 impl RuntimeGroup {
-    pub fn new(num_runtimes: u64, contract_code: &[u8]) -> Arc<Self> {
+    pub fn new(num_runtimes: u64, num_existing_accounts: u64, contract_code: &[u8]) -> Arc<Self> {
         let mut res = Self::default();
-        let (state_records, signers) = Self::state_records_signers(num_runtimes, contract_code);
+        assert!(num_existing_accounts <= num_runtimes);
+        let (state_records, signers) =
+            Self::state_records_signers(num_runtimes, num_existing_accounts, contract_code);
 
         for signer in signers {
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
@@ -122,31 +124,34 @@ impl RuntimeGroup {
     /// Get state records and signers for standalone runtimes.
     fn state_records_signers(
         num_runtimes: u64,
+        num_existing_accounts: u64,
         contract_code: &[u8],
     ) -> (Vec<StateRecord>, Vec<InMemorySigner>) {
         let code_hash = hash(contract_code);
         let mut state_records = vec![];
         let mut signers = vec![];
         for i in 0..num_runtimes {
-            let account_id = format!("near.{}", i);
+            let account_id = format!("near_{}", i);
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
-            state_records.push(StateRecord::Account {
-                account_id: account_id.to_string(),
-                account: AccountView {
-                    amount: TESTING_INIT_BALANCE,
-                    staked: TESTING_INIT_STAKE,
-                    code_hash: code_hash.clone().into(),
-                    storage_usage: 0,
-                    storage_paid_at: 0,
-                },
-            });
-            state_records.push(StateRecord::AccessKey {
-                account_id: account_id.to_string(),
-                public_key: signer.public_key.into(),
-                access_key: AccessKey::full_access().into(),
-            });
-            state_records
-                .push(StateRecord::Contract { account_id, code: to_base64(contract_code) });
+            if i < num_existing_accounts {
+                state_records.push(StateRecord::Account {
+                    account_id: account_id.to_string(),
+                    account: AccountView {
+                        amount: TESTING_INIT_BALANCE,
+                        staked: TESTING_INIT_STAKE,
+                        code_hash: code_hash.clone().into(),
+                        storage_usage: 0,
+                        storage_paid_at: 0,
+                    },
+                });
+                state_records.push(StateRecord::AccessKey {
+                    account_id: account_id.to_string(),
+                    public_key: signer.public_key.into(),
+                    access_key: AccessKey::full_access().into(),
+                });
+                state_records
+                    .push(StateRecord::Contract { account_id, code: to_base64(contract_code) });
+            }
             signers.push(signer);
         }
         (state_records, signers)
@@ -236,7 +241,7 @@ impl RuntimeGroup {
 
     /// Get transaction log produced by the execution of given transaction/receipt
     /// identified by `producer_hash`.
-    pub fn get_produced_receipt_hashes(&self, producer_hash: &CryptoHash) -> TransactionLog {
+    pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> TransactionLog {
         self.transaction_logs
             .lock()
             .unwrap()
@@ -269,21 +274,21 @@ impl RuntimeGroup {
 /// ```
 #[macro_export]
 macro_rules! tuplet {
-    {() = $v:expr} => {
-        assert!($v.is_empty());
+    {() = $v:expr, $message:expr } => {
+        assert!($v.is_empty(), "{}", $message);
     };
-    {($y:ident) = $v:expr } => {
+    {($y:ident) = $v:expr, $message:expr } => {
         let $y = &$v[0];
-        assert_eq!($v.len(), 1);
+        assert_eq!($v.len(), 1, "{}", $message);
     };
-    { ($y:ident $(, $x:ident)*) = $v:expr } => {
-        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]) );
+    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
+        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
     };
-    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*) } => {
-        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]) )
+    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
+        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
     };
-    { $v:expr ; $j:expr ; () ; $accu:expr } => { {
-            assert_eq!($v.len(), $j);
+    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
+            assert_eq!($v.len(), $j, "{}", $message);
             $accu
     } }
 }
@@ -291,8 +296,8 @@ macro_rules! tuplet {
 #[macro_export]
 macro_rules! assert_receipts {
     ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
-        let transaction_log = $group.get_produced_receipt_hashes(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.result.receipts);
+        let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
+        tuplet!(( $($receipt),* ) = transaction_log.result.receipts, "Incorrect number of produced receipts for transaction");
     };
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
@@ -306,7 +311,7 @@ macro_rules! assert_receipts {
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert
-                tuplet!(( $($action_name),* ) = $actions_name);
+                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
                 $(
                     match $action_name {
                         $action_pat => {
@@ -318,8 +323,8 @@ macro_rules! assert_receipts {
             }
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
-       let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts);
+       let receipt_log = $group.get_transaction_log(&r.get_hash());
+       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts, "Incorrect number of produced receipts for a receipt");
     };
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
@@ -335,17 +340,17 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
        let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts);
+       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts, "Incorrect number of produced receipts for a receipt");
     };
 }
 
 /// A short form for refunds.
 /// ```
-/// assert_refund!(group, ref1 @ "near.0");
+/// assert_refund!(group, ref1 @ "near_0");
 /// ```
 /// expands into:
 /// ```
-/// assert_receipts!(group, "system" => ref1 @ "near.0",
+/// assert_receipts!(group, "system" => ref1 @ "near_0",
 ///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
 ///                  actions,
 ///                  a0, Action::Transfer(TransferAction{..}), {}

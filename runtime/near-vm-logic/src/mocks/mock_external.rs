@@ -277,50 +277,50 @@ pub struct DeployContractAction {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_str")]
-    pub method_name: Vec<u8>,
+    method_name: Vec<u8>,
     #[serde(with = "crate::serde_with::bytes_as_str")]
-    pub args: Vec<u8>,
-    pub gas: Gas,
-    pub deposit: Balance,
+    args: Vec<u8>,
+    gas: Gas,
+    deposit: Balance,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransferAction {
-    pub deposit: Balance,
+    deposit: Balance,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct StakeAction {
-    pub stake: Balance,
+    stake: Balance,
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    pub public_key: PublicKey,
+    public_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AddKeyWithFullAccessAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    pub public_key: PublicKey,
-    pub nonce: u64,
+    public_key: PublicKey,
+    nonce: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AddKeyWithFunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    pub public_key: PublicKey,
-    pub nonce: u64,
-    pub allowance: Option<Balance>,
-    pub receiver_id: AccountId,
+    public_key: PublicKey,
+    nonce: u64,
+    allowance: Option<Balance>,
+    receiver_id: AccountId,
     #[serde(with = "crate::serde_with::vec_bytes_as_str")]
-    pub method_names: Vec<Vec<u8>>,
+    method_names: Vec<Vec<u8>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DeleteKeyAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
-    pub public_key: PublicKey,
+    public_key: PublicKey,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DeleteAccountAction {
-    pub beneficiary_id: AccountId,
+    beneficiary_id: AccountId,
 }

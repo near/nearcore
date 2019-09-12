@@ -1,6 +1,6 @@
 //! External dependencies of the near-vm-logic.
 
-use crate::types::{AccountId, Balance, Gas, IteratorIndex, ReceiptIndex};
+use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -94,20 +94,20 @@ pub trait External {
         &mut self,
         receipt_index: ReceiptIndex,
         stake: Balance,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
     ) -> Result<()>;
 
     fn append_action_add_key_with_full_access(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         nonce: u64,
     ) -> Result<()>;
 
     fn append_action_add_key_with_function_call(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
         nonce: u64,
         allowance: Option<Balance>,
         receiver_id: AccountId,
@@ -117,7 +117,7 @@ pub trait External {
     fn append_action_delete_key(
         &mut self,
         receipt_index: ReceiptIndex,
-        public_key: Vec<u8>,
+        public_key: PublicKey,
     ) -> Result<()>;
 
     fn append_action_delete_account(

@@ -36,5 +36,6 @@ ethereum-block = "0.3"
 ethereum-hexutil = "0.2"
 tempdir = "0.3"
 serde_json = "1.0.40"
+base64 = "0.10.1"
 
 testlib = { path = "../../test-utils/testlib" }
