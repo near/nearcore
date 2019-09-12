@@ -1283,7 +1283,7 @@ impl<'a> ChainUpdate<'a> {
                             self.chain_store_update
                                 .get_block_header(&t.transaction.block_hash)
                                 .ok(),
-                            block.header.inner.height,
+                            chunk_header.inner.height_created,
                             self.transaction_validity_period,
                         )
                     }) {
