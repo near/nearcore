@@ -79,7 +79,7 @@ impl Executor {
                         // Spawn a task that sends transactions only from the given account making
                         // sure the nonces are correct.
                         tokio::runtime::current_thread::spawn(
-                            rx.map_err(|e| println!("Error in 82 {}", e))
+                            rx.map_err(|_| ())
                                 .for_each(move |_| {
                                     let stats = stats.clone();
                                     let t = match transaction_type {
@@ -96,7 +96,7 @@ impl Executor {
                                         }
                                     };
                                     let f = { node.write().unwrap().add_transaction_async(t) };
-                                    f.map_err(|e| println!("Error in 99 {}", e))
+                                    f.map_err(|_| ())
                                         .timeout(Duration::from_secs(1))
                                         .map(move |_| {
                                             stats.read().unwrap().inc_out_tx();
@@ -124,7 +124,7 @@ impl Executor {
                         }
                         Ok(true)
                     })
-                    .map_err(|e| println!("Error in 127 {}", e))
+                    .map_err(|_| ())
                     .for_each(move |_| {
                         let ind = rand::random::<usize>() % signal_tx.len();
                         let tx = signal_tx[ind].clone();
@@ -134,9 +134,7 @@ impl Executor {
                     .map_err(|_| ());
 
                 let node = nodes[0].clone();
-                println!("111");
                 stats.write().unwrap().measure_from(&*node.write().unwrap());
-                println!("222");
                 tokio::spawn(
                     task.then(move |_| {
                         futures::future::lazy(move || {

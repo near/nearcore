@@ -13,7 +13,7 @@ use near_jsonrpc::client::new_client;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Nonce};
+use near_primitives::types::{AccountId, BlockIndex, Nonce};
 use near_primitives::views::AccessKeyView;
 use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
@@ -27,7 +27,7 @@ const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 const VALUE_NOT_NUM_ERR: &str = "Value is not number";
 
 /// Maximum number of times we retry a single RPC.
-const MAX_RETRIES_PER_RPC: usize = 1;
+const MAX_RETRIES_PER_RPC: usize = 10;
 const MAX_RETRIES_REACHED_ERR: &str = "Exceeded maximum number of retries per RPC";
 
 /// Maximum time we wait for the given RPC.
@@ -89,7 +89,6 @@ where
         match f() {
             Ok(r) => return r,
             Err(err) => {
-                println!("{:?}", err);
                 if curr == MAX_RETRIES_PER_RPC - 1 {
                     panic!("{}: {}", MAX_RETRIES_REACHED_ERR, err);
                 } else {
@@ -103,12 +102,10 @@ where
 impl RemoteNode {
     pub fn new(addr: SocketAddr, signers_accs: &[AccountId]) -> Arc<RwLock<Self>> {
         let url = format!("http://{}", addr);
-        println!("{:?}", signers_accs);
         let signers: Vec<_> = signers_accs
             .iter()
             .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
             .collect();
-        println!("{:?}", signers.len());
         let nonces = vec![0; signers.len()];
 
         let sync_client = SyncClient::builder()
@@ -167,21 +164,12 @@ impl RemoteNode {
             .map(|_| ())
             .map_err(|err| format!("{}", err));
 
-        //        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
-        //        println!("to url {}", &url);
-        //        let response = self
-        //            .async_client
-        //            .post(url.as_str())
-        //            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
-        //            .send()
-        //            .map(|_| ())
-        //            .map_err(|err| format!("{}", err));
-        //        println!("Get response");
         Box::new(response)
     }
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of
     /// the transaction.
+    /// Not working
     pub fn add_transaction(
         &self,
         transaction: SignedTransaction,
@@ -198,6 +186,7 @@ impl RemoteNode {
     }
 
     /// Returns block height if transaction is committed to a block.
+    /// Not working
     pub fn transaction_committed(&self, hash: &String) -> Result<u64, Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/tx");
         let response: serde_json::Value = self
@@ -210,11 +199,8 @@ impl RemoteNode {
     }
 
     pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
-        println!("aaa");
         let url = format!("{}{}", self.url, "/status");
-        println!("{}", url);
         let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
-        println!("bbb");
         Ok(response["sync_info"]["latest_block_height"].as_u64().ok_or(VALUE_NOT_NUM_ERR)?)
     }
 
@@ -228,7 +214,8 @@ impl RemoteNode {
             .try_into()?)
     }
 
-    // This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6
+    /// This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6
+    /// Not working
     pub fn block_result_codes(
         &self,
         height: u64,
@@ -251,30 +238,43 @@ impl RemoteNode {
         Ok(results)
     }
 
+    /// Not working
     pub fn get_transactions(
         &self,
         min_height: u64,
         max_height: u64,
     ) -> Result<u64, Box<dyn std::error::Error>> {
-        println!("max_height {} min_height {}", max_height, min_height);
+        assert!(max_height > min_height, "No transaction and block commited");
         assert!(max_height - min_height <= MAX_BLOCKS_FETCH, "Too many blocks to fetch");
-        let url = format!("{}{}", self.url, "/blockchain");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[
-                ("minHeight", format!("{}", min_height)),
-                ("maxHeight", format!("{}", max_height)),
-            ])
-            .send()?
-            .json()?;
-        let mut result = 0u64;
-        for block_meta in response["result"]["block_metas"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
-            result += block_meta["header"]["num_txs"]
-                .as_str()
-                .ok_or(VALUE_NOT_STR_ERR)?
-                .parse::<u64>()?;
+        let mut client = new_client(&self.url);
+        println!("{}, {}", min_height, max_height);
+        for i in min_height..max_height {
+            tokio::runtime::current_thread::spawn(
+                client
+                    .block(i as BlockIndex)
+                    .map(|r| {
+                        println!("{:?}", r.transactions.len());
+                    })
+                    .map_err(|e| println!("Error: {}", e)),
+            );
         }
+        // let url = format!("{}{}", self.url, "/blockchain");
+        // let response: serde_json::Value = self
+        //     .sync_client
+        //     .post(url.as_str())
+        //     .form(&[
+        //         ("minHeight", format!("{}", min_height)),
+        //         ("maxHeight", format!("{}", max_height)),
+        //     ])
+        //     .send()?
+        //     .json()?;
+        let mut result = 0u64;
+        // for block_meta in response["result"]["block_metas"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
+        //     result += block_meta["header"]["num_txs"]
+        //         .as_str()
+        //         .ok_or(VALUE_NOT_STR_ERR)?
+        //         .parse::<u64>()?;
+        // }
 
         Ok(result)
     }

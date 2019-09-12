@@ -77,6 +77,6 @@ fn main() {
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(10)), 700, TransactionType::Set);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(60)), 700, TransactionType::Set);
     handle.join().unwrap();
 }
