@@ -5,7 +5,7 @@ use parity_wasm::builder;
 use parity_wasm::elements::{self, External, MemorySection, Type};
 use pwasm_utils::{self, rules};
 
-use crate::errors::PrepareError;
+use near_vm_errors::PrepareError;
 use near_vm_logic::Config;
 
 struct ContractModule<'a> {
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn memory() {
         // This test assumes that maximum page number is configured to a certain number.
-        assert_eq!(Config::default().max_memory_pages, 2u32.pow(11));
+        assert_eq!(Config::default().max_memory_pages, 2048);
 
         let r = parse_and_prepare_wat(r#"(module (import "env" "memory" (memory 1 1)))"#);
         assert_matches!(r, Ok(_));

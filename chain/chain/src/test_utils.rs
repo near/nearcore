@@ -33,6 +33,7 @@ use crate::types::{
     Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::merkle::merklize;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
@@ -418,7 +419,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_price: Balance,
         _state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         Ok(ValidTransaction { transaction })
     }
 

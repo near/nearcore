@@ -448,10 +448,18 @@ pub unsafe fn recurse() {
 
 #[no_mangle]
 fn internal_recurse(n: u64) -> u64 {
-    if n == 0 {
+    if n <= 1 {
         n
     } else {
         internal_recurse(n - 1) + 1
+    }
+}
+
+#[no_mangle]
+pub fn out_of_memory() {
+    let mut vec = Vec::new();
+    loop {
+        vec.push(vec![0; 1024]);
     }
 }
 

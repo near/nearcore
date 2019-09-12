@@ -25,6 +25,9 @@ use near_vm_logic::VMContext;
 use crate::config::RuntimeConfig;
 use crate::ext::RuntimeExt;
 use crate::{ActionResult, ApplyState};
+use near_primitives::errors::ActionError;
+use near_vm_errors::{CompilationError, FunctionCallError};
+use near_vm_runner::VMError;
 
 /// Number of epochs it takes to unstake.
 const NUM_UNSTAKING_EPOCHS: BlockIndex = 3;
@@ -115,8 +118,10 @@ pub(crate) fn action_function_call(
     let code = match get_code_with_cache(state_update, account_id, &account) {
         Ok(Some(code)) => code,
         Ok(None) => {
-            result.result =
-                Err(format!("cannot find contract code for account {}", account_id.clone()).into());
+            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist(
+                account_id.clone(),
+            ));
+            result.result = Err(ActionError::FunctionCallError(error.to_string()));
             return Ok(());
         }
         Err(e) => {
@@ -167,8 +172,13 @@ pub(crate) fn action_function_call(
         promise_results,
     );
     if let Some(err) = err {
-        result.result =
-            Err(format!("wasm async call execution failed with error: {:?}", err).into());
+        if let VMError::StorageError(storage) = err {
+            let err: StorageError =
+                borsh::BorshDeserialize::try_from_slice(&storage).expect("Borsh cannot fail");
+            return Err(err);
+        }
+        result.result = Err(ActionError::FunctionCallError(err.to_string()));
+        // TODO
         if let Some(outcome) = outcome {
             result.gas_burnt += outcome.burnt_gas;
             result.logs.extend(outcome.logs.into_iter());
@@ -197,9 +207,7 @@ pub(crate) fn action_stake(
     if account.amount >= increment {
         if account.staked == 0 && stake.stake == 0 {
             // if the account hasn't staked, it cannot unstake
-            result.result =
-                Err(format!("Account {:?} is not yet staked, but tries to unstake", account_id)
-                    .into());
+            result.result = Err(ActionError::TriesToUnstake(account_id.clone()));
             return;
         }
         result.validator_proposals.push(ValidatorStake {
@@ -212,11 +220,12 @@ pub(crate) fn action_stake(
             account.staked = stake.stake;
         }
     } else {
-        result.result = Err(format!(
-            "Account {:?} tries to stake {}, but has staked {} and only has {}",
-            account_id, stake.stake, account.staked, account.amount,
-        )
-        .into());
+        result.result = Err(ActionError::TriesToStake(
+            account_id.clone(),
+            stake.stake,
+            account.staked,
+            account.amount,
+        ));
         return;
     }
 }
@@ -236,11 +245,10 @@ pub(crate) fn action_create_account(
     if !is_valid_top_level_account_id(account_id)
         && !is_valid_sub_account_id(&receipt.predecessor_id, account_id)
     {
-        result.result = Err(format!(
-            "The new account_id {:?} can't be created by {:?}",
-            account_id, &receipt.predecessor_id
-        )
-        .into());
+        result.result = Err(ActionError::CreateAccountNotAllowed(
+            account_id.clone(),
+            receipt.predecessor_id.clone(),
+        ));
         return;
     }
     *actor_id = receipt.receiver_id.clone();
@@ -275,7 +283,7 @@ pub(crate) fn action_delete_account(
     result: &mut ActionResult,
     account_id: &AccountId,
     delete_account: &DeleteAccountAction,
-) {
+) -> Result<(), StorageError> {
     // We use current amount as a reward, because this account's storage rent was updated before
     // calling this function.
     let account_balance = account.as_ref().unwrap().amount;
@@ -284,13 +292,10 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_refund(&delete_account.beneficiary_id, account_balance));
     }
-    if remove_account(state_update, account_id).is_err() {
-        result.result =
-            Err(format!("Failed to delete all account data for account {:?}", account_id).into());
-        return;
-    }
+    remove_account(state_update, account_id)?;
     *actor_id = receipt.predecessor_id.clone();
     *account = None;
+    Ok(())
 }
 
 pub(crate) fn action_delete_key(
@@ -303,11 +308,7 @@ pub(crate) fn action_delete_key(
     let account = account.as_mut().unwrap();
     let access_key = get_access_key(state_update, account_id, &delete_key.public_key)?;
     if access_key.is_none() {
-        result.result = Err(format!(
-            "Account {:?} tries to remove an access key that doesn't exist",
-            account_id
-        )
-        .into());
+        result.result = Err(ActionError::DeleteKeyDoesNotExist(account_id.clone()));
         return Ok(());
     }
     // Remove access key
@@ -332,11 +333,7 @@ pub(crate) fn action_add_key(
 ) -> Result<(), StorageError> {
     let account = account.as_mut().unwrap();
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
-        result.result = Err(format!(
-            "The public key {:?} is already used for an existing access key",
-            &add_key.public_key
-        )
-        .into());
+        result.result = Err(ActionError::AddKeyAlreadyExists(add_key.public_key.clone()));
         return Ok(());
     }
     set_access_key(state_update, account_id, &add_key.public_key, &add_key.access_key);
@@ -358,21 +355,20 @@ pub(crate) fn check_actor_permissions(
     actor_id: &AccountId,
     account_id: &AccountId,
     config: &RuntimeConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ActionError> {
     match action {
         Action::DeployContract(_) | Action::Stake(_) | Action::AddKey(_) | Action::DeleteKey(_) => {
             if actor_id != account_id {
-                return Err(format!(
-                    "Actor {:?} doesn't have permission to account {:?} to complete the action {:?}", actor_id, account_id, action
-                )
-                    .into());
+                return Err(ActionError::ActorNoPermission(
+                    actor_id.clone(),
+                    account_id.clone(),
+                    action_type_as_string(action).to_owned(),
+                ));
             }
         }
         Action::DeleteAccount(_) => {
             if account.as_ref().unwrap().staked != 0 {
-                return Err(
-                    format!("Account {:?} is staking, can not be deleted.", account_id).into()
-                );
+                return Err(ActionError::DeleteAccountStaking(account_id.clone()));
             }
             if actor_id != account_id
                 && check_rent(
@@ -383,12 +379,10 @@ pub(crate) fn check_actor_permissions(
                 )
                 .is_ok()
             {
-                return Err(format!(
-                    "Account {:?} has {:?}, which is enough to cover the storage rent.",
-                    account_id,
-                    account.as_ref().unwrap().amount
-                )
-                .into());
+                return Err(ActionError::DeleteAccountHasRent(
+                    account_id.clone(),
+                    account.as_ref().unwrap().amount,
+                ));
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
@@ -396,19 +390,28 @@ pub(crate) fn check_actor_permissions(
     Ok(())
 }
 
+fn action_type_as_string(action: &Action) -> &'static str {
+    match action {
+        Action::CreateAccount(_) => "CreateAccount",
+        Action::DeployContract(_) => "DeployContract",
+        Action::FunctionCall(_) => "FunctionCall",
+        Action::Transfer(_) => "Transfer",
+        Action::Stake(_) => "Stake",
+        Action::AddKey(_) => "AddKey",
+        Action::DeleteKey(_) => "DeleteKey",
+        Action::DeleteAccount(_) => "DeleteAccount",
+    }
+}
+
 pub(crate) fn check_account_existence(
     action: &Action,
     account: &mut Option<Account>,
     account_id: &AccountId,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
             if account.is_some() {
-                return Err(format!(
-                    "Can't create a new account {:?}, because it already exists",
-                    account_id
-                )
-                .into());
+                return Err(ActionError::AccountAlreadyExists(account_id.clone()));
             }
         }
         Action::DeployContract(_)
@@ -419,11 +422,10 @@ pub(crate) fn check_account_existence(
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_) => {
             if account.is_none() {
-                return Err(format!(
-                    "Can't complete the action {:?}, because account {:?} doesn't exist",
-                    action, account_id
-                )
-                .into());
+                return Err(ActionError::AccountDoesNotExist(
+                    action_type_as_string(action).to_owned(),
+                    account_id.clone(),
+                ));
             }
             //
         }
