@@ -1,182 +1,174 @@
+use crate::peer::Peer;
 use crate::types::{AnnounceAccount, PeerId};
 use near_primitives::types::AccountId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
-
-pub enum RoutingTableUpdate {
-    NewAccount,
-    NewRoute,
-    UpdatedAccount,
-    Ignore,
-}
-
-impl RoutingTableUpdate {
-    pub fn is_new(&self) -> bool {
-        match self {
-            RoutingTableUpdate::NewAccount => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RoutingTableEntry {
-    /// Keep track of several routes for the same account id.
-    pub routes: Vec<AnnounceAccount>,
-    /// Last time a route was used.
-    last_update: Instant,
-    /// Index of the last route reported to the Peer Manager to send message.
-    last_route_reported: usize,
-    /// When new peers get connected to us, we will send one (among the shortest routes)
-    /// for every account id known to us.
-    /// This is the index of the last best route shared.
-    last_shortest_route_reported: usize,
-    /// Maximum number of routes that we should keep track.
-    max_routes_to_save: usize,
-}
-
-impl RoutingTableEntry {
-    pub fn new(route: AnnounceAccount, max_routes_to_save: usize) -> Self {
-        Self {
-            routes: vec![route],
-            last_update: Instant::now(),
-            last_route_reported: 0,
-            last_shortest_route_reported: 0,
-            max_routes_to_save,
-        }
-    }
-
-    fn route_through_peer_index(&self, peer_id: &PeerId) -> Option<usize> {
-        self.routes
-            .iter()
-            .enumerate()
-            .find(|(_, route)| route.peer_id() == *peer_id)
-            .map(|(position, _)| position)
-    }
-
-    fn add_route(&mut self, route: AnnounceAccount) -> RoutingTableUpdate {
-        self.last_update = Instant::now();
-        let peer_index = self.route_through_peer_index(&route.peer_id());
-
-        if let Some(peer_index) = peer_index {
-            // We already have a route through this peer.
-            if self.routes[peer_index].num_hops() <= route.num_hops() {
-                // Ignore this route since we already have a route at least as good
-                // as this one through this peer.
-                RoutingTableUpdate::Ignore
-            } else {
-                // Overwrite old route through this peer with better route.
-                self.routes[peer_index] = route;
-                RoutingTableUpdate::UpdatedAccount
-            }
-        } else {
-            if self.routes.len() == self.max_routes_to_save {
-                // Don't exceed maximum number of routes to store for every
-                RoutingTableUpdate::Ignore
-            } else {
-                self.routes.push(route);
-                RoutingTableUpdate::NewRoute
-            }
-        }
-    }
-
-    fn next_peer_id(&mut self) -> PeerId {
-        self.last_route_reported += 1;
-        if self.last_route_reported == self.routes.len() {
-            self.last_route_reported = 0;
-        }
-        self.routes[self.last_route_reported].peer_id()
-    }
-
-    pub fn next_best_route(&mut self) -> AnnounceAccount {
-        // Save unwrap (there is at least one route always).
-        let shortest_route_hops = self.routes.iter().map(|route| route.num_hops()).min().unwrap();
-
-        loop {
-            self.last_shortest_route_reported += 1;
-            if self.last_shortest_route_reported == self.routes.len() {
-                self.last_shortest_route_reported = 0;
-            }
-
-            if self.routes[self.last_shortest_route_reported].num_hops() == shortest_route_hops {
-                return self.routes[self.last_shortest_route_reported].clone();
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct RoutingTable {
-    pub account_peers: HashMap<AccountId, RoutingTableEntry>,
-    last_purge: Instant,
-    ttl_account_id_router: Duration,
-    /// Maximum number of routes that we should keep track for each Account id
-    max_routes_to_save: usize,
+    /// PeerId associated for every known account id.
+    pub account_peers: HashMap<AccountId, PeerId>,
+    /// Active PeerId that are part of the shortest path to each PeerId.
+    pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
+    /// Current view of the network. Nodes are Peers and edges are active connections.
+    pub raw_graph: Graph,
+}
+
+enum FindRouteError {
+    Disconnected,
+    PeerNotFound,
+    AccountNotFound,
 }
 
 impl RoutingTable {
-    pub fn new(ttl_account_id_router: Duration, max_routes_to_save: usize) -> Self {
+    pub fn new(peer_id: PeerId) -> Self {
         Self {
             account_peers: HashMap::new(),
-            last_purge: Instant::now(),
-            ttl_account_id_router,
-            max_routes_to_save,
+            peer_forwarding: HashMap::new(),
+            raw_graph: Graph::new(peer_id),
         }
     }
 
-    fn remove_old_routes(&mut self) {
-        let now = Instant::now();
-        let ttl_account_id_router = self.ttl_account_id_router;
-
-        if (now - self.last_purge) >= ttl_account_id_router {
-            self.account_peers = self
-                .account_peers
-                .drain()
-                .filter(|entry| now - entry.1.last_update < ttl_account_id_router)
-                .collect();
-
-            self.last_purge = Instant::now();
+    /// Find peer that is connected to `source` and belong to the shortest path
+    /// from `source` to `peer_id`.
+    pub fn find_route(&self, peer_id: &PeerId) -> Result<PeerId, FindRouteError> {
+        if let Some(routes) = self.peer_forwarding.get(&peer_id) {
+            if routes.is_empty() {
+                Err(FindRouteError::Disconnected)
+            } else {
+                // TODO(MarX): Do Round Robin
+                Ok(routes.iter().next().unwrap().clone())
+            }
+        } else {
+            Err(FindRouteError::PeerNotFound)
         }
     }
 
-    pub fn update(&mut self, data: AnnounceAccount) -> RoutingTableUpdate {
-        self.remove_old_routes();
-        match self.account_peers.get_mut(&data.account_id) {
-            // If this account id is already tracked in the routing table ...
-            Some(entry) => entry.add_route(data),
-            // If we don't have this account id store it in the routing table.
-            None => {
-                self.account_peers.insert(
-                    data.account_id.clone(),
-                    RoutingTableEntry::new(data, self.max_routes_to_save),
-                );
-                RoutingTableUpdate::NewAccount
+    /// Find peer that is connected to `source` and belong to the shortest path
+    /// from `source` to peer associated with `account_id`.
+    pub fn find_route_to_account(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        if let Some(peer_id) = self.account_peers.get(&account_id) {
+            self.find_route(&peer_id)
+        } else {
+            Err(FindRouteError::AccountNotFound)
+        }
+    }
+
+    pub fn add_peer(&mut self, peer_id: PeerId) {
+        self.peer_forwarding.entry(peer_id).or_insert_with(HashMap::new);
+    }
+
+    pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) {
+        self.add_peer(peer_id);
+        self.account_peers.insert(account_id, peer_id);
+    }
+
+    pub fn add_connection(&mut self, peer0: PeerId, peer1: PeerId) {
+        self.raw_graph.add_edge(peer0, peer1);
+        // TODO(MarX): Don't recalculate all the time
+        self.peer_forwarding = self.raw_graph.calculate_distance();
+    }
+
+    pub fn remove_connection(&mut self, peer0: &PeerId, peer1: &PeerId) {
+        self.raw_graph.remove_edge(&peer0, &peer1);
+        // TODO(MarX): Don't recalculate all the time
+        self.peer_forwarding = self.raw_graph.calculate_distance();
+    }
+
+    pub fn register_neighbor(&mut self, peer: PeerId) {
+        self.add_connection(self.raw_graph.source, peer);
+    }
+
+    pub fn unregister_neighbor(&mut self, peer: &PeerId) {
+        self.remove_connection(&self.raw_graph.source, &peer);
+    }
+
+    pub fn sample_peers(&self) -> Vec<PeerId> {
+        // TODO(MarX): Sample instead of reporting all peers
+        self.peer_forwarding.keys().collect().clone()
+    }
+}
+
+struct Graph {
+    pub source: PeerId,
+    adjacency: HashMap<PeerId, HashSet<PeerId>>,
+}
+
+impl Graph {
+    fn new(source: PeerId) -> Self {
+        Self { source, adjacency: HashMap::new() }
+    }
+
+    fn contains_edge(&mut self, peer0: &PeerId, peer1: &PeerId) -> bool {
+        if let Some(adj) = self.adjacency.get(&peer0) {
+            if adj.contains(&peer1) {
+                return true;
             }
         }
+
+        false
     }
 
-    /// Remove all routes that contains this peer as the first hop.
-    pub fn remove(&mut self, peer_id: &PeerId) {
-        let mut to_delete = vec![];
-        for (account_id, mut value) in self.account_peers.iter_mut() {
-            value.routes =
-                value.routes.drain(..).filter(|route| &route.peer_id() != peer_id).collect();
+    fn add_directed_edge(&mut self, peer0: PeerId, peer1: PeerId) {
+        self.adjacency.entry(peer0).or_insert_with(HashSet::new).insert(peer1);
+    }
 
-            if value.routes.is_empty() {
-                to_delete.push(account_id.clone());
+    fn remove_directed_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+        self.adjacency.get(&peer0).unwrap().remove(&peer1);
+    }
+
+    pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
+        if !self.contains_edge(&peer0, &peer1) {
+            self.add_directed_edge(peer0.clone(), peer1.clone());
+            self.add_directed_edge(peer1, peer0);
+        }
+    }
+
+    pub fn remove_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
+        if self.contains_edge(&peer0, &peer1) {
+            self.remove_directed_edge(&peer0, &peer1);
+            self.remove_directed_edge(&peer1, &peer0);
+        }
+    }
+
+    pub fn calculate_distance(&self) -> HashMap<PeerId, HashSet<PeerId>> {
+        let mut queue = vec![];
+        let mut distance = HashMap::new();
+        // TODO(MarX): Represent routes more efficiently at least while calculating distances
+        let mut routes = HashMap::new();
+
+        distance.insert(&self.source, 0);
+        routes.insert(self.source.clone(), HashSet::new());
+
+        // Add active connections
+        for neighbor in self.adjacency.get(&self.source).unwrap_or_else(HashSet::new) {
+            queue.push(neighbor);
+            distance.insert(neighbor, 1);
+            routes.insert(neighbor.clone(), vec![neighbor.clone()].drain(..).collect());
+        }
+
+        let mut head = 0;
+
+        while head < queue.len() {
+            let cur_peer = queue[head];
+            let cur_distance = distance.get(cur_peer).unwrap();
+            head += 1;
+
+            for neighbor in self.adjacency.get(&cur_peer).unwrap_or_else(HashSet::new) {
+                if !distance.contains_key(&neighbor) {
+                    queue.push(neighbor);
+                    distance.insert(neighbor, cur_distance + 1);
+                }
+
+                if distance.get(neighbor).unwrap() == cur_distance + 1 {
+                    let neighbor_routes = routes.get_mut(neighbor).unwrap();
+                    for route in routes.get(cur_peer).unwrap() {
+                        neighbor_routes.insert(route.clone());
+                    }
+                }
             }
         }
 
-        for account_id in to_delete.into_iter() {
-            self.account_peers.remove(&account_id);
-        }
-    }
-
-    pub fn get_route(&mut self, account_id: &AccountId) -> Option<PeerId> {
-        self.remove_old_routes();
-        self.account_peers.get_mut(account_id).map(|entry| {
-            entry.last_update = Instant::now();
-            entry.next_peer_id()
-        })
+        routes
     }
 }
