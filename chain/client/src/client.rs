@@ -915,9 +915,11 @@ impl ClientActor {
         next_height: BlockIndex,
         shard_id: ShardId,
     ) -> Result<(), Error> {
-        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
-            Error::ChunkProducer("Called without block producer info.".to_string())
-        })?;
+        let block_producer = self
+            .block_producer
+            .as_ref()
+            .ok_or_else(|| Error::ChunkProducer("Called without block producer info.".to_string()))?
+            .clone();
 
         let chunk_proposer =
             self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
@@ -940,8 +942,18 @@ impl ClientActor {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
-        let transactions =
-            self.shards_mgr.prepare_transactions(shard_id, self.config.block_expected_weight)?;
+        let transactions: Vec<_> = self
+            .shards_mgr
+            .prepare_transactions(shard_id, self.config.block_expected_weight)?
+            .into_iter()
+            .filter(|t| {
+                check_tx_history(
+                    self.chain.get_block_header(&t.transaction.block_hash).ok(),
+                    next_height,
+                    self.config.transaction_validity_period,
+                )
+            })
+            .collect();
         let block_header = self.chain.get_block_header(&prev_block_hash)?;
         let transactions_len = transactions.len();
         let filtered_transactions = self.runtime_adapter.filter_transactions(
