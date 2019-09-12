@@ -37,7 +37,9 @@ fn init_test_staking(
 ) -> Vec<TestNode> {
     init_integration_logger();
 
-    let mut genesis_config = GenesisConfig::testing_spec(num_nodes, num_validators);
+    let seeds = (0..num_nodes).map(|i| format!("near.{}", i)).collect::<Vec<_>>();
+    let mut genesis_config =
+        GenesisConfig::test(seeds.iter().map(|s| s.as_str()).collect(), num_validators);
     genesis_config.epoch_length = epoch_length;
     genesis_config.num_block_producers = num_nodes;
     genesis_config.validator_kickout_threshold = 20;

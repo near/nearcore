@@ -9,7 +9,7 @@ use log::{debug, info};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, TransactionResult};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::Store;
@@ -345,8 +345,6 @@ impl Chain {
             {
                 return Ok(Some(new_res));
             }
-        } else {
-            crate::test_utils::display_chain(self);
         }
         res
     }
@@ -991,10 +989,19 @@ impl Chain {
         self.store.get_block(hash)
     }
 
-    /// Gets a chunk by hash.
+    /// Get a chunk from hash.
     #[inline]
-    pub fn get_chunk(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
-        self.store.get_chunk(header)
+    pub fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
+        self.store.get_chunk(chunk_hash)
+    }
+
+    /// Gets a chunk from header.
+    #[inline]
+    pub fn get_chunk_from_header(
+        &mut self,
+        header: &ShardChunkHeader,
+    ) -> Result<&ShardChunk, Error> {
+        self.store.get_chunk_from_header(header)
     }
 
     /// Gets a block from the current chain by height.
@@ -1275,7 +1282,8 @@ impl<'a> ChainUpdate<'a> {
                         .cloned()
                         .collect::<Vec<_>>();
 
-                    let chunk = self.chain_store_update.get_chunk(&chunk_header)?.clone();
+                    let chunk =
+                        self.chain_store_update.get_chunk_from_header(&chunk_header)?.clone();
                     transactions.extend(chunk.transactions.iter().cloned());
 
                     if transactions.iter().any(|t| {
@@ -1343,6 +1351,7 @@ impl<'a> ChainUpdate<'a> {
                         .get_chunk_extra(&prev_block.hash(), shard_id)?
                         .clone();
 
+                    // TODO(1306): Transactions directly included in the block are not getting applied if chunk is skipped.
                     let apply_result = self
                         .runtime_adapter
                         .apply_transactions(

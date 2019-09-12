@@ -1,46 +1,29 @@
-use actix::{Actor, System};
+use actix::{Actor, Addr, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
 use near::{load_test_config, start_with_config, GenesisConfig};
-use near_client::GetBlock;
+use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use near_primitives::types::BlockIndex;
+use near_primitives::types::{BlockIndex, ShardId};
+use testlib::start_nodes;
 
-fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex) {
-    init_integration_logger();
-
-    let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-    let mut genesis_config = GenesisConfig::test(validators.iter().map(|v| v.as_str()).collect());
-    genesis_config.epoch_length = epoch_length;
-
-    let mut near_configs = vec![];
-    let first_node = open_port();
-    for i in 0..num_nodes {
-        let mut near_config = load_test_config(
-            &validators[i],
-            if i == 0 { first_node } else { open_port() },
-            &genesis_config,
-        );
-        near_config.client_config.min_num_peers = num_nodes - 1;
-        if i > 0 {
-            near_config.network_config.boot_nodes =
-                convert_boot_nodes(vec![(&validators[0], first_node)]);
-        }
-        near_configs.push(near_config);
-    }
-
+fn run_nodes(
+    num_shards: usize,
+    num_nodes: usize,
+    num_validators: usize,
+    epoch_length: BlockIndex,
+    num_blocks: BlockIndex,
+) {
     let system = System::new("NEAR");
-
-    let mut view_clients = vec![];
-    for (i, near_config) in near_configs.into_iter().enumerate() {
-        let dir = TempDir::new(&format!("two_nodes_{}", i)).unwrap();
-        let (_client, view_client) = start_with_config(dir.path(), near_config);
-        view_clients.push(view_client)
-    }
-
-    let view_client = view_clients.pop().unwrap();
+    let dirs = (0..num_nodes)
+        .map(|i| {
+            TempDir::new(&format!("run_nodes_{}_{}_{}", num_nodes, num_validators, i)).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let clients = start_nodes(num_shards, &dirs, num_validators, epoch_length);
+    let view_client = clients[clients.len() - 1].1.clone();
     WaitOrTimeout::new(
         Box::new(move |_ctx| {
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
@@ -66,16 +49,32 @@ fn run_nodes(num_nodes: usize, epoch_length: BlockIndex, num_blocks: BlockIndex)
 
 /// Runs two nodes that should produce blocks one after another.
 #[test]
-fn run_nodes_2() {
+fn run_nodes_1_2_2() {
     heavy_test(|| {
-        run_nodes(2, 10, 30);
+        run_nodes(1, 2, 2, 10, 30);
+    });
+}
+
+/// Runs two nodes, where only one is a validator.
+#[test]
+fn run_nodes_1_2_1() {
+    heavy_test(|| {
+        run_nodes(1, 2, 1, 10, 30);
     });
 }
 
 /// Runs 4 nodes that should produce blocks one after another.
 #[test]
-fn run_nodes_4() {
+fn run_nodes_1_4_4() {
     heavy_test(|| {
-        run_nodes(4, 8, 32);
+        run_nodes(1, 4, 4, 8, 32);
+    });
+}
+
+/// Run 4 nodes, 4 shards, 2 validators, other two track 2 shards.
+#[test]
+fn run_nodes_4_4_2() {
+    heavy_test(|| {
+        run_nodes(4, 4, 2, 8, 32);
     });
 }

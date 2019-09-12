@@ -10,10 +10,10 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
-    use near_primitives::views::QueryResponse::ViewAccount;
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
+    use near_primitives::views::QueryResponse::ViewAccount;
     use std::collections::hash_map::Entry;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
@@ -48,16 +48,18 @@ mod tests {
         (validators, key_pairs)
     }
 
-    fn send_tx(connector: &Addr<ClientActor>, from: String, to: String, amount: u128, nonce: u64, block_hash: CryptoHash) {
+    fn send_tx(
+        connector: &Addr<ClientActor>,
+        from: String,
+        to: String,
+        amount: u128,
+        nonce: u64,
+        block_hash: CryptoHash,
+    ) {
         let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
-        connector.do_send(NetworkClientMessages::Transaction(
-            SignedTransaction::send_money(nonce,
-                                          from,
-                                          to,
-                                          &signer,
-                                          amount,
-                                          block_hash),
-        ));
+        connector.do_send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
+            nonce, from, to, &signer, amount, block_hash,
+        )));
     }
 
     enum ReceiptsSyncPhases {
@@ -83,7 +85,7 @@ mod tests {
             let seen_heights_with_receipts = Arc::new(RwLock::new(HashSet::<BlockIndex>::new()));
 
             let connectors1 = connectors.clone();
-            *connectors.write().unwrap() = setup_mock_all_validators(
+            let (_, conn) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -201,6 +203,7 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
+            *connectors.write().unwrap() = conn;
 
             near_network::test_utils::wait_or_panic(30000);
         })
@@ -247,7 +250,7 @@ mod tests {
                 };
 
             let connectors1 = connectors.clone();
-            *connectors.write().unwrap() = setup_mock_all_validators(
+            let (_, conn) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -380,6 +383,7 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
+            *connectors.write().unwrap() = conn;
 
             near_network::test_utils::wait_or_panic(240000);
         })
@@ -412,7 +416,7 @@ mod tests {
 
             let (validators, key_pairs) = get_validators_and_key_pairs();
 
-            *connectors.write().unwrap() = setup_mock_all_validators(
+            let (_, conn) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -430,6 +434,7 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
+            *connectors.write().unwrap() = conn;
 
             near_network::test_utils::wait_or_panic(30000);
         })

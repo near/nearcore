@@ -58,7 +58,8 @@ pub fn get_runtime_and_trie_from_genesis(
 }
 
 pub fn get_runtime_and_trie() -> (Runtime, Arc<Trie>, MerkleHash) {
-    let genesis_config = GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"]);
+    let genesis_config =
+        GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 3);
     get_runtime_and_trie_from_genesis(&genesis_config)
 }
 

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind, Read, Write};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -107,7 +107,7 @@ impl Ord for Secp256K1PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PublicKey {
     ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey),
     SECP256K1(Secp256K1PublicKey),
@@ -132,6 +132,12 @@ impl PublicKey {
 }
 
 impl Display for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", ReadablePublicKey::from(self.clone()).0)
+    }
+}
+
+impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", ReadablePublicKey::from(self.clone()).0)
     }
@@ -380,14 +386,14 @@ impl PartialEq for Secp2561KSignature {
     }
 }
 
-impl std::fmt::Debug for Secp2561KSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+impl Debug for Secp2561KSignature {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}", bs58::encode(&self.0.to_vec()).into_string())
     }
 }
 
 /// Signature container supporting different curves.
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Signature {
     ED25519(sodiumoxide::crypto::sign::ed25519::Signature),
     SECP256K1(Secp2561KSignature),
@@ -477,6 +483,12 @@ impl Display for Signature {
             Signature::SECP256K1(signature) => bs58::encode(&signature.0[..]).into_string(),
         };
         write!(f, "{}", format!("{}:{}", self.key_type(), data))
+    }
+}
+
+impl Debug for Signature {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
     }
 }
 

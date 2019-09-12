@@ -439,8 +439,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPart(part_msg) => {
-                if let Ok(Some(height)) = self.shards_mgr.process_chunk_part(part_msg) {
-                    self.process_blocks_with_missing_chunks(ctx, height);
+                if let Ok(Some(block_hash)) = self.shards_mgr.process_chunk_part(part_msg) {
+                    self.process_blocks_with_missing_chunks(ctx, block_hash);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -454,7 +454,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         //     in the next block.
                         if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                             self.block_producer.as_ref().map(|x| &x.account_id),
-                            prev_block_hash,
+                            &prev_block_hash,
                             one_part_msg.shard_id,
                             true,
                         ) && self
@@ -465,7 +465,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             })
                             .unwrap_or(false)
                         {
-                            self.shards_mgr.request_chunks(vec![one_part_msg.header]);
+                            self.shards_mgr.request_chunks(vec![one_part_msg.header]).unwrap();
                         } else {
                             // We are getting here either because we don't care about the shard, or
                             //    because we see the one part before we see the block.
@@ -676,14 +676,14 @@ impl ClientActor {
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    block.header.inner.prev_hash,
+                    &block.header.inner.prev_hash,
                     shard_id,
                     true,
                 ) {
                     self.shards_mgr.remove_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
             }
@@ -696,14 +696,14 @@ impl ClientActor {
             if block.header.inner.height == chunk_header.height_included {
                 if self.shards_mgr.cares_about_shard_this_or_next_epoch(
                     Some(&me),
-                    block.header.inner.prev_hash,
+                    &block.header.inner.prev_hash,
                     shard_id,
                     false,
                 ) {
                     self.shards_mgr.reintroduce_transactions(
                         shard_id,
                         // By now the chunk must be in store, otherwise the block would have been orphaned
-                        &self.chain.get_chunk(&chunk_header).unwrap().transactions,
+                        &self.chain.get_chunk(&chunk_header.chunk_hash()).unwrap().transactions,
                     );
                 }
             }
@@ -856,38 +856,37 @@ impl ClientActor {
             head.height <= latest_known.height,
             format!("Latest known height is invalid {} vs {}", head.height, latest_known.height)
         );
+        let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
+        // Get who is the block producer for the upcoming `latest_known.height + 1` block.
+        let next_block_producer_account =
+            self.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
+
         let elapsed = (Utc::now() - from_timestamp(latest_known.seen)).to_std().unwrap();
-        if elapsed < self.config.max_block_wait_delay {
-            let epoch_id =
-                self.runtime_adapter.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-            // Get who is the block producer for the upcoming `latest_known.height + 1` block.
-            let next_block_producer_account =
-                self.runtime_adapter.get_block_producer(&epoch_id, latest_known.height + 1)?;
-            if let Some(block_producer) = &self.block_producer {
-                if block_producer.account_id.clone() == next_block_producer_account {
-                    // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
-                    if elapsed >= self.config.min_block_production_delay {
-                        if let Err(err) = self.produce_block(ctx, latest_known.height + 1, elapsed)
-                        {
-                            // If there is an error, report it and let it retry on the next loop step.
-                            error!(target: "client", "Block production failed: {:?}", err);
-                        }
-                    }
-                } else {
-                    // Next block producer is not this client, so just go for another loop iteration.
+        if self.block_producer.as_ref().map(|bp| bp.account_id.clone())
+            == Some(next_block_producer_account)
+        {
+            // Next block producer is this client, try to produce a block if at least min_block_production_delay time passed since last block.
+            if elapsed >= self.config.min_block_production_delay {
+                if let Err(err) = self.produce_block(ctx, latest_known.height + 1, elapsed) {
+                    // If there is an error, report it and let it retry on the next loop step.
+                    error!(target: "client", "Block production failed: {:?}", err);
                 }
             }
         } else {
-            // Upcoming block has not been seen in max block production delay, suggest to skip.
-            if !self.config.produce_empty_blocks {
-                // If we are not producing empty blocks, we always wait for a block to be produced.
-                // Used exclusively for testing.
-                return Ok(());
+            if elapsed < self.config.max_block_wait_delay {
+                // Next block producer is not this client, so just go for another loop iteration.
+            } else {
+                // Upcoming block has not been seen in max block production delay, suggest to skip.
+                if !self.config.produce_empty_blocks {
+                    // If we are not producing empty blocks, we always wait for a block to be produced.
+                    // Used exclusively for testing.
+                    return Ok(());
+                }
+                debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
+                latest_known.height += 1;
+                latest_known.seen = to_timestamp(Utc::now());
+                self.chain.mut_store().save_latest_known(latest_known)?;
             }
-            debug!(target: "client", "{:?} Timeout for {}, current head {}, suggesting to skip", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), latest_known.height, head.height);
-            latest_known.height += 1;
-            latest_known.seen = to_timestamp(Utc::now());
-            self.chain.mut_store().save_latest_known(latest_known)?;
         }
         Ok(())
     }
@@ -1158,14 +1157,14 @@ impl ClientActor {
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |block, status, provenance| {
-                    debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
-                    accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
-                }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
+            debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
+            accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
+        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
         for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks);
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
     }
 
@@ -1200,7 +1199,7 @@ impl ClientActor {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-            self.shards_mgr.request_chunks(missing_chunks);
+            self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }
         result.map(|_| ())
     }
@@ -1214,7 +1213,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
         let prev_hash = block.header.inner.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -1242,13 +1241,13 @@ impl ClientActor {
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
-                        "Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}, ({:?})",
+                        "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
-                        self.block_producer.as_ref().unwrap().account_id.clone(),
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
-                    self.shards_mgr.request_chunks(missing_chunks);
+                    self.shards_mgr.request_chunks(missing_chunks).unwrap();
                     NetworkClientResponses::NoResponse
                 }
                 _ => {
@@ -1386,7 +1385,7 @@ impl ClientActor {
                 if active_validator {
                     debug!(
                         "MOO recording a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().unwrap().account_id,
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id
                     );
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
@@ -1530,7 +1529,7 @@ impl ClientActor {
                         self.on_block_accepted(ctx, hash, status, provenance);
                     }
                     for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.shards_mgr.request_chunks(missing_chunks);
+                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
                     }
                 }
             }
@@ -1545,7 +1544,7 @@ impl ClientActor {
             match self.run_catchup(ctx) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().unwrap().account_id, err)
+                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
                 }
             }
 
@@ -1655,7 +1654,7 @@ impl ClientActor {
                     .filter(|x| {
                         self.shards_mgr.cares_about_shard_this_or_next_epoch(
                             me.as_ref(),
-                            sync_hash,
+                            &sync_hash,
                             *x,
                             true,
                         )
@@ -1708,7 +1707,7 @@ impl ClientActor {
                             self.on_block_accepted(ctx, hash, status, provenance);
                         }
                         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                            self.shards_mgr.request_chunks(missing_chunks);
+                            self.shards_mgr.request_chunks(missing_chunks).unwrap();
                         }
 
                         self.sync_status =

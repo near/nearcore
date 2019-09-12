@@ -27,11 +27,13 @@ use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, EncodedShardChunk, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, Gas, ShardId, ValidatorStake};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, Gas, ShardId, ValidatorStake};
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
 const MAX_CHUNK_REQUESTS_TO_KEEP_PER_SHARD: usize = 128;
 const ORPHANED_ONE_PART_CACHE_SIZE: usize = 1024;
+const REQUEST_ONE_PARTS_CACHE_SIZE: usize = 1024;
+const REQUEST_CHUNKS_CACHE_SIZE: usize = 1024;
 
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
@@ -58,8 +60,8 @@ pub struct ShardsManager {
 
     orphaned_one_parts: SizedCache<(CryptoHash, ShardId, u64), ChunkOnePart>,
 
-    requested_one_parts: HashSet<ChunkHash>,
-    requested_chunks: HashSet<ChunkHash>,
+    requested_one_parts: SizedCache<ChunkHash, ()>,
+    requested_chunks: SizedCache<ChunkHash, ()>,
 
     requests_fifo: VecDeque<(ShardId, ChunkHash, PeerId, u64)>,
     requests: HashMap<(ShardId, ChunkHash, u64), HashSet<(PeerId)>>,
@@ -82,8 +84,8 @@ impl ShardsManager {
             merkle_paths: HashMap::new(),
             block_hash_to_chunk_headers: HashMap::new(),
             orphaned_one_parts: SizedCache::with_size(ORPHANED_ONE_PART_CACHE_SIZE),
-            requested_one_parts: HashSet::new(),
-            requested_chunks: HashSet::new(),
+            requested_one_parts: SizedCache::with_size(REQUEST_ONE_PARTS_CACHE_SIZE),
+            requested_chunks: SizedCache::with_size(REQUEST_CHUNKS_CACHE_SIZE),
             requests_fifo: VecDeque::new(),
             requests: HashMap::new(),
         }
@@ -104,24 +106,49 @@ impl ShardsManager {
     pub fn cares_about_shard_this_or_next_epoch(
         &self,
         account_id: Option<&AccountId>,
-        parent_hash: CryptoHash,
+        parent_hash: &CryptoHash,
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
         return self.runtime_adapter.cares_about_shard(
             account_id.clone(),
-            &parent_hash,
+            parent_hash,
             shard_id,
             is_me,
         ) || self.runtime_adapter.will_care_about_shard(
             account_id,
-            &parent_hash,
+            parent_hash,
             shard_id,
             is_me,
         );
     }
 
-    pub fn request_chunks(&mut self, chunks_to_request: Vec<ShardChunkHeader>) {
+    fn request_one_part(
+        &self,
+        epoch_id: &EpochId,
+        height: BlockIndex,
+        shard_id: ShardId,
+        part_id: u64,
+        chunk_hash: ChunkHash,
+        tracking_shards: HashSet<ShardId>,
+    ) -> Result<(), near_chain::Error> {
+        let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
+            account_id: self.runtime_adapter.get_chunk_producer(epoch_id, height, shard_id)?,
+            one_part_request: ChunkOnePartRequestMsg {
+                shard_id,
+                chunk_hash,
+                height,
+                part_id,
+                tracking_shards,
+            },
+        });
+        Ok(())
+    }
+
+    pub fn request_chunks(
+        &mut self,
+        chunks_to_request: Vec<ShardChunkHeader>,
+    ) -> Result<(), near_chain::Error> {
         for chunk_header in chunks_to_request {
             let ShardChunkHeader {
                 inner:
@@ -134,76 +161,74 @@ impl ShardsManager {
                 ..
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
-
-            let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash).unwrap();
+            let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
+            let tracking_shards = (0..self.runtime_adapter.num_shards())
+                .filter(|shard_id| {
+                    self.cares_about_shard_this_or_next_epoch(
+                        self.me.as_ref(),
+                        &parent_hash,
+                        *shard_id,
+                        true,
+                    )
+                })
+                .collect::<HashSet<_>>();
 
             if !self.encoded_chunks.contains_key(&chunk_hash) {
-                if self.requested_one_parts.contains(&chunk_hash) {
+                if self.requested_one_parts.cache_get(&chunk_hash).is_some() {
                     continue;
                 }
-                self.requested_one_parts.insert(chunk_hash.clone());
+                self.requested_one_parts.cache_set(chunk_hash.clone(), ());
 
                 let mut requested_one_part = false;
-                for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
-                    let part_id = part_id as u64;
-                    if self.runtime_adapter.get_part_owner(&parent_hash, part_id).unwrap()
-                        == self.me.clone().unwrap()
-                    {
-                        requested_one_part = true;
-                        let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
-                            account_id: self
-                                .runtime_adapter
-                                .get_chunk_producer(&epoch_id, height, shard_id)
-                                .unwrap(),
-                            one_part_request: ChunkOnePartRequestMsg {
-                                shard_id,
-                                chunk_hash: chunk_hash.clone(),
+                if let Some(me) = self.me.as_ref() {
+                    for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
+                        let part_id = part_id as u64;
+                        if &self.runtime_adapter.get_part_owner(&parent_hash, part_id)? == me {
+                            requested_one_part = true;
+                            self.request_one_part(
+                                &epoch_id,
                                 height,
+                                shard_id,
                                 part_id,
-                                recipient: self.me.clone().unwrap(),
-                            },
-                        });
+                                chunk_hash.clone(),
+                                tracking_shards.clone(),
+                            )?;
+                        }
                     }
-                }
 
-                if self.runtime_adapter.cares_about_shard(
-                    self.me.as_ref(),
-                    &parent_hash,
-                    shard_id,
-                    true,
-                ) {
-                    assert!(requested_one_part)
-                };
+                    if self.runtime_adapter.cares_about_shard(
+                        self.me.as_ref(),
+                        &parent_hash,
+                        shard_id,
+                        true,
+                    ) {
+                        assert!(requested_one_part)
+                    };
+                }
 
                 if !requested_one_part {
                     let mut rng = rand::thread_rng();
 
                     let part_id = rng.gen::<u64>()
                         % (self.runtime_adapter.num_total_parts(&parent_hash) as u64);
-                    let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
-                        account_id: self
-                            .runtime_adapter
-                            .get_chunk_producer(&epoch_id, height, shard_id)
-                            .unwrap(),
-                        one_part_request: ChunkOnePartRequestMsg {
-                            shard_id,
-                            chunk_hash: chunk_hash.clone(),
-                            height,
-                            part_id,
-                            recipient: self.me.clone().unwrap(),
-                        },
-                    });
+                    self.request_one_part(
+                        &epoch_id,
+                        height,
+                        shard_id,
+                        part_id,
+                        chunk_hash.clone(),
+                        tracking_shards.clone(),
+                    )?;
                 }
             } else {
-                if self.requested_chunks.contains(&chunk_hash) {
+                if self.requested_chunks.cache_get(&chunk_hash).is_some() {
                     continue;
                 }
-                self.requested_chunks.insert(chunk_hash.clone());
+                self.requested_chunks.cache_set(chunk_hash.clone(), ());
 
                 for part_id in 0..self.runtime_adapter.num_total_parts(&parent_hash) {
                     let part_id = part_id as u64;
-                    let to_whom =
-                        self.runtime_adapter.get_part_owner(&parent_hash, part_id).unwrap();
+                    let to_whom = self.runtime_adapter.get_part_owner(&parent_hash, part_id)?;
                     if Some(&to_whom) != self.me.as_ref() {
                         let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPartRequest {
                             account_id: to_whom,
@@ -218,13 +243,16 @@ impl ShardsManager {
                 }
             }
         }
+        Ok(())
     }
+
     pub fn prepare_chunks(
         &mut self,
         prev_block_hash: CryptoHash,
     ) -> Vec<(ShardId, ShardChunkHeader)> {
         self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or(vec![])
     }
+
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
         let _ = self
             .tx_pools
@@ -232,6 +260,7 @@ impl ShardsManager {
             .or_insert_with(|| TransactionPool::new())
             .insert_transaction(tx);
     }
+
     pub fn remove_transactions(
         &mut self,
         shard_id: ShardId,
@@ -239,6 +268,7 @@ impl ShardsManager {
     ) {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.remove_transactions(transactions));
     }
+
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
@@ -249,6 +279,7 @@ impl ShardsManager {
             .or_insert_with(|| TransactionPool::new())
             .reintroduce_transactions(transactions);
     }
+
     pub fn process_chunk_part_request(
         &mut self,
         request: ChunkPartRequestMsg,
@@ -319,31 +350,21 @@ impl ShardsManager {
 
     fn receipts_recipient_filter(
         &self,
-        recipient: &AccountId,
-        prev_block_hash: CryptoHash,
+        tracking_shards: &HashSet<ShardId>,
         receipts: &Vec<Receipt>,
         receipts_proofs: &Vec<MerklePath>,
     ) -> (Vec<Receipt>, Vec<MerklePath>) {
         let one_part_receipts = receipts
             .iter()
             .filter(|&receipt| {
-                self.cares_about_shard_this_or_next_epoch(
-                    Some(&recipient),
-                    prev_block_hash,
-                    self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id),
-                    false,
-                )
+                tracking_shards
+                    .contains(&self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id))
             })
             .cloned()
             .collect();
         let mut one_part_receipts_proofs = vec![];
         for shard in 0..self.runtime_adapter.num_shards() {
-            if self.cares_about_shard_this_or_next_epoch(
-                Some(&recipient),
-                prev_block_hash,
-                shard,
-                false,
-            ) {
+            if tracking_shards.contains(&shard) {
                 one_part_receipts_proofs.push(receipts_proofs[shard as usize].clone())
             }
         }
@@ -368,8 +389,7 @@ impl ShardsManager {
                     self.runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
                 let (receipts_root, receipts_proofs) = merklize(&receipts_hashes);
                 let (one_part_receipts, one_part_receipts_proofs) = self.receipts_recipient_filter(
-                    &request.recipient,
-                    chunk.header.inner.prev_block_hash,
+                    &request.tracking_shards,
                     &chunk.receipts,
                     &receipts_proofs,
                 );
@@ -420,7 +440,7 @@ impl ShardsManager {
             let shard_id = part.shard_id;
             self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 shard_id,
                 true,
             )
@@ -526,40 +546,6 @@ impl ShardsManager {
         let chunk_hash = one_part.chunk_hash.clone();
         let prev_block_hash = one_part.header.inner.prev_block_hash;
 
-        match self.runtime_adapter.get_part_owner(&prev_block_hash, one_part.part_id) {
-            Ok(owner) => {
-                match self.me.clone() {
-                    None => {
-                        // ChunkOnePartMsg should never be sent to nodes that are not block producers
-                        byzantine_assert!(false);
-                        return Ok(false);
-                    }
-                    Some(me) => {
-                        if self.runtime_adapter.cares_about_shard(
-                            Some(&me),
-                            &prev_block_hash,
-                            one_part.shard_id,
-                            true,
-                        ) {
-                            if me != owner {
-                                // ChunkOnePartMsg should only be sent to the authority that corresponds to the part_id
-                                // unless the authority doesn't validate the shard presently, in which case it requests
-                                // random onepart in `request_chunks`, so should also accept any onepart
-                                byzantine_assert!(false);
-                                return Ok(false);
-                            }
-                        }
-                    }
-                }
-                // Fall through, normal case
-            }
-            Err(err) => {
-                self.orphaned_one_parts
-                    .cache_set((prev_block_hash, one_part.shard_id, one_part.part_id), one_part);
-                return Err(err);
-            }
-        }
-
         if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -592,7 +578,7 @@ impl ShardsManager {
         for shard_id in 0..self.runtime_adapter.num_shards() {
             if self.cares_about_shard_this_or_next_epoch(
                 self.me.as_ref(),
-                prev_block_hash,
+                &prev_block_hash,
                 shard_id,
                 true,
             ) {
@@ -654,7 +640,7 @@ impl ShardsManager {
         // If we do not follow this shard, having the one part is sufficient to include the chunk in the block
         if !self.cares_about_shard_this_or_next_epoch(
             self.me.as_ref(),
-            prev_block_hash,
+            &prev_block_hash,
             one_part.shard_id,
             true,
         ) {
@@ -689,11 +675,11 @@ impl ShardsManager {
 
                             if self.cares_about_shard_this_or_next_epoch(
                                 self.me.as_ref(),
-                                block_hash,
+                                &block_hash,
                                 shard_id,
                                 true,
                             ) {
-                                self.request_chunks(vec![chunk_header]);
+                                self.request_chunks(vec![chunk_header]).unwrap();
                             }
                         }
                         Err(_) => {
@@ -829,12 +815,18 @@ impl ShardsManager {
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
-            let (one_part_receipts, one_part_receipts_proofs) = self.receipts_recipient_filter(
-                &to_whom,
-                prev_block_hash,
-                &receipts,
-                &receipts_proofs,
-            );
+            let tracking_shards = (0..self.runtime_adapter.num_shards())
+                .filter(|shard_id| {
+                    self.cares_about_shard_this_or_next_epoch(
+                        Some(&to_whom),
+                        &prev_block_hash,
+                        *shard_id,
+                        false,
+                    )
+                })
+                .collect();
+            let (one_part_receipts, one_part_receipts_proofs) =
+                self.receipts_recipient_filter(&tracking_shards, &receipts, &receipts_proofs);
             let one_part = self.create_chunk_one_part(
                 chunk_hash.clone(),
                 &encoded_chunk,

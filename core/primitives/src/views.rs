@@ -16,7 +16,7 @@ use crate::serialize::{
     from_base, from_base64, option_base64_format, option_u128_dec_format, to_base, to_base64,
     u128_dec_format,
 };
-use crate::sharding::{ChunkHash, ShardChunkHeader, ShardChunkHeaderInner};
+use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, LogEntry, SignedTransaction, StakeAction,
@@ -433,6 +433,25 @@ impl From<Block> for BlockView {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChunkView {
+    pub chunk_hash: CryptoHashView,
+    pub header: ChunkHeaderView,
+    pub transactions: Vec<SignedTransactionView>,
+    pub receipts: Vec<ReceiptView>,
+}
+
+impl From<ShardChunk> for ChunkView {
+    fn from(chunk: ShardChunk) -> Self {
+        Self {
+            chunk_hash: chunk.chunk_hash.0.into(),
+            header: chunk.header.into(),
+            transactions: chunk.transactions.into_iter().map(Into::into).collect(),
+            receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ActionView {
     CreateAccount,
@@ -595,6 +614,7 @@ pub struct TransactionResultView {
     pub logs: Vec<LogEntry>,
     pub receipts: Vec<CryptoHashView>,
     pub result: Option<String>,
+    pub gas_burnt: Gas,
 }
 
 impl From<TransactionResult> for TransactionResultView {
@@ -604,6 +624,7 @@ impl From<TransactionResult> for TransactionResultView {
             logs: result.logs,
             receipts: result.receipts.into_iter().map(|h| h.into()).collect(),
             result: result.result.map(|v| to_base64(&v)),
+            gas_burnt: result.gas_burnt,
         }
     }
 }
@@ -615,6 +636,7 @@ impl From<TransactionResultView> for TransactionResult {
             logs: view.logs,
             receipts: view.receipts.into_iter().map(|h| h.into()).collect(),
             result: view.result.map(|v| from_base64(&v).unwrap()),
+            gas_burnt: view.gas_burnt,
         }
     }
 }
