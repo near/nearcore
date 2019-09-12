@@ -161,7 +161,6 @@ impl ShardsManager {
                 ..
             } = chunk_header;
             let chunk_hash = chunk_header.chunk_hash();
-
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
             let tracking_shards = (0..self.runtime_adapter.num_shards())
                 .filter(|shard_id| {
@@ -246,12 +245,14 @@ impl ShardsManager {
         }
         Ok(())
     }
+
     pub fn prepare_chunks(
         &mut self,
         prev_block_hash: CryptoHash,
     ) -> Vec<(ShardId, ShardChunkHeader)> {
         self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or(vec![])
     }
+
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
         let _ = self
             .tx_pools
@@ -259,6 +260,7 @@ impl ShardsManager {
             .or_insert_with(|| TransactionPool::new())
             .insert_transaction(tx);
     }
+
     pub fn remove_transactions(
         &mut self,
         shard_id: ShardId,
@@ -266,6 +268,7 @@ impl ShardsManager {
     ) {
         self.tx_pools.get_mut(&shard_id).map(|pool| pool.remove_transactions(transactions));
     }
+
     pub fn reintroduce_transactions(
         &mut self,
         shard_id: ShardId,
@@ -276,6 +279,7 @@ impl ShardsManager {
             .or_insert_with(|| TransactionPool::new())
             .reintroduce_transactions(transactions);
     }
+
     pub fn process_chunk_part_request(
         &mut self,
         request: ChunkPartRequestMsg,
@@ -541,40 +545,6 @@ impl ShardsManager {
     ) -> Result<bool, near_chain::Error> {
         let chunk_hash = one_part.chunk_hash.clone();
         let prev_block_hash = one_part.header.inner.prev_block_hash;
-
-        match self.runtime_adapter.get_part_owner(&prev_block_hash, one_part.part_id) {
-            Ok(owner) => {
-                match self.me.clone() {
-                    None => {
-                        // ChunkOnePartMsg should never be sent to nodes that are not block producers
-                        byzantine_assert!(false);
-                        return Ok(false);
-                    }
-                    Some(me) => {
-                        if self.runtime_adapter.cares_about_shard(
-                            Some(&me),
-                            &prev_block_hash,
-                            one_part.shard_id,
-                            true,
-                        ) {
-                            if me != owner {
-                                // ChunkOnePartMsg should only be sent to the authority that corresponds to the part_id
-                                // unless the authority doesn't validate the shard presently, in which case it requests
-                                // random onepart in `request_chunks`, so should also accept any onepart
-                                byzantine_assert!(false);
-                                return Ok(false);
-                            }
-                        }
-                    }
-                }
-                // Fall through, normal case
-            }
-            Err(err) => {
-                self.orphaned_one_parts
-                    .cache_set((prev_block_hash, one_part.shard_id, one_part.part_id), one_part);
-                return Err(err);
-            }
-        }
 
         if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             byzantine_assert!(false);

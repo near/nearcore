@@ -439,8 +439,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPart(part_msg) => {
-                if let Ok(Some(height)) = self.shards_mgr.process_chunk_part(part_msg) {
-                    self.process_blocks_with_missing_chunks(ctx, height);
+                if let Ok(Some(block_hash)) = self.shards_mgr.process_chunk_part(part_msg) {
+                    self.process_blocks_with_missing_chunks(ctx, block_hash);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -1145,9 +1145,9 @@ impl ClientActor {
         let me =
             self.block_producer.as_ref().map(|block_producer| block_producer.account_id.clone());
         self.chain.check_blocks_with_missing_chunks(&me, last_accepted_block_hash, |block, status, provenance| {
-                    debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
-                    accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
-                }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
+            debug!(target: "client", "Block {} was missing chunks but now is ready to be processed", block.hash());
+            accepted_blocks.write().unwrap().push((block.hash(), status, provenance));
+        }, |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks));
         for (hash, status, provenance) in accepted_blocks.write().unwrap().drain(..) {
             self.on_block_accepted(ctx, hash, status, provenance);
         }
@@ -1201,7 +1201,7 @@ impl ClientActor {
         was_requested: bool,
     ) -> NetworkClientResponses {
         let hash = block.hash();
-        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().unwrap().account_id, hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
+        debug!(target: "client", "{:?} Received block {} <- {} at {} from {}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), hash, block.header.inner.prev_hash, block.header.inner.height, peer_id);
         let prev_hash = block.header.inner.prev_hash;
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
@@ -1229,9 +1229,9 @@ impl ClientActor {
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
-                        "Chunks were missing for block {}, I'm {}, requesting. Missing: {:?}, ({:?})",
+                        "Chunks were missing for block {}, I'm {:?}, requesting. Missing: {:?}, ({:?})",
                         hash.clone(),
-                        self.block_producer.as_ref().unwrap().account_id.clone(),
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         missing_chunks.clone(),
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
@@ -1373,7 +1373,7 @@ impl ClientActor {
                 if active_validator {
                     debug!(
                         "MOO recording a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().unwrap().account_id,
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id
                     );
                     self.shards_mgr.insert_transaction(shard_id, valid_transaction);
@@ -1532,7 +1532,7 @@ impl ClientActor {
             match self.run_catchup(ctx) {
                 Ok(_) => {}
                 Err(err) => {
-                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().unwrap().account_id, err)
+                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
                 }
             }
 
