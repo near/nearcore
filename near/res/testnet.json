@@ -47180,6 +47180,10 @@
             "send_not_sir": 1
           }
         }
+      },
+      "burnt_gas_reward": {
+        "numerator": 3,
+        "denominator": 10
       }
     }, 
     "storage_cost_byte_per_block": "1", 
@@ -47273,8 +47277,12 @@
               "send_not_sir": 1
             }
           }
+        },
+        "burnt_gas_reward": {
+          "numerator": 3,
+          "denominator": 10
         }
-      }, 
+      },
       "max_log_len": 500, 
       "max_number_logs": 100, 
       "max_memory_pages": 32, 
