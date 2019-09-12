@@ -283,7 +283,25 @@ impl Chain {
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        // Some basic validation is needed here, #1236 is tracking it
+        // Before saving the very first block in the epoch,
+        // we ensure that the block contains the correct data.
+        // It is sufficient to check the correctness of tx_root, state_root
+        // of the block matches the stated hash
+        //
+        // NOTE: we don't need to re-compute hash of entire block
+        // because we always call BlockHeader::init() when we received a block
+        //
+        // 1. Checking state_root validity
+        let state_root = Block::compute_state_root(&block.chunks);
+        if block.header.inner.prev_state_root != state_root {
+            return Err(ErrorKind::InvalidStateRoot.into());
+        }
+        // 2. Checking tx_root validity
+        let tx_root = Block::compute_tx_root(&block.transactions);
+        if block.header.inner.tx_root != tx_root {
+            return Err(ErrorKind::InvalidTxRoot.into());
+        }
+
         chain_store_update.save_block(block.clone());
 
         chain_store_update.commit()?;
@@ -1265,7 +1283,7 @@ impl<'a> ChainUpdate<'a> {
                             self.chain_store_update
                                 .get_block_header(&t.transaction.block_hash)
                                 .ok(),
-                            block.header.inner.height,
+                            chunk_header.inner.height_created,
                             self.transaction_validity_period,
                         )
                     }) {
@@ -1285,6 +1303,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &receipts,
                             &chunk.transactions,
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
@@ -1334,6 +1353,7 @@ impl<'a> ChainUpdate<'a> {
                             &block.hash(),
                             &vec![],
                             &vec![],
+                            block.header.inner.gas_price,
                         )
                         .map_err(|e| ErrorKind::Other(e.to_string()))?;
 

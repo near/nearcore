@@ -3,7 +3,7 @@ extern crate log;
 #[macro_use]
 extern crate serde_derive;
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
@@ -23,15 +23,16 @@ use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
 };
 use near_primitives::utils::{
-    create_nonce_with_nonce, key_for_pending_data_count, key_for_postponed_receipt,
-    key_for_postponed_receipt_id, key_for_received_data, system_account, ACCOUNT_DATA_SEPARATOR,
+    create_nonce_with_nonce, is_valid_account_id, key_for_pending_data_count,
+    key_for_postponed_receipt, key_for_postponed_receipt_id, key_for_received_data, system_account,
+    ACCOUNT_DATA_SEPARATOR,
 };
 use near_runtime_fees::RuntimeFeesConfig;
 use near_store::{
-    get, get_account, get_receipt, get_received_data, set, set_access_key, set_account, set_code,
-    set_receipt, set_received_data, StoreUpdate, TrieChanges, TrieUpdate,
+    get, get_access_key, get_account, get_receipt, get_received_data, set, set_access_key,
+    set_account, set_code, set_receipt, set_received_data, StorageError, StoreUpdate, TrieChanges,
+    TrieUpdate,
 };
-use near_verifier::{TransactionVerifier, VerificationData};
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::ReturnData;
 
@@ -56,14 +57,12 @@ pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 
 #[derive(Debug)]
 pub struct ApplyState {
-    /// Previous Merkle root of the state.
-    pub root: MerkleHash,
     /// Currently building block index.
     pub block_index: BlockIndex,
-    /// Hash of previous committed block.
-    pub parent_block_hash: CryptoHash,
     /// Current epoch length.
     pub epoch_length: BlockIndex,
+    /// Price for the gas.
+    pub gas_price: Balance,
 }
 
 pub struct ApplyResult {
@@ -72,7 +71,6 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub tx_result: Vec<TransactionLog>,
-    pub largest_tx_nonce: HashMap<AccountId, u64>,
 }
 
 #[derive(Debug)]
@@ -143,23 +141,67 @@ impl Runtime {
         debug!(target: "runtime", "{}", log_str);
     }
 
-    /// Processes signed transaction, charges fees and generates the receipt
-    fn apply_signed_transaction(
+    /// Verifies the signed transaction on top of given state, charges the rent and transaction fees
+    /// and balances, and updates the state for the used account and access keys.
+    pub fn verify_and_charge_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
-    ) -> Result<Receipt, Box<dyn std::error::Error>> {
-        let VerificationData { signer_id, mut signer, public_key, mut access_key } = {
-            let verifier = TransactionVerifier::new(state_update);
-            verifier.verify_transaction(signed_transaction)?
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let transaction = &signed_transaction.transaction;
+        let signer_id = &transaction.signer_id;
+        if !is_valid_account_id(&signer_id) {
+            return Err(format!(
+                "Invalid signer account ID {:?} according to requirements",
+                signer_id
+            )
+            .into());
+        }
+        if !is_valid_account_id(&transaction.receiver_id) {
+            return Err(format!(
+                "Invalid receiver account ID {:?} according to requirements",
+                transaction.receiver_id
+            )
+            .into());
+        }
+
+        if !signed_transaction
+            .signature
+            .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
+        {
+            return Err(format!("Transaction is not signed with a given public key",).into());
+        }
+        let mut signer = match get_account(state_update, signer_id)? {
+            Some(signer) => signer,
+            None => {
+                return Err(format!("Signer {:?} does not exist", signer_id).into());
+            }
         };
-        let receiver_id = &signed_transaction.transaction.receiver_id;
-        let sender_id = &signed_transaction.transaction.signer_id;
-        let sender_is_receiver = receiver_id == sender_id;
+        let mut access_key =
+            match get_access_key(state_update, &signer_id, &transaction.public_key)? {
+                Some(access_key) => access_key,
+                None => {
+                    return Err(format!(
+                        "Signer {:?} doesn't have access key with the given public_key {}",
+                        signer_id, &transaction.public_key,
+                    )
+                    .into());
+                }
+            };
+
+        if transaction.nonce <= access_key.nonce {
+            return Err(format!(
+                "Transaction nonce {} must be larger than nonce of the used access key {}",
+                transaction.nonce, access_key.nonce,
+            )
+            .into());
+        }
+
+        let sender_is_receiver = &transaction.receiver_id == signer_id;
 
         apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
-        access_key.nonce = signed_transaction.transaction.nonce;
+        access_key.nonce = transaction.nonce;
 
         let mut total_cost_gas: Gas = safe_add_gas(
             self.config
@@ -173,24 +215,16 @@ impl Runtime {
             total_send_fees(
                 &self.config.transaction_costs,
                 sender_is_receiver,
-                &signed_transaction.transaction.actions,
+                &transaction.actions,
             )?,
         )?;
         total_cost_gas = safe_add_gas(
             total_cost_gas,
-            total_exec_fees(
-                &self.config.transaction_costs,
-                &signed_transaction.transaction.actions,
-            )?,
+            total_exec_fees(&self.config.transaction_costs, &transaction.actions)?,
         )?;
-        total_cost_gas = safe_add_gas(
-            total_cost_gas,
-            total_prepaid_gas(&signed_transaction.transaction.actions)?,
-        )?;
-        let gas_price = 1;
-        let mut total_cost = safe_gas_to_balance(gas_price, total_cost_gas)?;
-        total_cost =
-            safe_add_balance(total_cost, total_deposit(&signed_transaction.transaction.actions)?)?;
+        total_cost_gas = safe_add_gas(total_cost_gas, total_prepaid_gas(&transaction.actions)?)?;
+        let mut total_cost = safe_gas_to_balance(apply_state.gas_price, total_cost_gas)?;
+        total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
             format!(
                 "Sender {} does not have enough balance {} for operation costing {}",
@@ -205,42 +239,92 @@ impl Runtime {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                     format!(
                         "Access Key {}:{} does not have enough balance {} for transaction costing {}",
-                        signer_id, public_key, allowance, total_cost
+                        signer_id, transaction.public_key, allowance, total_cost
                     )
                 })?;
             }
         }
-        set_access_key(state_update, &signer_id, &public_key, &access_key);
 
         if !check_rent(&signer_id, &mut signer, &self.config, apply_state.epoch_length) {
             return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
         }
+
+        match access_key.permission {
+            AccessKeyPermission::FullAccess => Ok(()),
+            AccessKeyPermission::FunctionCall(ref function_call_permission) => {
+                if transaction.actions.len() != 1 {
+                    return Err(
+                        "Transaction has more than 1 actions and is using function call access key"
+                            .into(),
+                    );
+                }
+                if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+                    if transaction.receiver_id != function_call_permission.receiver_id {
+                        return Err(format!(
+                            "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
+                            &transaction.receiver_id,
+                            &function_call_permission.receiver_id,
+                        ).into());
+                    }
+                    if function_call_permission.method_names.is_empty()
+                        || function_call_permission
+                            .method_names
+                            .iter()
+                            .any(|method_name| &function_call.method_name == method_name)
+                    {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "Transaction method name {:?} isn't allowed by the access key",
+                            &function_call.method_name
+                        )
+                        .into())
+                    }
+                } else {
+                    Err("The used access key requires exactly one FunctionCall action".to_string())
+                }
+            }
+        }?;
+
+        set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
         set_account(state_update, &signer_id, &signer);
 
+        Ok(())
+    }
+
+    /// Processes signed transaction, charges fees and generates the receipt
+    fn apply_signed_transaction(
+        &self,
+        state_update: &mut TrieUpdate,
+        apply_state: &ApplyState,
+        signed_transaction: &SignedTransaction,
+    ) -> Result<Receipt, Box<dyn std::error::Error>> {
+        self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)?;
+        let transaction = &signed_transaction.transaction;
         Ok(Receipt {
-            predecessor_id: signer_id.clone(),
-            receiver_id: signed_transaction.transaction.receiver_id.clone(),
+            predecessor_id: transaction.signer_id.clone(),
+            receiver_id: transaction.receiver_id.clone(),
             receipt_id: create_nonce_with_nonce(&signed_transaction.get_hash(), 0),
 
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: signer_id.clone(),
-                signer_public_key: public_key,
-                gas_price,
+                signer_id: transaction.signer_id.clone(),
+                signer_public_key: transaction.public_key,
+                gas_price: apply_state.gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
-                actions: signed_transaction.transaction.actions.clone(),
+                actions: transaction.actions.clone(),
             }),
         })
     }
 
-    pub fn process_transaction(
+    fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
-    ) -> TransactionLog {
+    ) -> Result<TransactionLog, StorageError> {
         let mut result = TransactionResult::default();
         match self.apply_signed_transaction(state_update, apply_state, signed_transaction) {
             Ok(receipt) => {
@@ -255,12 +339,16 @@ impl Runtime {
             }
             Err(s) => {
                 state_update.rollback();
+                if let Some(e) = s.downcast_ref::<StorageError>() {
+                    // TODO fix error type in apply_signed_transaction
+                    return Err(e.clone());
+                }
                 result.logs.push(format!("Runtime error: {}", s));
                 result.status = TransactionStatus::Failed;
             }
         };
         Self::print_log(&result.logs);
-        TransactionLog { hash: signed_transaction.get_hash(), result }
+        Ok(TransactionLog { hash: signed_transaction.get_hash(), result })
     }
 
     fn apply_action(
@@ -275,7 +363,7 @@ impl Runtime {
         promise_results: &[PromiseResult],
         action_hash: CryptoHash,
         is_last_action: bool,
-    ) -> ActionResult {
+    ) -> Result<ActionResult, StorageError> {
         let mut result = ActionResult::default();
         let exec_fees = exec_fee(&self.config.transaction_costs, action);
         result.gas_burnt += exec_fees;
@@ -284,7 +372,7 @@ impl Runtime {
         // Account validation
         if let Err(e) = check_account_existence(action, account, account_id) {
             result.result = Err(e);
-            return result;
+            return Ok(result);
         }
         // Permission validation
         if let Err(e) = check_actor_permissions(
@@ -296,14 +384,14 @@ impl Runtime {
             &self.config,
         ) {
             result.result = Err(e);
-            return result;
+            return Ok(result);
         }
         match action {
             Action::CreateAccount(_) => {
                 action_create_account(apply_state, account, actor_id, receipt, &mut result);
             }
             Action::DeployContract(deploy_contract) => {
-                action_deploy_contract(state_update, account, &account_id, deploy_contract);
+                action_deploy_contract(state_update, account, &account_id, deploy_contract)?;
             }
             Action::FunctionCall(function_call) => {
                 action_function_call(
@@ -319,7 +407,7 @@ impl Runtime {
                     &action_hash,
                     &self.config,
                     is_last_action,
-                );
+                )?;
             }
             Action::Transfer(transfer) => {
                 action_transfer(account, transfer);
@@ -328,10 +416,10 @@ impl Runtime {
                 action_stake(account, &mut result, account_id, stake);
             }
             Action::AddKey(add_key) => {
-                action_add_key(state_update, account, &mut result, account_id, add_key);
+                action_add_key(state_update, account, &mut result, account_id, add_key)?;
             }
             Action::DeleteKey(delete_key) => {
-                action_delete_key(state_update, account, &mut result, account_id, delete_key);
+                action_delete_key(state_update, account, &mut result, account_id, delete_key)?;
             }
             Action::DeleteAccount(delete_account) => {
                 action_delete_account(
@@ -345,7 +433,7 @@ impl Runtime {
                 );
             }
         };
-        result
+        Ok(result)
     }
 
     fn apply_action_receipt(
@@ -355,7 +443,7 @@ impl Runtime {
         receipt: &Receipt,
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> TransactionLog {
+    ) -> Result<TransactionLog, StorageError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
@@ -366,21 +454,25 @@ impl Runtime {
             .input_data_ids
             .iter()
             .map(|data_id| {
-                let ReceivedData { data } = get_received_data(state_update, account_id, data_id)
-                    .expect("data should be present in the state");
+                let ReceivedData { data } = get_received_data(state_update, account_id, data_id)?
+                    .ok_or_else(|| {
+                    StorageError::StorageInconsistentState(
+                        "received data should be in the state".to_string(),
+                    )
+                })?;
                 state_update.remove(&key_for_received_data(account_id, data_id));
                 match data {
-                    Some(value) => PromiseResult::Successful(value),
-                    None => PromiseResult::Failed,
+                    Some(value) => Ok(PromiseResult::Successful(value)),
+                    None => Ok(PromiseResult::Failed),
                 }
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // state_update might already have some updates so we need to make sure we commit it before
         // executing the actual receipt
         state_update.commit();
 
-        let mut account = get_account(state_update, account_id);
+        let mut account = get_account(state_update, account_id)?;
         if let Some(ref mut account) = account {
             apply_rent(account_id, account, apply_state.block_index, &self.config);
         }
@@ -406,7 +498,8 @@ impl Runtime {
                     u64::max_value() - action_index as u64,
                 ),
                 is_last_action,
-            ));
+            )?);
+            // TODO storage error
             if result.result.is_err() {
                 break;
             }
@@ -509,7 +602,7 @@ impl Runtime {
 
         Self::print_log(&result.logs);
 
-        TransactionLog {
+        Ok(TransactionLog {
             hash: receipt.receipt_id.clone(),
             result: TransactionResult {
                 status: transaction_status,
@@ -517,7 +610,7 @@ impl Runtime {
                 receipts: transaction_new_receipt_ids,
                 result: transaction_result,
             },
-        }
+        })
     }
 
     fn generate_refund_receipts(
@@ -555,14 +648,14 @@ impl Runtime {
         }
     }
 
-    pub fn process_receipt(
+    fn process_receipt(
         &self,
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         receipt: &Receipt,
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
-    ) -> Option<TransactionLog> {
+    ) -> Result<Option<TransactionLog>, StorageError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {
@@ -580,15 +673,19 @@ impl Runtime {
                 if let Some(receipt_id) = get(
                     state_update,
                     &key_for_postponed_receipt_id(account_id, &data_receipt.data_id),
-                ) {
+                )? {
                     // There is already a receipt that is awaiting for the just received data.
                     // Removing this pending data_id for the receipt from the state.
                     state_update
                         .remove(&key_for_postponed_receipt_id(account_id, &data_receipt.data_id));
                     // Checking how many input data items is pending for the receipt.
                     let pending_data_count: u32 =
-                        get(state_update, &key_for_pending_data_count(account_id, &receipt_id))
-                            .expect("pending data count should be in the state");
+                        get(state_update, &key_for_pending_data_count(account_id, &receipt_id))?
+                            .ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending data count should be in the state".to_string(),
+                                )
+                            })?;
                     if pending_data_count == 1 {
                         // It was the last input data pending for this receipt. We'll cleanup
                         // some receipt related fields from the state and execute the receipt.
@@ -596,19 +693,25 @@ impl Runtime {
                         // Removing pending data count form the state.
                         state_update.remove(&key_for_pending_data_count(account_id, &receipt_id));
                         // Fetching the receipt itself.
-                        let ready_receipt = get_receipt(state_update, account_id, &receipt_id)
-                            .expect("pending receipt should be in the state");
+                        let ready_receipt = get_receipt(state_update, account_id, &receipt_id)?
+                            .ok_or_else(|| {
+                                StorageError::StorageInconsistentState(
+                                    "pending receipt should be in the state".to_string(),
+                                )
+                            })?;
                         // Removing the receipt from the state.
                         state_update.remove(&key_for_postponed_receipt(account_id, &receipt_id));
                         // Executing the receipt. It will read all the input data and clean it up
                         // from the state.
-                        return Some(self.apply_action_receipt(
-                            state_update,
-                            apply_state,
-                            &ready_receipt,
-                            new_receipts,
-                            validator_proposals,
-                        ));
+                        return self
+                            .apply_action_receipt(
+                                state_update,
+                                apply_state,
+                                &ready_receipt,
+                                new_receipts,
+                                validator_proposals,
+                            )
+                            .map(Some);
                     } else {
                         // There is still some pending data for the receipt, so we update the
                         // pending data count in the state.
@@ -627,7 +730,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get_received_data(state_update, account_id, data_id).is_none() {
+                    if get_received_data(state_update, account_id, data_id)?.is_none() {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -641,13 +744,15 @@ impl Runtime {
                 if pending_data_count == 0 {
                     // All input data is available. Executing the receipt. It will cleanup
                     // input data from the state.
-                    return Some(self.apply_action_receipt(
-                        state_update,
-                        apply_state,
-                        receipt,
-                        new_receipts,
-                        validator_proposals,
-                    ));
+                    return self
+                        .apply_action_receipt(
+                            state_update,
+                            apply_state,
+                            receipt,
+                            new_receipts,
+                            validator_proposals,
+                        )
+                        .map(|log| Some(log));
                 } else {
                     // Not all input data is available now.
                     // Save the counter for the number of pending input data items into the state.
@@ -663,7 +768,7 @@ impl Runtime {
         };
         // We didn't trigger execution, so we need to commit the state.
         state_update.commit();
-        None
+        Ok(None)
     }
 
     /// apply transactions from this block and receipts from previous block
@@ -673,36 +778,20 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyResult, Box<dyn std::error::Error>> {
+    ) -> Result<ApplyResult, StorageError> {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut tx_result = vec![];
-        let mut largest_tx_nonce = HashMap::new();
 
         for signed_transaction in transactions {
-            let signer_id = signed_transaction.transaction.signer_id.clone();
-            let nonce = signed_transaction.transaction.nonce;
-            // TODO: Only update nonce for successful transactions
-            match largest_tx_nonce.entry(signer_id) {
-                Entry::Occupied(mut e) => {
-                    let largest_nonce = e.get_mut();
-                    if *largest_nonce < nonce {
-                        *largest_nonce = nonce;
-                    }
-                }
-                Entry::Vacant(e) => {
-                    e.insert(nonce);
-                }
-            };
-
             tx_result.push(self.process_transaction(
                 &mut state_update,
                 apply_state,
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
-            ));
+            )?);
         }
 
         for receipt in local_receipts.iter().chain(prev_receipts.iter()) {
@@ -712,7 +801,7 @@ impl Runtime {
                 receipt,
                 &mut new_receipts,
                 &mut validator_proposals,
-            )
+            )?
             .into_iter()
             .for_each(|res| tx_result.push(res));
         }
@@ -723,7 +812,6 @@ impl Runtime {
             validator_proposals,
             new_receipts,
             tx_result,
-            largest_tx_nonce,
         })
     }
 
@@ -822,7 +910,9 @@ impl Runtime {
             }
         }
         for (account_id, storage_usage) in self.compute_storage_usage(records) {
-            let mut account = get_account(&state_update, &account_id).expect("account must exist");
+            let mut account = get_account(&state_update, &account_id)
+                .expect("Genesis storage error")
+                .expect("Account must exist");
             account.storage_usage = storage_usage;
             set_account(&mut state_update, &account_id, &account);
         }
@@ -836,7 +926,10 @@ impl Runtime {
             // Logic similar to `apply_receipt`
             let mut pending_data_count = 0;
             for data_id in &action_receipt.input_data_ids {
-                if get_received_data(&state_update, account_id, data_id).is_none() {
+                if get_received_data(&state_update, account_id, data_id)
+                    .expect("Genesis storage error")
+                    .is_none()
+                {
                     pending_data_count += 1;
                     set(
                         &mut state_update,
@@ -858,8 +951,9 @@ impl Runtime {
         }
 
         for (account_id, _, amount) in validators {
-            let mut account: Account =
-                get_account(&state_update, account_id).expect("account must exist");
+            let mut account: Account = get_account(&state_update, account_id)
+                .expect("Genesis storage error")
+                .expect("account must exist");
             account.staked = *amount;
             set_account(&mut state_update, account_id, &account);
         }
@@ -888,7 +982,7 @@ mod tests {
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
-        let get_res = get_account(&state_update, &account_id).unwrap();
+        let get_res = get_account(&state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
 
@@ -903,7 +997,7 @@ mod tests {
         let (store_update, new_root) = state_update.finalize().unwrap().into(trie.clone()).unwrap();
         store_update.commit().unwrap();
         let new_state_update = TrieUpdate::new(trie.clone(), new_root);
-        let get_res = get_account(&new_state_update, &account_id).unwrap();
+        let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
     }
 }

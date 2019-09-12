@@ -27,10 +27,9 @@ use near_primitives::views::{
     AccessKeyInfoView, CallResult, QueryError, QueryResponse, ViewStateResult,
 };
 use near_store::{
-    get_access_key_raw, get_account, set_account, Store, StoreUpdate, Trie, TrieUpdate,
-    WrappedTrieChanges,
+    get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
+    TrieUpdate, WrappedTrieChanges,
 };
-use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -137,7 +136,7 @@ impl NightshadeRuntime {
 
         for (account_id, max_of_stakes) in stake_info {
             if self.account_id_to_shard_id(&account_id) == shard_id {
-                let account: Option<Account> = get_account(state_update, &account_id);
+                let account: Option<Account> = get_account(state_update, &account_id)?;
                 if let Some(mut account) = account {
                     if let Some(reward) = validator_reward.get(&account_id) {
                         debug!(target: "runtime", "account {} adding reward {} to stake {}", account_id, reward, account.staked);
@@ -164,7 +163,7 @@ impl NightshadeRuntime {
         }
         if self.account_id_to_shard_id(&self.genesis_config.protocol_treasury_account) == shard_id {
             let mut protocol_treasury_account =
-                get_account(state_update, &self.genesis_config.protocol_treasury_account).unwrap();
+                get_account(state_update, &self.genesis_config.protocol_treasury_account)?.unwrap();
             protocol_treasury_account.amount +=
                 *validator_reward.get(&self.genesis_config.protocol_treasury_account).unwrap();
             set_account(
@@ -410,19 +409,51 @@ impl RuntimeAdapter for NightshadeRuntime {
         epoch_manager.get_epoch_start_height(block_hash).map_err(|err| Error::from(err))
     }
 
+    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error> {
+        let mut epoch_manager = self.epoch_manager.write().expect(POISONED_LOCK_ERR);
+        Ok(epoch_manager.get_epoch_inflation(epoch_id)?)
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let verifier = TransactionVerifier::new(&state_update);
-        if let Err(err) = verifier.verify_transaction(&transaction) {
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+
+        if let Err(err) = self.runtime.verify_and_charge_transaction(
+            &mut state_update,
+            &apply_state,
+            &transaction,
+        ) {
             debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
             return Err(err);
         }
         Ok(ValidTransaction { transaction })
+    }
+
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        transactions
+            .into_iter()
+            .filter(|transaction| {
+                self.runtime
+                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
+                    .is_ok()
+            })
+            .collect()
     }
 
     fn add_validator_proposals(
@@ -474,6 +505,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = if generate_storage_proof {
@@ -494,21 +526,23 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         // If we are starting to apply 1st block in the new epoch.
         if should_update_account {
-            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update)
-                .map_err(|e| Error::from(ErrorKind::ValidatorError(e.to_string())))?;
+            self.update_validator_accounts(shard_id, prev_block_hash, &mut state_update).map_err(
+                |e| {
+                    if let Some(e) = e.downcast_ref::<StorageError>() {
+                        panic!(e.to_string())
+                    }
+                    Error::from(ErrorKind::ValidatorError(e.to_string()))
+                },
+            )?;
         }
 
-        let apply_state = ApplyState {
-            root: *state_root,
-            block_index,
-            parent_block_hash: *prev_block_hash,
-            epoch_length: self.genesis_config.epoch_length,
-        };
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
 
         let apply_result = self
             .runtime
             .apply(state_update, &apply_state, &receipts, &transactions)
-            .map_err(|err| Error::from(ErrorKind::Other(err.to_string())))?;
+            .expect("Storage error. Corrupted db or invalid state");
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
@@ -707,14 +741,14 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             Ok(iter) => iter
                 .map(|key| {
                     let public_key = &key[prefix.len()..];
-                    let access_key = get_access_key_raw(&state_update, &key)
+                    let access_key = get_access_key_raw(&state_update, &key)?
                         .ok_or("Missing key from iterator")?;
                     PublicKey::try_from_slice(public_key)
                         .map_err(|err| format!("{}", err).into())
                         .map(|key| (key, access_key))
                 })
                 .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>(),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         }
     }
 
@@ -781,6 +815,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
             transactions: &Vec<SignedTransaction>,
+            gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
                 .apply_transactions(
@@ -791,6 +826,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    gas_price,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -879,6 +915,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
                 for (shard_id, mut shard_receipts) in receipts {

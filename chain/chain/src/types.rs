@@ -104,10 +104,21 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(
         &self,
-        shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, String>;
+    ) -> Result<ValidTransaction, Box<dyn std::error::Error>>;
+
+    /// Filter transactions by verifying each one by one in the given order. Every successful
+    /// verification stores the updated account balances to be used by next transactions.
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction>;
 
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
@@ -197,6 +208,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get epoch start for given block hash.
     fn get_epoch_start_height(&self, block_hash: &CryptoHash) -> Result<BlockIndex, Error>;
 
+    /// Get inflation for a certain epoch
+    fn get_epoch_inflation(&self, epoch_id: &EpochId) -> Result<Balance, Error>;
+
     /// Add proposals for validators.
     fn add_validator_proposals(
         &self,
@@ -222,6 +236,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -231,6 +246,7 @@ pub trait RuntimeAdapter: Send + Sync {
             block_hash,
             receipts,
             transactions,
+            gas_price,
             false,
         )
     }
@@ -244,6 +260,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 

@@ -60,6 +60,7 @@ impl EpochManager {
                 HashSet::default(),
                 HashMap::default(),
                 0,
+                0,
             )?;
             let block_info = BlockInfo::default();
             let mut store_update = epoch_manager.store.store_update();
@@ -250,7 +251,7 @@ impl EpochManager {
         //            "EpochId: {:?}, LBH: {:?}, proposals: {:?}, kickout: {:?}, current: {:?}",
         //            epoch_id, last_block_hash, proposals, validator_kickout, current_epoch_info
         //        );
-        let validator_reward = self.reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_online_ratio,
             total_gas_used,
             block_info.gas_price,
@@ -264,6 +265,7 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             total_gas_used,
+            inflation,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {
@@ -542,6 +544,10 @@ impl EpochManager {
             current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
         })
     }
+
+    pub fn get_epoch_inflation(&mut self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
+        Ok(self.get_epoch_info(epoch_id)?.inflation)
+    }
 }
 
 /// Private utilities for EpochManager.
@@ -719,6 +725,7 @@ mod tests {
             change_stake(vec![("test1", amount_staked)]),
             0,
             HashMap::default(),
+            0,
         );
         let epoch0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch0).unwrap(), &expected0);
@@ -744,6 +751,7 @@ mod tests {
             0,
             // only the validator who produced the block in this epoch gets the reward since epoch length is 1
             reward(vec![("test1", 0), ("near", 0)]),
+            0,
         );
         // no validator change in the last epoch
         let epoch3 = epoch_manager.get_epoch_id(&h[3]).unwrap();
@@ -782,7 +790,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -883,7 +892,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -918,7 +928,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -933,7 +944,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
@@ -948,7 +960,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 0,
-                reward(vec![("test2", 0), ("near", 0)])
+                reward(vec![("test2", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -1015,7 +1028,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test2", 0), ("near", 0)])
+                reward(vec![("test2", 0), ("near", 0)]),
+                0
             )
         );
 
@@ -1064,7 +1078,7 @@ mod tests {
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
             max_inflation_rate: 5,
-            num_blocks_per_year: 1_000_000,
+            num_blocks_per_year: 50,
             epoch_length,
             validator_reward_percentage: 60,
             protocol_reward_percentage: 10,
@@ -1131,7 +1145,7 @@ mod tests {
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test1".to_string(), (0, 0));
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let validator_reward = reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
@@ -1149,7 +1163,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
                 20,
-                reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)])
+                reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)]),
+                inflation,
             )
         );
     }
@@ -1228,7 +1243,7 @@ mod tests {
             .unwrap();
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let validator_reward = reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
@@ -1245,7 +1260,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
                 20,
-                reward(vec![("test2", test2_reward), ("near", protocol_reward)])
+                reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
+                inflation
             )
         );
     }

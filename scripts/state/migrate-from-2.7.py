@@ -15,12 +15,15 @@ assert(is_valid_account.match("near"))
 
 nuked_accounts = set()
 
+accounts_with_data = set()
+
 for value in q['records'][0]:
     if 'Account' in value:
         if value['Account']['account_id'] == '.near':
             value['Account']['account_id'] = 'near'
 
         account_id = value['Account']['account_id']
+        assert(account_id not in accounts_with_data)
 
         if not is_valid_account.match(account_id):
             print("Bad account ID, nuking account %s" % (account_id,))
@@ -64,10 +67,11 @@ for value in q['records'][0]:
     elif 'Data' in value:
         # Parsing data key to check if we nuked given account id
         key = base64.b64decode(value['Data']['key'])
-        account_id = key[:key.find(',')]
+        account_id = key[1:key.find(',')]
         if account_id in nuked_accounts:
-            print("Nuked data for account %d " % (account_id,))
+            print("Nuked data for account %s" % (account_id,))
             continue
+        accounts_with_data.add(account_id)
         new_records.append(value)
     else:
         new_records.append(value)

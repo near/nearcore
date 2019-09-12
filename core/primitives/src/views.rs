@@ -263,6 +263,7 @@ impl TryFrom<QueryResponse> for Option<AccessKeyView> {
 pub struct BlockHeaderView {
     pub height: BlockIndex,
     pub epoch_id: CryptoHashView,
+    pub hash: CryptoHashView,
     pub prev_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
     pub tx_root: CryptoHashView,
@@ -286,6 +287,7 @@ impl From<BlockHeader> for BlockHeaderView {
         Self {
             height: header.inner.height,
             epoch_id: header.inner.epoch_id.0.into(),
+            hash: header.hash.into(),
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
             tx_root: header.inner.tx_root.into(),

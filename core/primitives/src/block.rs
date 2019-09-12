@@ -243,11 +243,9 @@ impl Block {
         transactions: Vec<SignedTransaction>,
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
-        max_inflation_rate: u8,
+        inflation: Option<Balance>,
         signer: Arc<dyn Signer>,
     ) -> Self {
-        // TODO: merkelize transactions.
-        let tx_root = CryptoHash::default();
         let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
             (
                 (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
@@ -283,10 +281,7 @@ impl Block {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
         };
-        let total_tx_fee = gas_used as u128 * prev.inner.gas_price;
-        let max_inflation = max_inflation_rate as u128 * prev.inner.total_supply / (100 * 365);
-        let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
-        let new_total_supply = prev.inner.total_supply + inflation;
+        let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0);
 
         let total_weight =
             (prev.inner.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
@@ -295,7 +290,7 @@ impl Block {
                 height,
                 prev.hash(),
                 Block::compute_state_root(&chunks),
-                tx_root,
+                Block::compute_tx_root(&transactions),
                 Utc::now(),
                 approval_mask,
                 approval_sigs,
@@ -313,6 +308,13 @@ impl Block {
             chunks,
             transactions,
         }
+    }
+
+    pub fn compute_tx_root(transactions: &Vec<SignedTransaction>) -> CryptoHash {
+        merklize(
+            &transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>(),
+        )
+            .0
     }
 
     pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
