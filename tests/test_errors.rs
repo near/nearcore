@@ -13,7 +13,7 @@ use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
-    let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1, vec![1]);
+    let genesis_config = GenesisConfig::test(vec!["alice.near", "bob.near"], 1);
     let mut near_config = load_test_config("alice.near", open_port(), &genesis_config);
     near_config.client_config.skip_sync_wait = true;
 

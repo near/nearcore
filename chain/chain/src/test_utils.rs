@@ -165,10 +165,10 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header = self
-            .store
-            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or(ErrorKind::Other("Missing block when computing the epoch".to_string()))?;
+        let prev_block_header =
+            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?.ok_or(
+                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash)),
+            )?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -348,7 +348,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let validators = &self.validators[self.get_epoch_and_valset(*parent_hash).unwrap().1];
+        let epoch_valset = match self.get_epoch_and_valset(*parent_hash) {
+            Ok(epoch_valset) => epoch_valset,
+            Err(_) => return false,
+        };
+        let validators = &self.validators[epoch_valset.1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
@@ -372,8 +376,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let validators = &self.validators
-            [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
+        let epoch_valset = match self.get_epoch_and_valset(*parent_hash) {
+            Ok(epoch_valset) => epoch_valset,
+            Err(_) => return false,
+        };
+        let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
@@ -703,8 +710,8 @@ pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..6].to_string()
 }
 
-// Displays chain from given store.
-pub fn display_chain(chain: &mut Chain) {
+/// Displays chain from given store.
+pub fn display_chain(chain: &mut Chain, tail: bool) {
     let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
@@ -715,7 +722,9 @@ pub fn display_chain(chain: &mut Chain) {
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
             .clone();
-        headers.push(header);
+        if !tail || header.inner.height + 10 > head.height {
+            headers.push(header);
+        }
     }
     headers.sort_by(|h_left, h_right| {
         if h_left.inner.height > h_right.inner.height {
@@ -758,7 +767,7 @@ pub fn display_chain(chain: &mut Chain) {
                             chunk_header.inner.shard_id,
                         )
                         .unwrap();
-                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
+                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
                             chunk_header.inner.height_created,

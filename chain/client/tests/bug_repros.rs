@@ -34,7 +34,7 @@ fn repro_1183() {
         let validators2 = validators.clone();
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
-        *connectors.write().unwrap() = setup_mock_all_validators(
+        let (_, conn) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -112,6 +112,7 @@ fn repro_1183() {
                 }
             })),
         );
+        *connectors.write().unwrap() = conn;
 
         near_network::test_utils::wait_or_panic(30000);
     })

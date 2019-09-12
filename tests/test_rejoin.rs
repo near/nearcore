@@ -40,8 +40,9 @@ mod test {
                 nonces[from],
                 account_names[from].clone(),
                 account_names[to].clone(),
-                nodes[from].read().unwrap().signer(),
+                &*nodes[from].read().unwrap().signer(),
                 1000,
+                nodes[from].read().unwrap().user().get_best_block_hash().unwrap(),
             ))
             .unwrap();
     }
@@ -158,8 +159,12 @@ mod test {
         let mut expected_balances = vec![0; num_nodes];
         let mut nonces = vec![1; num_nodes];
         for i in 0..num_nodes {
-            let account = nodes[0].read().unwrap().view_account(&account_names[i]).unwrap();
-            nonces[i] = account.nonce + 1;
+            let account = nodes[i].read().unwrap().view_account(&account_names[i]).unwrap();
+            nonces[i] = 1 + nodes[i]
+                .read()
+                .unwrap()
+                .get_access_key_nonce_for_signer(&account_names[i])
+                .unwrap();
             expected_balances[i] = account.amount;
         }
 

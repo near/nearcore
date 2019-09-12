@@ -94,12 +94,12 @@ impl ShardChunkHeader {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize)]
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug)]
 pub struct EncodedShardChunkBody {
     pub parts: Vec<Option<Shard>>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize)]
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct EncodedShardChunk {
     pub header: ShardChunkHeader,
     pub content: EncodedShardChunkBody,

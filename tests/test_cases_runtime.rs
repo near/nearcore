@@ -14,11 +14,8 @@ mod test {
     }
 
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis_config = GenesisConfig::legacy_test(
-            vec![&alice_account(), &bob_account(), "carol.near"],
-            1,
-            vec![1],
-        );
+        let mut genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
         genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
         genesis_config.runtime_config.poke_threshold = 10;
@@ -34,11 +31,8 @@ mod test {
     }
 
     fn create_runtime_with_expensive_account_length() -> RuntimeNode {
-        let mut genesis_config = GenesisConfig::legacy_test(
-            vec![&alice_account(), &bob_account(), "carol.near"],
-            1,
-            vec![1],
-        );
+        let mut genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive account length rent and add alice more money.
         // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
         // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73

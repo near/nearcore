@@ -7,9 +7,10 @@ use chrono::{DateTime, Utc};
 
 use near_crypto::{InMemorySigner, Signer};
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+    BlockView, ChunkView, FinalTransactionResult, QueryResponse, TransactionResultView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -235,6 +236,16 @@ pub enum GetBlock {
 
 impl Message for GetBlock {
     type Result = Result<BlockView, String>;
+}
+
+/// Actor message requesting a chunk by chunk hash and block hash + shard id.
+pub enum GetChunk {
+    BlockHash(CryptoHash, ShardId),
+    ChunkHash(ChunkHash),
+}
+
+impl Message for GetChunk {
+    type Result = Result<ChunkView, String>;
 }
 
 /// Queries client for given path / data.

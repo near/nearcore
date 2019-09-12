@@ -856,8 +856,10 @@ mod test {
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });
+            let validators_len = all_validators.len();
             let mut genesis_config = GenesisConfig::test_sharded(
                 all_validators.into_iter().collect(),
+                validators_len,
                 validators.iter().map(|x| x.len()).collect(),
             );
             // No fees mode.
