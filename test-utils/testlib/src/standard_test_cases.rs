@@ -10,9 +10,7 @@ use near_primitives::views::{AccountView, FinalTransactionResult};
 
 use crate::fees_utils::*;
 use crate::node::Node;
-use crate::runtime_utils::{
-    alice_account, bob_account, default_code_hash, encode_int, eve_dot_alice_account,
-};
+use crate::runtime_utils::{alice_account, bob_account, encode_int, eve_dot_alice_account};
 use crate::user::User;
 
 /// The amount to send with function call.
@@ -217,28 +215,19 @@ pub fn test_send_money(node: impl Node) {
     assert_ne!(root, new_root);
     assert_eq!(node_user.get_access_key_nonce_for_signer(account_id).unwrap(), 1);
 
-    let result1 = node_user.view_account(account_id);
+    let AccountView { amount, staked, .. } = node_user.view_account(account_id).unwrap();
     assert_eq!(
-        result1.unwrap(),
-        AccountView {
-            amount: TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE - transfer_cost,
-            staked: TESTING_INIT_STAKE,
-            code_hash: default_code_hash().into(),
-            storage_paid_at: 0,
-            storage_usage: 64919,
-        }
+        (amount, staked),
+        (
+            TESTING_INIT_BALANCE - money_used - TESTING_INIT_STAKE - transfer_cost,
+            TESTING_INIT_STAKE
+        )
     );
     let reward = gas_burnt_to_reward(transaction_result.transactions[1].result.gas_burnt);
-    let result2 = node_user.view_account(&bob_account()).unwrap();
+    let AccountView { amount, staked, .. } = node_user.view_account(&bob_account()).unwrap();
     assert_eq!(
-        result2,
-        AccountView {
-            amount: TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE + reward,
-            staked: TESTING_INIT_STAKE,
-            code_hash: default_code_hash().into(),
-            storage_paid_at: 0,
-            storage_usage: 64919,
-        }
+        (amount, staked),
+        (TESTING_INIT_BALANCE + money_used - TESTING_INIT_STAKE + reward, TESTING_INIT_STAKE,)
     );
 }
 
