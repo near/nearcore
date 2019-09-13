@@ -25,8 +25,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tempdir::TempDir;
 
-const NUM_ACCOUNTS: usize = 1_000_000;
-const TRANSACTIONS_PER_ACCOUNT: usize = 10;
+const NUM_ACCOUNTS: usize = 100_000;
+const TRANSACTIONS_PER_ACCOUNT: usize = 100;
 const TRANSACTIONS_PER_BLOCK: usize = 1_000;
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
