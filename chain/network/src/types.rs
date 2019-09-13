@@ -180,45 +180,20 @@ struct AnnounceAccountRouteHeader {
     pub epoch_id: EpochId,
 }
 
-/// Account route description
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct AnnounceAccountRoute {
-    pub peer_id: PeerId,
-    pub hash: CryptoHash,
-    pub signature: Signature,
-}
-
 /// Account announcement information
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
-    /// AccountId to be announced
+    /// AccountId to be announced.
     pub account_id: AccountId,
-    /// This announcement is only valid for this `epoch`
+    /// PeerId from the owner of the account.
+    pub peer_id: PeerId,
+    /// This announcement is only valid for this `epoch`.
     pub epoch_id: EpochId,
-    /// Complete route description to account id
-    /// First element of the route (header) contains:
-    ///     peer_id owner of the account_id
-    ///     hash of the announcement
-    ///     signature with account id secret key
-    /// Subsequent elements of the route contain:
-    ///     peer_id of intermediates hop in the route
-    ///     hash built using previous hash and peer_id
-    ///     signature with peer id secret key
-    pub route: Vec<AnnounceAccountRoute>,
+    /// Signature using AccountId associated secret key.
+    pub signature: Signature,
 }
 
 impl AnnounceAccount {
-    pub fn new(
-        account_id: AccountId,
-        epoch_id: EpochId,
-        peer_id: PeerId,
-        hash: CryptoHash,
-        signature: Signature,
-    ) -> Self {
-        let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
-        Self { account_id, epoch_id, route }
-    }
-
     pub fn build_header_hash(
         account_id: &AccountId,
         peer_id: &PeerId,
@@ -230,40 +205,6 @@ impl AnnounceAccount {
             epoch_id: epoch_id.clone(),
         };
         hash(&header.try_to_vec().unwrap())
-    }
-
-    pub fn header_hash(&self) -> CryptoHash {
-        AnnounceAccount::build_header_hash(
-            &self.account_id,
-            &self.route.first().unwrap().peer_id,
-            &self.epoch_id,
-        )
-    }
-
-    pub fn header(&self) -> &AnnounceAccountRoute {
-        self.route.first().unwrap()
-    }
-
-    /// Peer Id sending this announcement.
-    pub fn peer_id(&self) -> PeerId {
-        self.route.last().unwrap().peer_id
-    }
-
-    /// Peer Id of the originator of this announcement.
-    pub fn original_peer_id(&self) -> PeerId {
-        self.route.first().unwrap().peer_id
-    }
-
-    pub fn num_hops(&self) -> usize {
-        self.route.len() - 1
-    }
-
-    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
-        let last_hash = self.route.last().unwrap().hash;
-        let new_hash =
-            hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
-        let signature = secret_key.sign(new_hash.as_ref());
-        self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
     }
 }
 
@@ -283,27 +224,45 @@ pub enum RoutedMessageBody {
     ChunkOnePart(ChunkOnePart),
 }
 
+pub enum AccountOrPeerId {
+    AccountId(AccountId),
+    PeerId(PeerId),
+}
+
+impl AccountOrPeerId {
+    fn peer_id(&self) -> Option<PeerId> {
+        match self {
+            AccountOrPeerId::AccountId(_) => None,
+            AccountOrPeerId::PeerId(peer_id) => Some(peer_id.clone()),
+        }
+    }
+}
+
 #[derive(Message)]
 pub struct RawRoutedMessage {
-    pub account_id: AccountId,
+    pub target: AccountOrPeerId,
     pub body: RoutedMessageBody,
 }
 
 impl RawRoutedMessage {
+    /// Add signature to the message.
+    /// Panics if the target is an AccountId instead of a PeerId.
     pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
-        let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
+        let target = self.target.peer_id().unwrap();
+        let hash = RoutedMessage::build_hash(target.clone(), author.clone(), self.body.clone());
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
+        RoutedMessage { target, author, signature, body: self.body }
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub struct RoutedMessageMsg {
-    account_id: AccountId,
+pub struct RoutedMessageNoSignature {
+    target: PeerId,
     author: PeerId,
     body: RoutedMessageBody,
 }
 
+// TODO(MarX): Add TTL for routed message to avoid infinite loops
 /// RoutedMessage represent a package that will travel the network towards a specific account id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -313,7 +272,7 @@ pub struct RoutedMessageMsg {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Account id which is directed this message
-    pub account_id: AccountId,
+    pub target: PeerId,
     /// Original sender of this message
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
@@ -324,28 +283,25 @@ pub struct RoutedMessage {
 }
 
 impl RoutedMessage {
-    pub fn build_hash(
-        account_id: &AccountId,
-        author: &PeerId,
-        body: &RoutedMessageBody,
-    ) -> CryptoHash {
+    pub fn build_hash(target: PeerId, source: PeerId, body: RoutedMessageBody) -> CryptoHash {
         hash(
-            &RoutedMessageMsg {
-                account_id: account_id.clone(),
-                author: author.clone(),
-                body: body.clone(),
-            }
-            .try_to_vec()
-            .expect("Failed to serialize"),
+            &RoutedMessageNoSignature { target, author: source, body }
+                .try_to_vec()
+                .expect("Failed to serialize"),
         )
     }
 
     fn hash(&self) -> CryptoHash {
-        RoutedMessage::build_hash(&self.account_id, &self.author, &self.body)
+        RoutedMessage::build_hash(self.target.clone(), self.author.clone(), self.body.clone())
     }
 
     pub fn verify(&self) -> bool {
         self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+    }
+
+    pub fn requires_response(&self) -> bool {
+        // TODO(MarX): Mark some message as requiring response
+        false
     }
 }
 

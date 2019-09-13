@@ -12,7 +12,7 @@ use actix::{
 };
 use chrono::offset::TimeZone;
 use chrono::{DateTime, Utc};
-use futures::{future, Future};
+use futures::future;
 use log::{debug, error, info, warn};
 use rand::{thread_rng, Rng};
 use tokio::codec::FramedRead;
@@ -27,14 +27,15 @@ use crate::peer::Peer;
 use crate::peer_store::PeerStore;
 use crate::routing::RoutingTable;
 use crate::types::{
-    AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect, KnownPeerStatus,
-    NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
+    AccountOrPeerId, AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect,
+    KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType,
+    PeersRequest, PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
     RoutedMessageBody, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
+use near_primitives::types::AccountId;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -87,8 +88,8 @@ impl PeerManagerActor {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store, &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
-        let ttl_account_id_router = config.ttl_account_id_router;
-        let max_routes_to_save = config.max_routes_to_store;
+
+        let me = config.public_key.into();
         Ok(PeerManagerActor {
             peer_id: config.public_key.into(),
             config,
@@ -96,7 +97,7 @@ impl PeerManagerActor {
             peer_store,
             active_peers: HashMap::default(),
             outgoing_peers: HashSet::default(),
-            routing_table: RoutingTable::new(ttl_account_id_router, max_routes_to_save),
+            routing_table: RoutingTable::new(me),
             monitor_peers_attempts: 0,
         })
     }
@@ -105,6 +106,8 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
+    /// Register a direct connection to a new peer. This will be called after successfully
+    /// establishing a connection with another peer. It become part of the active peers.
     fn register_peer(&mut self, full_peer_info: FullPeerInfo, addr: Addr<Peer>) {
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
@@ -125,22 +128,12 @@ impl PeerManagerActor {
             },
         );
 
-        // Sync routes to known account ids with new peer.
-        for mut announcement in
-            self.routing_table.account_peers.values_mut().map(|entry| entry.next_best_route())
-        {
-            // Update route with our information in case we are not the source.
-            if announcement.header().peer_id != self.peer_id {
-                announcement.extend(self.peer_id, &self.config.secret_key);
-            }
-            actix::spawn(
-                addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
-                    .map_err(|e| error!(target: "network", "{}", e))
-                    .map(|_| ()),
-            );
-        }
+        // TODO(MarX): Trigger sync actions after a peer is added successfully regarding networking
+        //  (Write specification about the actions)
     }
 
+    /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
+    /// data from ongoing connection established is removed.
     fn unregister_peer(&mut self, peer_id: PeerId) {
         // If this is an unconsolidated peer because failed / connected inbound, just delete it.
         if self.outgoing_peers.contains(&peer_id) {
@@ -148,15 +141,21 @@ impl PeerManagerActor {
             return;
         }
         self.active_peers.remove(&peer_id);
-        self.routing_table.remove(&peer_id);
+
+        // TODO(MarX): Trigger actions after a peer is removed successfully regarding networking
+        //  (Write specification about the actions)
+
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
     }
 
-    // TODO: Should broadcast this with evidence in case of *intentional* misbehaviour.
+    /// Add peer to ban list.
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.active_peers.remove(&peer_id);
-        self.routing_table.remove(&peer_id);
+
+        // TODO(MarX): Trigger actions after a peer is banned regarding networking
+        //  (Write specification about the actions)
+
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -351,94 +350,133 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
-        // If this is an announcement from our account id.
-        if announce_account.original_peer_id() == self.peer_id {
-            // Check that this announcement doesn't contain any other hop.
-            // We must avoid cycle in the routes.
-            if announce_account.num_hops() == 0 {
-                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-                self.broadcast_message(ctx, msg);
-            }
+        // TODO(MarX): Fix announce account
+        //
+        //        // If this is an announcement from our account id.
+        //        if announce_account.original_peer_id() == self.peer_id {
+        //            // Check that this announcement doesn't contain any other hop.
+        //            // We must avoid cycle in the routes.
+        //            if announce_account.num_hops() == 0 {
+        //                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
+        //                self.broadcast_message(ctx, msg);
+        //            }
+        //        } else {
+        //            // Check that we don't belong to this route.
+        //            if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
+        //                return;
+        //            }
+        //
+        //            // Use shorter suffix such that we know peer in that suffix.
+        //            let mut found = false;
+        //            announce_account.route = announce_account
+        //                .route
+        //                .into_iter()
+        //                .take_while(|x| {
+        //                    if found {
+        //                        return false;
+        //                    } else {
+        //                        if self.active_peers.contains_key(&x.peer_id) {
+        //                            found = true;
+        //                        }
+        //                        true
+        //                    }
+        //                })
+        //                .collect();
+        //
+        //            assert!(self.active_peers.contains_key(&announce_account.peer_id()));
+        //
+        //            // If this is a new account send an announcement to random set of peers.
+        //            if self.routing_table.update(announce_account.clone()).is_new() {
+        //                let routes: Vec<_> = announce_account.route.iter().map(|hop| hop.peer_id).collect();
+        //                announce_account.extend(self.peer_id, &self.config.secret_key);
+        //                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
+        //
+        //                // Broadcast announcements to peer that don't belong to this route.
+        //                let requests: Vec<_> = self
+        //                    .active_peers
+        //                    .values()
+        //                    .filter(|&peer| {
+        //                        routes.iter().all(|peer_id| peer_id != &peer.full_peer_info.peer_info.id)
+        //                    })
+        //                    .map(|peer| peer.addr.send(msg.clone()))
+        //                    .collect();
+        //
+        //                future::join_all(requests)
+        //                    .into_actor(self)
+        //                    .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
+        //                    .and_then(|_, _, _| actix::fut::ok(()))
+        //                    .spawn(ctx);
+        //            }
+        //        }
+    }
+
+    /// Send message to peer that belong to our active set
+    fn send_message(&mut self, ctx: &mut Context<Self>, peer_id: &PeerId, message: PeerMessage) {
+        if let Some(active_peer) = self.active_peers.get(&peer_id) {
+            active_peer
+                .addr
+                .send(SendMessage { message })
+                .into_actor(self)
+                .map_err(|e, _, _| error!("Failed sending message: {}", e))
+                .and_then(|_, _, _| actix::fut::ok(()))
+                .spawn(ctx);
         } else {
-            // Check that we don't belong to this route.
-            if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
-                return;
+            // This should be unreachable!
+            error!(target: "network",
+                   "Sending message to: {} (which is not an active peer) Active Peers: {:?}\n{:?}",
+                   peer_id,
+                   self.active_peers.keys(),
+                   message
+            );
+        }
+    }
+
+    /// Route message to target peer.
+    fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
+        match self.routing_table.find_route(&msg.target) {
+            Ok(peer_id) => {
+                if msg.requires_response() {
+                    // TODO(MarX): Handle route back for message that requires response.
+                }
+
+                self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
             }
-
-            // Use shorter suffix such that we know peer in that suffix.
-            let mut found = false;
-            announce_account.route = announce_account
-                .route
-                .into_iter()
-                .take_while(|x| {
-                    if found {
-                        return false;
-                    } else {
-                        if self.active_peers.contains_key(&x.peer_id) {
-                            found = true;
-                        }
-                        true
-                    }
-                })
-                .collect();
-
-            assert!(self.active_peers.contains_key(&announce_account.peer_id()));
-
-            // If this is a new account send an announcement to random set of peers.
-            if self.routing_table.update(announce_account.clone()).is_new() {
-                let routes: Vec<_> = announce_account.route.iter().map(|hop| hop.peer_id).collect();
-                announce_account.extend(self.peer_id, &self.config.secret_key);
-                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-
-                // Broadcast announcements to peer that don't belong to this route.
-                let requests: Vec<_> = self
-                    .active_peers
-                    .values()
-                    .filter(|&peer| {
-                        routes.iter().all(|peer_id| peer_id != &peer.full_peer_info.peer_info.id)
-                    })
-                    .map(|peer| peer.addr.send(msg.clone()))
-                    .collect();
-
-                future::join_all(requests)
-                    .into_actor(self)
-                    .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
-                    .and_then(|_, _, _| actix::fut::ok(()))
-                    .spawn(ctx);
+            Err(find_route_error) => {
+                // TODO(MarX): Message is dropped here. Define policy for this case.
+                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                      msg.target,
+                      find_route_error,
+                      self.routing_table.peer_forwarding.keys(),
+                      msg,
+                );
             }
         }
     }
 
     /// Send message to specific account.
-    fn send_message_to_account(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
-        let account_id = &msg.account_id;
-        if let Some(peer_id) = self.routing_table.get_route(account_id) {
-            if let Some(active_peer) = self.active_peers.get(&peer_id) {
-                active_peer
-                    .addr
-                    .send(SendMessage { message: PeerMessage::Routed(msg) })
-                    .into_actor(self)
-                    .map_err(|e, _, _| error!("Failed sending message: {}", e))
-                    .and_then(|_, _, _| actix::fut::ok(()))
-                    .spawn(ctx);
-            } else {
-                // This should be unreachable!
-                error!(target: "network",
-                    "Sending message to {} / {} not a peer: {:?}\n{:?}",
-                    account_id,
-                    peer_id,
-                    self.active_peers.keys(),
-                    msg
+    fn send_message_to_account(
+        &mut self,
+        ctx: &mut Context<Self>,
+        account_id: &AccountId,
+        msg: RoutedMessageBody,
+    ) {
+        let target = match self.routing_table.account_owner(&account_id) {
+            Ok(peer_id) => peer_id,
+            Err(find_route_error) => {
+                // TODO(MarX): Message is dropped here. Define policy for this case.
+                warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
+                      account_id,
+                      find_route_error,
+                      self.routing_table.peer_forwarding.keys(),
+                      msg,
                 );
+                return;
             }
-        } else {
-            // TODO WTF: remove this
-            //            panic!(format!(
-            //                "Unknown account {} in routing table: {:?}",
-            //                account_id, self.routing_table
-            //            ));
-            warn!(target: "network", "Unknown account {} in routing table. Known accounts: {:?}", account_id, self.routing_table.account_peers.keys());
-        }
+        };
+
+        let raw = RawRoutedMessage { target: AccountOrPeerId::PeerId(target), body: msg };
+        let msg = self.sign_routed_message(raw);
+        self.send_message_to_peer(ctx, msg);
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
@@ -495,15 +533,13 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     if let Some(account_id) = self.config.account_id.clone() {
                         self.send_message_to_account(
                             ctx,
-                            self.sign_routed_message(RawRoutedMessage {
-                                account_id: approval.target,
-                                body: RoutedMessageBody::BlockApproval(
-                                    account_id,
-                                    approval.hash,
-                                    approval.signature,
-                                ),
-                            }),
-                        );
+                            &approval.target,
+                            RoutedMessageBody::BlockApproval(
+                                account_id,
+                                approval.hash,
+                                approval.signature,
+                            ),
+                        )
                     }
                 }
                 self.broadcast_message(
@@ -531,10 +567,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::StateRequest { shard_id, hash, account_id } => {
                 self.send_message_to_account(
                     ctx,
-                    self.sign_routed_message(RawRoutedMessage {
-                        account_id,
-                        body: RoutedMessageBody::StateRequest(shard_id, hash),
-                    }),
+                    &account_id,
+                    RoutedMessageBody::StateRequest(shard_id, hash),
                 );
                 NetworkResponses::NoResponse
             }
@@ -552,20 +586,16 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::ChunkPartRequest { account_id, part_request } => {
                 self.send_message_to_account(
                     ctx,
-                    self.sign_routed_message(RawRoutedMessage {
-                        account_id,
-                        body: RoutedMessageBody::ChunkPartRequest(part_request),
-                    }),
+                    &account_id,
+                    RoutedMessageBody::ChunkPartRequest(part_request),
                 );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkOnePartRequest { account_id, one_part_request } => {
                 self.send_message_to_account(
                     ctx,
-                    self.sign_routed_message(RawRoutedMessage {
-                        account_id,
-                        body: RoutedMessageBody::ChunkOnePartRequest(one_part_request),
-                    }),
+                    &account_id,
+                    RoutedMessageBody::ChunkOnePartRequest(one_part_request),
                 );
                 NetworkResponses::NoResponse
             }
@@ -586,10 +616,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
                 self.send_message_to_account(
                     ctx,
-                    self.sign_routed_message(RawRoutedMessage {
-                        account_id,
-                        body: RoutedMessageBody::ChunkOnePart(header_and_part),
-                    }),
+                    &account_id,
+                    RoutedMessageBody::ChunkOnePart(header_and_part),
                 );
                 NetworkResponses::NoResponse
             }
@@ -709,10 +737,10 @@ impl Handler<RoutedMessage> for PeerManagerActor {
     type Result = bool;
 
     fn handle(&mut self, msg: RoutedMessage, ctx: &mut Self::Context) -> Self::Result {
-        if self.config.account_id.as_ref().map_or(false, |me| me == &msg.account_id) {
+        if self.peer_id == msg.target {
             true
         } else {
-            self.send_message_to_account(ctx, msg);
+            self.send_message_to_peer(ctx, msg);
             // Otherwise route it to its corresponding destination.
             false
         }
@@ -723,6 +751,11 @@ impl Handler<RawRoutedMessage> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: RawRoutedMessage, ctx: &mut Self::Context) {
-        self.send_message_to_account(ctx, self.sign_routed_message(msg));
+        if let AccountOrPeerId::AccountId(target) = msg.target {
+            self.send_message_to_account(ctx, &target, msg.body);
+        } else {
+            let msg = self.sign_routed_message(msg);
+            self.send_message_to_peer(ctx, msg);
+        }
     }
 }

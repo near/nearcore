@@ -1,10 +1,8 @@
-use crate::peer::Peer;
-use crate::types::{AnnounceAccount, PeerId};
+use crate::types::PeerId;
 use near_primitives::types::AccountId;
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RoutingTable {
     /// PeerId associated for every known account id.
     pub account_peers: HashMap<AccountId, PeerId>,
@@ -14,7 +12,8 @@ pub struct RoutingTable {
     pub raw_graph: Graph,
 }
 
-enum FindRouteError {
+#[derive(Debug)]
+pub enum FindRouteError {
     Disconnected,
     PeerNotFound,
     AccountNotFound,
@@ -44,18 +43,17 @@ impl RoutingTable {
         }
     }
 
-    /// Find peer that is connected to `source` and belong to the shortest path
-    /// from `source` to peer associated with `account_id`.
-    pub fn find_route_to_account(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        if let Some(peer_id) = self.account_peers.get(&account_id) {
-            self.find_route(&peer_id)
+    /// Find peer that owns this AccountId.
+    pub fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
+        if let Some(peer_id) = self.account_peers.get(account_id) {
+            Ok(peer_id.clone())
         } else {
             Err(FindRouteError::AccountNotFound)
         }
     }
 
     pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.peer_forwarding.entry(peer_id).or_insert_with(HashMap::new);
+        self.peer_forwarding.entry(peer_id).or_insert_with(HashSet::new);
     }
 
     pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) {
@@ -80,15 +78,17 @@ impl RoutingTable {
     }
 
     pub fn unregister_neighbor(&mut self, peer: &PeerId) {
-        self.remove_connection(&self.raw_graph.source, &peer);
+        let source = self.raw_graph.source;
+        self.remove_connection(&source, &peer);
     }
 
     pub fn sample_peers(&self) -> Vec<PeerId> {
         // TODO(MarX): Sample instead of reporting all peers
-        self.peer_forwarding.keys().collect().clone()
+        self.peer_forwarding.keys().map(|key| key.clone()).collect()
     }
 }
 
+#[derive(Clone)]
 struct Graph {
     pub source: PeerId,
     adjacency: HashMap<PeerId, HashSet<PeerId>>,
@@ -114,7 +114,7 @@ impl Graph {
     }
 
     fn remove_directed_edge(&mut self, peer0: &PeerId, peer1: &PeerId) {
-        self.adjacency.get(&peer0).unwrap().remove(&peer1);
+        self.adjacency.get_mut(&peer0).unwrap().remove(&peer1);
     }
 
     pub fn add_edge(&mut self, peer0: PeerId, peer1: PeerId) {
@@ -141,29 +141,37 @@ impl Graph {
         routes.insert(self.source.clone(), HashSet::new());
 
         // Add active connections
-        for neighbor in self.adjacency.get(&self.source).unwrap_or_else(HashSet::new) {
-            queue.push(neighbor);
-            distance.insert(neighbor, 1);
-            routes.insert(neighbor.clone(), vec![neighbor.clone()].drain(..).collect());
+        if let Some(neighbors) = self.adjacency.get(&self.source) {
+            for neighbor in neighbors {
+                queue.push(neighbor);
+                distance.insert(neighbor, 1);
+                routes.insert(neighbor.clone(), vec![neighbor.clone()].drain(..).collect());
+            }
         }
 
         let mut head = 0;
 
         while head < queue.len() {
             let cur_peer = queue[head];
-            let cur_distance = distance.get(cur_peer).unwrap();
+            let cur_distance = *distance.get(cur_peer).unwrap();
             head += 1;
 
-            for neighbor in self.adjacency.get(&cur_peer).unwrap_or_else(HashSet::new) {
-                if !distance.contains_key(&neighbor) {
-                    queue.push(neighbor);
-                    distance.insert(neighbor, cur_distance + 1);
-                }
+            if let Some(neighbors) = self.adjacency.get(&cur_peer) {
+                for neighbor in neighbors {
+                    if !distance.contains_key(&neighbor) {
+                        queue.push(neighbor);
+                        distance.insert(neighbor, cur_distance + 1);
+                    }
 
-                if distance.get(neighbor).unwrap() == cur_distance + 1 {
-                    let neighbor_routes = routes.get_mut(neighbor).unwrap();
-                    for route in routes.get(cur_peer).unwrap() {
-                        neighbor_routes.insert(route.clone());
+                    // If this edge belong to a shortest path, all paths to
+                    // the closer nodes are also valid for the current node.
+                    if *distance.get(neighbor).unwrap() == cur_distance + 1 {
+                        let adding_routes = routes.get(cur_peer).unwrap().clone();
+                        let target_routes = routes.get_mut(neighbor).unwrap();
+
+                        for route in adding_routes {
+                            target_routes.insert(route.clone());
+                        }
                     }
                 }
             }
@@ -172,3 +180,5 @@ impl Graph {
         routes
     }
 }
+
+// TODO(MarX): Test graph and distance calculation

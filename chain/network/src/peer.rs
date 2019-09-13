@@ -18,10 +18,10 @@ use near_primitives::utils::DisplayOption;
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::types::{
-    Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages, PeerChainInfo,
-    PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse,
-    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister,
-    PROTOCOL_VERSION,
+    AccountOrPeerId, Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages,
+    PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
+    PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage,
+    Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 use futures::Future;
@@ -256,12 +256,8 @@ impl Peer {
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
-                if announce_account.peer_id() != peer_id {
-                    self.ban_peer(ctx, ReasonForBan::InvalidPeerId);
-                    return;
-                } else {
-                    NetworkClientMessages::AnnounceAccount(announce_account)
-                }
+                // TODO(MarX): Handle Announce Accounts properly (store them, and broadcast when needed)
+                NetworkClientMessages::AnnounceAccount(announce_account)
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => match routed_message.body {
@@ -307,7 +303,7 @@ impl Peer {
                 match res {
                     Ok(NetworkClientResponses::ForwardTx(account_id, tx)) => {
                         act.peer_manager_addr.do_send(RawRoutedMessage {
-                            account_id,
+                            target: AccountOrPeerId::AccountId(account_id),
                             body: RoutedMessageBody::ForwardTx(tx)
                         })
                     }
@@ -488,7 +484,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
-                debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.account_id);
+                debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
