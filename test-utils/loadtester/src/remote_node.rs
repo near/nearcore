@@ -165,7 +165,7 @@ impl RemoteNode {
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
         let bytes = transaction.try_to_vec().unwrap();
         let params = (to_base64(&bytes),);
         let message = Message::request(
