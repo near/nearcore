@@ -1323,7 +1323,7 @@ impl<'a> ChainUpdate<'a> {
                         ChunkExtra::new(
                             &apply_result.new_root,
                             apply_result.validator_proposals,
-                            apply_result.gas_used,
+                            apply_result.total_gas_burnt,
                             gas_limit,
                         ),
                     );

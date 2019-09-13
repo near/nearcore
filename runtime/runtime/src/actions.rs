@@ -72,11 +72,13 @@ pub(crate) fn apply_rent(
     account: &mut Account,
     block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
-) {
+) -> Balance {
     let charge = ((block_index - account.storage_paid_at) as u128)
         * cost_per_block(account_id, account, runtime_config);
-    account.amount = account.amount.saturating_sub(charge);
+    let actual_charge = std::cmp::min(account.amount, charge);
+    account.amount -= actual_charge;
     account.storage_paid_at = block_index;
+    actual_charge
 }
 
 pub(crate) fn get_code_with_cache(
