@@ -7,12 +7,26 @@ use near_primitives::transaction::{
 };
 
 use crate::remote_node::RemoteNode;
+use std::str::FromStr;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum TransactionType {
     SendMoney,
     Set,
     HeavyStorageBlock,
+}
+
+impl FromStr for TransactionType {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "send_money" => Ok(TransactionType::SendMoney),
+            "set" => Ok(TransactionType::Set),
+            "heavy_storage" => Ok(TransactionType::HeavyStorageBlock),
+            _     => Err("no match")
+        }
+    }
 }
 
 pub struct Generator {}

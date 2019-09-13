@@ -115,6 +115,7 @@ impl RemoteNode {
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .unwrap();
+
         let async_client = Arc::new(
             AsyncClient::builder()
                 .use_rustls_tls()
@@ -146,6 +147,16 @@ impl RemoteNode {
         self.nonces = nonces;
     }
 
+    pub fn update_accounts(&mut self, signers_accs: &[AccountId]) {
+        let signers: Vec<_> = signers_accs
+            .iter()
+            .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
+            .collect();
+        let nonces = vec![0; signers.len()];
+        self.signers = signers;
+        self.get_nonces(signers_accs);
+    }
+
     fn get_access_key(
         &self,
         account_id: &AccountId,
@@ -158,7 +169,7 @@ impl RemoteNode {
 
     fn health_ok(&self) -> Result<(), Box<dyn std::error::Error>> {
         let url = format!("{}{}", self.url, "/status");
-        Ok(self.sync_client.post(url.as_str()).send().map(|_| ())?)
+        Ok(self.sync_client.get(url.as_str()).send().map(|_| ())?)
     }
 
     /// Sends transaction using `broadcast_tx_sync` using non-blocking Futures.
@@ -172,24 +183,15 @@ impl RemoteNode {
             "broadcast_tx_async".to_string(),
             Some(serde_json::to_value(&params).unwrap()),
         );
-        let url = format!("http://{}", self.addr);
         let response = self
             .async_client
-            .post(url.as_str())
+            .post(self.url.as_str())
             .json(&message)
             .send()
             .map(|_| ())
             .map_err(|err| format!("{}", err));
 
         Box::new(response)
-        // let mut client = new_client(&self.url);
-        // let bytes = transaction.try_to_vec().unwrap();
-        // let response = client
-        //     .broadcast_tx_async(to_base64(&bytes))
-        //     .map(|_| ())
-        //     .map_err(|err| format!("{}", err));
-
-        // Box::new(response)
     }
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of
@@ -200,23 +202,22 @@ impl RemoteNode {
         transaction: SignedTransaction,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let bytes = transaction.try_to_vec().unwrap();
-        let url = format!("{}{}", self.url, "/broadcast_tx_sync");
-        let result: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("tx", format!("0x{}", hex::encode(&bytes)))])
-            .send()?
-            .json()?;
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_async".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
+        let result: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
         Ok(result["result"]["hash"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
     }
 
     /// Returns block height if transaction is committed to a block.
     /// Not working
     pub fn transaction_committed(&self, hash: &String) -> Result<u64, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/tx");
         let response: serde_json::Value = self
             .sync_client
-            .post(url.as_str())
+            .post(self.url.as_str())
             .form(&[("hash", format!("0x{}", hash))])
             .send()?
             .json()?;
@@ -263,7 +264,6 @@ impl RemoteNode {
         Ok(results)
     }
 
-    /// Not working
     pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {
         let params = (height,);
         let message =
@@ -276,5 +276,16 @@ impl RemoteNode {
             .json()?;
 
         Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
+    }
+
+    pub fn ensure_create_accounts(&self, prefix: &str, count: u64) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Ok(vec!["near.0".to_string()])
+    }
+
+    pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let url = format!("{}{}", self.url, "/status");
+        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+
+        Ok(vec!["127.0.0.1:3030".to_string()])
     }
 }

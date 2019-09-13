@@ -1,12 +1,16 @@
+#[macro_use]
+extern crate clap;
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
-use clap::{App, Arg};
+use clap::{crate_version, App, Arg};
 use env_logger::Builder;
 
-use near::{get_default_home, load_config};
+use git_version::git_version;
+use near_primitives::types::Version;
 use node_runtime::StateRecord;
 use remote_node::RemoteNode;
 
@@ -32,51 +36,82 @@ fn configure_logging(log_level: log::LevelFilter) {
 
 fn main() {
     configure_logging(log::LevelFilter::Debug);
+    let version =
+        Version { version: crate_version!().to_string(), build: git_version!().to_string() };
 
-    let default_home = get_default_home();
-    let matches = App::new("loadtester")
+    let matches = App::new("NEAR Protocol loadtester")
+        .version(format!("{} (build {})", version.version, version.build).as_str())
         .arg(
-            Arg::with_name("home")
-                .long("home")
-                .default_value(&default_home)
-                .help("Directory to load genesis config (default \"~/.near\")")
-                .takes_value(true),
+            Arg::with_name("n")
+                .short("n")
+                .takes_value(true)
+                .default_value("400")
+                .help("Number of accounts to create"),
         )
         .arg(
-            Arg::with_name("num-nodes")
-                .default_value("1")
-                .help("Number of local nodes to test")
-                .takes_value(true),
+            Arg::with_name("prefix")
+                .long("prefix")
+                .takes_value(true)
+                .default_value("near")
+                .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
+        )
+        .arg(
+            Arg::with_name("addr")
+                .long("addr")
+                .takes_value(true)
+                .default_value("127.0.0.1:3030")
+                .help("Socket address of one of the node in network"),
+        )
+        .arg(
+            Arg::with_name("tps")
+                .long("tps")
+                .takes_value(true)
+                .default_value("2000")
+                .help("Transaction per second to generate"),
+        )
+        .arg(
+            Arg::with_name("duration")
+                .long("duration")
+                .takes_value(true)
+                .default_value("10")
+                .help("Duration of load test in seconds"),
+        )
+        .arg(
+            Arg::with_name("type")
+                .long("type")
+                .takes_value(true)
+                .default_value("set")
+                .possible_values(&["set", "send_money", "heavy_storage"])
+                .help("Transaction type"),
         )
         .get_matches();
-    let home_dir = matches.value_of("home").map(|dir| Path::new(dir)).unwrap();
-    let num_nodes =
-        matches.value_of("num-nodes").map(|v| v.parse().expect("Must be integer")).unwrap_or(1);
 
-    let config = load_config(home_dir);
+    let n = value_t_or_exit!(matches, "n", u64);
+    let prefix = value_t_or_exit!(matches, "prefix", String);
+    let addr = value_t_or_exit!(matches, "addr", String);
+    let tps = value_t_or_exit!(matches, "tps", u64);
+    let duration = value_t_or_exit!(matches, "duration", u64);
+    let transaction_type = value_t_or_exit!(matches, "type", TransactionType);
 
-    let accounts: Vec<_> = config.genesis_config.records[0]
-        .iter()
-        .filter_map(|r| match r {
-            StateRecord::Account { account_id, .. } => Some(account_id.clone()),
-            _ => None,
-        })
-        .collect();
+    let node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);
 
-    let addrs = (0..num_nodes).map(|i| format!("127.0.0.1:{}", 3030 + i)).collect::<Vec<_>>();
+    let peer_addrs = node.read().unwrap().peer_node_addrs().unwrap();
 
-    let num_nodes = addrs.len();
+    let accounts = node.read().unwrap().ensure_create_accounts(&prefix, n).unwrap();
+
+    let num_nodes = peer_addrs.len() + 1;
     let accounts_per_node = accounts.len() / num_nodes;
-    let mut nodes = vec![];
-    for (i, addr) in addrs.iter().enumerate() {
+    node.write().unwrap().update_accounts(&accounts[0..accounts_per_node]);
+    let mut nodes = vec![node];
+    for (i, addr) in peer_addrs.iter().enumerate() {
         let node = RemoteNode::new(
             SocketAddr::from_str(addr).unwrap(),
-            &accounts[(i * accounts_per_node)..((i + 1) * accounts_per_node)],
+            &accounts[((i+1) * accounts_per_node)..((i + 2) * accounts_per_node)],
         );
         nodes.push(node);
     }
 
     // Start the executor.
-    let handle = Executor::spawn(nodes, Some(Duration::from_secs(60)), 700, TransactionType::Set);
+    let handle = Executor::spawn(nodes, Some(Duration::from_secs(duration)), tps, transaction_type);
     handle.join().unwrap();
 }
