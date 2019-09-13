@@ -6,22 +6,22 @@ use std::time::{Duration, Instant};
 
 use borsh::BorshSerialize;
 use futures::Future;
-use reqwest::Client as SyncClient;
-
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_jsonrpc::client::message::Message;
 use near_jsonrpc::client::new_client;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, Nonce};
+use near_primitives::types::{AccountId, Nonce};
 use near_primitives::views::AccessKeyView;
+use reqwest::Client as SyncClient;
 use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
-pub const MAX_BLOCKS_FETCH: u64 = 20;
+pub const MAX_BLOCKS_FETCH: u64 = 1;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 const VALUE_NOT_NUM_ERR: &str = "Value is not number";
@@ -239,43 +239,17 @@ impl RemoteNode {
     }
 
     /// Not working
-    pub fn get_transactions(
-        &self,
-        min_height: u64,
-        max_height: u64,
-    ) -> Result<u64, Box<dyn std::error::Error>> {
-        assert!(max_height > min_height, "No transaction and block commited");
-        assert!(max_height - min_height <= MAX_BLOCKS_FETCH, "Too many blocks to fetch");
-        let mut client = new_client(&self.url);
-        println!("{}, {}", min_height, max_height);
-        for i in min_height..max_height {
-            tokio::runtime::current_thread::spawn(
-                client
-                    .block(i as BlockIndex)
-                    .map(|r| {
-                        println!("{:?}", r.transactions.len());
-                    })
-                    .map_err(|e| println!("Error: {}", e)),
-            );
-        }
-        // let url = format!("{}{}", self.url, "/blockchain");
-        // let response: serde_json::Value = self
-        //     .sync_client
-        //     .post(url.as_str())
-        //     .form(&[
-        //         ("minHeight", format!("{}", min_height)),
-        //         ("maxHeight", format!("{}", max_height)),
-        //     ])
-        //     .send()?
-        //     .json()?;
-        let mut result = 0u64;
-        // for block_meta in response["result"]["block_metas"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
-        //     result += block_meta["header"]["num_txs"]
-        //         .as_str()
-        //         .ok_or(VALUE_NOT_STR_ERR)?
-        //         .parse::<u64>()?;
-        // }
+    pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {
+        let params = (height,);
+        let message =
+            Message::request("block".to_string(), Some(serde_json::to_value(&params).unwrap()));
+        let response: serde_json::Value = self
+            .sync_client
+            .post(&format!("http://{}", &self.addr.to_string()))
+            .json(&message)
+            .send()?
+            .json()?;
 
-        Ok(result)
+        Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }
 }

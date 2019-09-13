@@ -1,5 +1,4 @@
-use crate::remote_node::{get_result, RemoteNode, MAX_BLOCKS_FETCH};
-use std::cmp::min;
+use crate::remote_node::{get_result, RemoteNode};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -81,13 +80,8 @@ impl Stats {
         let mut curr_height = self.from_height.unwrap() + 1;
         let mut total_tx = 0u64;
         loop {
-            total_tx += get_result(|| {
-                node.get_transactions(
-                    curr_height,
-                    min(curr_height + MAX_BLOCKS_FETCH, self.to_height.unwrap()),
-                )
-            });
-            curr_height += MAX_BLOCKS_FETCH + 1;
+            total_tx += get_result(|| node.get_transactions(curr_height));
+            curr_height += 1;
             if curr_height > self.to_height.unwrap() {
                 break;
             }
