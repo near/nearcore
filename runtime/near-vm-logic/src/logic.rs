@@ -6,6 +6,7 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use near_runtime_fees::Fee;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
@@ -379,44 +380,17 @@ impl<'a> VMLogic<'a> {
     // # Promises API #
     // ################
 
-    /// A helper function to pay gas fee for creating a contract call.
+    /// A helper function to pay gas fee for creating a new receipt without actions.
     /// # Args:
     /// * `sir`: whether contract call is addressed to itself;
-    /// * `prepay_gas`: how much prepaid gas should be attached;
-    /// * `num_bytes`: the number of bytes of method name and arguments used for this call;
     /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
     ///   their data receipts), where bool indicates whether this is sender=receiver communication.
-    fn pay_gas_for_contract_call(
-        &mut self,
-        sir: bool,
-        prepay_gas: Gas,
-        num_bytes: u64,
-        data_dependencies: &[bool],
-    ) -> Result<()> {
+    fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let runtime_fees_cfg = &self.config.runtime_fees;
-        let function_call_cost = &runtime_fees_cfg.action_creation_config.function_call_cost;
         let mut use_gas = runtime_fees_cfg
             .action_receipt_creation_config
             .send_fee(sir)
             .checked_add(runtime_fees_cfg.action_receipt_creation_config.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(function_call_cost.send_fee(sir))
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(function_call_cost.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(
-                num_bytes
-                    .checked_mul(function_call_cost.send_fee(sir))
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(
-                num_bytes
-                    .checked_mul(function_call_cost.exec_fee())
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(prepay_gas)
             .ok_or(HostError::IntegerOverflow)?;
         for dep in data_dependencies {
             use_gas = use_gas
@@ -444,7 +418,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
-    /// or host, with `MemoryAccessViolation`.
+    /// or host returns `MemoryAccessViolation`.
     ///
     /// # Returns
     ///
@@ -461,31 +435,17 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<u64> {
-        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
-        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
-        if method_name.is_empty() {
-            return Err(HostError::EmptyMethodName);
-        }
-        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-        let sir = account_id == self.context.current_account_id;
-        let num_bytes = method_name_len + arguments_len;
-        self.pay_gas_for_contract_call(sir, gas, num_bytes, &[])?;
-        self.deduct_balance(amount)?;
-        let new_receipt_idx = self.ext.receipt_create(
-            vec![],
-            account_id.clone(),
-            method_name,
-            arguments,
-            amount,
+        let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
+        self.promise_batch_action_function_call(
+            new_promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
             gas,
         )?;
-        self.receipt_to_account.insert(new_receipt_idx, account_id);
-
-        let promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        Ok(promise_idx)
+        Ok(new_promise_idx)
     }
 
     /// Attaches the callback that is executed after promise pointed by `promise_idx` is complete.
@@ -495,7 +455,7 @@ impl<'a> VMLogic<'a> {
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
-    ///   guest or host, with `MemoryAccessViolation`.
+    ///   guest or host returns `MemoryAccessViolation`.
     ///
     /// # Returns
     ///
@@ -513,48 +473,17 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: u64,
     ) -> Result<u64> {
-        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
-        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
-        if method_name.is_empty() {
-            return Err(HostError::EmptyMethodName);
-        }
-        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-
-        // Update the DAG and return new promise idx.
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
-        let receipt_dependencies = match &promise.promise_to_receipt {
-            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
-            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
-        };
-
-        let sir = account_id == self.context.current_account_id;
-        let num_bytes = method_name_len + arguments_len;
-        let deps: Vec<_> = receipt_dependencies
-            .iter()
-            .map(|receipt_idx| {
-                self.receipt_to_account
-                    .get(receipt_idx)
-                    .expect("promises and receipt_to_account should be consistent.")
-                    == &account_id
-            })
-            .collect();
-        self.pay_gas_for_contract_call(sir, gas, num_bytes, &deps)?;
-        self.deduct_balance(amount)?;
-
-        let new_receipt_idx = self.ext.receipt_create(
-            receipt_dependencies,
-            account_id.clone(),
-            method_name,
-            arguments,
-            amount,
+        let new_promise_idx =
+            self.promise_batch_then(promise_idx, account_id_len, account_id_ptr)?;
+        self.promise_batch_action_function_call(
+            new_promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
             gas,
         )?;
-        self.receipt_to_account.insert(new_receipt_idx, account_id);
-        let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
         Ok(new_promise_idx)
     }
 
@@ -565,7 +494,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory with
+    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory returns
     ///   `MemoryAccessViolation`;
     /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
@@ -600,6 +529,457 @@ impl<'a> VMLogic<'a> {
             promise_to_receipt: PromiseToReceipts::NotReceipt(receipt_dependencies),
         });
         Ok(new_promise_idx)
+    }
+
+    /// Creates a new promise towards given `account_id` without any actions attached to it.
+    ///
+    /// # Errors
+    ///
+    /// If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    pub fn promise_batch_create(
+        &mut self,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<u64> {
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let sir = account_id == self.context.current_account_id;
+        self.pay_gas_for_new_receipt(sir, &[])?;
+        let new_receipt_idx = self.ext.create_receipt(vec![], account_id.clone())?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
+
+        let promise_idx = self.promises.len() as PromiseIndex;
+        self.promises
+            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        Ok(promise_idx)
+    }
+
+    /// Creates a new promise towards given `account_id` without any actions attached, that is
+    /// executed after promise pointed by `promise_idx` is complete.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    pub fn promise_batch_then(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<u64> {
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        // Update the DAG and return new promise idx.
+        let promise =
+            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let receipt_dependencies = match &promise.promise_to_receipt {
+            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
+            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
+        };
+
+        let sir = account_id == self.context.current_account_id;
+        let deps: Vec<_> = receipt_dependencies
+            .iter()
+            .map(|receipt_idx| {
+                self.receipt_to_account
+                    .get(receipt_idx)
+                    .expect("promises and receipt_to_account should be consistent.")
+                    == &account_id
+            })
+            .collect();
+        self.pay_gas_for_new_receipt(sir, &deps)?;
+
+        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id.clone())?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
+        let new_promise_idx = self.promises.len() as PromiseIndex;
+        self.promises
+            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        Ok(new_promise_idx)
+    }
+
+    /// Helper function to return the receipt index corresponding to the given promise index.
+    /// It also pulls account ID for the given receipt and compares it with the current account ID
+    /// to return whether the receipt's account ID is the same.
+    fn promise_idx_to_receipt_idx_with_sir(
+        &self,
+        promise_idx: u64,
+    ) -> Result<(ReceiptIndex, bool)> {
+        let promise =
+            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let receipt_idx = match &promise.promise_to_receipt {
+            PromiseToReceipts::Receipt(receipt_idx) => Ok(*receipt_idx),
+            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
+        }?;
+
+        let account_id = self
+            .receipt_to_account
+            .get(&receipt_idx)
+            .expect("promises and receipt_to_account should be consistent.");
+        let sir = account_id == &self.context.current_account_id;
+        Ok((receipt_idx, sir))
+    }
+
+    /// A helper function to pay base cost gas fee for batching an action.
+    /// # Args:
+    /// * `base_fee`: base fee for the action;
+    /// * `sir`: whether contract call is addressed to itself;
+    fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
+        let use_gas = base_fee
+            .send_fee(sir)
+            .checked_add(base_fee.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay per byte gas fee for batching an action.
+    /// # Args:
+    /// * `per_byte_fee`: the fee per byte;
+    /// * `num_bytes`: the number of bytes;
+    /// * `sir`: whether contract call is addressed to itself;
+    fn pay_per_byte_gas_fee(
+        &mut self,
+        per_byte_fee: &Fee,
+        num_bytes: u64,
+        sir: bool,
+    ) -> Result<()> {
+        let use_gas = num_bytes
+            .checked_mul(
+                per_byte_fee
+                    .send_fee(sir)
+                    .checked_add(per_byte_fee.exec_fee())
+                    .ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?;
+
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// Appends `CreateAccount` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    pub fn promise_batch_action_create_account(&mut self, promise_idx: u64) -> Result<()> {
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.create_account_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_create_account(receipt_idx)?;
+        Ok(())
+    }
+
+    /// Appends `DeployContract` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    pub fn promise_batch_action_deploy_contract(
+        &mut self,
+        promise_idx: u64,
+        code_len: u64,
+        code_ptr: u64,
+    ) -> Result<()> {
+        let code = Self::memory_get(self.memory, code_ptr, code_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        let num_bytes = code.len() as u64;
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
+            sir,
+        )?;
+        self.pay_per_byte_gas_fee(
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+
+        self.ext.append_action_deploy_contract(receipt_idx, code)?;
+        Ok(())
+    }
+
+    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    pub fn promise_batch_action_function_call(
+        &mut self,
+        promise_idx: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: Gas,
+    ) -> Result<()> {
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName);
+        }
+        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        let num_bytes = (method_name.len() + arguments.len()) as u64;
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.function_call_cost,
+            sir,
+        )?;
+        self.pay_per_byte_gas_fee(
+            &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+        // Prepaid gas
+        self.deduct_gas(0, gas)?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
+        Ok(())
+    }
+
+    /// Appends `Transfer` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    pub fn promise_batch_action_transfer(
+        &mut self,
+        promise_idx: u64,
+        amount_ptr: u64,
+    ) -> Result<()> {
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.transfer_cost, sir)?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_transfer(receipt_idx, amount)?;
+        Ok(())
+    }
+
+    /// Appends `Stake` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the
+    /// guest or host returns `MemoryAccessViolation`.
+    pub fn promise_batch_action_stake(
+        &mut self,
+        promise_idx: u64,
+        amount_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> Result<()> {
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_stake(receipt_idx, amount, public_key)?;
+        Ok(())
+    }
+
+    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. The access key will have `FullAccess` permission.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    pub fn promise_batch_action_add_key_with_full_access(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        nonce: u64,
+    ) -> Result<()> {
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_add_key_with_full_access(receipt_idx, public_key, nonce)?;
+        Ok(())
+    }
+
+    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. The access key will have `FunctionCall` permission.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
+    /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
+    /// the memory of the guest or host returns `MemoryAccessViolation`.
+    pub fn promise_batch_action_add_key_with_function_call(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        nonce: u64,
+        allowance_ptr: u64,
+        receiver_id_len: u64,
+        receiver_id_ptr: u64,
+        method_names_len: u64,
+        method_names_ptr: u64,
+    ) -> Result<()> {
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+        let allowance = Self::memory_get_u128(self.memory, allowance_ptr)?;
+        let allowance = if allowance > 0 { Some(allowance) } else { None };
+        let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
+        let method_names = Self::memory_get(self.memory, method_names_ptr, method_names_len)?;
+        // Use `,` separator to split `method_names` into a vector of method names.
+        let method_names = method_names
+            .split(|c| *c == b',')
+            .map(|v| if v.is_empty() { Err(HostError::EmptyMethodName) } else { Ok(v.to_vec()) })
+            .collect::<Result<Vec<_>>>()?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        // +1 is to account for null-terminating characters.
+        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
+            sir,
+        )?;
+        self.pay_per_byte_gas_fee(
+            &self
+                .config
+                .runtime_fees
+                .action_creation_config
+                .add_key_cost
+                .function_call_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+
+        self.ext.append_action_add_key_with_function_call(
+            receipt_idx,
+            public_key,
+            nonce,
+            allowance,
+            receiver_id,
+            method_names,
+        )?;
+        Ok(())
+    }
+
+    /// Appends `DeleteKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    pub fn promise_batch_action_delete_key(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> Result<()> {
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.delete_key_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_delete_key(receipt_idx, public_key)?;
+        Ok(())
+    }
+
+    /// Appends `DeleteAccount` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or
+    /// host returns `MemoryAccessViolation`.
+    pub fn promise_batch_action_delete_account(
+        &mut self,
+        promise_idx: u64,
+        beneficiary_id_len: u64,
+        beneficiary_id_ptr: u64,
+    ) -> Result<()> {
+        let beneficiary_id =
+            self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.delete_account_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        Ok(())
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
