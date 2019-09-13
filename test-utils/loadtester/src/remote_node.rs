@@ -1,3 +1,4 @@
+use reqwest::r#async::Client as AsyncClient;
 use std::format;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
@@ -8,7 +9,7 @@ use borsh::BorshSerialize;
 use futures::Future;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc::client::message::Message;
-use near_jsonrpc::client::new_client;
+// use near_jsonrpc::client::new_client;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
@@ -40,6 +41,7 @@ pub struct RemoteNode {
     pub nonces: Vec<Nonce>,
     pub url: String,
     sync_client: SyncClient,
+    async_client: Arc<AsyncClient>,
 }
 
 pub fn wait<F, T>(mut f: F) -> T
@@ -113,7 +115,14 @@ impl RemoteNode {
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .unwrap();
-        let mut result = Self { addr, signers, nonces, url, sync_client };
+        let async_client = Arc::new(
+            AsyncClient::builder()
+                .use_rustls_tls()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .build()
+                .unwrap(),
+        );
+        let mut result = Self { addr, signers, nonces, url, sync_client, async_client };
 
         // Wait for the node to be up.
         wait(|| result.health_ok());
@@ -157,14 +166,30 @@ impl RemoteNode {
         &self,
         transaction: SignedTransaction,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        let mut client = new_client(&self.url);
         let bytes = transaction.try_to_vec().unwrap();
-        let response = client
-            .broadcast_tx_async(to_base64(&bytes))
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_async".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
+        let url = format!("http://{}", self.addr);
+        let response = self
+            .async_client
+            .post(url.as_str())
+            .json(&message)
+            .send()
             .map(|_| ())
             .map_err(|err| format!("{}", err));
 
         Box::new(response)
+        // let mut client = new_client(&self.url);
+        // let bytes = transaction.try_to_vec().unwrap();
+        // let response = client
+        //     .broadcast_tx_async(to_base64(&bytes))
+        //     .map(|_| ())
+        //     .map_err(|err| format!("{}", err));
+
+        // Box::new(response)
     }
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of
