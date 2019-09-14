@@ -17,7 +17,7 @@ impl<'a> ContractModule<'a> {
     fn init(original_code: &[u8], config: &'a Config) -> Result<Self, PrepareError> {
         let module = elements::deserialize_buffer(original_code)
             .map_err(|_| PrepareError::Deserialization)?;
-        Ok(ContractModule { module: module, config })
+        Ok(ContractModule { module, config })
     }
 
     fn standardize_mem(self) -> Self {

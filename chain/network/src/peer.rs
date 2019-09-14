@@ -195,7 +195,7 @@ impl Peer {
             .then(move |res, act, _ctx| match res {
                 Ok(NetworkClientResponses::ChainInfo { genesis, height, total_weight }) => {
                     let handshake = Handshake::new(
-                        act.node_info.id,
+                        act.node_info.id.clone(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis, height, total_weight },
                     );
@@ -369,9 +369,9 @@ impl Actor for Peer {
         debug!(target: "network", "{:?}: Peer {} disconnected.", self.node_info.id, self.peer_info);
         if let Some(peer_info) = self.peer_info.as_ref() {
             if self.peer_status == PeerStatus::Ready {
-                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id })
+                self.peer_manager_addr.do_send(Unregister { peer_id: peer_info.id.clone() })
             } else if let PeerStatus::Banned(ban_reason) = self.peer_status {
-                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id, ban_reason });
+                self.peer_manager_addr.do_send(Ban { peer_id: peer_info.id.clone(), ban_reason });
             }
         }
         Running::Stop
@@ -434,7 +434,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     ctx.stop();
                 }
                 let peer_info = PeerInfo {
-                    id: handshake.peer_id,
+                    id: handshake.peer_id.clone(),
                     addr: handshake
                         .listen_port
                         .map(|port| SocketAddr::new(self.peer_addr.ip(), port)),
@@ -452,7 +452,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     .then(move |res, act, ctx| {
                         match res {
                             Ok(true) => {
-                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id, act.peer_addr);
+                                debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
@@ -462,7 +462,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                                 actix::fut::ok(())
                             },
                             _ => {
-                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id, handshake);
+                                info!(target: "network", "{:?}: Peer with handshake {:?} wasn't consolidated, disconnecting.", act.node_info.id.clone(), handshake);
                                 ctx.stop();
                                 actix::fut::err(())
                             }
@@ -495,7 +495,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     actix::spawn(
                         self.peer_manager_addr
                             .send(NetworkRequests::BanPeer {
-                                peer_id: self.node_info.id,
+                                peer_id: self.node_info.id.clone(),
                                 ban_reason: ReasonForBan::InvalidSignature,
                             })
                             .map_err(|e| error!(target: "client", "{}", e))

@@ -69,10 +69,10 @@ impl OrphanBlockPool {
 
     fn add(&mut self, orphan: Orphan) {
         let height_hashes =
-            self.height_idx.entry(orphan.block.header.inner.height).or_insert(vec![]);
+            self.height_idx.entry(orphan.block.header.inner.height).or_insert_with(|| vec![]);
         height_hashes.push(orphan.block.hash());
         let prev_hash_entries =
-            self.prev_hash_idx.entry(orphan.block.header.inner.prev_hash).or_insert(vec![]);
+            self.prev_hash_idx.entry(orphan.block.header.inner.prev_hash).or_insert_with(|| vec![]);
         prev_hash_entries.push(orphan.block.hash());
         self.orphans.insert(orphan.block.hash(), orphan);
 
@@ -433,7 +433,7 @@ impl Chain {
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.inner.height <= block_head.height {
-                if self.is_on_current_chain(&header).is_ok() {
+                if self.check_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
@@ -451,7 +451,7 @@ impl Chain {
     }
 
     /// Returns if given block header on the current chain.
-    fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    fn check_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.inner.height)?;
         if chain_header.hash() == header.hash() {
             Ok(())
@@ -582,12 +582,9 @@ impl Chain {
         );
         let maybe_new_head = chain_update.process_block(me, &block, &provenance);
 
-        if let Ok(_) = maybe_new_head {
-            chain_update.commit()?;
-        }
-
         match maybe_new_head {
             Ok((head, needs_to_start_fetching_state)) => {
+                chain_update.commit()?;
                 if needs_to_start_fetching_state {
                     debug!("Downloading state for block {}", block.hash());
                     self.start_downloading_state(me, &block)?;
@@ -1007,7 +1004,7 @@ impl Chain {
     /// Gets a block from the current chain by height.
     #[inline]
     pub fn get_block_by_height(&mut self, height: BlockIndex) -> Result<&Block, Error> {
-        let hash = self.store.get_block_hash_by_height(height)?.clone();
+        let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block(&hash)
     }
 
@@ -1020,7 +1017,7 @@ impl Chain {
     /// Returns block header from the current chain for given height if present.
     #[inline]
     pub fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
-        let hash = self.store.get_block_hash_by_height(height)?.clone();
+        let hash = self.store.get_block_hash_by_height(height)?;
         self.store.get_block_header(&hash)
     }
 
@@ -1286,7 +1283,7 @@ impl<'a> ChainUpdate<'a> {
                         self.chain_store_update.get_chunk_from_header(&chunk_header)?.clone();
                     transactions.extend(chunk.transactions.iter().cloned());
 
-                    if transactions.iter().any(|t| {
+                    let any_transaction_is_invalid = transactions.iter().any(|t| {
                         !check_tx_history(
                             self.chain_store_update
                                 .get_block_header(&t.transaction.block_hash)
@@ -1294,7 +1291,8 @@ impl<'a> ChainUpdate<'a> {
                             chunk_header.inner.height_created,
                             self.transaction_validity_period,
                         )
-                    }) {
+                    });
+                    if any_transaction_is_invalid {
                         debug!(target: "chain", "Invalid transactions in the block: {:?}", transactions);
                         return Err(ErrorKind::InvalidTransactions.into());
                     }

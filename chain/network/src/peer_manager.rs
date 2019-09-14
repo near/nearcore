@@ -268,7 +268,7 @@ impl PeerManagerActor {
         let ttl_account_id_router = config.ttl_account_id_router;
         let max_routes_to_save = config.max_routes_to_store;
         Ok(PeerManagerActor {
-            peer_id: config.public_key.into(),
+            peer_id: config.public_key.clone().into(),
             config,
             client_addr,
             peer_store,
@@ -293,7 +293,7 @@ impl PeerManagerActor {
         );
 
         self.active_peers.insert(
-            full_peer_info.peer_info.id,
+            full_peer_info.peer_info.id.clone(),
             ActivePeer {
                 addr: addr.clone(),
                 full_peer_info,
@@ -309,7 +309,7 @@ impl PeerManagerActor {
         {
             // Update route with our information in case we are not the source.
             if announcement.header().peer_id != self.peer_id {
-                announcement.extend(self.peer_id, &self.config.secret_key);
+                announcement.extend(self.peer_id.clone(), &self.config.secret_key);
             }
             actix::spawn(
                 addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
@@ -346,7 +346,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
     ) {
-        let peer_id = self.peer_id;
+        let peer_id = self.peer_id.clone();
         let account_id = self.config.account_id.clone();
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
@@ -443,7 +443,7 @@ impl PeerManagerActor {
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
-            let peer_id1 = *peer_id;
+            let peer_id1 = peer_id.clone();
             active_peer.addr.send(QueryPeerStats {})
                 .into_actor(self)
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
@@ -474,18 +474,15 @@ impl PeerManagerActor {
     fn monitor_peers(&mut self, ctx: &mut Context<Self>) {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
-            match peer_state.status {
-                KnownPeerStatus::Banned(_, last_banned) => {
-                    let interval = unwrap_or_error!(
-                        (Utc::now() - from_timestamp(last_banned)).to_std(),
-                        "Failed to convert time"
-                    );
-                    if interval > self.config.ban_window {
-                        info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
-                        to_unban.push(peer_id.clone());
-                    }
+            if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
+                let interval = unwrap_or_error!(
+                    (Utc::now() - from_timestamp(last_banned)).to_std(),
+                    "Failed to convert time"
+                );
+                if interval > self.config.ban_window {
+                    info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
+                    to_unban.push(peer_id.clone());
                 }
-                _ => {}
             }
         }
         for peer_id in to_unban {
@@ -494,7 +491,7 @@ impl PeerManagerActor {
 
         if self.is_outbound_bootstrap_needed() {
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
-                self.outgoing_peers.insert(peer_info.id);
+                self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
                 self.query_active_peers_for_more_peers(ctx);
@@ -550,7 +547,7 @@ impl PeerManagerActor {
                 .into_iter()
                 .take_while(|x| {
                     if found {
-                        return false;
+                        false
                     } else {
                         if self.active_peers.contains_key(&x.peer_id) {
                             found = true;
@@ -564,8 +561,9 @@ impl PeerManagerActor {
 
             // If this is a new account send an announcement to random set of peers.
             if self.routing_table.update(announce_account.clone()).is_new() {
-                let routes: Vec<_> = announce_account.route.iter().map(|hop| hop.peer_id).collect();
-                announce_account.extend(self.peer_id, &self.config.secret_key);
+                let routes: Vec<_> =
+                    announce_account.route.iter().map(|hop| hop.peer_id.clone()).collect();
+                announce_account.extend(self.peer_id.clone(), &self.config.secret_key);
                 let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
 
                 // Broadcast announcements to peer that don't belong to this route.
@@ -620,7 +618,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
-        msg.sign(self.peer_id, &self.config.secret_key)
+        msg.sign(self.peer_id.clone(), &self.config.secret_key)
     }
 }
 
@@ -717,9 +715,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                if let Some(_) = self.active_peers.get(&peer_id) {
-                    // TODO: send stop signal to the addr.
-                }
+                // TODO: send stop signal to the addr.
+                // if let Some(_) = self.active_peers.get(&peer_id) {}
                 self.ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }

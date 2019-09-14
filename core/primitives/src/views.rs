@@ -46,7 +46,7 @@ impl<'de> Deserialize<'de> for CryptoHashView {
     {
         let s = String::deserialize(deserializer)?;
         let view = from_base(&s)
-            .map(|v| CryptoHashView(v))
+            .map(CryptoHashView)
             .map_err(|err| serde::de::Error::custom(err.to_string()))?;
         if let Err(err) = CryptoHash::try_from(view.0.clone()) {
             return Err(serde::de::Error::custom(err.to_string()));
@@ -293,12 +293,7 @@ impl From<BlockHeader> for BlockHeaderView {
             tx_root: header.inner.tx_root.into(),
             timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
-            approval_sigs: header
-                .inner
-                .approval_sigs
-                .into_iter()
-                .map(|signature| signature.into())
-                .collect(),
+            approval_sigs: header.inner.approval_sigs,
             total_weight: header.inner.total_weight.to_num(),
             validator_proposals: header
                 .inner
@@ -311,7 +306,7 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
             total_supply: header.inner.total_supply,
-            signature: header.signature.into(),
+            signature: header.signature,
         }
     }
 }
@@ -327,11 +322,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 tx_root: view.tx_root.into(),
                 timestamp: view.timestamp,
                 approval_mask: view.approval_mask,
-                approval_sigs: view
-                    .approval_sigs
-                    .into_iter()
-                    .map(|signature| signature.into())
-                    .collect(),
+                approval_sigs: view.approval_sigs,
                 total_weight: view.total_weight.into(),
                 validator_proposals: view
                     .validator_proposals
@@ -344,7 +335,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
             },
-            signature: view.signature.into(),
+            signature: view.signature,
             hash: CryptoHash::default(),
         };
         header.init();
@@ -408,7 +399,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
             height_included: view.height_included,
-            signature: view.signature.into(),
+            signature: view.signature,
             hash: ChunkHash::default(),
         };
         header.init();
@@ -501,15 +492,13 @@ impl From<Action> for ActionView {
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
             Action::Stake(action) => {
-                ActionView::Stake { stake: action.stake, public_key: action.public_key.into() }
+                ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
             Action::AddKey(action) => ActionView::AddKey {
-                public_key: action.public_key.into(),
+                public_key: action.public_key,
                 access_key: action.access_key.into(),
             },
-            Action::DeleteKey(action) => {
-                ActionView::DeleteKey { public_key: action.public_key.into() }
-            }
+            Action::DeleteKey(action) => ActionView::DeleteKey { public_key: action.public_key },
             Action::DeleteAccount(action) => {
                 ActionView::DeleteAccount { beneficiary_id: action.beneficiary_id }
             }
@@ -536,14 +525,13 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key: public_key.into() })
+                Action::Stake(StakeAction { stake, public_key })
             }
-            ActionView::AddKey { public_key, access_key } => Action::AddKey(AddKeyAction {
-                public_key: public_key.into(),
-                access_key: access_key.into(),
-            }),
+            ActionView::AddKey { public_key, access_key } => {
+                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+            }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key: public_key.into() })
+                Action::DeleteKey(DeleteKeyAction { public_key })
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
@@ -568,7 +556,7 @@ impl From<SignedTransaction> for SignedTransactionView {
         let hash = signed_tx.get_hash().into();
         SignedTransactionView {
             signer_id: signed_tx.transaction.signer_id,
-            public_key: signed_tx.transaction.public_key.into(),
+            public_key: signed_tx.transaction.public_key,
             nonce: signed_tx.transaction.nonce,
             receiver_id: signed_tx.transaction.receiver_id,
             actions: signed_tx
@@ -577,7 +565,7 @@ impl From<SignedTransaction> for SignedTransactionView {
                 .into_iter()
                 .map(|action| action.into())
                 .collect(),
-            signature: signed_tx.signature.into(),
+            signature: signed_tx.signature,
             hash,
         }
     }
@@ -702,21 +690,13 @@ pub struct ValidatorStakeView {
 
 impl From<ValidatorStake> for ValidatorStakeView {
     fn from(stake: ValidatorStake) -> Self {
-        Self {
-            account_id: stake.account_id,
-            public_key: stake.public_key.into(),
-            amount: stake.amount,
-        }
+        Self { account_id: stake.account_id, public_key: stake.public_key, amount: stake.amount }
     }
 }
 
 impl From<ValidatorStakeView> for ValidatorStake {
     fn from(view: ValidatorStakeView) -> Self {
-        Self {
-            account_id: view.account_id,
-            public_key: view.public_key.into(),
-            amount: view.amount,
-        }
+        Self { account_id: view.account_id, public_key: view.public_key, amount: view.amount }
     }
 }
 
@@ -762,7 +742,7 @@ impl From<Receipt> for ReceiptView {
             receipt: match receipt.receipt {
                 ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
                     signer_id: action_receipt.signer_id,
-                    signer_public_key: action_receipt.signer_public_key.into(),
+                    signer_public_key: action_receipt.signer_public_key,
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: action_receipt
                         .output_data_receivers
@@ -806,7 +786,7 @@ impl TryFrom<ReceiptView> for Receipt {
                     actions,
                 } => ReceiptEnum::Action(ActionReceipt {
                     signer_id,
-                    signer_public_key: signer_public_key.into(),
+                    signer_public_key,
                     gas_price,
                     output_data_receivers: output_data_receivers
                         .into_iter()

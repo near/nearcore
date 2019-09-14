@@ -159,16 +159,14 @@ impl StoreUpdate {
 
 impl fmt::Debug for StoreUpdate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Store Update {{\n")?;
+        writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, to_base(key))?
-                }
-                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
             }
         }
-        write!(f, "}}\n")
+        writeln!(f, "}}")
     }
 }
 
