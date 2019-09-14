@@ -152,7 +152,6 @@ impl RemoteNode {
             .iter()
             .map(|s| Arc::new(InMemorySigner::from_seed(s.as_str(), KeyType::ED25519, s.as_str())))
             .collect();
-        let nonces = vec![0; signers.len()];
         self.signers = signers;
         self.get_nonces(signers_accs);
     }
@@ -278,13 +277,17 @@ impl RemoteNode {
         Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }
 
-    pub fn ensure_create_accounts(&self, prefix: &str, count: u64) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        Ok(vec!["near.0".to_string()])
-    }
+    // pub fn ensure_create_accounts(
+    //     &self,
+    //     prefix: &str,
+    //     count: u64,
+    // ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    //     Ok(vec!["near.0".to_string()])
+    // }
 
     pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/status");
-        let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
+        // let url = format!("{}{}", self.url, "/status");
+        // let response: serde_json::Value = self.sync_client.get(url.as_str()).send()?.json()?;
 
         Ok(vec!["127.0.0.1:3030".to_string()])
     }

@@ -67,7 +67,6 @@ impl Executor {
                     })
                     .flatten()
                     .collect();
-                println!("{:?}", all_account_ids);
 
                 for node in &nodes {
                     for (signer_ind, _) in node.read().unwrap().signers.iter().enumerate() {

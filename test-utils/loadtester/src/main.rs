@@ -1,17 +1,21 @@
 #[macro_use]
 extern crate clap;
 
+use log::info;
+use std::fs;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use clap::{crate_version, App, Arg};
+use clap::{crate_version, App, Arg, SubCommand};
 use env_logger::Builder;
 
 use git_version::git_version;
+use near::config::create_testnet_configs;
+use near::get_default_home;
+use near_crypto::Signer;
 use near_primitives::types::Version;
-use node_runtime::StateRecord;
 use remote_node::RemoteNode;
 
 use crate::transactions_executor::Executor;
@@ -25,7 +29,7 @@ pub mod transactions_generator;
 
 #[allow(dead_code)]
 fn configure_logging(log_level: log::LevelFilter) {
-    let internal_targets = vec!["observer"];
+    let internal_targets = vec!["loadtester"];
     let mut builder = Builder::from_default_env();
     internal_targets.iter().for_each(|internal_targets| {
         builder.filter(Some(internal_targets), log_level);
@@ -38,15 +42,17 @@ fn main() {
     configure_logging(log::LevelFilter::Debug);
     let version =
         Version { version: crate_version!().to_string(), build: git_version!().to_string() };
+    let default_home = get_default_home();
 
     let matches = App::new("NEAR Protocol loadtester")
         .version(format!("{} (build {})", version.version, version.build).as_str())
+        .subcommand(SubCommand::with_name("run").about("Run loadtester")
         .arg(
-            Arg::with_name("n")
-                .short("n")
+            Arg::with_name("accounts")
+                .long("accounts")
                 .takes_value(true)
                 .default_value("400")
-                .help("Number of accounts to create"),
+                .help("Number of accounts to use"),
         )
         .arg(
             Arg::with_name("prefix")
@@ -83,10 +89,67 @@ fn main() {
                 .default_value("set")
                 .possible_values(&["set", "send_money", "heavy_storage"])
                 .help("Transaction type"),
-        )
+        ))
+        .subcommand(SubCommand::with_name("create_genesis").about("Create genesis file of many accounts for launch a network")
+        .arg(
+            Arg::with_name("accounts")
+            .long("accounts")
+            .takes_value(true)
+            .default_value("400")
+            .help("Number of accounts to create")
+        ).arg(
+            Arg::with_name("validators")
+            .long("validators")
+            .takes_value(true)
+            .default_value("4")
+            .help("Number of validators to create")
+        ).arg(
+            Arg::with_name("prefix")
+                .long("prefix")
+                .takes_value(true)
+                .default_value("near")
+                .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
+        ).arg(Arg::with_name("home")
+        .long("home")
+        .takes_value(true)
+        .default_value(&default_home)))
         .get_matches();
 
-    let n = value_t_or_exit!(matches, "n", u64);
+    match matches.subcommand() {
+        ("create_genesis", Some(args)) => create_genesis(args),
+        ("run", Some(args)) => run(args),
+        _ => unreachable!(),
+    }
+}
+
+pub const CONFIG_FILENAME: &str = "config.json";
+
+fn create_genesis(matches: &clap::ArgMatches) {
+    let n = value_t_or_exit!(matches, "accounts", u64) as usize;
+    let v = value_t_or_exit!(matches, "validators", u64) as usize;
+    let prefix = value_t_or_exit!(matches, "prefix", String);
+    let dir_buf = value_t_or_exit!(matches, "home", PathBuf);
+    let dir = dir_buf.as_path();
+
+    let (mut configs, signers, network_signers, genesis_config) =
+        create_testnet_configs(v, n - v, &format!("{}.", prefix), false);
+    
+    for i in 0..v {
+        let node_dir = dir.join(format!("{}.{}", prefix, i));
+        fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
+
+        signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
+        network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
+
+        genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
+        configs[i].consensus.min_num_peers = 0;
+        configs[i].write_to_file(&node_dir.join(CONFIG_FILENAME));
+        info!(target: "loadtester", "Generated node key, validator key, genesis file in {}", node_dir.to_str().unwrap());
+    }
+}
+
+fn run(matches: &clap::ArgMatches) {
+    let n = value_t_or_exit!(matches, "accounts", u64);
     let prefix = value_t_or_exit!(matches, "prefix", String);
     let addr = value_t_or_exit!(matches, "addr", String);
     let tps = value_t_or_exit!(matches, "tps", u64);
@@ -97,7 +160,7 @@ fn main() {
 
     let peer_addrs = node.read().unwrap().peer_node_addrs().unwrap();
 
-    let accounts = node.read().unwrap().ensure_create_accounts(&prefix, n).unwrap();
+    let accounts: Vec<_> = (0..n).map(|i| format!("{}.{}", &prefix, i)).collect();
 
     let num_nodes = peer_addrs.len() + 1;
     let accounts_per_node = accounts.len() / num_nodes;
@@ -106,7 +169,7 @@ fn main() {
     for (i, addr) in peer_addrs.iter().enumerate() {
         let node = RemoteNode::new(
             SocketAddr::from_str(addr).unwrap(),
-            &accounts[((i+1) * accounts_per_node)..((i + 2) * accounts_per_node)],
+            &accounts[((i + 1) * accounts_per_node)..((i + 2) * accounts_per_node)],
         );
         nodes.push(node);
     }
