@@ -433,7 +433,7 @@ impl Chain {
         let mut current = self.get_block_header(&header_head.last_block_hash).map(|h| h.clone());
         while let Ok(header) = current {
             if header.inner.height <= block_head.height {
-                if self.check_on_current_chain(&header).is_ok() {
+                if self.is_on_current_chain(&header).is_ok() {
                     break;
                 }
             }
@@ -451,7 +451,7 @@ impl Chain {
     }
 
     /// Returns if given block header on the current chain.
-    fn check_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
+    fn is_on_current_chain(&mut self, header: &BlockHeader) -> Result<(), Error> {
         let chain_header = self.get_header_by_height(header.inner.height)?;
         if chain_header.hash() == header.hash() {
             Ok(())
