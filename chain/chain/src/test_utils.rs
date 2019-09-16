@@ -600,7 +600,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
-            gas_used: 0,
+            total_gas_burnt: 0,
+            total_rent_paid: 0,
             proof: None,
         })
     }

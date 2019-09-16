@@ -69,6 +69,7 @@ pub struct ApplyState {
 pub struct VerificationResult {
     pub gas_burnt: Gas,
     pub gas_used: Gas,
+    pub rent_paid: Balance,
 }
 
 pub struct ApplyResult {
@@ -77,6 +78,7 @@ pub struct ApplyResult {
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
     pub tx_result: Vec<TransactionLog>,
+    pub total_rent_paid: Balance,
 }
 
 #[derive(Debug)]
@@ -206,7 +208,7 @@ impl Runtime {
 
         let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-        apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
+        let rent_paid = apply_rent(&signer_id, &mut signer, apply_state.block_index, &self.config);
         access_key.nonce = transaction.nonce;
         let mut gas_burnt: Gas = self
             .config
@@ -303,7 +305,7 @@ impl Runtime {
 
         set_account(state_update, &signer_id, &signer);
 
-        Ok(VerificationResult { gas_burnt, gas_used })
+        Ok(VerificationResult { gas_burnt, gas_used, rent_paid })
     }
 
     /// Processes signed transaction, charges fees and generates the receipt
@@ -314,6 +316,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
+        total_rent_paid: &mut Balance,
     ) -> Result<TransactionLog, StorageError> {
         let result =
             match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
@@ -341,6 +344,7 @@ impl Runtime {
                     } else {
                         new_receipts.push(receipt);
                     }
+                    *total_rent_paid += verification_result.rent_paid;
                     TransactionResult {
                         status: TransactionStatus::Completed,
                         logs: vec![],
@@ -460,6 +464,7 @@ impl Runtime {
         receipt: &Receipt,
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
+        total_rent_paid: &mut Balance,
     ) -> Result<TransactionLog, StorageError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
@@ -490,8 +495,9 @@ impl Runtime {
         state_update.commit();
 
         let mut account = get_account(state_update, account_id)?;
+        let mut rent_paid = 0;
         if let Some(ref mut account) = account {
-            apply_rent(account_id, account, apply_state.block_index, &self.config);
+            rent_paid = apply_rent(account_id, account, apply_state.block_index, &self.config);
         }
         let mut actor_id = receipt.predecessor_id.clone();
         let mut result = ActionResult::default();
@@ -555,6 +561,7 @@ impl Runtime {
         // Generating transaction result and committing or rolling back state.
         let transaction_status = match &result.result {
             Ok(_) => {
+                *total_rent_paid += rent_paid;
                 state_update.commit();
                 TransactionStatus::Completed
             }
@@ -691,6 +698,7 @@ impl Runtime {
         receipt: &Receipt,
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
+        total_rent_paid: &mut Balance,
     ) -> Result<Option<TransactionLog>, StorageError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
@@ -746,6 +754,7 @@ impl Runtime {
                                 &ready_receipt,
                                 new_receipts,
                                 validator_proposals,
+                                total_rent_paid,
                             )
                             .map(Some);
                     } else {
@@ -787,6 +796,7 @@ impl Runtime {
                             receipt,
                             new_receipts,
                             validator_proposals,
+                            total_rent_paid,
                         )
                         .map(|log| Some(log));
                 } else {
@@ -819,6 +829,7 @@ impl Runtime {
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
         let mut tx_result = vec![];
+        let mut total_rent_paid = 0;
 
         for signed_transaction in transactions {
             tx_result.push(self.process_transaction(
@@ -827,6 +838,7 @@ impl Runtime {
                 signed_transaction,
                 &mut local_receipts,
                 &mut new_receipts,
+                &mut total_rent_paid,
             )?);
         }
 
@@ -837,6 +849,7 @@ impl Runtime {
                 receipt,
                 &mut new_receipts,
                 &mut validator_proposals,
+                &mut total_rent_paid,
             )?
             .into_iter()
             .for_each(|res| tx_result.push(res));
@@ -848,6 +861,7 @@ impl Runtime {
             validator_proposals,
             new_receipts,
             tx_result,
+            total_rent_paid,
         })
     }
 
