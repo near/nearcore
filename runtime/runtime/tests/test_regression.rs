@@ -5,12 +5,12 @@
 pub mod runtime_group_tools;
 use runtime_group_tools::StandaloneRuntime;
 
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
 use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::{from_base64, to_base64};
+use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, TransactionStatus, TransferAction,
 };
@@ -23,7 +23,6 @@ use near_vm_logic::types::Balance;
 use node_runtime::StateRecord;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -31,7 +30,7 @@ use tempdir::TempDir;
 
 // We are sending one transaction from each account, so the following should be true:
 // NUM_ACCOUNTS >= BLOCK_SIZE * NUM_BLOCKS
-const NUM_ACCOUNTS: usize = 500_000;
+const NUM_ACCOUNTS: usize = 100_000;
 const BLOCK_SIZE: usize = 1000;
 const NUM_BLOCKS: usize = 100;
 
@@ -233,20 +232,20 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
 
 #[test]
 fn test_transfer_disk() {
-    template_test(TransactionType::Transfer, DataBaseType::Disk, 10);
+    template_test(TransactionType::Transfer, DataBaseType::Disk, 100);
 }
 
 #[test]
 fn test_transfer_memory() {
-    template_test(TransactionType::Transfer, DataBaseType::InMemory, 10);
+    template_test(TransactionType::Transfer, DataBaseType::InMemory, 100);
 }
 
 #[test]
 fn test_contract_call_disk() {
-    template_test(TransactionType::ContractCall, DataBaseType::Disk, 10);
+    template_test(TransactionType::ContractCall, DataBaseType::Disk, 100);
 }
 
 #[test]
 fn test_contract_call_memory() {
-    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 10);
+    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 100);
 }
