@@ -34,8 +34,8 @@ pub struct ShardChunkHeaderInner {
     pub gas_used: Gas,
     /// Gas limit voted by validators.
     pub gas_limit: Gas,
-    /// Receipts merkle root.
-    pub receipts_root: CryptoHash,
+    /// Outgoing receipts merkle root.
+    pub outgoing_receipts_root: CryptoHash,
     /// Validator proposals.
     pub validator_proposals: Vec<ValidatorStake>,
 }
@@ -72,7 +72,7 @@ impl ShardChunkHeader {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        receipts_root: CryptoHash,
+        outgoing_receipts_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         signer: Arc<dyn Signer>,
     ) -> Self {
@@ -85,7 +85,7 @@ impl ShardChunkHeader {
             shard_id,
             gas_used,
             gas_limit,
-            receipts_root,
+            outgoing_receipts_root,
             validator_proposals,
         };
         let hash = ChunkHash(hash(&inner.try_to_vec().expect("Failed to serialize")));
@@ -112,10 +112,16 @@ pub struct ChunkOnePart {
     pub header: ShardChunkHeader,
     pub part_id: u64,
     pub part: Box<[u8]>,
-    pub receipts: Vec<Receipt>,
-    pub receipts_proofs: Vec<MerklePath>,
+    pub receipt_proofs: Vec<ReceiptProof>,
     pub merkle_path: MerklePath,
 }
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct ShardProof(pub ShardId, pub MerklePath);
+
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+// For each Merkle proof there is a subset of receipts which may be proven.
+pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ShardChunk {
