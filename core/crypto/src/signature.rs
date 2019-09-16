@@ -68,7 +68,7 @@ impl TryFrom<u8> for KeyType {
 }
 
 fn split_key_type_data(value: String) -> Result<(KeyType, String), Box<std::error::Error>> {
-    if let Some(idx) = value.find(":") {
+    if let Some(idx) = value.find(':') {
         let (prefix, key_data) = value.split_at(idx);
         Ok((KeyType::try_from(prefix.to_string())?, key_data[1..].to_string()))
     } else {
@@ -107,7 +107,7 @@ impl Ord for Secp256K1PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PublicKey {
     ED25519(sodiumoxide::crypto::sign::ed25519::PublicKey),
     SECP256K1(Secp256K1PublicKey),
@@ -133,16 +133,17 @@ impl PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", ReadablePublicKey::from(self.clone()).0)
+        write!(f, "{}", ReadablePublicKey::from(self).0)
     }
 }
 
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", ReadablePublicKey::from(self.clone()).0)
+        write!(f, "{}", ReadablePublicKey::from(self).0)
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for PublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
@@ -159,6 +160,7 @@ impl BorshSerialize for PublicKey {
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for PublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)
@@ -186,7 +188,7 @@ impl serde::Serialize for PublicKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&ReadablePublicKey::from(self.clone()).0)
+        serializer.serialize_str(&ReadablePublicKey::from(self).0)
     }
 }
 
@@ -201,8 +203,8 @@ impl<'de> serde::Deserialize<'de> for PublicKey {
             .map_err(|err: Box<std::error::Error>| serde::de::Error::custom(err.to_string()))
     }
 }
-impl From<PublicKey> for ReadablePublicKey {
-    fn from(public_key: PublicKey) -> Self {
+impl From<&PublicKey> for ReadablePublicKey {
+    fn from(public_key: &PublicKey) -> Self {
         match public_key {
             PublicKey::ED25519(public_key) => ReadablePublicKey(format!(
                 "{}:{}",
@@ -411,7 +413,7 @@ impl Signature {
                 let rsig = secp256k1::RecoverableSignature::from_compact(
                     &SECP256K1,
                     &signature.0[0..64],
-                    secp256k1::RecoveryId::from_i32(signature.0[64] as i32).unwrap(),
+                    secp256k1::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
                 )
                 .unwrap();
                 let sig = rsig.to_standard(&SECP256K1);
@@ -441,6 +443,7 @@ impl Signature {
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         match self {
@@ -457,6 +460,7 @@ impl BorshSerialize for Signature {
     }
 }
 
+#[allow(clippy::unused_io_amount)]
 impl BorshDeserialize for Signature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let key_type = KeyType::try_from(u8::deserialize(reader)?)

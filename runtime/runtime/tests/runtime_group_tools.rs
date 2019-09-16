@@ -146,7 +146,7 @@ impl RuntimeGroup {
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.to_string(),
-                    public_key: signer.public_key.into(),
+                    public_key: signer.public_key.clone(),
                     access_key: AccessKey::full_access().into(),
                 });
                 state_records

@@ -24,7 +24,7 @@ fn find_threshold(stakes: &[Balance], num_seats: u64) -> Result<Balance, EpochEr
         let mut current_sum: Balance = 0;
         for item in stakes.iter() {
             current_sum += item / mid;
-            if current_sum >= num_seats as u128 {
+            if current_sum >= u128::from(num_seats) {
                 left = mid;
                 continue 'outer;
             }

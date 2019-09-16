@@ -178,7 +178,7 @@ impl Runtime {
             .signature
             .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
         {
-            return Err(format!("Transaction is not signed with a given public key",).into());
+            return Err("Transaction is not signed with a given public key".into());
         }
         let mut signer = match get_account(state_update, signer_id)? {
             Some(signer) => signer,
@@ -254,54 +254,51 @@ impl Runtime {
             }
         }
 
-        if !check_rent(&signer_id, &mut signer, &self.config, apply_state.epoch_length) {
+        if !check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length) {
             return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
         }
 
-        match access_key.permission {
-            AccessKeyPermission::FullAccess => Ok(()),
-            AccessKeyPermission::FunctionCall(ref function_call_permission) => {
-                if transaction.actions.len() != 1 {
-                    return Err(
-                        "Transaction has more than 1 actions and is using function call access key"
-                            .into(),
-                    );
-                }
-                if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
-                    if transaction.receiver_id != function_call_permission.receiver_id {
-                        return Err(format!(
-                            "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
-                            &transaction.receiver_id,
-                            &function_call_permission.receiver_id,
-                        ).into());
-                    }
-                    if function_call_permission.method_names.is_empty()
-                        || function_call_permission
-                            .method_names
-                            .iter()
-                            .any(|method_name| &function_call.method_name == method_name)
-                    {
-                        Ok(())
-                    } else {
-                        Err(format!(
-                            "Transaction method name {:?} isn't allowed by the access key",
-                            &function_call.method_name
-                        )
-                        .into())
-                    }
-                } else {
-                    Err("The used access key requires exactly one FunctionCall action".to_string())
-                }
+        if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
+            access_key.permission
+        {
+            if transaction.actions.len() != 1 {
+                return Err(
+                    "Transaction has more than 1 actions and is using function call access key"
+                        .into(),
+                );
             }
-        }?;
+            if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+                if transaction.receiver_id != function_call_permission.receiver_id {
+                    return Err(format!(
+                        "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
+                        &transaction.receiver_id,
+                        &function_call_permission.receiver_id,
+                    ).into());
+                }
+                if !function_call_permission.method_names.is_empty()
+                    && function_call_permission
+                        .method_names
+                        .iter()
+                        .all(|method_name| &function_call.method_name != method_name)
+                {
+                    return Err(format!(
+                        "Transaction method name {:?} isn't allowed by the access key",
+                        &function_call.method_name
+                    )
+                    .into());
+                }
+            } else {
+                return Err("The used access key requires exactly one FunctionCall action".into());
+            }
+        };
 
         set_access_key(state_update, &signer_id, &transaction.public_key, &access_key);
 
         // Account reward for gas burnt.
-        signer.amount += (gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
-            / self.config.transaction_costs.burnt_gas_reward.denominator)
-            as Balance
-            * apply_state.gas_price;
+        signer.amount += Balance::from(
+            gas_burnt * self.config.transaction_costs.burnt_gas_reward.numerator
+                / self.config.transaction_costs.burnt_gas_reward.denominator,
+        ) * apply_state.gas_price;
 
         set_account(state_update, &signer_id, &signer);
 
@@ -331,7 +328,7 @@ impl Runtime {
 
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: transaction.signer_id.clone(),
-                            signer_public_key: transaction.public_key,
+                            signer_public_key: transaction.public_key.clone(),
                             gas_price: apply_state.gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
@@ -579,7 +576,7 @@ impl Runtime {
         if gas_reward > 0 {
             let mut account = get_account(state_update, account_id)?;
             if let Some(ref mut account) = account {
-                account.amount += gas_reward as Balance * action_receipt.gas_price;
+                account.amount += Balance::from(gas_reward) * action_receipt.gas_price;
                 set_account(state_update, account_id, account);
                 state_update.commit();
             }
@@ -613,7 +610,7 @@ impl Runtime {
                     receiver_id: data_receiver.receiver_id.clone(),
                     receipt_id: CryptoHash::default(),
                     receipt: ReceiptEnum::Data(DataReceipt {
-                        data_id: data_receiver.data_id.clone(),
+                        data_id: data_receiver.data_id,
                         data: data.clone(),
                     }),
                 },
@@ -629,7 +626,7 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id =
                     create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce);
-                new_receipt.receipt_id = receipt_id.clone();
+                new_receipt.receipt_id = receipt_id;
                 let is_action = match &new_receipt.receipt {
                     ReceiptEnum::Action(_) => true,
                     _ => false,
@@ -646,7 +643,7 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         Ok(TransactionLog {
-            hash: receipt.receipt_id.clone(),
+            hash: receipt.receipt_id,
             result: TransactionResult {
                 status: transaction_status,
                 logs: result.logs,
@@ -675,7 +672,7 @@ impl Runtime {
         } else {
             prepaid_gas + exec_gas - result.gas_used
         };
-        let mut gas_balance_refund = (gas_refund as Balance) * action_receipt.gas_price;
+        let mut gas_balance_refund = Balance::from(gas_refund) * action_receipt.gas_price;
         if action_receipt.signer_id == receipt.predecessor_id {
             // Merging 2 refunds
             deposit_refund += gas_balance_refund;
@@ -798,7 +795,7 @@ impl Runtime {
                             validator_proposals,
                             total_rent_paid,
                         )
-                        .map(|log| Some(log));
+                        .map(Some);
                 } else {
                     // Not all input data is available now.
                     // Save the counter for the number of pending input data items into the state.
@@ -870,7 +867,7 @@ impl Runtime {
         let config = RuntimeFeesConfig::default().storage_usage_config;
         for record in records {
             let account_and_storage = match record {
-                StateRecord::Account { account_id, account: _ } => {
+                StateRecord::Account { account_id, .. } => {
                     Some((account_id.clone(), config.account_cost))
                 }
                 StateRecord::Data { key, value } => {
@@ -892,7 +889,7 @@ impl Runtime {
                     Some((account_id.clone(), config.code_cost_per_byte * (code.len() as u64)))
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    let public_key: PublicKey = public_key.clone().into();
+                    let public_key: PublicKey = public_key.clone();
                     let access_key: AccessKey = access_key.clone().into();
                     let storage_usage = config.data_record_cost
                         + config.key_cost_per_byte
@@ -937,17 +934,12 @@ impl Runtime {
                     set_code(&mut state_update, &account_id, &code);
                 }
                 StateRecord::AccessKey { account_id, public_key, access_key } => {
-                    set_access_key(
-                        &mut state_update,
-                        &account_id,
-                        &public_key.into(),
-                        &access_key.into(),
-                    );
+                    set_access_key(&mut state_update, &account_id, &public_key, &access_key.into());
                 }
                 StateRecord::PostponedReceipt(receipt) => {
                     // Delaying processing postponed receipts, until we process all data first
                     postponed_receipts
-                        .push(receipt.try_into().expect("Failed to convert receipt from view"));
+                        .push((*receipt).try_into().expect("Failed to convert receipt from view"));
                 }
                 StateRecord::ReceivedData { account_id, data_id, data } => {
                     set_received_data(

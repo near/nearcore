@@ -41,7 +41,7 @@ fn cost_per_block(
             / 3_u128.pow(account_id.len() as u32 - 2)
     };
 
-    let storage_cost_per_block = (total_account_storage(account_id, account) as u128)
+    let storage_cost_per_block = u128::from(total_account_storage(account_id, account))
         * runtime_config.storage_cost_byte_per_block;
 
     account_length_cost_per_block + storage_cost_per_block
@@ -62,7 +62,7 @@ pub(crate) fn check_rent(
         runtime_config.poke_threshold
     };
     let buffer_amount =
-        (buffer_length as u128) * cost_per_block(account_id, account, runtime_config);
+        u128::from(buffer_length) * cost_per_block(account_id, account, runtime_config);
     account.amount >= buffer_amount
 }
 
@@ -73,7 +73,7 @@ pub(crate) fn apply_rent(
     block_index: BlockIndex,
     runtime_config: &RuntimeConfig,
 ) -> Balance {
-    let charge = ((block_index - account.storage_paid_at) as u128)
+    let charge = u128::from(block_index - account.storage_paid_at)
         * cost_per_block(account_id, account, runtime_config);
     let actual_charge = std::cmp::min(account.amount, charge);
     account.amount -= actual_charge;
@@ -198,7 +198,7 @@ pub(crate) fn action_stake(
         }
         result.validator_proposals.push(ValidatorStake {
             account_id: account_id.clone(),
-            public_key: stake.public_key,
+            public_key: stake.public_key.clone(),
             amount: stake.stake,
         });
         if stake.stake > account.staked {
@@ -278,7 +278,7 @@ pub(crate) fn action_delete_account(
             .new_receipts
             .push(Receipt::new_refund(&delete_account.beneficiary_id, account_balance));
     }
-    if let Err(_) = remove_account(state_update, account_id) {
+    if remove_account(state_update, account_id).is_err() {
         result.result =
             Err(format!("Failed to delete all account data for account {:?}", account_id).into());
         return;
