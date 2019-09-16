@@ -1053,6 +1053,8 @@ impl ClientActor {
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
 
+        debug!("Producing block at height {}, I'm {:?}", next_height, block_producer.account_id);
+
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                 // Currently state for the chunks we are interested in this epoch
@@ -1383,7 +1385,7 @@ impl ClientActor {
                 // If I'm not an active validator I should forward tx to next validators.
                 if active_validator {
                     debug!(
-                        "MOO recording a transaction. I'm {:?}, {}",
+                        "Recording a transaction. I'm {:?}, {}",
                         self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id
                     );
@@ -1393,6 +1395,12 @@ impl ClientActor {
                     // TODO(MarX): Forward tx even if I am a validator.
                     // TODO(MarX): How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
+
+                    debug!(
+                        "Routing a transaction. I'm {:?}, {}",
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                        shard_id
+                    );
 
                     let validator = unwrap_or_return!(
                         self.runtime_adapter.get_chunk_producer(
@@ -1409,7 +1417,10 @@ impl ClientActor {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => NetworkClientResponses::InvalidTx(err.to_string()),
+            Err(err) => {
+                debug!("Invalid transaction: {:?}", err);
+                NetworkClientResponses::InvalidTx(err.to_string())
+            }
         }
     }
 
