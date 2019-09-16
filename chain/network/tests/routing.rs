@@ -269,10 +269,6 @@ fn check_routing_table(
         // Dummy closure
         state_machine.add_action(|| {});
 
-        //        let mut accounts_without_1 = accounts_id.clone();
-        //        accounts_without_1.remove(1);
-        //        state_machine.add_checkpoint(accounts_without_1);
-
         WaitOrTimeout::new(
             Box::new(move |_| {
                 if state_machine.step() {

@@ -350,64 +350,10 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
-        // TODO(MarX): Fix announce account
-        //
-        //        // If this is an announcement from our account id.
-        //        if announce_account.original_peer_id() == self.peer_id {
-        //            // Check that this announcement doesn't contain any other hop.
-        //            // We must avoid cycle in the routes.
-        //            if announce_account.num_hops() == 0 {
-        //                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-        //                self.broadcast_message(ctx, msg);
-        //            }
-        //        } else {
-        //            // Check that we don't belong to this route.
-        //            if announce_account.route.iter().any(|announce| announce.peer_id == self.peer_id) {
-        //                return;
-        //            }
-        //
-        //            // Use shorter suffix such that we know peer in that suffix.
-        //            let mut found = false;
-        //            announce_account.route = announce_account
-        //                .route
-        //                .into_iter()
-        //                .take_while(|x| {
-        //                    if found {
-        //                        return false;
-        //                    } else {
-        //                        if self.active_peers.contains_key(&x.peer_id) {
-        //                            found = true;
-        //                        }
-        //                        true
-        //                    }
-        //                })
-        //                .collect();
-        //
-        //            assert!(self.active_peers.contains_key(&announce_account.peer_id()));
-        //
-        //            // If this is a new account send an announcement to random set of peers.
-        //            if self.routing_table.update(announce_account.clone()).is_new() {
-        //                let routes: Vec<_> = announce_account.route.iter().map(|hop| hop.peer_id).collect();
-        //                announce_account.extend(self.peer_id, &self.config.secret_key);
-        //                let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
-        //
-        //                // Broadcast announcements to peer that don't belong to this route.
-        //                let requests: Vec<_> = self
-        //                    .active_peers
-        //                    .values()
-        //                    .filter(|&peer| {
-        //                        routes.iter().all(|peer_id| peer_id != &peer.full_peer_info.peer_info.id)
-        //                    })
-        //                    .map(|peer| peer.addr.send(msg.clone()))
-        //                    .collect();
-        //
-        //                future::join_all(requests)
-        //                    .into_actor(self)
-        //                    .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
-        //                    .and_then(|_, _, _| actix::fut::ok(()))
-        //                    .spawn(ctx);
-        //            }
-        //        }
+        self.broadcast_message(
+            ctx,
+            SendMessage { message: PeerMessage::AnnounceAccount(announce_account) },
+        );
     }
 
     /// Send message to peer that belong to our active set
