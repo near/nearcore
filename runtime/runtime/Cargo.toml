@@ -42,3 +42,6 @@ rayon = "1.1"
 rand = "0.7.0"
 
 testlib = { path = "../../test-utils/testlib" }
+
+[profile.test]
+opt-level = 3

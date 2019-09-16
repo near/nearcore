@@ -15,19 +15,23 @@ use near_primitives::transaction::{
 };
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
-use near_store::{create_store, Trie};
+use near_store::{create_store, get_account, set_access_key, set_account, Trie, TrieUpdate};
 use near_vm_logic::types::Balance;
 use node_runtime::StateRecord;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tempdir::TempDir;
 
+// We are sending one transaction from each account, so the following should be true:
+// NUM_ACCOUNTS >= BLOCK_SIZE * NUM_BLOCKS
 const NUM_ACCOUNTS: usize = 100_000;
-const TRANSACTIONS_PER_ACCOUNT: usize = 100;
-const TRANSACTIONS_PER_BLOCK: usize = 1_000;
+const BLOCK_SIZE: usize = 1000;
+const NUM_BLOCKS: usize = 10;
+
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
 
@@ -44,53 +48,12 @@ enum DataBaseType {
     InMemory,
 }
 
+fn get_account_id(account_index: usize) -> String {
+    format!("near_{}", account_index)
+}
+
 fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
-    // Create signers.
-    let signer_ids: Vec<_> = (0..NUM_ACCOUNTS).collect();
-    let signers: Vec<_> = signer_ids
-        .par_iter()
-        .progress()
-        .map(|i| {
-            let account_id = format!("near_{}", i);
-            InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id)
-        })
-        .collect();
-
-    // Create state records for the signer.
-    let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
-    let wasm_binary_base64 = to_base64(wasm_binary);
-    let code_hash = hash(wasm_binary);
-    let state_records: Vec<Vec<StateRecord>> = signers
-        .par_iter()
-        .progress()
-        .map(|signer| {
-            let account_id = signer.account_id.clone();
-            vec![
-                StateRecord::Account {
-                    account_id: account_id.to_string(),
-                    account: AccountView {
-                        amount: TESTING_INIT_BALANCE,
-                        staked: TESTING_INIT_STAKE,
-                        code_hash: code_hash.clone().into(),
-                        storage_usage: 0,
-                        storage_paid_at: 0,
-                    },
-                },
-                StateRecord::AccessKey {
-                    account_id: account_id.to_string(),
-                    public_key: signer.public_key.into(),
-                    access_key: AccessKey::full_access().into(),
-                },
-                StateRecord::Contract {
-                    account_id: account_id.to_string(),
-                    code: wasm_binary_base64.clone(),
-                },
-            ]
-        })
-        .collect();
-    let state_records: Vec<_> = state_records.into_iter().flatten().collect();
-
-    // Create runtime with all the records.
+    // Create runtime with no records in the trie.
     let tmpdir = TempDir::new("storage").unwrap();
     let trie = match db_type {
         DataBaseType::Disk => {
@@ -99,61 +62,138 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
         }
         DataBaseType::InMemory => create_trie(),
     };
+    let runtime_signer =
+        InMemorySigner::from_seed(&get_account_id(0), KeyType::ED25519, &get_account_id(0));
+    let mut runtime = StandaloneRuntime::new(runtime_signer.clone(), &[], trie);
 
-    let mut runtime = StandaloneRuntime::new(signers[0].clone(), &state_records, trie);
+    let mut rng = rand::thread_rng();
+    let account_indices: Vec<_> = (0..NUM_ACCOUNTS).collect();
+    let total_num_transactions = BLOCK_SIZE * NUM_BLOCKS;
+    let sending_account_indices: HashSet<_> =
+        account_indices.choose_multiple(&mut rng, total_num_transactions).collect();
 
-    // Create transactions.
-    let transactions: Vec<_> = signers
-        .par_iter()
-        .progress()
-        .map(|signer| {
-            let mut rng = rand::thread_rng();
-            (0..TRANSACTIONS_PER_ACCOUNT)
-                .map(|nonce| {
-                    let other_signer = loop {
-                        let choice = signers.choose(&mut rng).unwrap();
-                        if choice.account_id != signer.account_id {
-                            break choice;
-                        }
-                    };
+    let mut transactions = Vec::with_capacity(total_num_transactions);
 
-                    let action = match &transaction_type {
-                        TransactionType::ContractCall => {
-                            let mut arg = [0u8; std::mem::size_of::<u64>() * 2];
-                            arg[..std::mem::size_of::<u64>()]
-                                .copy_from_slice(&KV_PER_CONTRACT.to_le_bytes());
-                            arg[std::mem::size_of::<u64>()..]
-                                .copy_from_slice(&(rng.gen::<u64>() % 1000000000).to_le_bytes());
-                            Action::FunctionCall(FunctionCallAction {
-                                method_name: "benchmark_storage_8b".to_string(),
-                                args: (&arg).to_vec(),
-                                gas: 10_000_000,
-                                deposit: 0,
-                            })
-                        }
-                        TransactionType::Transfer => {
-                            Action::Transfer(TransferAction { deposit: 1 })
-                        }
-                    };
-                    SignedTransaction::from_actions(
-                        nonce as u64,
-                        signer.account_id.clone(),
-                        other_signer.account_id.clone(),
-                        signer,
-                        vec![action],
-                        CryptoHash::default(),
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    let mut transactions: Vec<_> = transactions.into_iter().flatten().collect();
-    transactions.shuffle(&mut rand::thread_rng());
+    // Add accounts in chunks of 1000 for memory efficiency reasons.
+    let chunked_accounts = account_indices.chunks(1000).collect::<Vec<_>>();
+    let bar = ProgressBar::new(chunked_accounts.len() as _);
+    bar.set_style(ProgressStyle::default_bar().template(
+        "[elapsed {elapsed_precise} remaining {eta_precise}] Preparing {bar} {pos:>7}/{len:7}",
+    ));
+    for chunk in chunked_accounts {
+        let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
+        // Put state records directly into trie and save them separately to compute storage usage.
+        let mut records = vec![];
+        for account_index in chunk {
+            let account_id = get_account_id(*account_index);
+            let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
+            let account = AccountView {
+                amount: TESTING_INIT_BALANCE,
+                staked: TESTING_INIT_STAKE,
+                code_hash: CryptoHash::default().into(),
+                storage_usage: 0,
+                storage_paid_at: 0,
+            };
+            set_account(&mut state_update, &account_id, &account.clone().into());
+            let account_record =
+                StateRecord::Account { account_id: account_id.to_string(), account };
+            records.push(account_record);
+            let access_key_record = StateRecord::AccessKey {
+                account_id: account_id.clone(),
+                public_key: signer.public_key.into(),
+                access_key: AccessKey::full_access().into(),
+            };
+            set_access_key(
+                &mut state_update,
+                &account_id,
+                &signer.public_key,
+                &AccessKey::full_access(),
+            );
+            records.push(access_key_record);
 
+            // Check if this account sends transactions.
+            if sending_account_indices.contains(&account_index) {
+                let other_account_index = loop {
+                    let choice = account_indices.choose(&mut rng).unwrap();
+                    if choice != account_index {
+                        break choice;
+                    }
+                };
+
+                let action = Action::Transfer(TransferAction { deposit: 1 });
+                let transaction = SignedTransaction::from_actions(
+                    1 as u64,
+                    account_id.clone(),
+                    get_account_id(*other_account_index).clone(),
+                    &signer,
+                    vec![action],
+                    CryptoHash::default(),
+                );
+                transactions.push(transaction);
+            }
+        }
+        // Compute storage usage and update accounts.
+        for (account_id, storage_usage) in runtime.runtime.compute_storage_usage(&records) {
+            let mut account = get_account(&state_update, &account_id)
+                .expect("Genesis storage error")
+                .expect("Account must exist");
+            account.storage_usage = storage_usage;
+            set_account(&mut state_update, &account_id, &account);
+        }
+        let trie = state_update.trie.clone();
+        let (store_update, root) = state_update
+            .finalize()
+            .expect("Genesis state update failed")
+            .into(trie)
+            .expect("Genesis state update failed");
+        store_update.commit().unwrap();
+        runtime.root = root;
+        bar.inc(1);
+    }
+    bar.finish();
+    transactions.shuffle(&mut rng);
+
+    //    let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
+    //    let wasm_binary_base64 = to_base64(wasm_binary);
+    //    let code_hash = hash(wasm_binary);
+    //     StateRecord::Account {
+    //                        account_id: account_id.to_string(),
+    //                        account: AccountView {
+    //                            amount: TESTING_INIT_BALANCE,
+    //                            staked: TESTING_INIT_STAKE,
+    //                            code_hash: code_hash.clone().into(),
+    //                            storage_usage: 0,
+    //                            storage_paid_at: 0,
+    //                        },
+    //                    },
+    //                    StateRecord::AccessKey {
+    //                        account_id: account_id.to_string(),
+    //                        public_key: signer.public_key.into(),
+    //                        access_key: AccessKey::full_access().into(),
+    //                    },
+    //                    StateRecord::Contract {
+    //                        account_id: account_id.to_string(),
+    //                        code: wasm_binary_base64.clone(),
+    //                    },
+    //    TransactionType::ContractCall => {
+    //        let mut arg = [0u8; std::mem::size_of::<u64>() * 2];
+    //        arg[..std::mem::size_of::<u64>()]
+    //            .copy_from_slice(&KV_PER_CONTRACT.to_le_bytes());
+    //        arg[std::mem::size_of::<u64>()..]
+    //            .copy_from_slice(&(rng.gen::<u64>() % 1000000000).to_le_bytes());
+    //        Action::FunctionCall(FunctionCallAction {
+    //            method_name: "benchmark_storage_8b".to_string(),
+    //            args: (&arg).to_vec(),
+    //            gas: 10_000_000,
+    //            deposit: 0,
+    //        })
+    //    }
+
+    // Submit transactions one chunk at a time.
     let mut prev_receipts = vec![];
     let mut successful_transactions = 0usize;
     let mut failed_transactions = 0usize;
-    let chunks = transactions.chunks(TRANSACTIONS_PER_BLOCK);
+    let chunks = transactions.chunks(BLOCK_SIZE);
     let bar = ProgressBar::new(chunks.len() as _);
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] {bar} {pos:>7}/{len:7} {msg}",
@@ -175,7 +215,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
         let avg_tps =
             if secs_elapsed > 0 { processed_transactions as u64 / secs_elapsed } else { 0 };
         bar.inc(1);
-        bar.set_message(format!("avg tps: {}", avg_tps).as_str());
+        bar.set_message(
+            format!("avg tps: {} failed_transactions: {}", avg_tps, failed_transactions).as_str(),
+        );
     }
     bar.finish();
 }
