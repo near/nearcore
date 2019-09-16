@@ -8,14 +8,17 @@ use runtime_group_tools::StandaloneRuntime;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::AccessKey;
+use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::serialize::to_base64;
+use near_primitives::serialize::{from_base64, to_base64};
 use near_primitives::transaction::{
     Action, FunctionCallAction, SignedTransaction, TransactionStatus, TransferAction,
 };
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
-use near_store::{create_store, get_account, set_access_key, set_account, Trie, TrieUpdate};
+use near_store::{
+    create_store, get_account, set_access_key, set_account, set_code, Trie, TrieUpdate,
+};
 use near_vm_logic::types::Balance;
 use node_runtime::StateRecord;
 use rand::seq::SliceRandom;
@@ -28,9 +31,9 @@ use tempdir::TempDir;
 
 // We are sending one transaction from each account, so the following should be true:
 // NUM_ACCOUNTS >= BLOCK_SIZE * NUM_BLOCKS
-const NUM_ACCOUNTS: usize = 100_000;
+const NUM_ACCOUNTS: usize = 500_000;
 const BLOCK_SIZE: usize = 1000;
-const NUM_BLOCKS: usize = 10;
+const NUM_BLOCKS: usize = 100;
 
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
@@ -52,7 +55,7 @@ fn get_account_id(account_index: usize) -> String {
     format!("near_{}", account_index)
 }
 
-fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
+fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expected_avg_tps: u64) {
     // Create runtime with no records in the trie.
     let tmpdir = TempDir::new("storage").unwrap();
     let trie = match db_type {
@@ -75,28 +78,31 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
     let mut transactions = Vec::with_capacity(total_num_transactions);
 
     // Add accounts in chunks of 1000 for memory efficiency reasons.
-    let chunked_accounts = account_indices.chunks(1000).collect::<Vec<_>>();
+    const CHUNK_SIZE: usize = 1000;
+    let chunked_accounts = account_indices.chunks(CHUNK_SIZE).collect::<Vec<_>>();
     let bar = ProgressBar::new(chunked_accounts.len() as _);
     bar.set_style(ProgressStyle::default_bar().template(
         "[elapsed {elapsed_precise} remaining {eta_precise}] Preparing {bar} {pos:>7}/{len:7}",
     ));
+    let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
+    let wasm_binary_base64 = to_base64(wasm_binary);
+    let code_hash = hash(wasm_binary);
     for chunk in chunked_accounts {
         let mut state_update = TrieUpdate::new(runtime.trie.clone(), runtime.root);
         // Put state records directly into trie and save them separately to compute storage usage.
-        let mut records = vec![];
+        let mut records = Vec::with_capacity(CHUNK_SIZE * 3);
         for account_index in chunk {
             let account_id = get_account_id(*account_index);
             let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
             let account = AccountView {
                 amount: TESTING_INIT_BALANCE,
                 staked: TESTING_INIT_STAKE,
-                code_hash: CryptoHash::default().into(),
+                code_hash: code_hash.clone().into(),
                 storage_usage: 0,
                 storage_paid_at: 0,
             };
             set_account(&mut state_update, &account_id, &account.clone().into());
-            let account_record =
-                StateRecord::Account { account_id: account_id.to_string(), account };
+            let account_record = StateRecord::Account { account_id: account_id.clone(), account };
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
                 account_id: account_id.clone(),
@@ -110,6 +116,13 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
                 &AccessKey::full_access(),
             );
             records.push(access_key_record);
+            let code = ContractCode::new(wasm_binary.to_vec());
+            set_code(&mut state_update, &account_id, &code);
+            let contract_record = StateRecord::Contract {
+                account_id: account_id.clone(),
+                code: wasm_binary_base64.clone(),
+            };
+            records.push(contract_record);
 
             // Check if this account sends transactions.
             if sending_account_indices.contains(&account_index) {
@@ -120,7 +133,22 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
                     }
                 };
 
-                let action = Action::Transfer(TransferAction { deposit: 1 });
+                let action = match transaction_type {
+                    TransactionType::Transfer => Action::Transfer(TransferAction { deposit: 1 }),
+                    TransactionType::ContractCall => {
+                        let mut arg = [0u8; std::mem::size_of::<u64>() * 2];
+                        arg[..std::mem::size_of::<u64>()]
+                            .copy_from_slice(&KV_PER_CONTRACT.to_le_bytes());
+                        arg[std::mem::size_of::<u64>()..]
+                            .copy_from_slice(&(rng.gen::<u64>() % 1000000000).to_le_bytes());
+                        Action::FunctionCall(FunctionCallAction {
+                            method_name: "benchmark_storage_8b".to_string(),
+                            args: (&arg).to_vec(),
+                            gas: 10_000_000,
+                            deposit: 0,
+                        })
+                    }
+                };
                 let transaction = SignedTransaction::from_actions(
                     1 as u64,
                     account_id.clone(),
@@ -153,45 +181,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
     bar.finish();
     transactions.shuffle(&mut rng);
 
-    //    let wasm_binary: &[u8] = include_bytes!("./tiny-contract-rs/res/tiny_contract_rs.wasm");
-    //    let wasm_binary_base64 = to_base64(wasm_binary);
-    //    let code_hash = hash(wasm_binary);
-    //     StateRecord::Account {
-    //                        account_id: account_id.to_string(),
-    //                        account: AccountView {
-    //                            amount: TESTING_INIT_BALANCE,
-    //                            staked: TESTING_INIT_STAKE,
-    //                            code_hash: code_hash.clone().into(),
-    //                            storage_usage: 0,
-    //                            storage_paid_at: 0,
-    //                        },
-    //                    },
-    //                    StateRecord::AccessKey {
-    //                        account_id: account_id.to_string(),
-    //                        public_key: signer.public_key.into(),
-    //                        access_key: AccessKey::full_access().into(),
-    //                    },
-    //                    StateRecord::Contract {
-    //                        account_id: account_id.to_string(),
-    //                        code: wasm_binary_base64.clone(),
-    //                    },
-    //    TransactionType::ContractCall => {
-    //        let mut arg = [0u8; std::mem::size_of::<u64>() * 2];
-    //        arg[..std::mem::size_of::<u64>()]
-    //            .copy_from_slice(&KV_PER_CONTRACT.to_le_bytes());
-    //        arg[std::mem::size_of::<u64>()..]
-    //            .copy_from_slice(&(rng.gen::<u64>() % 1000000000).to_le_bytes());
-    //        Action::FunctionCall(FunctionCallAction {
-    //            method_name: "benchmark_storage_8b".to_string(),
-    //            args: (&arg).to_vec(),
-    //            gas: 10_000_000,
-    //            deposit: 0,
-    //        })
-    //    }
-
     // Submit transactions one chunk at a time.
     let mut prev_receipts = vec![];
-    let mut successful_transactions = 0usize;
+    let mut _successful_transactions = 0usize;
     let mut failed_transactions = 0usize;
     let chunks = transactions.chunks(BLOCK_SIZE);
     let bar = ProgressBar::new(chunks.len() as _);
@@ -200,44 +192,61 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType) {
     ));
     let mut processed_transactions = 0usize;
     let start_timer = Instant::now();
+    let mut prev_block: Option<Instant> = None;
+    let mut avg_tps = 0;
     for chunk in chunks {
         let (curr_receipts, transactions_logs) = runtime.process_block(&prev_receipts, &chunk);
         prev_receipts = curr_receipts;
         for tl in transactions_logs {
             match tl.result.status {
-                TransactionStatus::Completed => successful_transactions += 1,
+                TransactionStatus::Completed => _successful_transactions += 1,
                 TransactionStatus::Failed => failed_transactions += 1,
                 _ => {}
             }
         }
         processed_transactions += chunk.len();
         let secs_elapsed = start_timer.elapsed().as_secs();
-        let avg_tps =
-            if secs_elapsed > 0 { processed_transactions as u64 / secs_elapsed } else { 0 };
+        avg_tps = if secs_elapsed > 0 { processed_transactions as u64 / secs_elapsed } else { 0 };
+
+        if let Some(prev_block) = prev_block {
+            bar.println(format!("{}ms per block", prev_block.elapsed().as_millis()));
+        }
+        prev_block = Some(Instant::now());
         bar.inc(1);
         bar.set_message(
             format!("avg tps: {} failed_transactions: {}", avg_tps, failed_transactions).as_str(),
         );
     }
     bar.finish();
+    assert_eq!(
+        failed_transactions, 0,
+        "Expected no failed transactions, but got {}",
+        failed_transactions
+    );
+    assert!(
+        expected_avg_tps <= avg_tps,
+        "Expected at least {} TPS but got {} TPS",
+        expected_avg_tps,
+        avg_tps
+    );
 }
 
 #[test]
 fn test_transfer_disk() {
-    template_test(TransactionType::Transfer, DataBaseType::Disk);
+    template_test(TransactionType::Transfer, DataBaseType::Disk, 10);
 }
 
 #[test]
 fn test_transfer_memory() {
-    template_test(TransactionType::Transfer, DataBaseType::InMemory);
+    template_test(TransactionType::Transfer, DataBaseType::InMemory, 10);
 }
 
 #[test]
 fn test_contract_call_disk() {
-    template_test(TransactionType::ContractCall, DataBaseType::Disk);
+    template_test(TransactionType::ContractCall, DataBaseType::Disk, 10);
 }
 
 #[test]
 fn test_contract_call_memory() {
-    template_test(TransactionType::ContractCall, DataBaseType::InMemory);
+    template_test(TransactionType::ContractCall, DataBaseType::InMemory, 10);
 }
