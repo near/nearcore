@@ -9,7 +9,7 @@ pub struct RoutingTable {
     /// Active PeerId that are part of the shortest path to each PeerId.
     pub peer_forwarding: HashMap<PeerId, HashSet<PeerId>>,
     /// Current view of the network. Nodes are Peers and edges are active connections.
-    pub raw_graph: Graph,
+    raw_graph: Graph,
 }
 
 #[derive(Debug)]

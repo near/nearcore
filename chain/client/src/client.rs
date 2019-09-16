@@ -24,9 +24,7 @@ use near_chain::{
 };
 use near_chunks::ShardsManager;
 use near_crypto::Signature;
-use near_network::types::{
-    AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo,
-};
+use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo};
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
@@ -177,63 +175,21 @@ impl ClientActor {
         &self,
         announce_account: &AnnounceAccount,
     ) -> AccountAnnounceVerificationResult {
-        // Check header is correct.
-        let header_hash = announce_account.header_hash();
-        let header = announce_account.header();
+        let announce_hash = announce_account.hash();
 
-        // hash must match announcement hash ...
-        if header_hash != header.hash {
-            return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidHash);
-        }
-
-        // ... and signature should be valid.
         match self.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
             &announce_account.account_id,
-            header_hash.as_ref(),
-            &header.signature,
+            announce_hash.as_ref(),
+            &announce_account.signature,
         ) {
-            ValidatorSignatureVerificationResult::Valid => {}
+            ValidatorSignatureVerificationResult::Valid => AccountAnnounceVerificationResult::Valid,
             ValidatorSignatureVerificationResult::Invalid => {
-                return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature);
+                AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature)
             }
             ValidatorSignatureVerificationResult::UnknownEpoch => {
-                return AccountAnnounceVerificationResult::UnknownEpoch;
+                AccountAnnounceVerificationResult::UnknownEpoch
             }
-        }
-
-        // Check intermediates hops are correct.
-        // Skip first element (header)
-        match announce_account.route.iter().skip(1).fold(Ok(header_hash), |previous_hash, hop| {
-            // Folding function will return None if at least one hop checking fail,
-            // otherwise it will return hash from last hop.
-            if let Ok(previous_hash) = previous_hash {
-                let AnnounceAccountRoute { peer_id, hash: current_hash, signature } = hop;
-
-                let real_current_hash = &hash(
-                    [
-                        previous_hash.as_ref(),
-                        peer_id.try_to_vec().expect("Failed to serialize").as_ref(),
-                    ]
-                    .concat()
-                    .as_slice(),
-                );
-
-                if real_current_hash != current_hash {
-                    return Err(ReasonForBan::InvalidHash);
-                }
-
-                if signature.verify(current_hash.as_ref(), &peer_id.public_key()) {
-                    Ok(current_hash.clone())
-                } else {
-                    return Err(ReasonForBan::InvalidSignature);
-                }
-            } else {
-                previous_hash
-            }
-        }) {
-            Ok(_) => AccountAnnounceVerificationResult::Valid,
-            Err(reason_for_ban) => AccountAnnounceVerificationResult::Invalid(reason_for_ban),
         }
     }
 
@@ -764,18 +720,13 @@ impl ClientActor {
                 self.last_validator_announce_time = Some(now);
                 let (hash, signature) = self.sign_announce_account(&next_epoch_id).unwrap();
 
-                actix::spawn(
-                    self.network_actor
-                        .send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
-                            block_producer.account_id.clone(),
-                            next_epoch_id,
-                            self.node_id,
-                            hash,
-                            signature,
-                        )))
-                        .map_err(|e| error!(target: "client", "{:?}", e))
-                        .map(|_| ()),
-                );
+                let _ =
+                    self.network_actor.do_send(NetworkRequests::AnnounceAccount(AnnounceAccount {
+                        account_id: block_producer.account_id.clone(),
+                        peer_id: self.node_id,
+                        epoch_id: next_epoch_id,
+                        signature,
+                    }));
             }
         }
     }
@@ -1314,12 +1265,8 @@ impl ClientActor {
                 // TODO: ?? should we add a wait for response here?
                 let _ = self.network_actor.do_send(NetworkRequests::BlockRequest { hash, peer_id });
             }
-            Ok(true) => {
-                debug!(target: "client", "send_block_request_to_peer: block {} already known", hash)
-            }
-            Err(e) => {
-                error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e)
-            }
+            Ok(true) => debug!(target: "client", "send_block_request_to_peer: block {} already known", hash),
+            Err(e) => error!(target: "client", "send_block_request_to_peer: failed to check block exists: {:?}", e),
         }
     }
 
@@ -1543,9 +1490,7 @@ impl ClientActor {
         if let Some(_) = self.block_producer {
             match self.run_catchup(ctx) {
                 Ok(_) => {}
-                Err(err) => {
-                    error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
-                }
+                Err(err) => error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.block_producer.as_ref().map(|bp| bp.account_id.clone()), err),
             }
 
             ctx.run_later(self.config.catchup_step_period, move |act, ctx| {

@@ -206,6 +206,10 @@ impl AnnounceAccount {
         };
         hash(&header.try_to_vec().unwrap())
     }
+
+    pub fn hash(&self) -> CryptoHash {
+        AnnounceAccount::build_header_hash(&self.account_id, &self.peer_id, &self.epoch_id)
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
