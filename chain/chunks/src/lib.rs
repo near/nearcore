@@ -546,6 +546,15 @@ impl ShardsManager {
         let chunk_hash = one_part.chunk_hash.clone();
         let prev_block_hash = one_part.header.inner.prev_block_hash;
 
+        match self.runtime_adapter.get_epoch_id_from_prev_block(&prev_block_hash) {
+            Ok(_) => {}
+            Err(err) => {
+                self.orphaned_one_parts
+                    .cache_set((prev_block_hash, one_part.shard_id, one_part.part_id), one_part);
+                return Err(err);
+            }
+        }
+
         if !self.runtime_adapter.verify_chunk_header_signature(&one_part.header)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
