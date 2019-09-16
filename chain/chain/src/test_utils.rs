@@ -350,10 +350,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let epoch_valset = match self.get_epoch_and_valset(*parent_hash) {
-            Ok(epoch_valset) => epoch_valset,
-            Err(_) => return false,
-        };
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[epoch_valset.1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -378,10 +378,10 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let epoch_valset = match self.get_epoch_and_valset(*parent_hash) {
-            Ok(epoch_valset) => epoch_valset,
-            Err(_) => return false,
-        };
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
         let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
@@ -602,7 +602,8 @@ impl RuntimeAdapter for KeyValueRuntime {
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
-            gas_used: 0,
+            total_gas_burnt: 0,
+            total_rent_paid: 0,
             proof: None,
         })
     }
