@@ -75,6 +75,10 @@ impl TransactionPool {
     pub fn len(&self) -> usize {
         self.num_transactions
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.num_transactions == 0
+    }
 }
 
 #[cfg(test)]

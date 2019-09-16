@@ -50,6 +50,10 @@ impl PeerStore {
         self.peer_states.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.peer_states.is_empty()
+    }
+
     pub fn peer_connected(
         &mut self,
         peer_info: &FullPeerInfo,

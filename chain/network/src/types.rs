@@ -27,7 +27,7 @@ use crate::peer::Peer;
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -56,10 +56,15 @@ impl TryFrom<Vec<u8>> for PeerId {
     }
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0.try_to_vec().unwrap());
+    }
+}
+
+impl PartialEq for PeerId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 

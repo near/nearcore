@@ -256,40 +256,37 @@ impl Runtime {
             return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
         }
 
-        match access_key.permission {
-            AccessKeyPermission::FullAccess => (),
-            AccessKeyPermission::FunctionCall(ref function_call_permission) => {
-                if transaction.actions.len() != 1 {
-                    return Err(
-                        "Transaction has more than 1 actions and is using function call access key"
-                            .into(),
-                    );
+        if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
+            access_key.permission
+        {
+            if transaction.actions.len() != 1 {
+                return Err(
+                    "Transaction has more than 1 actions and is using function call access key"
+                        .into(),
+                );
+            }
+            if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
+                if transaction.receiver_id != function_call_permission.receiver_id {
+                    return Err(format!(
+                        "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
+                        &transaction.receiver_id,
+                        &function_call_permission.receiver_id,
+                    ).into());
                 }
-                if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
-                    if transaction.receiver_id != function_call_permission.receiver_id {
-                        return Err(format!(
-                            "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
-                            &transaction.receiver_id,
-                            &function_call_permission.receiver_id,
-                        ).into());
-                    }
-                    if !function_call_permission.method_names.is_empty()
-                        && function_call_permission
-                            .method_names
-                            .iter()
-                            .all(|method_name| &function_call.method_name != method_name)
-                    {
-                        return Err(format!(
-                            "Transaction method name {:?} isn't allowed by the access key",
-                            &function_call.method_name
-                        )
-                        .into());
-                    }
-                } else {
-                    return Err(
-                        "The used access key requires exactly one FunctionCall action".into()
-                    );
+                if !function_call_permission.method_names.is_empty()
+                    && function_call_permission
+                        .method_names
+                        .iter()
+                        .all(|method_name| &function_call.method_name != method_name)
+                {
+                    return Err(format!(
+                        "Transaction method name {:?} isn't allowed by the access key",
+                        &function_call.method_name
+                    )
+                    .into());
                 }
+            } else {
+                return Err("The used access key requires exactly one FunctionCall action".into());
             }
         };
 
