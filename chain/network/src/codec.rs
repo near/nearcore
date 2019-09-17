@@ -114,13 +114,12 @@ mod test {
     fn test_peer_message_announce_account() {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
-        let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
-            "test1".to_string(),
-            EpochId::default(),
-            sk.public_key().into(),
-            CryptoHash::default(),
+        let msg = PeerMessage::AnnounceAccount(AnnounceAccount {
+            account_id: "test1".to_string(),
+            peer_id: sk.public_key().into(),
+            epoch_id: EpochId::default(),
             signature,
-        ));
+        });
         test_codec(msg);
     }
 
@@ -130,7 +129,7 @@ mod test {
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
         let msg = PeerMessage::Routed(RoutedMessage {
-            account_id: "test1".to_string(),
+            target: sk.public_key().into(),
             author: sk.public_key().into(),
             signature: signature.clone(),
             body: RoutedMessageBody::BlockApproval(

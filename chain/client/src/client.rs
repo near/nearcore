@@ -435,7 +435,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_account) => {
                 match self.check_signature_account_announce(&announce_account) {
                     AccountAnnounceVerificationResult::Valid => {
-                        self.network_actor
+                        let _ = self
+                            .network_actor
                             .do_send(NetworkRequests::AnnounceAccount(announce_account));
                         NetworkClientResponses::NoResponse
                     }
