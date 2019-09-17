@@ -61,14 +61,21 @@ fn main() {
                 .default_value("near")
                 .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
         )
+        // Will be able to self discover all available rpc endpoint once nearcore expose it.
+        // .arg(
+        //     Arg::with_name("addr")
+        //         .long("addr")
+        //         .takes_value(true)
+        //         .default_value("127.0.0.1:3030")
+        //         .help("Socket address of one of the node in network"),
+        // )
         .arg(
-            Arg::with_name("addr")
-                .long("addr")
-                .takes_value(true)
-                .default_value("127.0.0.1:3030")
-                .help("Socket address of one of the node in network"),
-        )
-        .arg(
+            Arg::with_name("addrs")
+            .long("addrs")
+            .takes_value(true)
+            .multiple(true)
+            .help("Socket addresses of nodes to test in network")
+        ).arg(
             Arg::with_name("tps")
                 .long("tps")
                 .takes_value(true)
@@ -133,7 +140,6 @@ fn create_genesis(matches: &clap::ArgMatches) {
 
     let (mut configs, signers, network_signers, genesis_config) =
         create_testnet_configs(v, n - v, &format!("{}.", prefix), false);
-    
     for i in 0..v {
         let node_dir = dir.join(format!("{}.{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
@@ -151,14 +157,17 @@ fn create_genesis(matches: &clap::ArgMatches) {
 fn run(matches: &clap::ArgMatches) {
     let n = value_t_or_exit!(matches, "accounts", u64);
     let prefix = value_t_or_exit!(matches, "prefix", String);
-    let addr = value_t_or_exit!(matches, "addr", String);
+    // let addr = value_t_or_exit!(matches, "addr", String);
+    let addrs = values_t_or_exit!(matches, "addrs", String);
+    let addr = &addrs[0];
     let tps = value_t_or_exit!(matches, "tps", u64);
     let duration = value_t_or_exit!(matches, "duration", u64);
     let transaction_type = value_t_or_exit!(matches, "type", TransactionType);
 
     let node = RemoteNode::new(SocketAddr::from_str(&addr).unwrap(), &[]);
 
-    let peer_addrs = node.read().unwrap().peer_node_addrs().unwrap();
+    // let peer_addrs = node.read().unwrap().peer_node_addrs().unwrap();
+    let peer_addrs = &addrs[1..];
 
     let accounts: Vec<_> = (0..n).map(|i| format!("{}.{}", &prefix, i)).collect();
 
