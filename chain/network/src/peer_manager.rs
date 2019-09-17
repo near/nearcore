@@ -285,7 +285,12 @@ impl PeerManagerActor {
         self.active_peers.len()
     }
 
-    fn register_peer(&mut self, full_peer_info: FullPeerInfo, addr: Addr<Peer>) {
+    fn register_peer(
+        &mut self,
+        full_peer_info: FullPeerInfo,
+        addr: Addr<Peer>,
+        ctx: &mut Context<Self>,
+    ) {
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
@@ -305,29 +310,34 @@ impl PeerManagerActor {
             },
         );
 
-        // Sync routes to known account ids with new peer.
-        for mut announcement in
-            self.routing_table.account_peers.values_mut().map(|entry| entry.next_best_route())
-        {
-            // Update route with our information in case we are not the source.
-            if announcement.header().peer_id != self.peer_id {
-                announcement.extend(self.peer_id.clone(), &self.config.secret_key);
+        let wait_before_announce_seconds = 1;
+        ctx.run_later(Duration::from_secs(wait_before_announce_seconds), move |act, _ctx| {
+            // Sync routes to known account ids with new peer.
+            for mut announcement in
+                act.routing_table.account_peers.values_mut().map(|entry| entry.next_best_route())
+            {
+                // Update route with our information in case we are not the source.
+                if announcement.header().peer_id != act.peer_id {
+                    announcement.extend(act.peer_id.clone(), &act.config.secret_key);
+                }
+                actix::spawn(
+                    addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
+                        .map_err(|e| error!(target: "network", "{}", e))
+                        .map(|_| ()),
+                );
             }
-            actix::spawn(
-                addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
-                    .map_err(|e| error!(target: "network", "{}", e))
-                    .map(|_| ()),
-            );
-        }
 
-        // Send information from myself, in case it exists.
-        if let Some(my_announcement) = self.routing_table.me.clone() {
-            actix::spawn(
-                addr.send(SendMessage { message: PeerMessage::AnnounceAccount(my_announcement) })
+            // Send information from myself, in case it exists.
+            if let Some(my_announcement) = act.routing_table.me.clone() {
+                actix::spawn(
+                    addr.send(SendMessage {
+                        message: PeerMessage::AnnounceAccount(my_announcement),
+                    })
                     .map_err(|e| error!(target: "network", "{}", e))
                     .map(|_| ()),
-            );
-        }
+                );
+            }
+        });
     }
 
     fn unregister_peer(&mut self, peer_id: PeerId) {
@@ -539,13 +549,13 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // If this is an announcement from our account id.
         if announce_account.original_peer_id() == self.peer_id {
-            // Store our announcement in the routing table. We don't need to route to us,
-            // but we will need to propagate this information on handshake.
-            self.routing_table.me = Some(announce_account.clone());
-
             // Check that this announcement doesn't contain any other hop.
             // We must avoid cycle in the routes.
             if announce_account.num_hops() == 0 {
+                // Store our announcement in the routing table. We don't need to route to us,
+                // but we will need to propagate this information on handshake.
+                self.routing_table.me = Some(announce_account.clone());
+
                 let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
                 self.broadcast_message(ctx, msg);
             }
@@ -837,7 +847,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 impl Handler<Consolidate> for PeerManagerActor {
     type Result = bool;
 
-    fn handle(&mut self, msg: Consolidate, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             return false;
@@ -854,6 +864,7 @@ impl Handler<Consolidate> for PeerManagerActor {
         self.register_peer(
             FullPeerInfo { peer_info: msg.peer_info, chain_info: msg.chain_info },
             msg.actor,
+            ctx,
         );
         true
     }
