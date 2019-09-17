@@ -622,6 +622,7 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
+    pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub most_weight_peers: Vec<FullPeerInfo>,
