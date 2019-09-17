@@ -2291,7 +2291,7 @@ dependencies = [
 
 [[package]]
 name = "near-runtime-fees"
-version = "0.2.1"
+version = "0.2.5"
 dependencies = [
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -2330,22 +2330,22 @@ dependencies = [
 
 [[package]]
 name = "near-vm-logic"
-version = "0.2.3"
+version = "0.2.5"
 dependencies = [
  "bs58 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-runtime-fees 0.2.1",
+ "near-runtime-fees 0.2.5",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
  "sodiumoxide 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "near-vm-runner"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "assert_matches 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "cached 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-vm-logic 0.2.3",
+ "near-vm-logic 0.2.5",
  "parity-wasm 0.31.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "pwasm-utils 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "wabt 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2357,8 +2357,8 @@ name = "near-vm-runner-standalone"
 version = "0.2.4"
 dependencies = [
  "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "near-vm-logic 0.2.3",
- "near-vm-runner 0.2.4",
+ "near-vm-logic 0.2.5",
+ "near-vm-runner 0.2.5",
  "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -2423,10 +2423,10 @@ dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "near-crypto 0.1.0",
  "near-primitives 0.1.0",
- "near-runtime-fees 0.2.1",
+ "near-runtime-fees 0.2.5",
  "near-store 0.1.0",
- "near-vm-logic 0.2.3",
- "near-vm-runner 0.2.4",
+ "near-vm-logic 0.2.5",
+ "near-vm-runner 0.2.5",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.98 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3593,7 +3593,7 @@ dependencies = [
  "near-jsonrpc 0.1.0",
  "near-network 0.1.0",
  "near-primitives 0.1.0",
- "near-runtime-fees 0.2.1",
+ "near-runtime-fees 0.2.5",
  "near-store 0.1.0",
  "node-runtime 0.0.1",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
