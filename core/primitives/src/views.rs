@@ -27,8 +27,20 @@ use crate::types::{
     Version,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct CryptoHashView(pub Vec<u8>);
+
+impl fmt::Debug for CryptoHashView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&CryptoHash::from(self.clone()), f)
+    }
+}
+
+impl fmt::Display for CryptoHashView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&CryptoHash::from(self.clone()), f)
+    }
+}
 
 impl Serialize for CryptoHashView {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>

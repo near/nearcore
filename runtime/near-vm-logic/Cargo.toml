@@ -23,6 +23,11 @@ name = "test_registers"
 path = "tests/test_registers.rs"
 required-features = ["mocks"]
 
+[[test]]
+name = "test_storage_usage"
+path = "tests/test_storage_usage.rs"
+required-features = ["mocks"]
+
 [features]
 default = []
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
