@@ -117,6 +117,9 @@ impl PeerManagerActor {
             "Failed to save peer data"
         );
 
+        let source = self.peer_id.clone();
+        let target = full_peer_info.peer_info.id.clone();
+
         self.active_peers.insert(
             full_peer_info.peer_info.id,
             ActivePeer {
@@ -130,6 +133,8 @@ impl PeerManagerActor {
 
         // TODO(MarX): Trigger sync actions after a peer is added successfully regarding networking
         //  (Write specification about the actions)
+
+        self.routing_table.add_connection(source, target);
     }
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
@@ -340,8 +345,11 @@ impl PeerManagerActor {
 
     /// Broadcast message to all active peers.
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
+        // TODO(MarX): Implement smart broadcasting. (MST)
+
         let requests: Vec<_> =
             self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
+
         future::join_all(requests)
             .into_actor(self)
             .map_err(|e, _, _| error!("Failed sending broadcast message: {}", e))
@@ -350,10 +358,15 @@ impl PeerManagerActor {
     }
 
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
-        self.broadcast_message(
-            ctx,
-            SendMessage { message: PeerMessage::AnnounceAccount(announce_account) },
-        );
+        if self
+            .routing_table
+            .add_account(announce_account.account_id.clone(), announce_account.peer_id.clone())
+        {
+            self.broadcast_message(
+                ctx,
+                SendMessage { message: PeerMessage::AnnounceAccount(announce_account) },
+            );
+        }
     }
 
     /// Send message to peer that belong to our active set
@@ -381,10 +394,6 @@ impl PeerManagerActor {
     fn send_message_to_peer(&mut self, ctx: &mut Context<Self>, msg: RoutedMessage) {
         match self.routing_table.find_route(&msg.target) {
             Ok(peer_id) => {
-                if msg.requires_response() {
-                    // TODO(MarX): Handle route back for message that requires response.
-                }
-
                 self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
             }
             Err(find_route_error) => {
@@ -686,8 +695,11 @@ impl Handler<RoutedMessage> for PeerManagerActor {
         if self.peer_id == msg.target {
             true
         } else {
-            self.send_message_to_peer(ctx, msg);
             // Otherwise route it to its corresponding destination.
+            if msg.expect_response() {
+                // TODO(MarX): Handle route back for message that requires response.
+            }
+            self.send_message_to_peer(ctx, msg);
             false
         }
     }

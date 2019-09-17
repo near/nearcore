@@ -1,9 +1,11 @@
 use crate::types::PeerId;
 use near_primitives::types::AccountId;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct RoutingTable {
+    // TODO(MarX): Use cache and file storing to keep this information.
     /// PeerId associated for every known account id.
     pub account_peers: HashMap<AccountId, PeerId>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -56,12 +58,24 @@ impl RoutingTable {
         self.peer_forwarding.entry(peer_id).or_insert_with(HashSet::new);
     }
 
-    pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) {
+    /// Add (account id, peer id) to routing table.
+    /// Returns a bool indicating whether this is a new entry or not.
+    /// Note: There is at most on peer id per account id.
+    pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) -> bool {
         self.add_peer(peer_id);
-        self.account_peers.insert(account_id, peer_id);
+
+        match self.account_peers.entry(account_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(peer_id);
+                true
+            }
+        }
     }
 
     pub fn add_connection(&mut self, peer0: PeerId, peer1: PeerId) {
+        self.add_peer(peer0);
+        self.add_peer(peer1);
         self.raw_graph.add_edge(peer0, peer1);
         // TODO(MarX): Don't recalculate all the time
         self.peer_forwarding = self.raw_graph.calculate_distance();
@@ -182,3 +196,7 @@ impl Graph {
 }
 
 // TODO(MarX): Test graph and distance calculation
+
+// TODO(MarX): Test graph is synced between nodes after starting connection
+
+// TODO(MarX): Test graph is readjusted after edges are deleted

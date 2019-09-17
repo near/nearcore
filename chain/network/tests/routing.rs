@@ -82,10 +82,9 @@ fn wait_routing_table_state(
     peer_managers: Vec<Addr<PeerManagerActor>>,
     counters: Vec<Arc<AtomicUsize>>,
     flag: Arc<AtomicBool>,
-    accounts_id: Vec<AccountId>,
     expected_accounts: Vec<AccountId>,
 ) {
-    for ((pm, count), cur_acc_id) in peer_managers.iter().zip(counters.iter()).zip(accounts_id) {
+    for (pm, count) in peer_managers.iter().zip(counters.iter()) {
         let pm = pm.clone();
         let count = count.clone();
 
@@ -102,15 +101,11 @@ fn wait_routing_table_state(
                     let mut count_expected = 0;
 
                     for acc_id in expected_accounts.into_iter() {
-                        if acc_id == cur_acc_id {
-                            assert!(!account_peers.contains(&acc_id));
+                        if account_peers.contains(&acc_id) {
+                            count_expected += 1;
                         } else {
-                            if account_peers.contains(&acc_id) {
-                                count_expected += 1;
-                            } else {
-                                // missing somme account id in routes yet.
-                                return future::result(Ok(()));
-                            }
+                            // missing somme account id in routes yet.
+                            return future::result(Ok(()));
                         }
                     }
 
@@ -154,7 +149,6 @@ where
     F: FnMut(),
 {
     peer_managers: Vec<Addr<PeerManagerActor>>,
-    accounts_id: Vec<AccountId>,
     flag: Arc<AtomicBool>,
     counters: Vec<Arc<AtomicUsize>>,
     states: Vec<States<F>>,
@@ -165,11 +159,10 @@ impl<F> StateMachine<F>
 where
     F: FnMut(),
 {
-    fn new(peer_managers: Vec<Addr<PeerManagerActor>>, accounts_id: Vec<AccountId>) -> Self {
+    fn new(peer_managers: Vec<Addr<PeerManagerActor>>) -> Self {
         let counters = (0..peer_managers.len()).map(|_| Arc::new(AtomicUsize::new(0))).collect();
         Self {
             peer_managers,
-            accounts_id,
             flag: Arc::new(AtomicBool::new(false)),
             counters,
             states: Vec::new(),
@@ -211,7 +204,6 @@ where
                     self.peer_managers.clone(),
                     self.counters.clone(),
                     self.flag.clone(),
-                    self.accounts_id.clone(),
                     expected_accounts.clone(),
                 );
             }
@@ -263,7 +255,7 @@ fn check_routing_table(
             })
             .collect();
 
-        let mut state_machine = StateMachine::new(peer_managers, accounts_id.clone());
+        let mut state_machine = StateMachine::new(peer_managers);
 
         state_machine.add_checkpoint(validators.clone());
         // Dummy closure

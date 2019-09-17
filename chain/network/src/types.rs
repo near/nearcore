@@ -303,7 +303,7 @@ impl RoutedMessage {
         self.signature.verify(self.hash().as_ref(), &self.author.public_key())
     }
 
-    pub fn requires_response(&self) -> bool {
+    pub fn expect_response(&self) -> bool {
         // TODO(MarX): Mark some message as requiring response
         false
     }

@@ -130,7 +130,7 @@ fn check_account_id_propagation(
                                     "Known producers of {}: {:?}",
                                     account_ids_copy[i], known_producers
                                 );
-                                if known_producers.len() == total_nodes - 1 {
+                                if known_producers.len() == total_nodes {
                                     count.fetch_add(1, Ordering::Relaxed);
 
                                     if counters
@@ -203,7 +203,6 @@ fn four_nodes_star() {
 }
 
 #[test]
-#[ignore]
 fn four_nodes_path() {
     heavy_test(|| {
         check_account_id_propagation(
@@ -229,7 +228,6 @@ fn four_nodes_disconnected() {
 }
 
 #[test]
-#[ignore]
 fn four_nodes_directed() {
     heavy_test(|| {
         check_account_id_propagation(

@@ -435,12 +435,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_account) => {
                 match self.check_signature_account_announce(&announce_account) {
                     AccountAnnounceVerificationResult::Valid => {
-                        actix::spawn(
-                            self.network_actor
-                                .send(NetworkRequests::AnnounceAccount(announce_account))
-                                .map_err(|e| error!(target: "client", "{}", e))
-                                .map(|_| ()),
-                        );
+                        self.network_actor
+                            .do_send(NetworkRequests::AnnounceAccount(announce_account));
                         NetworkClientResponses::NoResponse
                     }
                     AccountAnnounceVerificationResult::Invalid(ban_reason) => {

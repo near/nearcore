@@ -256,7 +256,6 @@ impl Peer {
             }
             PeerMessage::StateResponse(info) => NetworkClientMessages::StateResponse(info),
             PeerMessage::AnnounceAccount(announce_account) => {
-                // TODO(MarX): Handle Announce Accounts properly (store them, and broadcast when needed)
                 NetworkClientMessages::AnnounceAccount(announce_account)
             }
             // All Routed messages received at this point are for us.
