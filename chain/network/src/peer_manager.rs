@@ -539,13 +539,13 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // If this is an announcement from our account id.
         if announce_account.original_peer_id() == self.peer_id {
-            // Store our announcement in the routing table. We don't need to route to us,
-            // but we will need to propagate this information on handshake.
-            self.routing_table.me = Some(announce_account.clone());
-
             // Check that this announcement doesn't contain any other hop.
             // We must avoid cycle in the routes.
             if announce_account.num_hops() == 0 {
+                // Store our announcement in the routing table. We don't need to route to us,
+                // but we will need to propagate this information on handshake.
+                self.routing_table.me = Some(announce_account.clone());
+
                 let msg = SendMessage { message: PeerMessage::AnnounceAccount(announce_account) };
                 self.broadcast_message(ctx, msg);
             }
