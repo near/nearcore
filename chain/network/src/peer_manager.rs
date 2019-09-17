@@ -163,6 +163,7 @@ impl RoutingTableEntry {
 
 #[derive(Debug, Clone)]
 pub struct RoutingTable {
+    pub me: Option<AnnounceAccount>,
     pub account_peers: HashMap<AccountId, RoutingTableEntry>,
     last_purge: Instant,
     ttl_account_id_router: Duration,
@@ -173,6 +174,7 @@ pub struct RoutingTable {
 impl RoutingTable {
     fn new(ttl_account_id_router: Duration, max_routes_to_save: usize) -> Self {
         Self {
+            me: None,
             account_peers: HashMap::new(),
             last_purge: Instant::now(),
             ttl_account_id_router,
@@ -313,6 +315,15 @@ impl PeerManagerActor {
             }
             actix::spawn(
                 addr.send(SendMessage { message: PeerMessage::AnnounceAccount(announcement) })
+                    .map_err(|e| error!(target: "network", "{}", e))
+                    .map(|_| ()),
+            );
+        }
+
+        // Send information from myself, in case it exists.
+        if let Some(my_announcement) = self.routing_table.me.clone() {
+            actix::spawn(
+                addr.send(SendMessage { message: PeerMessage::AnnounceAccount(my_announcement) })
                     .map_err(|e| error!(target: "network", "{}", e))
                     .map(|_| ()),
             );
@@ -528,6 +539,10 @@ impl PeerManagerActor {
     fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
         // If this is an announcement from our account id.
         if announce_account.original_peer_id() == self.peer_id {
+            // Store our announcement in the routing table. We don't need to route to us,
+            // but we will need to propagate this information on handshake.
+            self.routing_table.me = Some(announce_account.clone());
+
             // Check that this announcement doesn't contain any other hop.
             // We must avoid cycle in the routes.
             if announce_account.num_hops() == 0 {
