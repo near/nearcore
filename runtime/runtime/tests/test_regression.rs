@@ -28,11 +28,13 @@ use std::sync::Arc;
 use std::time::Instant;
 use tempdir::TempDir;
 
+const DISPLAY_PROGRESS_BAR: bool = false;
+
 // We are sending one transaction from each account, so the following should be true:
 // NUM_ACCOUNTS >= BLOCK_SIZE * NUM_BLOCKS
 const NUM_ACCOUNTS: usize = 100_000;
 const BLOCK_SIZE: usize = 1000;
-const NUM_BLOCKS: usize = 100;
+const NUM_BLOCKS: usize = 10;
 
 // How many storage read/writes tiny contract will do.
 const KV_PER_CONTRACT: usize = 10;
@@ -105,7 +107,7 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             records.push(account_record);
             let access_key_record = StateRecord::AccessKey {
                 account_id: account_id.clone(),
-                public_key: signer.public_key.into(),
+                public_key: signer.public_key.clone().into(),
                 access_key: AccessKey::full_access().into(),
             };
             set_access_key(
@@ -175,7 +177,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             .expect("Genesis state update failed");
         store_update.commit().unwrap();
         runtime.root = root;
-        bar.inc(1);
+        if DISPLAY_PROGRESS_BAR {
+            bar.inc(1);
+        }
     }
     bar.finish();
     transactions.shuffle(&mut rng);
@@ -211,7 +215,9 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
             bar.println(format!("{}ms per block", prev_block.elapsed().as_millis()));
         }
         prev_block = Some(Instant::now());
-        bar.inc(1);
+        if DISPLAY_PROGRESS_BAR {
+            bar.inc(1);
+        }
         bar.set_message(
             format!("avg tps: {} failed_transactions: {}", avg_tps, failed_transactions).as_str(),
         );
