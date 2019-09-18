@@ -49,6 +49,6 @@ Some parameters, like tps, number of accounts to create for loadtest network con
 `loadtester run --help` and `loadtester create_genesis --help`.
 
 ## Further work
-[ ] run loadtester with different kind of txns. currently only `set` is fixed. `loadtester run --help` gives other two kinds of txns, fixing them is working in progress.
-[ ] run loadtester from multi node to generate a higher load for remote net.
-[ ] (half done) exposing peer node information from nearcore, so you can specify only one address to post transaction to all public facing nodes.
+- [ ] run loadtester with different kind of txns. currently only `set` is fixed. `loadtester run --help` gives other two kinds of txns, fixing them is working in progress.
+- [ ] run loadtester from multi node to generate a higher load for remote net.
+- [ ] (half done) exposing peer node information from nearcore, so you can specify only one address to post transaction to all public facing nodes.
