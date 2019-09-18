@@ -24,15 +24,15 @@ impl RewardCalculator {
         let mut res = HashMap::new();
         let num_validators = validator_online_ratio.len();
         let max_inflation =
-            self.max_inflation_rate as u128 * total_supply * self.epoch_length as u128
-                / (100 * self.num_blocks_per_year as u128);
+            u128::from(self.max_inflation_rate) * total_supply * u128::from(self.epoch_length)
+                / (100 * u128::from(self.num_blocks_per_year));
         // TODO(#1281): correctly calculate total fees
-        let total_tx_fee = gas_price * total_gas_used as u128;
+        let total_tx_fee = gas_price * u128::from(total_gas_used);
         let inflation = if max_inflation > total_tx_fee { max_inflation - total_tx_fee } else { 0 };
         let epoch_total_reward =
-            max(max_inflation, self.validator_reward_percentage as u128 * total_tx_fee / 100);
+            max(max_inflation, u128::from(self.validator_reward_percentage) * total_tx_fee / 100);
         let epoch_protocol_treasury =
-            epoch_total_reward * self.protocol_reward_percentage as u128 / 100;
+            epoch_total_reward * u128::from(self.protocol_reward_percentage) / 100;
         res.insert(self.protocol_treasury_account.clone(), epoch_protocol_treasury);
         if num_validators == 0 {
             return (res, inflation);
@@ -43,7 +43,8 @@ impl RewardCalculator {
             let reward = if expected_num_blocks == 0 {
                 0
             } else {
-                epoch_per_validator_reward * num_blocks as u128 / expected_num_blocks as u128
+                epoch_per_validator_reward * u128::from(num_blocks)
+                    / u128::from(expected_num_blocks)
             };
             res.insert(account_id, reward);
         }

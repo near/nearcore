@@ -82,7 +82,8 @@ pub struct ApplyTransactionResult {
     pub transaction_results: Vec<TransactionLog>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub gas_used: Gas,
+    pub total_gas_burnt: Gas,
+    pub total_rent_paid: Balance,
     pub proof: Option<PartialStorage>,
 }
 

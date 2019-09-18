@@ -21,6 +21,7 @@ pub mod update;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
+#[allow(dead_code)]
 pub struct PartialStorage {
     nodes: Vec<(CryptoHash, Vec<u8>)>,
 }
@@ -340,6 +341,7 @@ impl TrieStorage for TrieRecordingStorage {
     }
 }
 
+#[allow(dead_code)]
 pub struct TrieMemoryPartialStorage {
     recorded_storage: HashMap<CryptoHash, Vec<u8>>,
 }
@@ -407,21 +409,18 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Vec<u8>, StorageError> {
-        let result = {
-            let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
-            if let Some(val) = (*guard).cache_get(hash) {
-                Self::vec_to_bytes(val)
-            } else {
-                let val = self
-                    .store
-                    .get(COL_STATE, hash.as_ref())
-                    .map_err(|_| StorageError::StorageInternalError)?;
-                let raw_node = Self::vec_to_bytes(&val);
-                (*guard).cache_set(*hash, val);
-                raw_node
-            }
-        };
-        result
+        let mut guard = self.cache.lock().expect(POISONED_LOCK_ERR);
+        if let Some(val) = (*guard).cache_get(hash) {
+            Self::vec_to_bytes(val)
+        } else {
+            let val = self
+                .store
+                .get(COL_STATE, hash.as_ref())
+                .map_err(|_| StorageError::StorageInternalError)?;
+            let raw_node = Self::vec_to_bytes(&val);
+            (*guard).cache_set(*hash, val);
+            raw_node
+        }
     }
 
     fn as_caching_storage(&self) -> Option<&TrieCachingStorage> {
@@ -591,6 +590,7 @@ impl Trie {
         Some(PartialStorage { nodes })
     }
 
+    #[allow(dead_code)]
     fn from_recorded_storage(partial_storage: PartialStorage) -> Self {
         let map = partial_storage.nodes.into_iter().collect();
         Trie { storage: Box::new(TrieMemoryPartialStorage { recorded_storage: map }) }
@@ -615,9 +615,10 @@ impl Trie {
                         .1 -= 1;
                     Ok(result)
                 }
-                Err(_) => Err(StorageError::StorageInconsistentState(
-                    format!("Failed to decode node {}", hash).into(),
-                )),
+                Err(_) => Err(StorageError::StorageInconsistentState(format!(
+                    "Failed to decode node {}",
+                    hash
+                ))),
             }
         }
     }
@@ -1232,7 +1233,7 @@ impl<'a> TrieIterator<'a> {
         };
         let node = trie.retrieve_node(root)?;
         r.descend_into_node(&node);
-        return Ok(r);
+        Ok(r)
     }
 
     /// Position the iterator on the first element with key => `key`.

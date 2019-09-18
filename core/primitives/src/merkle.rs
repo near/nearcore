@@ -34,7 +34,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             if i < arr.len() as u32 {
                 hash(&arr[i as usize].try_to_vec().expect("Failed to serialize"))
             } else {
-                hash(&vec![0])
+                hash(&[0])
             }
         })
         .collect();
