@@ -159,9 +159,8 @@ def create_payment_action(amount):
     action.transfer = transfer
     return action
 
-def sign_payment_tx(validator, to, amount, nonce, blockHash):
+def sign_payment_tx(account, to, amount, nonce, blockHash):
     action = create_payment_action(amount)
-    account = validator.account
     return sign_and_serialize_transaction(to, nonce, [action], blockHash, account.account_id, account.decoded_pk(), account.decoded_sk())
 
 

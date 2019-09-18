@@ -1053,7 +1053,7 @@ impl ClientActor {
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
 
-        debug!("Producing block at height {}, I'm {:?}", next_height, block_producer.account_id);
+        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -1396,10 +1396,10 @@ impl ClientActor {
                     // TODO(MarX): How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
 
-                    debug!(
-                        "Routing a transaction. I'm {:?}, {}",
-                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id
+                    debug!(target: "client",
+                           "{:?} Routing a transaction. {}",
+                            self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                            shard_id
                     );
 
                     let validator = unwrap_or_return!(
@@ -1418,7 +1418,7 @@ impl ClientActor {
                 }
             }
             Err(err) => {
-                debug!("Invalid transaction: {:?}", err);
+                debug!(target: "client", "Invalid transaction: {:?}", err);
                 NetworkClientResponses::InvalidTx(err.to_string())
             }
         }

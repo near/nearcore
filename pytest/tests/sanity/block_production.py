@@ -12,7 +12,7 @@ from cluster import start_cluster
 TIMEOUT = 150
 BLOCKS = 50
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '/home/alex/src/nearcore/target/debug/'}, [["epoch_length", 10]])
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10]])
 
 started = time.time()
 

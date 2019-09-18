@@ -12,7 +12,7 @@ from transaction import sign_payment_tx
 
 TIMEOUT = 20
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '/home/alex/src/nearcore/target/debug/'}, [["epoch_length", 10]])
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10]])
 
 started = time.time()
 
@@ -31,7 +31,7 @@ while True:
 
     if not sent_tx:
         if height >= 1:
-            tx = sign_payment_tx(nodes[0], 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
+            tx = sign_payment_tx(nodes[0].account, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
             sent_tx = True
             print(nodes[3].send_tx(tx))
             sent_height = height
