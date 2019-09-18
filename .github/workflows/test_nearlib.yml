@@ -1,0 +1,26 @@
+name: test_nearlib
+
+on:
+  push:
+    branches:
+    - master
+    - staging
+  pull_request:
+    branches:
+    - master
+    - staging
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: show some env
+      run: cat echo ${GITHUB_WORKSPACE}___${GITHUB_REF}
+    - uses: actions/setup-node@v1
+      with:
+        node-version: 12.x
+    - name: test nearlib
+      run: ./scripts/test_nearlib.sh
