@@ -38,8 +38,7 @@ impl StandaloneRuntime {
         self.signer.account_id.clone()
     }
 
-    pub fn new(signer: InMemorySigner, state_records: &[StateRecord]) -> Self {
-        let trie = create_trie();
+    pub fn new(signer: InMemorySigner, state_records: &[StateRecord], trie: Arc<Trie>) -> Self {
         let ethash_dir =
             TempDir::new(format!("ethash_dir_{}", signer.account_id).as_str()).unwrap();
         let ethash_provider =
@@ -65,12 +64,12 @@ impl StandaloneRuntime {
 
     pub fn process_block(
         &mut self,
-        receipts: Vec<Receipt>,
-        transactions: Vec<SignedTransaction>,
+        receipts: &[Receipt],
+        transactions: &[SignedTransaction],
     ) -> (Vec<Receipt>, Vec<TransactionLog>) {
         let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         let apply_result =
-            self.runtime.apply(state_update, &self.apply_state, &receipts, &transactions).unwrap();
+            self.runtime.apply(state_update, &self.apply_state, receipts, transactions).unwrap();
 
         let (store_update, root) = apply_result.trie_changes.into(self.trie.clone()).unwrap();
         self.root = root;
@@ -115,7 +114,8 @@ impl RuntimeGroup {
 
         for signer in signers {
             res.mailboxes.0.lock().unwrap().insert(signer.account_id.clone(), Default::default());
-            let runtime = Arc::new(Mutex::new(StandaloneRuntime::new(signer, &state_records)));
+            let runtime =
+                Arc::new(Mutex::new(StandaloneRuntime::new(signer, &state_records, create_trie())));
             res.runtimes.push(runtime);
         }
         Arc::new(res)
@@ -214,10 +214,12 @@ impl RuntimeGroup {
                 .or_insert_with(Vec::new)
                 .extend(mailbox.incoming_transactions.clone());
 
-            let (new_receipts, transaction_results) = runtime.lock().unwrap().process_block(
-                mailbox.incoming_receipts.drain(..).collect(),
-                mailbox.incoming_transactions.drain(..).collect(),
-            );
+            let (new_receipts, transaction_results) = runtime
+                .lock()
+                .unwrap()
+                .process_block(&mailbox.incoming_receipts, &mailbox.incoming_transactions);
+            mailbox.incoming_receipts.clear();
+            mailbox.incoming_transactions.clear();
             group.transaction_logs.lock().unwrap().extend(transaction_results);
             for new_receipt in new_receipts {
                 let locked_other_mailbox = mailboxes.get_mut(&new_receipt.receiver_id).unwrap();

@@ -862,7 +862,7 @@ impl Runtime {
         })
     }
 
-    fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
+    pub fn compute_storage_usage(&self, records: &[StateRecord]) -> HashMap<AccountId, u64> {
         let mut result = HashMap::new();
         let config = RuntimeFeesConfig::default().storage_usage_config;
         for record in records {
