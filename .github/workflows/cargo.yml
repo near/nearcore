@@ -1,0 +1,24 @@
+# Test all but expensive integration tests.
+name: Cargo
+
+on:
+  push:
+    branches:
+    - master
+    - staging
+  pull_request:
+    branches:
+    - master
+    - staging
+
+jobs:
+  build:
+
+    runs-on: ubuntu-18.04
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Check
+      run: cargo check --all --tests --benches
+    - name: Run tests
+      run: cargo test --all --verbose
