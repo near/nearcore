@@ -17,8 +17,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v1
-    - name: show some env
-      run: cat echo ${GITHUB_WORKSPACE}___${GITHUB_REF}
     - uses: actions/setup-node@v1
       with:
         node-version: 12.x
