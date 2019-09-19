@@ -193,7 +193,7 @@ impl ChainStore {
         shard_id: ShardId,
         last_included_height: BlockIndex,
     ) -> Result<ReceiptResponse, Error> {
-        let mut receipts_block_hash = prev_block_hash.clone();
+        let mut receipts_block_hash = prev_block_hash;
         loop {
             let block_header = self.get_block_header(&receipts_block_hash)?;
 
@@ -207,7 +207,7 @@ impl ChainStore {
                 };
                 return Ok(ReceiptResponse(receipts_block_hash, receipts));
             } else {
-                receipts_block_hash = block_header.inner.prev_hash.clone();
+                receipts_block_hash = block_header.inner.prev_hash;
             }
         }
     }
@@ -283,6 +283,7 @@ impl ChainStoreAccess for ChainStore {
         }
     }
 
+  
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
@@ -486,7 +487,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
     /// and chain_store don't have access to them until they become committed.
     /// Make sure you're doing it right.
     pub fn get_chain_store(&mut self) -> &mut T {
-        return self.chain_store;
+        self.chain_store
     }
 }
 
@@ -560,7 +561,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&ChunkExtra, Error> {
-        if let Some(chunk_extra) = self.chunk_extras.get(&(block_hash.clone(), shard_id)) {
+        if let Some(chunk_extra) = self.chunk_extras.get(&(*block_hash, shard_id)) {
             Ok(chunk_extra)
         } else {
             self.chain_store.get_chunk_extra(block_hash, shard_id)
@@ -670,7 +671,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             for height in (header_height + 1)..prev_height {
                 self.block_index.insert(height, None);
             }
-            match self.get_block_hash_by_height(header_height).map(|h| h.clone()) {
+            match self.get_block_hash_by_height(header_height) {
                 Ok(cur_hash) if cur_hash == header_hash => {
                     // Found common ancestor.
                     return Ok(());
@@ -721,7 +722,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         shard_id: ShardId,
         chunk_extra: ChunkExtra,
     ) {
-        self.chunk_extras.insert((block_hash.clone(), shard_id), chunk_extra);
+        self.chunk_extras.insert((*block_hash, shard_id), chunk_extra);
     }
 
     pub fn delete_block(&mut self, hash: &CryptoHash) {
@@ -897,7 +898,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             affected_catchup_blocks.insert(prev_hash);
 
             let mut prev_table =
-                self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or(vec![]);
+                self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
             prev_table.push(new_hash);
             store_update.set_ser(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref(), &prev_table)?;
         }

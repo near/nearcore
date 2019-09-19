@@ -160,13 +160,7 @@ fn display_sync_status(sync_status: &SyncStatus, head: &Tip) -> String {
                         "{}: {}",
                         shard_id,
                         match shard_status {
-                            ShardSyncStatus::StateDownload {
-                                start_time: _,
-                                prev_update_time: _,
-                                prev_downloaded_size: _,
-                                downloaded_size: _,
-                                total_size: _,
-                            } => format!("download"),
+                            ShardSyncStatus::StateDownload { .. } => format!("download"),
                             ShardSyncStatus::StateValidation => format!("validation"),
                             ShardSyncStatus::StateDone => format!("done"),
                             ShardSyncStatus::Error(error) => format!("error {}", error),

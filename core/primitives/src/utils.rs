@@ -190,13 +190,26 @@ impl<T: fmt::Display> From<Option<T>> for DisplayOption<T> {
 
 /// Macro to either return value if the result is Ok, or exit function logging error.
 #[macro_export]
-macro_rules! unwrap_or_return(($obj: expr, $ret: expr) => (match $obj {
-    Ok(value) => value,
-    Err(err) => {
-        error!(target: "client", "Unwrap error: {}", err);
-        return $ret;
-    }
-}));
+macro_rules! unwrap_or_return {
+    ($obj: expr, $ret: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return $ret;
+            }
+        }
+    };
+    ($obj: expr) => {
+        match $obj {
+            Ok(value) => value,
+            Err(err) => {
+                error!(target: "client", "Unwrap error: {}", err);
+                return;
+            }
+        }
+    };
+}
 
 /// Converts timestamp in ns into DateTime UTC time.
 pub fn from_timestamp(timestamp: u64) -> DateTime<Utc> {

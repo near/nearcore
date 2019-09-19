@@ -117,7 +117,7 @@ macro_rules! http_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_http_get(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_http_get(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }
@@ -154,7 +154,7 @@ macro_rules! jsonrpc_client {
                 {
                     let method = String::from(stringify!($method));
                     let params = expand_params!($($arg_name,)*);
-                    call_method(&mut $selff.client, &$selff.server_addr, &method, params)
+                    call_method(&$selff.client, &$selff.server_addr, &method, params)
                 }
             )*
         }

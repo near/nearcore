@@ -752,7 +752,7 @@ impl ClientActor {
         }
 
         let epoch_start_height =
-            unwrap_or_return!(self.runtime_adapter.get_epoch_start_height(&prev_block_hash), ());
+            unwrap_or_return!(self.runtime_adapter.get_epoch_start_height(&prev_block_hash));
 
         debug!(target: "client", "Check announce account for {}, epoch start height: {}, {:?}", block_producer.account_id, epoch_start_height, self.last_validator_announce_height);
 
@@ -764,10 +764,9 @@ impl ClientActor {
         }
 
         // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(
-            self.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
-            ()
-        );
+        let next_epoch_id = unwrap_or_return!(self
+            .runtime_adapter
+            .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
         if let Ok(validators) =
@@ -784,7 +783,7 @@ impl ClientActor {
                         .send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
                             block_producer.account_id.clone(),
                             next_epoch_id,
-                            self.node_id,
+                            self.node_id.clone(),
                             hash,
                             signature,
                         )))
@@ -1068,6 +1067,8 @@ impl ClientActor {
         let prev = self.chain.get_block_header(&head.last_block_hash)?;
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
+
+        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
 
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
@@ -1399,7 +1400,7 @@ impl ClientActor {
                 // If I'm not an active validator I should forward tx to next validators.
                 if active_validator {
                     debug!(
-                        "MOO recording a transaction. I'm {:?}, {}",
+                        "Recording a transaction. I'm {:?}, {}",
                         self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id
                     );
@@ -1409,6 +1410,12 @@ impl ClientActor {
                     // TODO(MarX): Forward tx even if I am a validator.
                     // TODO(MarX): How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
+
+                    debug!(target: "client",
+                           "{:?} Routing a transaction. {}",
+                            self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                            shard_id
+                    );
 
                     let validator = unwrap_or_return!(
                         self.runtime_adapter.get_chunk_producer(
@@ -1425,7 +1432,10 @@ impl ClientActor {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => NetworkClientResponses::InvalidTx(err.to_string()),
+            Err(err) => {
+                debug!(target: "client", "Invalid transaction: {:?}", err);
+                NetworkClientResponses::InvalidTx(err.to_string())
+            }
         }
     }
 
@@ -1764,10 +1774,9 @@ impl ClientActor {
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.config.log_summary_period, move |act, ctx| {
-            let head = unwrap_or_return!(act.chain.head(), ());
+            let head = unwrap_or_return!(act.chain.head());
             let validators = unwrap_or_return!(
-                act.get_epoch_block_proposers(&head.epoch_id, &head.last_block_hash),
-                ()
+                act.get_epoch_block_proposers(&head.epoch_id, &head.last_block_hash)
             );
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.block_producer {
@@ -1814,7 +1823,7 @@ impl ClientActor {
                 }
                 let mut entry =
                     self.pending_approvals.cache_remove(hash).unwrap_or_else(|| HashMap::new());
-                entry.insert(account_id.clone(), (signature.clone(), *peer_id));
+                entry.insert(account_id.clone(), (signature.clone(), peer_id.clone()));
                 self.pending_approvals.cache_set(*hash, entry);
                 return true;
             }

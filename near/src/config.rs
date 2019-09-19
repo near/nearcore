@@ -449,7 +449,7 @@ impl GenesisConfig {
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: signer.public_key.into(),
+                    public_key: (&signer.public_key).into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
@@ -680,7 +680,7 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: signer.public_key.into(),
+                    public_key: (&signer.public_key).into(),
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
