@@ -145,7 +145,7 @@ export function callPromise(args: PromiseArgs): void {
   let promise = ContractPromise.create(
       args.receiver,
       args.methodName,
-      inputArgs.encode().serialize(),
+      inputArgs.encode(),
       args.gas,
       new u128(args.balance));
   if (args.callback) {
@@ -155,12 +155,40 @@ export function callPromise(args: PromiseArgs): void {
     promise = promise.then(
         context.contractName,
         args.callback,
-        inputArgs.encode().serialize(),
+        inputArgs.encode(),
         args.callbackGas,
         new u128(callbackBalance)
     );
   }
   promise.returnAsResult();
+}
+
+export function callPromiseAll(args: PromiseArgs): void {
+  let inputArgs: InputPromiseArgs = { args: args.args };
+  let balance = args.balance as u64;
+
+  let promise = ContractPromise.create(
+      args.receiver,
+      args.methodName,
+      inputArgs.encode(),
+      args.gas,
+      new u128(args.balance));
+
+   let promise2 = ContractPromise.create(
+      args.receiver,
+      args.methodName,
+      inputArgs.encode(),
+      args.gas,
+      new u128(args.balance));
+
+  promise = ContractPromise.all([promise, promise2]);
+
+  promise = promise.then(
+      context.contractName,
+      args.callback,
+      inputArgs.encode(),
+      args.callbackGas,
+      new u128(args.callbackBalance as u64));
 }
 
 export function callbackWithName(args: PromiseArgs): MyCallbackResult {
@@ -170,18 +198,18 @@ export function callbackWithName(args: PromiseArgs): MyCallbackResult {
     allRes[i] = new MyContractPromiseResult();
     allRes[i].ok = (contractResults[i].status == 1);
     if (allRes[i].ok && contractResults[i].buffer != null && contractResults[i].buffer.length > 0) {
-      allRes[i].r = MyCallbackResult.decode(contractResults[i].buffer);
+      allRes[i].r = decode<MyCallbackResult>(contractResults[i].buffer);
     }
   }
   let result: MyCallbackResult = {
     rs: allRes,
     n: context.contractName,
   };
-  let bytes = result.encode().serialize();
+  let bytes = result.encode();
   storage.setBytes("lastResult", bytes);
   return result;
 }
 
 export function getLastResult(): MyCallbackResult {
-  return MyCallbackResult.decode(storage.getBytes("lastResult"));
+  return decode<MyCallbackResult>(storage.getBytes("lastResult"));
 }
