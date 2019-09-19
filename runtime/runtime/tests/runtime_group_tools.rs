@@ -57,6 +57,7 @@ impl StandaloneRuntime {
             // Epoch length is long enough to avoid corner cases.
             epoch_length: 4,
             gas_price: 1,
+            block_timestamp: 0,
         };
 
         Self { ethash_dir, apply_state, runtime, trie, signer, root }

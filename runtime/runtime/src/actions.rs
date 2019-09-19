@@ -142,6 +142,7 @@ pub(crate) fn action_function_call(
         predecessor_account_id: receipt.predecessor_id.clone(),
         input: function_call.args.clone(),
         block_index: apply_state.block_index,
+        block_timestamp: apply_state.block_timestamp,
         account_balance: account.amount,
         storage_usage: account.storage_usage,
         attached_deposit: function_call.deposit,

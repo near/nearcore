@@ -8,6 +8,7 @@ pub fn get_context(input: Vec<u8>) -> VMContext {
         predecessor_account_id: "carol.near".to_string(),
         input,
         block_index: 0,
+        block_timestamp: 0,
         account_balance: 100,
         storage_usage: 0,
         attached_deposit: 10,

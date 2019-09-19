@@ -45,6 +45,7 @@ wrapped_imports! {
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
     block_index<[] -> [u64]>,
+    timestamp<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #

@@ -47,6 +47,7 @@ fn create_context(input: &[u64]) -> VMContext {
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
         input,
         block_index: 0,
+        block_timestamp: 0,
         account_balance: 0,
         storage_usage: 0,
         attached_deposit: 0,

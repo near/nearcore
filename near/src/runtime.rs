@@ -422,8 +422,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp: 0u64,
+        };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
             &mut state_update,
@@ -444,8 +448,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp: 0u64,
+        };
         transactions
             .into_iter()
             .filter(|transaction| {
@@ -501,6 +509,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -536,8 +545,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
         }
 
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
 
         let apply_result = self
             .runtime
@@ -814,6 +827,7 @@ mod test {
             state_root: &CryptoHash,
             shard_id: ShardId,
             block_index: BlockIndex,
+            block_timestamp: u64,
             prev_block_hash: &CryptoHash,
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
@@ -825,6 +839,7 @@ mod test {
                     shard_id,
                     &state_root,
                     block_index,
+                    block_timestamp,
                     prev_block_hash,
                     block_hash,
                     receipts,
@@ -916,6 +931,7 @@ mod test {
                     &self.state_roots[i as usize],
                     i,
                     self.head.height + 1,
+                    0,
                     &self.head.last_block_hash,
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),

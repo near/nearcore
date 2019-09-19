@@ -116,6 +116,7 @@ impl TrieViewer {
                 predecessor_account_id: originator_id.clone(),
                 input: args.to_owned(),
                 block_index,
+                block_timestamp: 0,
                 account_balance: account.amount,
                 storage_usage: account.storage_usage,
                 attached_deposit: 0,

@@ -438,6 +438,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
+        _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
