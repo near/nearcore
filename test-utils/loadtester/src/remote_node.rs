@@ -26,6 +26,7 @@ pub const MAX_BLOCKS_FETCH: u64 = 1;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 const VALUE_NOT_NUM_ERR: &str = "Value is not number";
+const TXN_NOT_COMPLETED: &str = "Transaction is not completed";
 
 /// Maximum number of times we retry a single RPC.
 const MAX_RETRIES_PER_RPC: usize = 10;
@@ -195,7 +196,6 @@ impl RemoteNode {
 
     /// Sends transactions using `broadcast_tx_sync` using blocking code. Return hash of
     /// the transaction.
-    /// Not working
     pub fn add_transaction(
         &self,
         transaction: SignedTransaction,
@@ -208,19 +208,27 @@ impl RemoteNode {
         );
         let result: serde_json::Value =
             self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
-        Ok(result["result"]["hash"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
+
+        Ok(result["result"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
     }
 
-    /// Returns block height if transaction is committed to a block.
-    /// Not working
-    pub fn transaction_committed(&self, hash: &String) -> Result<u64, Box<dyn std::error::Error>> {
-        let response: serde_json::Value = self
-            .sync_client
-            .post(self.url.as_str())
-            .form(&[("hash", format!("0x{}", hash))])
-            .send()?
-            .json()?;
-        Ok(response["result"]["height"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse()?)
+    /// Returns () if transaction is completed
+    pub fn transaction_committed(&self, hash: &String) -> Result<(), Box<dyn std::error::Error>> {
+        let params = (hash,);
+        let message =
+            Message::request("tx".to_string(), Some(serde_json::to_value(&params).unwrap()));
+
+        let response: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+        // println!("txn_commited: {:#?}", response);
+
+        let status = response["result"]["status"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned();
+        if status == "Completed" {
+            Ok(())
+        } else {
+            println!("status: {}", status);
+            None.ok_or(TXN_NOT_COMPLETED)?
+        }
     }
 
     pub fn get_current_height(&self) -> Result<u64, Box<dyn std::error::Error>> {
