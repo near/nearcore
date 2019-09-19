@@ -27,12 +27,12 @@ use crate::peer::Peer;
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
     pub fn public_key(&self) -> PublicKey {
-        self.0
+        self.0.clone()
     }
 }
 
@@ -59,6 +59,12 @@ impl TryFrom<Vec<u8>> for PeerId {
 impl Hash for PeerId {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0.try_to_vec().unwrap());
+    }
+}
+
+impl PartialEq for PeerId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
     }
 }
 
@@ -108,7 +114,7 @@ impl TryFrom<&str> for PeerInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let chunks: Vec<_> = s.split("@").collect();
+        let chunks: Vec<_> = s.split('@').collect();
         if chunks.len() != 2 {
             return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
         }
@@ -219,6 +225,8 @@ pub enum HandshakeFailureReason {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
@@ -316,6 +324,8 @@ impl Message for RoutedMessage {
 // TODO(MarX): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
@@ -542,6 +552,8 @@ pub struct Ban {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
@@ -624,6 +636,8 @@ pub struct StateResponseInfo {
 }
 
 #[derive(Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
@@ -658,6 +672,8 @@ pub enum NetworkClientMessages {
     ChunkOnePart(ChunkOnePart),
 }
 
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// No response.
     NoResponse,

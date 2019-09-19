@@ -123,7 +123,7 @@ mod tests {
                                     account_to,
                                     111,
                                     1,
-                                    block.header.hash,
+                                    block.header.inner.prev_hash,
                                 );
                                 *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
                             }
@@ -216,9 +216,26 @@ mod tests {
         WaitingForSixEpoch,
     }
 
-    /// Test test
+    /// Verifies that fetching of random parts works properly by issuing transactions during the
+    /// third epoch, and then making sure that the balances are correct for the next three epochs.
+    /// If random one parts fetched during the epoch preceding the epoch a block producer is
+    /// assigned to were to have incorrect receipts, the balances in the fourth epoch would have
+    /// been incorrect due to wrong receipts applied during the third epoch.
     #[test]
     fn test_catchup_random_single_part_sync() {
+        test_catchup_random_single_part_sync_common(false)
+    }
+
+    // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 14 and 15
+    // It causes all the receipts to be applied only on height 16, which is the next epoch.
+    // It tests that the incoming receipts are property synced through epochs
+    #[test]
+    #[ignore]
+    fn test_catchup_random_single_part_sync_skip_15() {
+        test_catchup_random_single_part_sync_common(true)
+    }
+
+    fn test_catchup_random_single_part_sync_common(skip_15: bool) {
         let validator_groups = 2;
         init_integration_logger();
         System::run(move || {
@@ -288,7 +305,7 @@ mod tests {
                                                     validator2.to_string(),
                                                     (((i + j + 17) * 701) % 42 + 1) as u128,
                                                     (12345 + tx_count) as u64,
-                                                    block.header.hash,
+                                                    block.header.inner.prev_hash,
                                                 );
                                             }
                                             tx_count += 1;
@@ -377,6 +394,13 @@ mod tests {
                                     seen_heights_same_block
                                         .insert(header_and_part.header.inner.prev_block_hash);
                                 }
+                                if skip_15 {
+                                    if header_and_part.header.inner.height_created == 14
+                                        || header_and_part.header.inner.height_created == 15
+                                    {
+                                        return (NetworkResponses::NoResponse, false);
+                                    }
+                                }
                             }
                         }
                     };
@@ -421,7 +445,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                200,
+                400,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     if let NetworkRequests::Block { block } = msg {
                         check_height(block.hash(), block.header.inner.height);

@@ -10,6 +10,7 @@ pub use crate::types::Error;
 pub mod types;
 
 /// Transaction pool: keeps track of transactions that were not yet accepted into the block chain.
+#[derive(Default)]
 pub struct TransactionPool {
     num_transactions: usize,
     /// Transactions grouped by account and ordered by nonce.
@@ -17,10 +18,6 @@ pub struct TransactionPool {
 }
 
 impl TransactionPool {
-    pub fn new() -> Self {
-        TransactionPool { num_transactions: 0, transactions: HashMap::default() }
-    }
-
     /// Insert a valid transaction into the pool that passed validation.
     pub fn insert_transaction(&mut self, valid_transaction: ValidTransaction) {
         let signer_id = valid_transaction.transaction.transaction.signer_id.clone();
@@ -78,6 +75,10 @@ impl TransactionPool {
     pub fn len(&self) -> usize {
         self.num_transactions
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.num_transactions == 0
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +114,7 @@ mod tests {
                 )
             })
             .collect();
-        let mut pool = TransactionPool::new();
+        let mut pool = TransactionPool::default();
         let mut rng = thread_rng();
         transactions.shuffle(&mut rng);
         for tx in transactions {

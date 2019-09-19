@@ -62,7 +62,7 @@ impl RoutingTable {
     /// Returns a bool indicating whether this is a new entry or not.
     /// Note: There is at most on peer id per account id.
     pub fn add_account(&mut self, account_id: AccountId, peer_id: PeerId) -> bool {
-        self.add_peer(peer_id);
+        self.add_peer(peer_id.clone());
 
         match self.account_peers.entry(account_id) {
             Entry::Occupied(_) => false,
@@ -74,8 +74,8 @@ impl RoutingTable {
     }
 
     pub fn add_connection(&mut self, peer0: PeerId, peer1: PeerId) {
-        self.add_peer(peer0);
-        self.add_peer(peer1);
+        self.add_peer(peer0.clone());
+        self.add_peer(peer1.clone());
         self.raw_graph.add_edge(peer0, peer1);
         // TODO(MarX): Don't recalculate all the time
         self.peer_forwarding = self.raw_graph.calculate_distance();
@@ -88,11 +88,11 @@ impl RoutingTable {
     }
 
     pub fn register_neighbor(&mut self, peer: PeerId) {
-        self.add_connection(self.raw_graph.source, peer);
+        self.add_connection(self.raw_graph.source.clone(), peer);
     }
 
     pub fn unregister_neighbor(&mut self, peer: &PeerId) {
-        let source = self.raw_graph.source;
+        let source = self.raw_graph.source.clone();
         self.remove_connection(&source, &peer);
     }
 

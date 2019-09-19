@@ -11,6 +11,7 @@ pub struct Codec {
     max_length: u32,
 }
 
+#[allow(clippy::new_without_default)]
 impl Codec {
     pub fn new() -> Self {
         Codec { max_length: std::u32::MAX }

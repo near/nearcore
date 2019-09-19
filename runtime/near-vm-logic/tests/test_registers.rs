@@ -8,11 +8,11 @@ mod fixtures;
 
 #[test]
 fn test_one_register() {
-    let mut ext = MockedExternal::new();
+    let mut ext = MockedExternal::default();
     let context = get_context(vec![]);
     let config = Config::default();
     let promise_results = vec![];
-    let mut memory = MockedMemory::new();
+    let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     logic.write_register(0, &vec![0, 1, 2]).unwrap();
@@ -24,11 +24,11 @@ fn test_one_register() {
 
 #[test]
 fn test_non_existent_register() {
-    let mut ext = MockedExternal::new();
+    let mut ext = MockedExternal::default();
     let context = get_context(vec![]);
     let config = Config::default();
     let promise_results = vec![];
-    let mut memory = MockedMemory::new();
+    let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostError>);
@@ -41,11 +41,11 @@ fn test_non_existent_register() {
 
 #[test]
 fn test_many_registers() {
-    let mut ext = MockedExternal::new();
+    let mut ext = MockedExternal::default();
     let context = get_context(vec![]);
     let config = Config::default();
     let promise_results = vec![];
-    let mut memory = MockedMemory::new();
+    let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
     let max_registers = config.max_number_registers;
@@ -67,11 +67,11 @@ fn test_many_registers() {
 
 #[test]
 fn test_register_is_not_used() {
-    let mut ext = MockedExternal::new();
+    let mut ext = MockedExternal::default();
     let context = get_context(vec![]);
     let config = Config::default();
     let promise_results = vec![];
-    let mut memory = MockedMemory::new();
+    let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     assert_eq!(logic.register_len(0), Ok(std::u64::MAX));
 }

@@ -89,9 +89,9 @@ impl PeerManagerActor {
         let peer_store = PeerStore::new(store, &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
 
-        let me = config.public_key.into();
+        let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
-            peer_id: config.public_key.into(),
+            peer_id: config.public_key.clone().into(),
             config,
             client_addr,
             peer_store,
@@ -121,7 +121,7 @@ impl PeerManagerActor {
         let target = full_peer_info.peer_info.id.clone();
 
         self.active_peers.insert(
-            full_peer_info.peer_info.id,
+            full_peer_info.peer_info.id.clone(),
             ActivePeer {
                 addr: addr.clone(),
                 full_peer_info,
@@ -172,7 +172,7 @@ impl PeerManagerActor {
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
     ) {
-        let peer_id = self.peer_id;
+        let peer_id = self.peer_id.clone();
         let account_id = self.config.account_id.clone();
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
@@ -269,7 +269,7 @@ impl PeerManagerActor {
     /// Periodically query peer actors for latest weight and traffic info.
     fn monitor_peer_stats(&mut self, ctx: &mut Context<Self>) {
         for (peer_id, active_peer) in self.active_peers.iter() {
-            let peer_id1 = *peer_id;
+            let peer_id1 = peer_id.clone();
             active_peer.addr.send(QueryPeerStats {})
                 .into_actor(self)
                 .map_err(|err, _, _| error!("Failed sending message: {}", err))
@@ -300,18 +300,15 @@ impl PeerManagerActor {
     fn monitor_peers(&mut self, ctx: &mut Context<Self>) {
         let mut to_unban = vec![];
         for (peer_id, peer_state) in self.peer_store.iter() {
-            match peer_state.status {
-                KnownPeerStatus::Banned(_, last_banned) => {
-                    let interval = unwrap_or_error!(
-                        (Utc::now() - from_timestamp(last_banned)).to_std(),
-                        "Failed to convert time"
-                    );
-                    if interval > self.config.ban_window {
-                        info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
-                        to_unban.push(peer_id.clone());
-                    }
+            if let KnownPeerStatus::Banned(_, last_banned) = peer_state.status {
+                let interval = unwrap_or_error!(
+                    (Utc::now() - from_timestamp(last_banned)).to_std(),
+                    "Failed to convert time"
+                );
+                if interval > self.config.ban_window {
+                    info!(target: "network", "Monitor peers: unbanned {} after {:?}.", peer_id, interval);
+                    to_unban.push(peer_id.clone());
                 }
-                _ => {}
             }
         }
         for peer_id in to_unban {
@@ -320,7 +317,7 @@ impl PeerManagerActor {
 
         if self.is_outbound_bootstrap_needed() {
             if let Some(peer_info) = self.sample_random_peer(&self.outgoing_peers) {
-                self.outgoing_peers.insert(peer_info.id);
+                self.outgoing_peers.insert(peer_info.id.clone());
                 ctx.notify(OutboundTcpConnect { peer_info });
             } else {
                 self.query_active_peers_for_more_peers(ctx);
@@ -357,7 +354,7 @@ impl PeerManagerActor {
             .spawn(ctx);
     }
 
-    fn announce_account(&mut self, ctx: &mut Context<Self>, mut announce_account: AnnounceAccount) {
+    fn announce_account(&mut self, ctx: &mut Context<Self>, announce_account: AnnounceAccount) {
         if self
             .routing_table
             .add_account(announce_account.account_id.clone(), announce_account.peer_id.clone())
@@ -435,7 +432,7 @@ impl PeerManagerActor {
     }
 
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
-        msg.sign(self.peer_id, &self.config.secret_key)
+        msg.sign(self.peer_id.clone(), &self.config.secret_key)
     }
 }
 
@@ -528,9 +525,8 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                if let Some(_) = self.active_peers.get(&peer_id) {
-                    // TODO: send stop signal to the addr.
-                }
+                // TODO: send stop signal to the addr.
+                // if let Some(_) = self.active_peers.get(&peer_id) {}
                 self.ban_peer(&peer_id, ban_reason);
                 NetworkResponses::NoResponse
             }

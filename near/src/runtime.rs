@@ -552,6 +552,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
+        let total_gas_burnt =
+            apply_result.tx_result.iter().map(|tx_result| tx_result.result.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
@@ -559,7 +561,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             transaction_results: apply_result.tx_result,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
-            gas_used: 0,
+            total_gas_burnt,
+            total_rent_paid: apply_result.total_rent_paid,
             proof: trie.recorded_storage(),
         };
 
