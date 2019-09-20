@@ -8,7 +8,7 @@ use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
-use crate::sharding::ShardChunkHeader;
+use crate::sharding::{ChunkHash, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
@@ -28,6 +28,8 @@ pub struct BlockHeaderInner {
     pub tx_root: MerkleHash,
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
+    /// Root hash of the chunk headers in the given block.
+    pub chunk_headers_root: MerkleHash,
     /// Timestamp at which the block was built.
     pub timestamp: u64,
     /// Approval mask, given current block producers.
@@ -58,6 +60,7 @@ impl BlockHeaderInner {
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
         time: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
@@ -76,6 +79,7 @@ impl BlockHeaderInner {
             prev_state_root,
             tx_root,
             chunk_receipts_root,
+            chunk_headers_root,
             timestamp: to_timestamp(time),
             approval_mask,
             approval_sigs,
@@ -115,6 +119,7 @@ impl BlockHeader {
         prev_state_root: MerkleHash,
         tx_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
         timestamp: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
@@ -135,6 +140,7 @@ impl BlockHeader {
             prev_state_root,
             tx_root,
             chunk_receipts_root,
+            chunk_headers_root,
             timestamp,
             approval_mask,
             approval_sigs,
@@ -153,6 +159,7 @@ impl BlockHeader {
     pub fn genesis(
         state_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
+        chunk_headers_root: MerkleHash,
         timestamp: DateTime<Utc>,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
@@ -165,6 +172,7 @@ impl BlockHeader {
             state_root,
             MerkleHash::default(),
             chunk_receipts_root,
+            chunk_headers_root,
             timestamp,
             vec![],
             vec![],
@@ -233,6 +241,7 @@ impl Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks),
                 timestamp,
                 initial_gas_limit,
                 initial_gas_price,
@@ -301,6 +310,7 @@ impl Block {
                 Block::compute_state_root(&chunks),
                 Block::compute_tx_root(&transactions),
                 Block::compute_chunk_receipts_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks),
                 Utc::now(),
                 approval_mask,
                 approval_sigs,
@@ -339,6 +349,10 @@ impl Block {
                 .collect::<Vec<CryptoHash>>(),
         )
         .0
+    }
+
+    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+        merklize(&chunks.iter().map(|chunk| chunk.hash.clone()).collect::<Vec<ChunkHash>>()).0
     }
 
     pub fn hash(&self) -> CryptoHash {

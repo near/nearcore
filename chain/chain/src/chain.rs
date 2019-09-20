@@ -8,7 +8,7 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path};
+use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
@@ -799,6 +799,7 @@ impl Chain {
     ) -> Result<
         (
             ShardChunk,
+            MerklePath,
             Vec<u8>,
             Vec<SignedTransaction>,
             Vec<ReceiptProofResponse>,
@@ -816,6 +817,7 @@ impl Chain {
         let mut height_included = block.chunks[shard_id as usize].height_included;
         let mut block_transactions;
         let mut chunk;
+        let mut chunk_proof;
 
         if height_included == block_header.inner.height {
             // This means the chunk is applied at height `height_included`.
@@ -829,13 +831,27 @@ impl Chain {
             let actual_height_chunk_header = actual_height_block.chunks[shard_id as usize].clone();
             height_included = actual_height_chunk_header.height_included;
             block_transactions = actual_height_block.transactions.clone();
+            let (chunk_headers_root, chunks_proofs) = merklize(
+                &actual_height_block
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.hash.clone())
+                    .collect::<Vec<ChunkHash>>(),
+            );
+            assert_eq!(chunk_headers_root, actual_height_block.header.inner.chunk_headers_root);
             chunk = self.get_chunk_from_header(&actual_height_chunk_header)?.clone();
+            chunk_proof = chunks_proofs[shard_id as usize].clone();
         } else {
             let chunk_header = block.chunks[shard_id as usize].clone();
             block_transactions = block.transactions.clone();
+            let (chunk_headers_root, chunks_proofs) = merklize(
+                &block.chunks.iter().map(|chunk| chunk.hash.clone()).collect::<Vec<ChunkHash>>(),
+            );
+            assert_eq!(chunk_headers_root, block.header.inner.chunk_headers_root);
             // TODO the chunk may belong to the previous epoch.
             // In this case we have nothing to do for now.
             chunk = self.get_chunk_from_header(&chunk_header)?.clone();
+            chunk_proof = chunks_proofs[shard_id as usize].clone();
         }
         chunk.header.height_included = height_included;
 
@@ -900,6 +916,7 @@ impl Chain {
 
         Ok((
             chunk,
+            chunk_proof,
             prev_payload,
             block_transactions,
             incoming_receipts_proofs,
@@ -914,6 +931,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         chunk: ShardChunk,
+        chunk_proof: MerklePath,
         prev_payload: Vec<u8>,
         block_transactions: Vec<SignedTransaction>,
         incoming_receipts_proofs: Vec<ReceiptProofResponse>,
@@ -954,8 +972,14 @@ impl Chain {
         // Consider chunk itself is valid.
 
         // 3. Checking that chunk `chunk` is included into block at height `height_included`
-        // TODO save chunk hash in block header
         let block_header = self.get_header_by_height(height_included)?.clone();
+        if !verify_path(block_header.inner.chunk_headers_root, &chunk_proof, &chunk.chunk_hash) {
+            assert!(false); // MOO
+            return Err(ErrorKind::Other(
+                "Invalid setting shard state: invalid chunk proof".into(),
+            )
+            .into());
+        }
 
         // 4. Checking block_transactions validity
         if Block::compute_tx_root(&block_transactions) != block_header.inner.tx_root {

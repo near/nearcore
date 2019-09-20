@@ -354,6 +354,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateRequest(shard_id, hash) => {
                 if let Ok((
                     chunk,
+                    chunk_proof,
                     prev_payload,
                     block_transactions,
                     incoming_receipts_proofs,
@@ -368,6 +369,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         shard_id,
                         hash,
                         chunk,
+                        chunk_proof,
                         prev_payload,
                         block_transactions,
                         incoming_receipts_proofs,
@@ -381,6 +383,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 shard_id,
                 hash,
                 chunk,
+                chunk_proof,
                 prev_payload,
                 block_transactions,
                 incoming_receipts_proofs,
@@ -418,6 +421,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         shard_id,
                         hash,
                         chunk,
+                        chunk_proof,
                         prev_payload,
                         block_transactions,
                         incoming_receipts_proofs,

@@ -671,6 +671,7 @@ pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
     pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
     pub prev_payload: Vec<u8>,
     pub block_transactions: Vec<SignedTransaction>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
