@@ -39,88 +39,97 @@ fn configure_logging(log_level: log::LevelFilter) {
 }
 
 fn main() {
-    configure_logging(log::LevelFilter::Debug);
     let version =
         Version { version: crate_version!().to_string(), build: git_version!().to_string() };
     let default_home = get_default_home();
 
     let matches = App::new("NEAR Protocol loadtester")
         .version(format!("{} (build {})", version.version, version.build).as_str())
-        .subcommand(SubCommand::with_name("run").about("Run loadtester")
         .arg(
-            Arg::with_name("accounts")
+            Arg::with_name("v")
+                 .short("v")
+                 .multiple(true)
+                 .help("Sets the level of verbosity"))
+        .subcommand(SubCommand::with_name("run").about("Run loadtester")
+            .arg(
+                Arg::with_name("accounts")
+                    .long("accounts")
+                    .takes_value(true)
+                    .default_value("400")
+                    .help("Number of accounts to use"),
+            )
+            .arg(
+                Arg::with_name("prefix")
+                    .long("prefix")
+                    .takes_value(true)
+                    .default_value("near")
+                    .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
+            )
+            // Will be able to self discover all available rpc endpoint once nearcore expose it.
+            // .arg(
+            //     Arg::with_name("addr")
+            //         .long("addr")
+            //         .takes_value(true)
+            //         .default_value("127.0.0.1:3030")
+            //         .help("Socket address of one of the node in network"),
+            // )
+            .arg(
+                Arg::with_name("addrs")
+                .long("addrs")
+                .takes_value(true)
+                .multiple(true)
+                .help("Socket addresses of nodes to test in network"))
+            .arg(
+                Arg::with_name("tps")
+                    .long("tps")
+                    .takes_value(true)
+                    .default_value("2000")
+                    .help("Transaction per second to generate"))
+            .arg(
+                Arg::with_name("duration")
+                    .long("duration")
+                    .takes_value(true)
+                    .default_value("10")
+                    .help("Duration of load test in seconds"))
+            .arg(
+                Arg::with_name("type")
+                    .long("type")
+                    .takes_value(true)
+                    .default_value("set")
+                    .possible_values(&["set", "send_money", "heavy_storage"])
+                    .help("Transaction type")))
+        .subcommand(SubCommand::with_name("create_genesis").about("Create genesis file of many accounts for launch a network")
+            .arg(
+                Arg::with_name("accounts")
                 .long("accounts")
                 .takes_value(true)
                 .default_value("400")
-                .help("Number of accounts to use"),
-        )
-        .arg(
-            Arg::with_name("prefix")
-                .long("prefix")
+                .help("Number of accounts to create"))
+            .arg(
+                Arg::with_name("validators")
+                .long("validators")
                 .takes_value(true)
-                .default_value("near")
-                .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
-        )
-        // Will be able to self discover all available rpc endpoint once nearcore expose it.
-        // .arg(
-        //     Arg::with_name("addr")
-        //         .long("addr")
-        //         .takes_value(true)
-        //         .default_value("127.0.0.1:3030")
-        //         .help("Socket address of one of the node in network"),
-        // )
-        .arg(
-            Arg::with_name("addrs")
-            .long("addrs")
-            .takes_value(true)
-            .multiple(true)
-            .help("Socket addresses of nodes to test in network")
-        ).arg(
-            Arg::with_name("tps")
-                .long("tps")
-                .takes_value(true)
-                .default_value("2000")
-                .help("Transaction per second to generate"),
-        )
-        .arg(
-            Arg::with_name("duration")
-                .long("duration")
-                .takes_value(true)
-                .default_value("10")
-                .help("Duration of load test in seconds"),
-        )
-        .arg(
-            Arg::with_name("type")
-                .long("type")
-                .takes_value(true)
-                .default_value("set")
-                .possible_values(&["set", "send_money", "heavy_storage"])
-                .help("Transaction type"),
-        ))
-        .subcommand(SubCommand::with_name("create_genesis").about("Create genesis file of many accounts for launch a network")
-        .arg(
-            Arg::with_name("accounts")
-            .long("accounts")
-            .takes_value(true)
-            .default_value("400")
-            .help("Number of accounts to create")
-        ).arg(
-            Arg::with_name("validators")
-            .long("validators")
-            .takes_value(true)
-            .default_value("4")
-            .help("Number of validators to create")
-        ).arg(
-            Arg::with_name("prefix")
-                .long("prefix")
-                .takes_value(true)
-                .default_value("near")
-                .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"),
-        ).arg(Arg::with_name("home")
-        .long("home")
-        .takes_value(true)
-        .default_value(&default_home)))
+                .default_value("4")
+                .help("Number of validators to create"))
+            .arg(
+                Arg::with_name("prefix")
+                    .long("prefix")
+                    .takes_value(true)
+                    .default_value("near")
+                    .help("Prefix the account names (account results in {prefix}.0, {prefix}.1, ...)"))
+            .arg(
+                Arg::with_name("home")
+                    .long("home")
+                    .takes_value(true)
+                    .default_value(&default_home)))
         .get_matches();
+
+    match matches.occurrences_of("v") {
+        0 => configure_logging(log::LevelFilter::Error),
+        1 => configure_logging(log::LevelFilter::Warn),
+        2 => configure_logging(log::LevelFilter::Info),
+        3 | _ => configure_logging(log::LevelFilter::Debug),
+    }
 
     match matches.subcommand() {
         ("create_genesis", Some(args)) => create_genesis(args),
