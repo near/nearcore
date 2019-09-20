@@ -6,7 +6,11 @@ use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 
+use byteorder::ByteOrder;
+use byteorder::LittleEndian;
+
 use crate::remote_node::RemoteNode;
+use std::mem::size_of;
 use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug)]
@@ -24,7 +28,7 @@ impl FromStr for TransactionType {
             "send_money" => Ok(TransactionType::SendMoney),
             "set" => Ok(TransactionType::Set),
             "heavy_storage" => Ok(TransactionType::HeavyStorageBlock),
-            _     => Err("no match")
+            _ => Err("no match"),
         }
     }
 }
@@ -94,18 +98,18 @@ impl Generator {
         };
         let acc_from = signer_from.account_id.clone();
 
-        let key = rand::random::<usize>() % 1_000;
-        let value = rand::random::<usize>() % 1_000;
+        let key = rand::random::<u64>() % 1_000;
+        let value = rand::random::<u64>() % 1_000;
+        let mut args = [0u8; 2 * size_of::<u64>()];
+        LittleEndian::write_u64_into(&[key, value], &mut args);
         SignedTransaction::from_actions(
             nonce,
             acc_from.clone(),
             acc_from,
             signer_from.clone(),
             vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "setKeyValue".to_string(),
-                args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value)
-                    .as_bytes()
-                    .to_vec(),
+                method_name: "write_key_value".to_string(),
+                args: args.to_vec(),
                 gas: 100000,
                 deposit: 1,
             })],
@@ -129,15 +133,18 @@ impl Generator {
         };
         let acc_from = signer_from.account_id.clone();
 
+        let mut args = [0u8; size_of::<u64>()];
+        LittleEndian::write_u64(&mut args, 1000u64);
+
         SignedTransaction::from_actions(
             nonce,
             acc_from.clone(),
             acc_from,
             signer_from.clone(),
             vec![Action::FunctionCall(FunctionCallAction {
-                method_name: "heavy_storage_blocks".to_string(),
-                args: "{\"n\":1000}".as_bytes().to_vec(),
-                gas: 100000,
+                method_name: "benchmark_storage_10kib".to_string(),
+                args: args.to_vec(),
+                gas: 1000000000,
                 deposit: 1,
             })],
             block_hash,

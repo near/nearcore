@@ -29,7 +29,9 @@ impl Executor {
             let mut hashes = vec![];
             // Submit deploy contract transactions.
             for tx in transactions {
-                hashes.push(wait(|| n.write().unwrap().add_transaction(tx.clone())));
+                let hash = wait(|| n.write().unwrap().add_transaction(tx.clone()));
+                debug!("txn to deploy contract submitted: {}", &hash);
+                hashes.push(hash);
             }
             // Wait for them to propagate.
             wait(|| {
@@ -96,8 +98,8 @@ impl Executor {
                                         }
                                     };
                                     let f = { node.write().unwrap().add_transaction_async(t) };
-                                    f.map(|r| debug!("txn submitted, hash: {}", r))
-                                        .map_err(|e| warn!("Error submitting txn: {}", e))
+                                    f.map(|r| debug!("txn submitted: {}", r))
+                                        .map_err(|e| warn!("error submitting txn: {}", e))
                                         .timeout(Duration::from_secs(1))
                                         .map(move |_| {
                                             stats.read().unwrap().inc_out_tx();

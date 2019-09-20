@@ -20,6 +20,8 @@ use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
 
+use log::debug;
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
 pub const MAX_BLOCKS_FETCH: u64 = 1;
@@ -227,13 +229,13 @@ impl RemoteNode {
 
         let response: serde_json::Value =
             self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
-        // println!("txn_commited: {:#?}", response);
 
         let status = response["result"]["status"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned();
         if status == "Completed" {
+            debug!("txn completed: {}", hash);
             Ok(())
         } else {
-            Err(status.into())
+            Err(format!("txn not completed: {} status: {}", hash, status).into())
         }
     }
 
