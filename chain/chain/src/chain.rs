@@ -1072,7 +1072,7 @@ impl Chain {
         let chunk_extra = ChunkExtra::new(
             &apply_result.new_root,
             apply_result.validator_proposals,
-            apply_result.gas_used,
+            apply_result.total_gas_burnt,
             gas_limit,
         );
         chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
