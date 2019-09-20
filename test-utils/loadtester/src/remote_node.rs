@@ -26,7 +26,6 @@ pub const MAX_BLOCKS_FETCH: u64 = 1;
 const VALUE_NOT_STR_ERR: &str = "Value is not str";
 const VALUE_NOT_ARR_ERR: &str = "Value is not array";
 const VALUE_NOT_NUM_ERR: &str = "Value is not number";
-const TXN_NOT_COMPLETED: &str = "Transaction is not completed";
 
 /// Maximum number of times we retry a single RPC.
 const MAX_RETRIES_PER_RPC: usize = 10;
@@ -176,7 +175,7 @@ impl RemoteNode {
     pub fn add_transaction_async(
         &self,
         transaction: SignedTransaction,
-    ) -> Box<dyn Future<Item = (), Error = String> + Send> {
+    ) -> Box<dyn Future<Item = String, Error = String> + Send> {
         let bytes = transaction.try_to_vec().unwrap();
         let params = (to_base64(&bytes),);
         let message = Message::request(
@@ -188,8 +187,16 @@ impl RemoteNode {
             .post(self.url.as_str())
             .json(&message)
             .send()
-            .map(|_| ())
-            .map_err(|err| format!("{}", err));
+            .and_then(|mut r| r.json::<serde_json::Value>())
+            .map_err(|err| format!("{}", err))
+            .and_then(|j| {
+                futures::future::result(
+                    j["result"]
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .ok_or(VALUE_NOT_STR_ERR.to_string()),
+                )
+            });
 
         Box::new(response)
     }
@@ -226,8 +233,7 @@ impl RemoteNode {
         if status == "Completed" {
             Ok(())
         } else {
-            println!("status: {}", status);
-            None.ok_or(TXN_NOT_COMPLETED)?
+            Err(status.into())
         }
     }
 

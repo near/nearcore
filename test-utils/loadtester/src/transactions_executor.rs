@@ -6,6 +6,7 @@ use crate::transactions_generator::{Generator, TransactionType};
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
+use log::{debug, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
@@ -95,7 +96,8 @@ impl Executor {
                                         }
                                     };
                                     let f = { node.write().unwrap().add_transaction_async(t) };
-                                    f.map_err(|_| ())
+                                    f.map(|r| debug!("txn submitted, hash: {}", r))
+                                        .map_err(|e| warn!("Error submitting txn: {}", e))
                                         .timeout(Duration::from_secs(1))
                                         .map(move |_| {
                                             stats.read().unwrap().inc_out_tx();
