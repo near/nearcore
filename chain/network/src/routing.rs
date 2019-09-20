@@ -365,3 +365,11 @@ mod test {
 // TODO(MarX): Test graph is synced between nodes after starting connection
 
 // TODO(MarX): Test graph is readjusted after edges are deleted
+
+// TODO(MarX): Test routing (between peers / between validator)
+
+// TODO(MarX): Test when one node joins late
+
+// TODO(MarX): Test when one node quit gracefully/(non gracefully)
+
+// TODO(MarX): Implement connection between validators/block producers.
