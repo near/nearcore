@@ -103,13 +103,13 @@ impl RoutingTable {
 }
 
 #[derive(Clone)]
-struct Graph {
+pub struct Graph {
     pub source: PeerId,
     adjacency: HashMap<PeerId, HashSet<PeerId>>,
 }
 
 impl Graph {
-    fn new(source: PeerId) -> Self {
+    pub fn new(source: PeerId) -> Self {
         Self { source, adjacency: HashMap::new() }
     }
 
@@ -145,14 +145,17 @@ impl Graph {
         }
     }
 
+    // TODO(MarX): This is too slow right now. (See benchmarks)
+    /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
+    /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
+    /// not connected to `source` will not appear in the result.
     pub fn calculate_distance(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut queue = vec![];
         let mut distance = HashMap::new();
         // TODO(MarX): Represent routes more efficiently at least while calculating distances
-        let mut routes = HashMap::new();
+        let mut routes: HashMap<PeerId, HashSet<PeerId>> = HashMap::new();
 
         distance.insert(&self.source, 0);
-        routes.insert(self.source.clone(), HashSet::new());
 
         // Add active connections
         if let Some(neighbors) = self.adjacency.get(&self.source) {
@@ -175,6 +178,7 @@ impl Graph {
                     if !distance.contains_key(&neighbor) {
                         queue.push(neighbor);
                         distance.insert(neighbor, cur_distance + 1);
+                        routes.insert(neighbor.clone(), HashSet::new());
                     }
 
                     // If this edge belong to a shortest path, all paths to
@@ -195,7 +199,168 @@ impl Graph {
     }
 }
 
-// TODO(MarX): Test graph and distance calculation
+#[cfg(test)]
+mod test {
+    use crate::routing::Graph;
+    use crate::test_utils::random_peer_id;
+    use crate::types::PeerId;
+    use near_crypto::{KeyType, PublicKey, SecretKey};
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn graph_contains_edge() {
+        let source = random_peer_id();
+
+        let node0 = random_peer_id();
+        let node1 = random_peer_id();
+
+        let mut graph = Graph::new(source.clone());
+
+        assert_eq!(graph.contains_edge(&source, &node0), false);
+        assert_eq!(graph.contains_edge(&source, &node1), false);
+        assert_eq!(graph.contains_edge(&node0, &node1), false);
+        assert_eq!(graph.contains_edge(&node1, &node0), false);
+
+        graph.add_edge(node0.clone(), node1.clone());
+
+        assert_eq!(graph.contains_edge(&source, &node0), false);
+        assert_eq!(graph.contains_edge(&source, &node1), false);
+        assert_eq!(graph.contains_edge(&node0, &node1), true);
+        assert_eq!(graph.contains_edge(&node1, &node0), true);
+
+        graph.remove_edge(&node1, &node0);
+
+        assert_eq!(graph.contains_edge(&node0, &node1), false);
+        assert_eq!(graph.contains_edge(&node1, &node0), false);
+    }
+
+    fn expected(current: HashMap<PeerId, HashSet<PeerId>>, expected: Vec<(PeerId, Vec<PeerId>)>) {
+        assert_eq!(current.len(), expected.len());
+
+        for (peer, paths) in expected.into_iter() {
+            let cur_paths = current.get(&peer);
+            assert!(cur_paths.is_some());
+            let cur_paths = cur_paths.unwrap();
+            assert_eq!(cur_paths.len(), paths.len());
+            for next_hop in paths.into_iter() {
+                assert!(cur_paths.contains(&next_hop));
+            }
+        }
+    }
+
+    #[test]
+    fn graph_distance0() {
+        let source = random_peer_id();
+        let node0 = random_peer_id();
+
+        let mut graph = Graph::new(source.clone());
+        graph.add_edge(source.clone(), node0.clone());
+
+        expected(graph.calculate_distance(), vec![(node0.clone(), vec![node0.clone()])]);
+    }
+
+    #[test]
+    fn graph_distance1() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+
+        graph.add_edge(nodes[0].clone(), nodes[1].clone());
+        graph.add_edge(nodes[2].clone(), nodes[1].clone());
+        graph.add_edge(nodes[1].clone(), nodes[2].clone());
+
+        expected(graph.calculate_distance(), vec![]);
+    }
+
+    #[test]
+    fn graph_distance2() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+
+        graph.add_edge(nodes[0].clone(), nodes[1].clone());
+        graph.add_edge(nodes[2].clone(), nodes[1].clone());
+        graph.add_edge(nodes[1].clone(), nodes[2].clone());
+        graph.add_edge(source.clone(), nodes[0].clone());
+
+        expected(
+            graph.calculate_distance(),
+            vec![
+                (nodes[0].clone(), vec![nodes[0].clone()]),
+                (nodes[1].clone(), vec![nodes[0].clone()]),
+                (nodes[2].clone(), vec![nodes[0].clone()]),
+            ],
+        );
+    }
+
+    #[test]
+    fn graph_distance3() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..3).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+
+        graph.add_edge(nodes[0].clone(), nodes[1].clone());
+        graph.add_edge(nodes[2].clone(), nodes[1].clone());
+        graph.add_edge(nodes[0].clone(), nodes[2].clone());
+        graph.add_edge(source.clone(), nodes[0].clone());
+        graph.add_edge(source.clone(), nodes[1].clone());
+
+        expected(
+            graph.calculate_distance(),
+            vec![
+                (nodes[0].clone(), vec![nodes[0].clone()]),
+                (nodes[1].clone(), vec![nodes[1].clone()]),
+                (nodes[2].clone(), vec![nodes[0].clone(), nodes[1].clone()]),
+            ],
+        );
+    }
+
+    /// Test the following graph
+    ///     0 - 3 - 6
+    ///   /   x   x
+    /// s - 1 - 4 - 7  
+    ///   \   x   x
+    ///     2 - 5 - 8
+    ///
+    ///    9 - 10 (Dummy edge disconnected)
+    ///
+    /// There is a shortest path to nodes [3..9) going through 0, 1, and 2.
+    #[test]
+    fn graph_distance4() {
+        let source = random_peer_id();
+        let nodes: Vec<_> = (0..11).map(|_| random_peer_id()).collect();
+
+        let mut graph = Graph::new(source.clone());
+
+        for i in 0..3 {
+            graph.add_edge(source.clone(), nodes[i].clone());
+        }
+
+        for level in 0..2 {
+            for i in 0..3 {
+                for j in 0..3 {
+                    graph.add_edge(nodes[level * 3 + i].clone(), nodes[level * 3 + 3 + j].clone());
+                }
+            }
+        }
+
+        // Dummy edge.
+        graph.add_edge(nodes[9].clone(), nodes[10].clone());
+
+        let mut next_hops: Vec<_> =
+            (0..3).map(|i| (nodes[i].clone(), vec![nodes[i].clone()])).collect();
+        let target: Vec<_> = (0..3).map(|i| nodes[i].clone()).collect();
+
+        for i in 3..9 {
+            next_hops.push((nodes[i].clone(), target.clone()));
+        }
+
+        expected(graph.calculate_distance(), next_hops);
+    }
+}
 
 // TODO(MarX): Test graph is synced between nodes after starting connection
 

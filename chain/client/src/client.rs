@@ -714,6 +714,7 @@ impl ClientActor {
                 debug!(target: "client", "Sending announce account for {}", block_producer.account_id);
                 self.last_validator_announce_height = Some(epoch_start_height);
                 self.last_validator_announce_time = Some(now);
+                //TODO(MarX): Remove hash from return here
                 let (hash, signature) = self.sign_announce_account(&next_epoch_id).unwrap();
 
                 let _ =

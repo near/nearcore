@@ -5,7 +5,7 @@ use actix::{Actor, AsyncContext, Context, System};
 use futures::future::Future;
 use tokio::timer::Delay;
 
-use crate::types::{NetworkConfig, PeerInfo};
+use crate::types::{NetworkConfig, PeerId, PeerInfo};
 use futures::future;
 use near_crypto::{KeyType, SecretKey};
 
@@ -132,4 +132,9 @@ impl Actor for WaitOrTimeout {
 
 pub fn vec_ref_to_str(values: Vec<&str>) -> Vec<String> {
     values.iter().map(|x| x.to_string()).collect()
+}
+
+pub fn random_peer_id() -> PeerId {
+    let sk = SecretKey::from_random(KeyType::ED25519);
+    sk.public_key().into()
 }

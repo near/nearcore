@@ -25,7 +25,12 @@ near-chain = { path = "../chain" }
 
 [dev-dependencies]
 tempdir = "0.3.7"
+bencher = "0.1.5"
 
 near-client = { path = "../client" }
 near-telemetry = { path = "../telemetry" }
 testlib = { path = "../../test-utils/testlib" }
+
+[[bench]]
+name = "graph"
+harness = false

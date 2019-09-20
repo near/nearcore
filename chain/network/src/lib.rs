@@ -9,7 +9,7 @@ mod peer;
 mod peer_manager;
 pub mod peer_store;
 mod rate_counter;
-mod routing;
+pub mod routing;
 pub mod types;
 
 pub mod test_utils;
