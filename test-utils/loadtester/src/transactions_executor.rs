@@ -6,7 +6,7 @@ use crate::transactions_generator::{Generator, TransactionType};
 use futures::future::Future;
 use futures::sink::Sink;
 use futures::stream::Stream;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
@@ -51,7 +51,9 @@ impl Executor {
     ) -> JoinHandle<()> {
         // Deploy the testing contract, if needed.
         if let TransactionType::Set | TransactionType::HeavyStorageBlock = transaction_type {
+            info!("start deploying contracts");
             Executor::deploy_contract(&nodes);
+            info!("finish deploying contracts");
         }
         let stats = Arc::new(RwLock::new(Stats::new()));
         thread::spawn(move || {

@@ -255,30 +255,6 @@ impl RemoteNode {
             .try_into()?)
     }
 
-    /// This does not work because Tendermint RPC returns garbage: https://pastebin.com/RUbEdqt6
-    /// Not working
-    pub fn block_result_codes(
-        &self,
-        height: u64,
-    ) -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>> {
-        let url = format!("{}{}", self.url, "/block_results");
-        let response: serde_json::Value = self
-            .sync_client
-            .post(url.as_str())
-            .form(&[("height", format!("{}", height))])
-            .send()?
-            .json()?;
-
-        let mut results = vec![];
-        for result in response["result"]["results"].as_array().ok_or(VALUE_NOT_ARR_ERR)? {
-            results.push((
-                result["code"].as_str().ok_or(VALUE_NOT_STR_ERR)?.parse::<u32>()?,
-                result["data"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned(),
-            ));
-        }
-        Ok(results)
-    }
-
     pub fn get_transactions(&self, height: u64) -> Result<u64, Box<dyn std::error::Error>> {
         let params = (height,);
         let message =
@@ -293,7 +269,7 @@ impl RemoteNode {
         Ok(response["result"]["transactions"].as_array().ok_or(VALUE_NOT_ARR_ERR)?.len() as u64)
     }
 
-    pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        Ok(vec!["127.0.0.1:3030".to_string()])
-    }
+    // pub fn peer_node_addrs(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    //     Ok(vec!["127.0.0.1:3031".to_string()])
+    // }
 }
