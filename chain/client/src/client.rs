@@ -956,6 +956,7 @@ impl ClientActor {
         let transactions_len = transactions.len();
         let filtered_transactions = self.runtime_adapter.filter_transactions(
             next_height,
+            block_header.inner.timestamp,
             block_header.inner.gas_price,
             chunk_extra.state_root,
             transactions,
@@ -1362,12 +1363,12 @@ impl ClientActor {
                 "Transaction has either expired or from a different fork".to_string(),
             );
         }
-        let gas_price = unwrap_or_return!(
+        let block_header = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
             NetworkClientResponses::NoResponse
-        )
-        .inner
-        .gas_price;
+        );
+        let gas_price = block_header.inner.gas_price;
+        let timestamp = block_header.inner.timestamp;
         let state_root = unwrap_or_return!(
             self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
             NetworkClientResponses::NoResponse
@@ -1375,7 +1376,7 @@ impl ClientActor {
         .state_root
         .clone();
 
-        match self.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
+        match self.runtime_adapter.validate_tx(head.height + 1, timestamp, gas_price, state_root, tx) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);

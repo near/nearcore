@@ -15,6 +15,7 @@ pub trait ViewRuntimeAdapter {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],

@@ -106,6 +106,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
@@ -116,6 +117,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn filter_transactions(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transactions: Vec<SignedTransaction>,
@@ -274,6 +276,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],

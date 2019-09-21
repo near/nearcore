@@ -80,6 +80,7 @@ impl TrieViewer {
         &self,
         mut state_update: TrieUpdate,
         block_index: u64,
+        block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
@@ -116,7 +117,7 @@ impl TrieViewer {
                 predecessor_account_id: originator_id.clone(),
                 input: args.to_owned(),
                 block_index,
-                block_timestamp: 0,
+                block_timestamp,
                 account_balance: account.amount,
                 storage_usage: account.storage_usage,
                 attached_deposit: 0,
@@ -179,7 +180,7 @@ mod tests {
         let (viewer, root) = get_test_trie_viewer();
 
         let mut logs = vec![];
-        let result = viewer.call_function(root, 1, &alice_account(), "run_test", &[], &mut logs);
+        let result = viewer.call_function(root, 1, 1, &alice_account(), "run_test", &[], &mut logs);
 
         assert_eq!(result.unwrap(), encode_int(10));
     }
@@ -190,7 +191,7 @@ mod tests {
 
         let mut logs = vec![];
         let result =
-            viewer.call_function(root, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
+            viewer.call_function(root, 1, 1, &"bad!contract".to_string(), "run_test", &[], &mut logs);
 
         assert!(result.is_err());
     }
@@ -202,6 +203,7 @@ mod tests {
         let mut logs = vec![];
         let result = viewer.call_function(
             root,
+            1,
             1,
             &alice_account(),
             "run_test_with_storage_change",
@@ -218,7 +220,7 @@ mod tests {
         let args: Vec<_> = [1u64, 2u64].iter().flat_map(|x| (*x).to_le_bytes().to_vec()).collect();
         let mut logs = vec![];
         let view_call_result =
-            viewer.call_function(root, 1, &alice_account(), "sum_with_input", &args, &mut logs);
+            viewer.call_function(root, 1, 1, &alice_account(), "sum_with_input", &args, &mut logs);
         assert_eq!(view_call_result.unwrap(), 3u64.to_le_bytes().to_vec());
     }
 

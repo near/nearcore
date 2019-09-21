@@ -102,7 +102,7 @@ impl Handler<Query> for ViewClientActor {
     type Result = Result<QueryResponse, String>;
 
     fn handle(&mut self, msg: Query, _: &mut Context<Self>) -> Self::Result {
-        let head = self.chain.head().map_err(|err| err.to_string())?;
+        let header = self.chain.head_header().map_err(|err| err.to_string())?.clone();
         let path_parts: Vec<&str> = msg.path.split('/').collect();
         if path_parts.is_empty() {
             return Err("At least one query parameter is required".to_string());
@@ -115,14 +115,14 @@ impl Handler<Query> for ViewClientActor {
                 let account_id = AccountId::from(path_parts[1]);
                 let shard_id = self.runtime_adapter.account_id_to_shard_id(&account_id);
                 self.chain
-                    .get_chunk_extra(&head.last_block_hash, shard_id)
+                    .get_chunk_extra(&header.hash, shard_id)
                     .map_err(|_e| "Failed to fetch the chunk while executing request")?
                     .state_root
             }
         };
 
         self.runtime_adapter
-            .query(state_root, head.height, &head.last_block_hash, path_parts, &msg.data)
+            .query(state_root, header.inner.height, header.inner.timestamp, &header.hash, path_parts, &msg.data)
             .map_err(|err| err.to_string())
     }
 }
