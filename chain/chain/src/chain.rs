@@ -15,7 +15,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::transaction::{check_tx_history, SignedTransaction, TransactionResult};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
-use near_store::Store;
+use near_store::{Store, COL_CHUNKS};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
@@ -1067,6 +1067,9 @@ impl Chain {
             .map_err(|e| ErrorKind::Other(e.to_string()))?;
 
         // Saving the state.
+        let mut store_update = self.store.store().store_update();
+        store_update.set_ser(COL_CHUNKS, chunk.chunk_hash.as_ref(), &chunk)?;
+        store_update.commit()?;
         let mut chain_store_update = self.store.store_update();
         chain_store_update.save_trie_changes(apply_result.trie_changes);
         let chunk_extra = ChunkExtra::new(

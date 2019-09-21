@@ -66,15 +66,23 @@ mod tests {
     enum ReceiptsSyncPhases {
         WaitingForFirstBlock,
         WaitingForSecondBlock,
-        WaitingForThirdEpoch,
+        WaitingForDistantEpoch,
         VerifyingOutgoingReceipts,
-        WaitingForFifthEpoch,
+        WaitingForValidate,
     }
 
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
-    #[ignore]
-    fn test_catchup_receipts_sync() {
+    fn test_catchup_receipts_sync_third_epoch() {
+        test_catchup_receipts_sync_common(13)
+    }
+
+    #[test]
+    fn test_catchup_receipts_sync_distant_epoch() {
+        test_catchup_receipts_sync_common(35)
+    }
+
+    fn test_catchup_receipts_sync_common(wait_till: u64) {
         let validator_groups = 1;
         init_integration_logger();
         System::run(move || {
@@ -135,16 +143,16 @@ mod tests {
                             if let NetworkRequests::Block { block } = msg {
                                 assert!(block.header.inner.height <= 2);
                                 if block.header.inner.height == 2 {
-                                    *phase = ReceiptsSyncPhases::WaitingForThirdEpoch;
+                                    *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
                         }
-                        ReceiptsSyncPhases::WaitingForThirdEpoch => {
+                        ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
                                 assert!(block.header.inner.height >= 2);
-                                assert!(block.header.inner.height <= 13);
-                                if block.header.inner.height == 13 {
+                                assert!(block.header.inner.height <= wait_till);
+                                if block.header.inner.height == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -152,8 +160,8 @@ mod tests {
                                 header_and_part, ..
                             } = msg
                             {
-                                // The chunk producers in all three epochs need to be trying to
-                                //     include the receipt. The third epoch is the first one that
+                                // The chunk producers in all epochs before `distant` need to be trying to
+                                //     include the receipt. The `distant` epoch is the first one that
                                 //     will get the receipt through the state sync.
                                 let receipts: Vec<Receipt> = header_and_part
                                     .receipt_proofs
@@ -174,36 +182,45 @@ mod tests {
                             }
                         }
                         ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
-                            for height in 3..=13 {
+                            for height in 3..=wait_till {
                                 assert!(seen_heights_with_receipts.contains(&height));
                             }
-                            *phase = ReceiptsSyncPhases::WaitingForFifthEpoch;
+                            *phase = ReceiptsSyncPhases::WaitingForValidate;
                         }
-                        ReceiptsSyncPhases::WaitingForFifthEpoch => {
+                        ReceiptsSyncPhases::WaitingForValidate => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 13);
-                                assert!(block.header.inner.height <= 23);
-                                if block.header.inner.height == 23 {
-                                    actix::spawn(
-                                        connectors1.write().unwrap()[5] // 5th account is one of the validators of epoch 5
-                                            .1
-                                            .send(Query {
-                                                path: "account/".to_owned() + &account_to,
-                                                data: vec![],
-                                            })
-                                            .then(move |res| {
-                                                let query_responce = res.unwrap().unwrap();
-                                                if let ViewAccount(view_account_result) =
-                                                    query_responce
-                                                {
-                                                    assert_eq!(view_account_result.amount, 1111);
-                                                    System::current().stop();
-                                                }
-
-                                                future::result(Ok(()))
-                                            }),
-                                    );
+                                assert!(block.header.inner.height >= wait_till);
+                                assert!(block.header.inner.height <= wait_till + 20);
+                                if block.header.inner.height == wait_till + 20 {
+                                    System::current().stop();
+                                }
+                                if block.header.inner.height == wait_till + 10 {
+                                    for i in 0..16 {
+                                        actix::spawn(
+                                            connectors1.write().unwrap()[i]
+                                                .1
+                                                .send(Query {
+                                                    path: "account/".to_owned() + &account_to,
+                                                    data: vec![],
+                                                })
+                                                .then(move |res| {
+                                                    let res_inner = res.unwrap();
+                                                    if res_inner.is_ok() {
+                                                        let query_response = res_inner.unwrap();
+                                                        if let ViewAccount(view_account_result) =
+                                                            query_response
+                                                        {
+                                                            assert_eq!(
+                                                                view_account_result.amount,
+                                                                1111
+                                                            );
+                                                        }
+                                                    }
+                                                    future::result(Ok(()))
+                                                }),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -213,7 +230,7 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(30000);
+            near_network::test_utils::wait_or_panic(240000);
         })
         .unwrap();
     }
