@@ -730,6 +730,7 @@ impl ShardsManager {
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<Receipt>,
         receipts_root: CryptoHash,
+        tx_root: CryptoHash,
         signer: Arc<dyn Signer>,
     ) -> Result<EncodedShardChunk, io::Error> {
         let mut bytes =
@@ -765,6 +766,7 @@ impl ShardsManager {
             gas_used,
             gas_limit,
             receipts_root,
+            tx_root,
             validator_proposal,
             encoded_length as u64,
             parts,

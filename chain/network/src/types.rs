@@ -676,7 +676,6 @@ pub struct StateResponseInfo {
     pub block_transactions: Vec<SignedTransaction>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
-    pub height_included: BlockIndex,
 }
 
 #[derive(Debug)]

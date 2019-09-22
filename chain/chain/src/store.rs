@@ -74,9 +74,29 @@ pub trait ChainStoreAccess {
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
     /// Get full chunk from header, with possible error that contains the header for further retreival.
-    fn get_chunk_from_header(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
-        self.get_chunk(&header.chunk_hash())
-            .map_err(|_| ErrorKind::ChunksMissing(vec![header.clone()]).into())
+    fn get_chunk_clone_from_header(
+        &mut self,
+        header: &ShardChunkHeader,
+    ) -> Result<ShardChunk, Error> {
+        let shard_chunk_result = self.get_chunk(&header.chunk_hash());
+        match shard_chunk_result {
+            Err(_) => {
+                return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
+            }
+            Ok(shard_chunk) => {
+                assert_ne!(header.height_included, 0);
+                if header.height_included == 0 {
+                    return Err(ErrorKind::Other(format!(
+                        "Invalid header: {:?} for chunk {:?}",
+                        header, shard_chunk
+                    ))
+                    .into());
+                }
+                let mut shard_chunk_clone = shard_chunk.clone();
+                shard_chunk_clone.header.height_included = header.height_included;
+                Ok(shard_chunk_clone)
+            }
+        }
     }
     /// Get chunk one part.
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
@@ -283,7 +303,6 @@ impl ChainStoreAccess for ChainStore {
         }
     }
 
-  
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error> {
         self.store.exists(COL_BLOCK, h.as_ref()).map_err(|e| e.into())
@@ -616,8 +635,11 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         self.chain_store.get_chunk(chunk_hash)
     }
 
-    fn get_chunk_from_header(&mut self, header: &ShardChunkHeader) -> Result<&ShardChunk, Error> {
-        self.chain_store.get_chunk_from_header(header)
+    fn get_chunk_clone_from_header(
+        &mut self,
+        header: &ShardChunkHeader,
+    ) -> Result<ShardChunk, Error> {
+        self.chain_store.get_chunk_clone_from_header(header)
     }
 
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {

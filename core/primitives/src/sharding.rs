@@ -36,6 +36,8 @@ pub struct ShardChunkHeaderInner {
     pub gas_limit: Gas,
     /// Outgoing receipts merkle root.
     pub outgoing_receipts_root: CryptoHash,
+    /// Tx merkle root.
+    pub tx_root: CryptoHash,
     /// Validator proposals.
     pub validator_proposals: Vec<ValidatorStake>,
 }
@@ -73,6 +75,7 @@ impl ShardChunkHeader {
         gas_used: Gas,
         gas_limit: Gas,
         outgoing_receipts_root: CryptoHash,
+        tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         signer: Arc<dyn Signer>,
     ) -> Self {
@@ -86,6 +89,7 @@ impl ShardChunkHeader {
             gas_used,
             gas_limit,
             outgoing_receipts_root,
+            tx_root,
             validator_proposals,
         };
         let hash = ChunkHash(hash(&inner.try_to_vec().expect("Failed to serialize")));
@@ -167,6 +171,7 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         receipts_root: CryptoHash,
+        tx_root: CryptoHash,
         validator_proposal: Vec<ValidatorStake>,
 
         encoded_length: u64,
@@ -190,6 +195,7 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             receipts_root,
+            tx_root,
             validator_proposal,
             signer,
         );

@@ -281,6 +281,7 @@ pub struct BlockHeaderView {
     pub tx_root: CryptoHashView,
     pub chunk_receipts_root: CryptoHashView,
     pub chunk_headers_root: CryptoHashView,
+    pub chunk_tx_root: CryptoHashView,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
     pub approval_sigs: Vec<Signature>,
@@ -307,6 +308,7 @@ impl From<BlockHeader> for BlockHeaderView {
             tx_root: header.inner.tx_root.into(),
             chunk_receipts_root: header.inner.chunk_receipts_root.into(),
             chunk_headers_root: header.inner.chunk_headers_root.into(),
+            chunk_tx_root: header.inner.chunk_tx_root.into(),
             timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
             approval_sigs: header.inner.approval_sigs,
@@ -338,6 +340,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 tx_root: view.tx_root.into(),
                 chunk_receipts_root: view.chunk_receipts_root.into(),
                 chunk_headers_root: view.chunk_headers_root.into(),
+                chunk_tx_root: view.chunk_tx_root.into(),
                 timestamp: view.timestamp,
                 approval_mask: view.approval_mask,
                 approval_sigs: view.approval_sigs,
@@ -373,6 +376,7 @@ pub struct ChunkHeaderView {
     pub gas_used: Gas,
     pub gas_limit: Gas,
     pub outgoing_receipts_root: CryptoHashView,
+    pub tx_root: CryptoHashView,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub signature: Signature,
 }
@@ -390,6 +394,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root.into(),
+            tx_root: chunk.inner.tx_root.into(),
             validator_proposals: chunk
                 .inner
                 .validator_proposals
@@ -414,6 +419,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
                 outgoing_receipts_root: view.outgoing_receipts_root.into(),
+                tx_root: view.tx_root.into(),
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
             height_included: view.height_included,

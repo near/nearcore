@@ -359,8 +359,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     block_transactions,
                     incoming_receipts_proofs,
                     root_proofs,
-                    height_included,
-                )) = self.chain.get_prev_state_for_shard(
+                )) = self.chain.get_state_for_shard(
                     &self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                     shard_id,
                     hash,
@@ -374,7 +373,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         block_transactions,
                         incoming_receipts_proofs,
                         root_proofs,
-                        height_included,
                     });
                 }
                 NetworkClientResponses::NoResponse
@@ -388,7 +386,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 block_transactions,
                 incoming_receipts_proofs,
                 root_proofs,
-                height_included,
             }) => {
                 // Populate the hashmaps with shard statuses that might be interested in this state
                 //     (naturally, the plural of statuses is statuseses)
@@ -426,7 +423,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         block_transactions,
                         incoming_receipts_proofs,
                         root_proofs,
-                        height_included,
                     ) {
                         Ok(()) => {
                             for shard_statuses in shard_statuseses {
@@ -979,6 +975,7 @@ impl ClientActor {
             chunk_extra.state_root,
             transactions,
         );
+        let (tx_root, _) = merklize(&filtered_transactions);
         debug!(
             "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
             filtered_transactions.len(),
@@ -1020,6 +1017,7 @@ impl ClientActor {
                 &filtered_transactions,
                 &receipts,
                 receipts_root,
+                tx_root,
                 block_producer.signer.clone(),
             )
             .map_err(|_e| {
