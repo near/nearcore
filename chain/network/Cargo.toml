@@ -15,7 +15,7 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.6.5"
 
-borsh = "0.2.3"
+borsh = "0.2.5"
 
 near-crypto = { path = "../../core/crypto" }
 near-primitives = { path = "../../core/primitives" }
