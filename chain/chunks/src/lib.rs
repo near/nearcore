@@ -35,6 +35,30 @@ const ORPHANED_ONE_PART_CACHE_SIZE: usize = 1024;
 const REQUEST_ONE_PARTS_CACHE_SIZE: usize = 1024;
 const REQUEST_CHUNKS_CACHE_SIZE: usize = 1024;
 
+/// Adapter to break dependency of sub-components on the network requests.
+/// For tests use MockNetworkAdapter that accumulates the requests to network.
+pub trait NetworkAdapter: Sync + Send {
+    fn send(&self, msg: NetworkRequests);
+}
+
+pub struct NetworkRecipient {
+    network_recipient: Recipient<NetworkRequests>,
+}
+
+unsafe impl Sync for NetworkRecipient {}
+
+impl NetworkRecipient {
+    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Self {
+        Self { network_recipient }
+    }
+}
+
+impl NetworkAdapter for NetworkRecipient {
+    fn send(&self, msg: NetworkRequests) {
+        let _ = self.network_recipient.do_send(msg);
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize)]
 struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
@@ -51,7 +75,7 @@ pub struct ShardsManager {
     tx_pools: HashMap<ShardId, TransactionPool>,
 
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    peer_mgr: Recipient<NetworkRequests>,
+    network_adapter: Arc<dyn NetworkAdapter>,
     store: Arc<Store>,
 
     encoded_chunks: HashMap<ChunkHash, EncodedShardChunk>,
@@ -71,14 +95,14 @@ impl ShardsManager {
     pub fn new(
         me: Option<AccountId>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        peer_mgr: Recipient<NetworkRequests>,
+        network_adapter: Arc<dyn NetworkAdapter>,
         store: Arc<Store>,
     ) -> Self {
         Self {
             me,
             tx_pools: HashMap::new(),
             runtime_adapter,
-            peer_mgr,
+            network_adapter,
             store,
             encoded_chunks: HashMap::new(),
             merkle_paths: HashMap::new(),
@@ -132,7 +156,7 @@ impl ShardsManager {
         chunk_hash: ChunkHash,
         tracking_shards: HashSet<ShardId>,
     ) -> Result<(), near_chain::Error> {
-        let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartRequest {
+        let _ = self.network_adapter.send(NetworkRequests::ChunkOnePartRequest {
             account_id: self.runtime_adapter.get_chunk_producer(epoch_id, height, shard_id)?,
             one_part_request: ChunkOnePartRequestMsg {
                 shard_id,
@@ -230,7 +254,7 @@ impl ShardsManager {
                     let part_id = part_id as u64;
                     let to_whom = self.runtime_adapter.get_part_owner(&parent_hash, part_id)?;
                     if Some(&to_whom) != self.me.as_ref() {
-                        let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPartRequest {
+                        let _ = self.network_adapter.send(NetworkRequests::ChunkPartRequest {
                             account_id: to_whom,
                             part_request: ChunkPartRequestMsg {
                                 shard_id,
@@ -293,7 +317,7 @@ impl ShardsManager {
 
             if let Some(part) = &chunk.content.parts[request.part_id as usize] {
                 served = true;
-                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPart {
+                let _ = self.network_adapter.send(NetworkRequests::ChunkPart {
                     peer_id,
                     part: ChunkPartMsg {
                         shard_id: request.shard_id,
@@ -394,7 +418,7 @@ impl ShardsManager {
                     &receipts_proofs,
                 );
                 assert_eq!(chunk.header.inner.receipts_root, receipts_root);
-                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartResponse {
+                let _ = self.network_adapter.send(NetworkRequests::ChunkOnePartResponse {
                     peer_id,
                     header_and_part: self.create_chunk_one_part(
                         request.chunk_hash.clone(),
@@ -604,7 +628,7 @@ impl ShardsManager {
             self.requests.remove(&(one_part.shard_id, chunk_hash.clone(), one_part.part_id))
         {
             for whom in send_to {
-                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPart {
+                let _ = self.network_adapter.send(NetworkRequests::ChunkPart {
                     peer_id: whom,
                     part: ChunkPartMsg {
                         shard_id: one_part.shard_id,
@@ -842,7 +866,7 @@ impl ShardsManager {
                     self.process_chunk_one_part(one_part.clone()).unwrap();
                 }
             } else {
-                let _ = self.peer_mgr.do_send(NetworkRequests::ChunkOnePartMessage {
+                let _ = self.network_adapter.send(NetworkRequests::ChunkOnePartMessage {
                     account_id: to_whom.clone(),
                     header_and_part: one_part,
                 });

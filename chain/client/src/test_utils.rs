@@ -10,6 +10,7 @@ use futures::future::Future;
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis};
+use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -24,6 +25,17 @@ use near_telemetry::TelemetryActor;
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
+
+#[derive(Default)]
+pub struct MockNetworkAdapter {
+    pub requests: Arc<RwLock<Vec<NetworkRequests>>>,
+}
+
+impl NetworkAdapter for MockNetworkAdapter {
+    fn send(&self, msg: NetworkRequests) {
+        self.requests.write().unwrap().push(msg);
+    }
+}
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(

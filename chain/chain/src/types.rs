@@ -19,7 +19,7 @@ use crate::error::Error;
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
     Next,
@@ -41,7 +41,7 @@ impl BlockStatus {
 }
 
 /// Options for block origin.
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Provenance {
     /// No provenance.
     NONE,
@@ -49,6 +49,16 @@ pub enum Provenance {
     SYNC,
     /// Block we produced ourselves.
     PRODUCED,
+}
+
+/// Information about processed block.
+#[derive(Clone)]
+pub struct AcceptedBlock {
+    pub hash: CryptoHash,
+    pub status: BlockStatus,
+    pub provenance: Provenance,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
 }
 
 /// Information about valid transaction that was processed by chain + runtime.
