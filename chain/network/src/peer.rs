@@ -495,7 +495,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     actix::spawn(
                         self.peer_manager_addr
                             .send(NetworkRequests::BanPeer {
-                                peer_id: self.node_info.id.clone(),
+                                peer_id: self.peer_info.id.clone(),
                                 ban_reason: ReasonForBan::InvalidSignature,
                             })
                             .map_err(|e| error!(target: "client", "{}", e))
