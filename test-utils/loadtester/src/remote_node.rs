@@ -193,12 +193,7 @@ impl RemoteNode {
             .and_then(|mut r| r.json::<serde_json::Value>())
             .map_err(|err| format!("{}", err))
             .and_then(|j| {
-                futures::future::result(
-                    j["result"]
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .ok_or(VALUE_NOT_STR_ERR.to_string()),
-                )
+                j["result"].as_str().map(|s| s.to_string()).ok_or(VALUE_NOT_STR_ERR.to_string())
             });
 
         Box::new(response)
