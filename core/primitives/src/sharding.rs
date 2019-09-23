@@ -56,6 +56,9 @@ pub struct ShardChunkHeader {
     pub hash: ChunkHash,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
+pub struct ChunkHashHeight(pub ChunkHash, pub BlockIndex);
+
 impl ShardChunkHeader {
     pub fn init(&mut self) {
         self.hash = ChunkHash(hash(&self.inner.try_to_vec().expect("Failed to serialize")));

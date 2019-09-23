@@ -8,7 +8,7 @@ use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
-use crate::sharding::{ChunkHash, ShardChunkHeader};
+use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
@@ -363,7 +363,13 @@ impl Block {
     }
 
     pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
-        merklize(&chunks.iter().map(|chunk| chunk.hash.clone()).collect::<Vec<ChunkHash>>()).0
+        merklize(
+            &chunks
+                .iter()
+                .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
+                .collect::<Vec<ChunkHashHeight>>(),
+        )
+        .0
     }
 
     pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
