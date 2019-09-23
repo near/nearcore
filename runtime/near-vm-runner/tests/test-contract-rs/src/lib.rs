@@ -217,41 +217,6 @@ pub fn sum_with_input() {
     }
 }
 
-/// Writes and reads some data into/from storage. Uses 8-bit key/values.
-#[no_mangle]
-pub fn benchmark_storage_8b() {
-    unsafe {
-        input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
-            panic()
-        }
-        let data = [0u8; size_of::<u64>()];
-        read_register(0, data.as_ptr() as u64);
-        let n: u64 = u64::from_le_bytes(data);
-
-        let mut sum = 0u64;
-        for i in 0..n {
-            let el = i.to_le_bytes();
-            storage_write(
-                el.len() as u64,
-                el.as_ptr() as u64,
-                el.len() as u64,
-                el.as_ptr() as u64,
-                0,
-            );
-
-            let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
-            if result == 1 {
-                let value = [0u8; size_of::<u64>()];
-                read_register(0, value.as_ptr() as u64);
-                sum += u64::from_le_bytes(value);
-            }
-        }
-
-        value_return(size_of::<u64>() as u64, &sum as *const u64 as u64);
-    }
-}
-
 #[inline]
 fn generate_data(data: &mut [u8]) {
     for i in 0..data.len() {
@@ -259,19 +224,24 @@ fn generate_data(data: &mut [u8]) {
     }
 }
 
-/// Writes and reads some data into/from storage. Uses 10KiB key/values.
+/// Writes and reads some data into/from storage. Uses `sz` bytes key/values.
 #[no_mangle]
-pub fn benchmark_storage_10kib() {
+pub fn benchmark_storage() {
     unsafe {
         input(0);
-        if register_len(0) != size_of::<u64>() as u64 {
+        if register_len(0) != 2 * size_of::<u64>() as u64 {
             panic()
         }
-        let data = [0u8; size_of::<u64>()];
+        let data = [0u8; size_of::<u64>() * 2];
         read_register(0, data.as_ptr() as u64);
-        let n: u64 = u64::from_le_bytes(data);
+        let mut n = [0u8; size_of::<u64>()];
+        let mut size = [0u8; size_of::<u64>()];
+        n.copy_from_slice(&data[..size_of::<u64>()]);
+        size.copy_from_slice(&data[size_of::<u64>()..]);
+        let n = u64::from_le_bytes(n);
+        let size = u64::from_le_bytes(size) as usize;
 
-        let mut el = [0u8; 10 << 10];
+        let mut el = vec![0u8; size];
         generate_data(&mut el);
 
         let mut sum = 0u64;
@@ -287,7 +257,7 @@ pub fn benchmark_storage_10kib() {
 
             let result = storage_read(el.len() as u64, el.as_ptr() as u64, 0);
             if result == 1 {
-                let el = [0u8; 10 << 10];
+                let el = vec![0u8; size];
                 read_register(0, el.as_ptr() as u64);
                 let mut value = [0u8; size_of::<u64>()];
                 value.copy_from_slice(&el[0..size_of::<u64>()]);
