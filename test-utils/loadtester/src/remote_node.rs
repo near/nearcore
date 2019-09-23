@@ -20,7 +20,7 @@ use std::convert::TryInto;
 use testlib::user::rpc_user::RpcUser;
 use testlib::user::User;
 
-use log::debug;
+use log::{debug, info};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum number of blocks that can be fetched through a single RPC request.
@@ -165,6 +165,7 @@ impl RemoteNode {
     ) -> Result<Option<AccessKeyView>, Box<dyn std::error::Error>> {
         let user = RpcUser::new(&self.addr.to_string(), self.signers.first().unwrap().clone());
         let access_key = user.get_access_key(account_id, public_key)?;
+        info!("get access key of {}", account_id);
         Ok(access_key)
     }
 
