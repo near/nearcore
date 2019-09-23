@@ -1,4 +1,3 @@
-use bencher::{benchmark_group, benchmark_main, Bencher};
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::PromiseResult;
 use near_vm_logic::{Config, ReturnData, VMContext, VMOutcome};
@@ -6,6 +5,8 @@ use near_vm_runner::{run, VMError};
 use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
+
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 fn setup(input: u64) -> (MockedExternal, VMContext, Config, Vec<PromiseResult>, Vec<u8>) {
     let fake_external = MockedExternal::new();
@@ -51,8 +52,8 @@ fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expec
         panic!("Failed execution");
     }
 }
-
-fn pass_through(bench: &mut Bencher) {
+/*
+fn pass_through(c: &mut Criterion) {
     let (mut external, context, config, promise_results, code) = setup(42);
     bench.iter(move || {
         let result = run(
@@ -68,7 +69,7 @@ fn pass_through(bench: &mut Bencher) {
     });
 }
 
-fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
+fn benchmark_fake_storage_8b_1000(c: &mut Criterion) {
     let (mut external, context, config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
@@ -84,7 +85,7 @@ fn benchmark_fake_storage_8b_1000(bench: &mut Bencher) {
     });
 }
 
-fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
+fn benchmark_fake_storage_10kib_1000(c: &mut Criterion) {
     let (mut external, context, config, promise_results, code) = setup(1000);
     bench.iter(move || {
         let result = run(
@@ -99,21 +100,53 @@ fn benchmark_fake_storage_10kib_1000(bench: &mut Bencher) {
         assert_run_result(result, 999 * 1000 / 2);
     });
 }
-
-fn sum_n_1000000(bench: &mut Bencher) {
-    let (mut external, context, config, promise_results, code) = setup(1000000);
-    bench.iter(move || {
-        let result =
-            run(vec![], &code, b"sum_n", &mut external, context.clone(), &config, &promise_results);
-        assert_run_result(result, (1000000 - 1) * 1000000 / 2);
-    });
+*/
+fn sum_n(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sum_n");
+    let args = vec![1, 10, 100, 1_000, 10_000, 100_000, 1_000_000];
+    for n in args {
+        let (mut external, context, config, promise_results, code) = setup(n);
+        let benchmark_param_display = format!("n={}", n);
+        let mut expected_value = 0u128;
+        for i in 1..n + 1 {
+            expected_value += (i * i) as u128;
+        }
+        expected_value /= n as u128;
+        group.bench_function(BenchmarkId::new("wasm", benchmark_param_display.clone()), |b| {
+            b.iter(|| {
+                let result = run(
+                    vec![],
+                    &code,
+                    b"sum_n",
+                    &mut external,
+                    context.clone(),
+                    &config,
+                    &promise_results,
+                );
+                assert_run_result(result, expected_value as u64);
+            });
+        });
+        group.bench_function(BenchmarkId::new("rust", benchmark_param_display.clone()), |b| {
+            b.iter(|| {
+                let mut x = 0u128;
+                for i in 1..n + 1 {
+                    x += (i * i) as u128;
+                }
+                x /= n as u128;
+                assert_eq!(x as u64, expected_value as u64);
+            });
+        });
+    }
+    group.finish();
 }
 
-benchmark_group!(
+criterion_group!(
     vm_benches,
-    pass_through,
-    benchmark_fake_storage_8b_1000,
-    benchmark_fake_storage_10kib_1000,
-    sum_n_1000000
+    /*
+        pass_through,
+        benchmark_fake_storage_8b_1000,
+        benchmark_fake_storage_10kib_1000,
+    */
+    sum_n
 );
-benchmark_main!(vm_benches);
+criterion_main!(vm_benches);

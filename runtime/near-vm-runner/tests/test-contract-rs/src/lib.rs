@@ -325,12 +325,13 @@ pub fn sum_n() {
         read_register(0, data.as_ptr() as u64);
         let n = u64::from_le_bytes(data);
 
-        let mut sum = 0u64;
-        for i in 0..n {
-            sum += i;
+        let mut sum = 0u128;
+        for i in 1..n + 1 {
+            sum += (i * i) as u128;
         }
+        sum /= n as u128;
 
-        let data = sum.to_le_bytes();
+        let data = (sum as u64).to_le_bytes();
         value_return(data.len() as u64, data.as_ptr() as u64);
     }
 }
