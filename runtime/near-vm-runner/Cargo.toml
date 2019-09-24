@@ -23,7 +23,6 @@ parity-wasm = "0.31.3"
 near-vm-logic = { path="../near-vm-logic", features=["mocks"], version = "0.2.5"}
 assert_matches = "1.3.0"
 wabt = "0.7.4"
-bencher = "0.1.5"
 criterion = "0.3.0"
 
 [[bench]]

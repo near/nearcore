@@ -224,7 +224,7 @@ fn generate_data(data: &mut [u8]) {
     }
 }
 
-/// Writes and reads some data into/from storage. Uses `sz` bytes key/values.
+/// Writes and reads some data into/from storage. Uses given number of bytes key/values.
 #[no_mangle]
 pub fn benchmark_storage() {
     unsafe {
@@ -283,7 +283,7 @@ pub fn pass_through() {
     }
 }
 
-/// Sums numbers.
+/// Computes sum of squares from 1 to n and then divides by n.
 #[no_mangle]
 pub fn sum_n() {
     unsafe {
