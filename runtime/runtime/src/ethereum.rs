@@ -26,17 +26,16 @@ impl LightCache {
             Ok(light_cache) => light_cache,
             Err(_) => {
                 let cache_size = ethash::get_cache_size(epoch as usize);
-                let mut cache = Vec::with_capacity(cache_size);
-                cache.resize(cache_size, 0);
+                let mut cache = vec![0; cache_size];
                 let seed = ethash::get_seedhash(epoch as usize);
                 ethash::make_cache(&mut cache, seed);
-                let _ = Self::to_file(cache_dir, epoch, &cache);
+                let _ = Self::create_file(cache_dir, epoch, &cache);
                 LightCache { epoch, cache }
             }
         }
     }
 
-    fn to_file(cache_dir: &PathBuf, epoch: u64, cache: &[u8]) -> io::Result<usize> {
+    fn create_file(cache_dir: &PathBuf, epoch: u64, cache: &[u8]) -> io::Result<usize> {
         create_dir_all(cache_dir)?;
         let mut file = File::create(Self::storage_file(cache_dir, epoch))?;
         file.write(cache)

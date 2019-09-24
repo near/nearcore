@@ -176,6 +176,8 @@ impl Client {
         let prev_hash = head.last_block_hash;
         let prev_prev_hash = prev.inner.prev_hash;
 
+        debug!(target: "client", "{:?} Producing block at height {}", block_producer.account_id, next_height);
+
         if self.runtime_adapter.is_next_block_epoch_start(&head.last_block_hash)? {
             if !self.chain.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)? {
                 // Currently state for the chunks we are interested in this epoch
@@ -668,7 +670,7 @@ impl Client {
                 }
                 let mut entry =
                     self.pending_approvals.cache_remove(hash).unwrap_or_else(|| HashMap::new());
-                entry.insert(account_id.clone(), (signature.clone(), *peer_id));
+                entry.insert(account_id.clone(), (signature.clone(), peer_id.clone()));
                 self.pending_approvals.cache_set(*hash, entry);
                 return true;
             }

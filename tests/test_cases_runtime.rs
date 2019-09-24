@@ -125,6 +125,12 @@ mod test {
     }
 
     #[test]
+    fn test_smart_contract_reward_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_reward(node);
+    }
+
+    #[test]
     fn test_send_money_over_balance_runtime() {
         let node = create_runtime_node();
         test_send_money_over_balance(node);

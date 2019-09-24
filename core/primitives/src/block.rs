@@ -273,10 +273,10 @@ impl Block {
         }
 
         let new_gas_price = if gas_limit > 0 {
-            (2 * gas_limit as u128 + 2 * gas_price_adjustment_rate as u128
-                - gas_limit as u128 * gas_price_adjustment_rate as u128)
+            (2 * u128::from(gas_limit) + 2 * u128::from(gas_price_adjustment_rate)
+                - u128::from(gas_limit) * u128::from(gas_price_adjustment_rate))
                 * prev.inner.gas_price
-                / (2 * gas_limit as u128 * 100)
+                / (2 * u128::from(gas_limit) * 100)
         } else {
             // If there are no new chunks included in this block, use previous price.
             prev.inner.gas_price
@@ -335,11 +335,11 @@ pub struct Weight {
 }
 
 impl Weight {
-    pub fn to_num(&self) -> u64 {
+    pub fn to_num(self) -> u64 {
         self.num
     }
 
-    pub fn next(&self, num: u64) -> Self {
+    pub fn next(self, num: u64) -> Self {
         Weight { num: self.num + num + 1 }
     }
 }

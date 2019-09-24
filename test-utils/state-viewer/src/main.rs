@@ -80,7 +80,7 @@ fn kv_to_state_record(key: Vec<u8>, value: DBValue) -> Option<StateRecord> {
         col::PENDING_DATA_COUNT => None,
         col::POSTPONED_RECEIPT => {
             let receipt = Receipt::try_from_slice(&value).unwrap();
-            Some(StateRecord::PostponedReceipt(receipt.into()))
+            Some(StateRecord::PostponedReceipt(Box::new(receipt.into())))
         }
         _ => unreachable!(),
     }

@@ -21,7 +21,7 @@ pub fn run<'a>(
 
     let module = match cache::compile_cached_module(code_hash, code, config) {
         Ok(x) => x,
-        Err(err) => return (None, Some(err.into())),
+        Err(err) => return (None, Some(err)),
     };
     let mut memory = match WasmerMemory::new(config) {
         Ok(x) => x,

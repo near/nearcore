@@ -518,10 +518,10 @@ impl ClientActor {
         }
 
         // Announce AccountId if client is becoming a validator soon.
-        let next_epoch_id = unwrap_or_return!(
-            self.client.runtime_adapter.get_next_epoch_id_from_prev_block(&prev_block_hash),
-            ()
-        );
+        let next_epoch_id = unwrap_or_return!(self
+            .client
+            .runtime_adapter
+            .get_next_epoch_id_from_prev_block(&prev_block_hash));
 
         // Check client is part of the futures validators
         if let Ok(validators) =
@@ -536,7 +536,7 @@ impl ClientActor {
                 self.network_adapter.send(NetworkRequests::AnnounceAccount(AnnounceAccount::new(
                     block_producer.account_id.clone(),
                     next_epoch_id,
-                    self.node_id,
+                    self.node_id.clone(),
                     hash,
                     signature,
                 )));
@@ -828,7 +828,7 @@ impl ClientActor {
                 // If I'm not an active validator I should forward tx to next validators.
                 if active_validator {
                     debug!(
-                        "MOO recording a transaction. I'm {:?}, {}",
+                        "Recording a transaction. I'm {:?}, {}",
                         self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id
                     );
@@ -838,6 +838,12 @@ impl ClientActor {
                     // TODO(MarX): Forward tx even if I am a validator.
                     // TODO(MarX): How many validators ahead of current time should we forward tx?
                     let target_height = head.height + 2;
+
+                    debug!(target: "client",
+                           "{:?} Routing a transaction. {}",
+                           self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                           shard_id
+                    );
 
                     let validator = unwrap_or_return!(
                         self.client.runtime_adapter.get_chunk_producer(
@@ -854,7 +860,10 @@ impl ClientActor {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => NetworkClientResponses::InvalidTx(err.to_string()),
+            Err(err) => {
+                debug!(target: "client", "Invalid transaction: {:?}", err);
+                NetworkClientResponses::InvalidTx(err.to_string())
+            }
         }
     }
 
@@ -1188,13 +1197,11 @@ impl ClientActor {
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
-            let head = unwrap_or_return!(act.client.chain.head(), ());
-            let validators = unwrap_or_return!(
-                act.client
-                    .runtime_adapter
-                    .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash),
-                ()
-            );
+            let head = unwrap_or_return!(act.client.chain.head());
+            let validators = unwrap_or_return!(act
+                .client
+                .runtime_adapter
+                .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash));
             let num_validators = validators.len();
             let is_validator = if let Some(block_producer) = &act.client.block_producer {
                 if let Some((_, is_slashed)) =

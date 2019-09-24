@@ -231,7 +231,7 @@ pub fn setup_mock_all_validators(
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkPartRequest(
                                             part_request.clone(),
-                                            my_key_pair.id,
+                                            my_key_pair.id.clone(),
                                         ),
                                     );
                                 }
@@ -246,7 +246,7 @@ pub fn setup_mock_all_validators(
                                     connectors1.write().unwrap()[i].0.do_send(
                                         NetworkClientMessages::ChunkOnePartRequest(
                                             one_part_request.clone(),
-                                            my_key_pair.id,
+                                            my_key_pair.id.clone(),
                                         ),
                                     );
                                 }
