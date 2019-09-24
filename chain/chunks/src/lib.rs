@@ -15,7 +15,7 @@ use near_chain::byzantine_assert;
 use rand::Rng;
 use reed_solomon_erasure::option_shards_into_shards;
 
-use near_chain::{ErrorKind, RuntimeAdapter, ValidTransaction};
+use near_chain::{collect_receipts, ErrorKind, RuntimeAdapter, ValidTransaction};
 use near_crypto::Signer;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_network::NetworkRequests;
@@ -155,11 +155,11 @@ impl ShardsManager {
             let chunk_hash = chunk_header.chunk_hash();
             let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
             let tracking_shards = (0..self.runtime_adapter.num_shards())
-                .filter(|shard| {
+                .filter(|chunk_shard_id| {
                     self.cares_about_shard_this_or_next_epoch(
                         self.me.as_ref(),
                         &parent_hash,
-                        *shard,
+                        *chunk_shard_id,
                         true,
                     )
                 })
@@ -343,24 +343,24 @@ impl ShardsManager {
 
     fn receipts_recipient_filter(
         &self,
-        from_shard: ShardId,
+        from_shard_id: ShardId,
         tracking_shards: &HashSet<ShardId>,
         receipts: &Vec<Receipt>,
         proofs: &Vec<MerklePath>,
     ) -> Vec<ReceiptProof> {
         let mut one_part_receipt_proofs = vec![];
-        for to_shard in 0..self.runtime_adapter.num_shards() {
-            if tracking_shards.contains(&to_shard) {
+        for to_shard_id in 0..self.runtime_adapter.num_shards() {
+            if tracking_shards.contains(&to_shard_id) {
                 one_part_receipt_proofs.push(ReceiptProof(
                     receipts
                         .iter()
                         .filter(|&receipt| {
                             self.runtime_adapter.account_id_to_shard_id(&receipt.receiver_id)
-                                == to_shard
+                                == to_shard_id
                         })
                         .cloned()
                         .collect(),
-                    ShardProof(from_shard, proofs[to_shard as usize].clone()),
+                    ShardProof(from_shard_id, proofs[to_shard_id as usize].clone()),
                 ))
             }
         }
@@ -578,7 +578,7 @@ impl ShardsManager {
         }
 
         // Checking one_part's receipts validity here
-        let receipts = self.runtime_adapter.collect_receipts(&one_part.receipt_proofs);
+        let receipts = collect_receipts(&one_part.receipt_proofs);
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
         let mut proof_index = 0;
         for shard_id in 0..self.runtime_adapter.num_shards() {
@@ -819,11 +819,11 @@ impl ShardsManager {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
             let tracking_shards = (0..self.runtime_adapter.num_shards())
-                .filter(|shard| {
+                .filter(|chunk_shard_id| {
                     self.cares_about_shard_this_or_next_epoch(
                         Some(&to_whom),
                         &prev_block_hash,
-                        *shard,
+                        *chunk_shard_id,
                         false,
                     )
                 })

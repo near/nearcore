@@ -304,21 +304,6 @@ pub trait RuntimeAdapter: Send + Sync {
         }
         Ok(receipts_hashes)
     }
-
-    // TODO return Result?
-    fn collect_receipts(&self, receipt_proofs: &Vec<ReceiptProof>) -> Vec<Receipt> {
-        receipt_proofs.iter().map(|x| x.0.clone()).flatten().collect()
-    }
-
-    // TODO return Result?
-    fn collect_receipts_from_response(
-        &self,
-        receipt_proof_response: &Vec<ReceiptProofResponse>,
-    ) -> Vec<Receipt> {
-        let receipt_proofs =
-            &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
-        self.collect_receipts(receipt_proofs)
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]

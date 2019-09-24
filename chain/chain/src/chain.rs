@@ -826,7 +826,7 @@ impl Chain {
         if shard_id as usize >= sync_prev_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
-        // Chunk header here is the same chunk header of `current` height.
+        // Chunk header here is the same chunk header as at the `current` height.
         let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
         let (chunk_headers_root, chunks_proofs) = merklize(
             &sync_prev_block
@@ -938,8 +938,7 @@ impl Chain {
             )
             .into());
         }
-        // 1b. Checking chunk.height_included TODO (#1298)
-        // 1c. Checking signature
+        // 1b. Checking signature
         if !self.runtime_adapter.verify_chunk_header_signature(&chunk.header)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -979,6 +978,7 @@ impl Chain {
         // Consider chunk itself is valid.
 
         // 3. Checking that chunk `chunk` is included into block at last height before sync_hash
+        // 3a. Also checking chunk.height_included
         let sync_prev_block_header =
             self.get_block_header(&sync_block_header.inner.prev_hash)?.clone();
         if !verify_path(
@@ -1054,7 +1054,7 @@ impl Chain {
                 receipt_proof_response.push(incoming_receipt_proof.clone());
             }
         }
-        let receipts = self.runtime_adapter.collect_receipts_from_response(&receipt_proof_response);
+        let receipts = collect_receipts_from_response(&receipt_proof_response);
 
         let mut transactions = block_transactions;
         transactions.extend(chunk.transactions.iter().cloned());
@@ -1590,9 +1590,7 @@ impl<'a> ChainUpdate<'a> {
                             block.hash(),
                             prev_chunk_header.height_included,
                         )?;
-                    let receipts = self
-                        .runtime_adapter
-                        .collect_receipts_from_response(&receipt_proof_response);
+                    let receipts = collect_receipts_from_response(&receipt_proof_response);
 
                     let mut transactions = block
                         .transactions
@@ -2056,4 +2054,15 @@ impl<'a> ChainUpdate<'a> {
         self.check_known_store(&block.header)?;
         Ok(())
     }
+}
+
+pub fn collect_receipts(receipt_proofs: &Vec<ReceiptProof>) -> Vec<Receipt> {
+    receipt_proofs.iter().map(|x| x.0.clone()).flatten().collect()
+}
+
+pub fn collect_receipts_from_response(
+    receipt_proof_response: &Vec<ReceiptProofResponse>,
+) -> Vec<Receipt> {
+    let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
+    collect_receipts(receipt_proofs)
 }
