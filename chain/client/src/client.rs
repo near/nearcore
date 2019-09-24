@@ -19,11 +19,11 @@ use near_chain::{
 };
 use near_chunks::{NetworkAdapter, ShardsManager};
 use near_crypto::Signature;
-use near_network::types::{PeerId, ReasonForBan};
+use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::NetworkRequests;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
@@ -349,7 +349,7 @@ impl Client {
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
 
-        let encoded_chunk = self
+        let (encoded_chunk, _) = self
             .shards_mgr
             .create_encoded_shard_chunk(
                 prev_block_hash,
@@ -412,6 +412,47 @@ impl Client {
         }
         let unwrapped_accepted_blocks = accepted_blocks.write().unwrap().drain(..).collect();
         (unwrapped_accepted_blocks, result)
+    }
+
+    pub fn process_chunk_part(&mut self, part: ChunkPartMsg) -> Result<Vec<AcceptedBlock>, Error> {
+        if let Some(block_hash) = self.shards_mgr.process_chunk_part(part)? {
+            Ok(self.process_blocks_with_missing_chunks(block_hash))
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    pub fn process_chunk_one_part(
+        &mut self,
+        one_part_msg: ChunkOnePart,
+    ) -> Result<Vec<AcceptedBlock>, Error> {
+        let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
+        let ret = self.shards_mgr.process_chunk_one_part(one_part_msg.clone())?;
+        if ret {
+            // If the chunk builds on top of the current head, get all the remaining parts
+            // TODO: if the bp receives the chunk before they receive the block, they will
+            //     not collect the parts currently. It will result in chunk not included
+            //     in the next block.
+            if self.shards_mgr.cares_about_shard_this_or_next_epoch(
+                self.block_producer.as_ref().map(|x| &x.account_id),
+                &prev_block_hash,
+                one_part_msg.shard_id,
+                true,
+            ) && self
+                .chain
+                .head()
+                .map(|head| head.last_block_hash == one_part_msg.header.inner.prev_block_hash)
+                .unwrap_or(false)
+            {
+                self.shards_mgr.request_chunks(vec![one_part_msg.header]).unwrap();
+            } else {
+                // We are getting here either because we don't care about the shard, or
+                //    because we see the one part before we see the block.
+                // In the latter case we will request parts once the block is received
+            }
+            return Ok(self.process_blocks_with_missing_chunks(prev_block_hash));
+        }
+        Ok(vec![])
     }
 
     pub fn process_block_header(&mut self, header: &BlockHeader) -> Result<(), near_chain::Error> {

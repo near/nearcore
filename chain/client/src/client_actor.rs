@@ -397,45 +397,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkPart(part_msg) => {
-                if let Ok(Some(block_hash)) = self.client.shards_mgr.process_chunk_part(part_msg) {
-                    self.process_blocks_with_missing_chunks(block_hash);
+                if let Ok(accepted_blocks) = self.client.process_chunk_part(part_msg) {
+                    self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::ChunkOnePart(one_part_msg) => {
-                let prev_block_hash = one_part_msg.header.inner.prev_block_hash;
-                if let Ok(ret) = self.client.shards_mgr.process_chunk_one_part(one_part_msg.clone())
-                {
-                    if ret {
-                        // If the chunk builds on top of the current head, get all the remaining parts
-                        // TODO: if the bp receives the chunk before they receive the block, they will
-                        //     not collect the parts currently. It will result in chunk not included
-                        //     in the next block.
-                        if self.client.shards_mgr.cares_about_shard_this_or_next_epoch(
-                            self.client.block_producer.as_ref().map(|x| &x.account_id),
-                            &prev_block_hash,
-                            one_part_msg.shard_id,
-                            true,
-                        ) && self
-                            .client
-                            .chain
-                            .head()
-                            .map(|head| {
-                                head.last_block_hash == one_part_msg.header.inner.prev_block_hash
-                            })
-                            .unwrap_or(false)
-                        {
-                            self.client
-                                .shards_mgr
-                                .request_chunks(vec![one_part_msg.header])
-                                .unwrap();
-                        } else {
-                            // We are getting here either because we don't care about the shard, or
-                            //    because we see the one part before we see the block.
-                            // In the latter case we will request parts once the block is received
-                        }
-                        self.process_blocks_with_missing_chunks(prev_block_hash);
-                    }
+                if let Ok(accepted_blocks) = self.client.process_chunk_one_part(one_part_msg) {
+                    self.process_accepted_blocks(accepted_blocks);
                 }
                 NetworkClientResponses::NoResponse
             }
@@ -678,12 +647,6 @@ impl ClientActor {
         let (accepted_blocks, result) = self.client.process_block(block, provenance);
         self.process_accepted_blocks(accepted_blocks);
         result.map(|_| ())
-    }
-
-    fn process_blocks_with_missing_chunks(&mut self, last_accepted_block_hash: CryptoHash) {
-        let accepted_blocks =
-            self.client.process_blocks_with_missing_chunks(last_accepted_block_hash);
-        self.process_accepted_blocks(accepted_blocks);
     }
 
     /// Processes received block, returns boolean if block was reasonable or malicious.

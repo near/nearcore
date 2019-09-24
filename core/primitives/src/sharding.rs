@@ -94,17 +94,6 @@ impl ShardChunkHeader {
     }
 }
 
-#[derive(Default, BorshSerialize, BorshDeserialize, Debug)]
-pub struct EncodedShardChunkBody {
-    pub parts: Vec<Option<Shard>>,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
-pub struct EncodedShardChunk {
-    pub header: ShardChunkHeader,
-    pub content: EncodedShardChunkBody,
-}
-
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ChunkOnePart {
     pub shard_id: u64,
@@ -123,6 +112,20 @@ pub struct ShardChunk {
     pub header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<Receipt>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkPartMsg {
+    pub shard_id: u64,
+    pub chunk_hash: ChunkHash,
+    pub part_id: u64,
+    pub part: Shard,
+    pub merkle_path: MerklePath,
+}
+
+#[derive(Default, BorshSerialize, BorshDeserialize, Debug)]
+pub struct EncodedShardChunkBody {
+    pub parts: Vec<Option<Shard>>,
 }
 
 impl EncodedShardChunkBody {
@@ -146,6 +149,12 @@ impl EncodedShardChunkBody {
     pub fn get_merkle_hash_and_paths(&self) -> (MerkleHash, Vec<MerklePath>) {
         merklize(&self.parts.iter().map(|x| x.as_ref().unwrap().clone()).collect::<Vec<_>>())
     }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+pub struct EncodedShardChunk {
+    pub header: ShardChunkHeader,
+    pub content: EncodedShardChunkBody,
 }
 
 impl EncodedShardChunk {
@@ -193,5 +202,34 @@ impl EncodedShardChunk {
 
     pub fn chunk_hash(&self) -> ChunkHash {
         self.header.chunk_hash()
+    }
+
+    pub fn create_chunk_one_part(
+        &self,
+        part_id: u64,
+        receipts: Vec<Receipt>,
+        receipts_proofs: Vec<MerklePath>,
+        merkle_path: MerklePath,
+    ) -> ChunkOnePart {
+        ChunkOnePart {
+            shard_id: self.header.inner.shard_id,
+            chunk_hash: self.header.chunk_hash(),
+            header: self.header.clone(),
+            part_id,
+            part: self.content.parts[part_id as usize].clone().unwrap(),
+            receipts,
+            receipts_proofs,
+            merkle_path,
+        }
+    }
+
+    pub fn create_chunk_part_msg(&self, part_id: u64, merkle_path: MerklePath) -> ChunkPartMsg {
+        ChunkPartMsg {
+            shard_id: self.header.inner.shard_id,
+            chunk_hash: self.header.chunk_hash(),
+            part_id,
+            part: self.content.parts[part_id as usize].clone().unwrap(),
+            merkle_path,
+        }
     }
 }

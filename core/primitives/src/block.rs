@@ -311,10 +311,7 @@ impl Block {
     }
 
     pub fn compute_tx_root(transactions: &Vec<SignedTransaction>) -> CryptoHash {
-        merklize(
-            &transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>(),
-        )
-            .0
+        merklize(&transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>()).0
     }
 
     pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {

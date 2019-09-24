@@ -52,7 +52,7 @@ pub enum Provenance {
 }
 
 /// Information about processed block.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AcceptedBlock {
     pub hash: CryptoHash,
     pub status: BlockStatus,

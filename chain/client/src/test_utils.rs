@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -28,12 +28,18 @@ pub type NetworkMock = Mocker<PeerManagerActor>;
 
 #[derive(Default)]
 pub struct MockNetworkAdapter {
-    pub requests: Arc<RwLock<Vec<NetworkRequests>>>,
+    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
 }
 
 impl NetworkAdapter for MockNetworkAdapter {
     fn send(&self, msg: NetworkRequests) {
-        self.requests.write().unwrap().push(msg);
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockNetworkAdapter {
+    pub fn pop(&self) -> Option<NetworkRequests> {
+        self.requests.write().unwrap().pop_front()
     }
 }
 
