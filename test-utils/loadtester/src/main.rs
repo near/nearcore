@@ -128,7 +128,7 @@ fn main() {
         0 => configure_logging(log::LevelFilter::Error),
         1 => configure_logging(log::LevelFilter::Warn),
         2 => configure_logging(log::LevelFilter::Info),
-        3 | _ => configure_logging(log::LevelFilter::Debug),
+        _ => configure_logging(log::LevelFilter::Debug),
     }
 
     match matches.subcommand() {

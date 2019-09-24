@@ -9,7 +9,6 @@ use borsh::BorshSerialize;
 use futures::Future;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc::client::message::Message;
-// use near_jsonrpc::client::new_client;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
