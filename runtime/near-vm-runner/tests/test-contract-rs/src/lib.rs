@@ -274,6 +274,7 @@ fn generate_data(data: &mut [u8]) {
 }
 
 /// Writes and reads some data into/from storage. Uses given number of bytes key/values.
+#[no_mangle]
 pub unsafe fn benchmark_storage() {
     input(0);
     if register_len(0) != 2 * size_of::<u64>() as u64 {
@@ -322,6 +323,7 @@ pub unsafe fn pass_through() {
 }
 
 /// Computes sum of squares from 1 to n and then divides by n.
+#[no_mangle]
 pub unsafe fn sum_n() {
     input(0);
     if register_len(0) != size_of::<u64>() as u64 {

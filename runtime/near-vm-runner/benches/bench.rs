@@ -35,8 +35,8 @@ fn setup(input: &[u64]) -> (MockedExternal, VMContext, Config, Vec<PromiseResult
 }
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
-    if let Some(_) = err {
-        panic!("Failed execution");
+    if let Some(e) = err {
+        panic!("Failed execution: {:?}", e);
     }
 
     if let Some(VMOutcome { return_data, .. }) = outcome {
@@ -104,7 +104,7 @@ fn benchmark_fake_storage(c: &mut Criterion) {
 
 fn sum_n(c: &mut Criterion) {
     let mut group = c.benchmark_group("sum_n");
-    let args = vec![1, 10, 100, 1_000, 10_000, 100_000, 1_000_000];
+    let args = vec![1, 100, 10_000, 1_000_000];
     for n in args {
         if n > 100_000 {
             group.sample_size(20);
