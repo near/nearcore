@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,13 +11,14 @@ use near_client::test_utils::MockNetworkAdapter;
 use near_client::{Client, ClientConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
+use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseDecode;
+use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{MerkleHash, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
-use std::collections::{HashMap, HashSet};
 
 fn setup_client(
     store: Arc<Store>,
@@ -97,6 +99,41 @@ fn test_request_chunk_restart() {
 #[test]
 fn test_sign_on_competing_fork() {}
 
+fn create_block_with_invalid_chunk(
+    prev_block_header: &BlockHeader,
+    account_id: &str,
+) -> (Block, EncodedShardChunk) {
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
+        prev_block_header.hash,
+        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
+        1,
+        0,
+        20,
+        12,
+        0,
+        0,
+        vec![],
+        &vec![],
+        &vec![],
+        MerkleHash::default(),
+        signer.clone(),
+    )
+    .unwrap();
+    let block_with_invalid_chunk = Block::produce(
+        &prev_block_header,
+        1,
+        vec![invalid_encoded_chunk.header.clone()],
+        prev_block_header.inner.epoch_id.clone(),
+        vec![],
+        HashMap::default(),
+        0,
+        None,
+        signer,
+    );
+    (block_with_invalid_chunk, invalid_encoded_chunk)
+}
+
 /// Receive invalid state transition in chunk as next chunk producer.
 #[test]
 fn test_receive_invalid_chunk_as_chunk_producer() {
@@ -112,35 +149,8 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         network_adapter,
         Utc::now(),
     );
-    let test2_signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test2"));
-    let (invalid_encoded_chunk, merkle_paths) = client
-        .shards_mgr
-        .create_encoded_shard_chunk(
-            client.chain.head().unwrap().last_block_hash,
-            CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
-            1,
-            0,
-            0,
-            0,
-            vec![],
-            &vec![],
-            &vec![],
-            MerkleHash::default(),
-            test2_signer.clone(),
-        )
-        .unwrap();
-    let prev_block = client.chain.get_header_by_height(0).unwrap();
-    let block_with_invalid_chunk = Block::produce(
-        &prev_block,
-        1,
-        vec![invalid_encoded_chunk.header.clone()],
-        prev_block.inner.epoch_id.clone(),
-        vec![],
-        HashMap::default(),
-        0,
-        None,
-        test2_signer,
-    );
+    let prev_block_header = client.chain.get_header_by_height(0).unwrap();
+    let (block_with_invalid_chunk, _) = create_block_with_invalid_chunk(prev_block_header, "test2");
     let (_, result) = client.process_block(block_with_invalid_chunk.clone(), Provenance::NONE);
     // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
     // At this point we should create a challenge and add it.

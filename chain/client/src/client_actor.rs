@@ -841,7 +841,7 @@ impl ClientActor {
 
                     debug!(target: "client",
                            "{:?} Routing a transaction. {}",
-                           self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                           self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                            shard_id
                     );
 

@@ -1,6 +1,5 @@
 use std::collections::HashSet;
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
+use std::convert::{From, Into, TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
@@ -10,14 +9,12 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::Shard;
 use tokio::net::TcpStream;
 
 use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
 pub use near_primitives::sharding::ChunkPartMsg;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;

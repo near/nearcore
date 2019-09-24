@@ -3,16 +3,13 @@ extern crate log;
 use std::collections::hash_map::Entry;
 use std::collections::vec_deque::VecDeque;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::sync::Arc;
 
 use actix::Recipient;
-use borsh::{BorshDeserialize, BorshSerialize};
 use cached::Cached;
 use cached::SizedCache;
 use log::{debug, error};
 use rand::Rng;
-use reed_solomon_erasure::option_shards_into_shards;
 
 use near_chain::byzantine_assert;
 use near_chain::{ErrorKind, RuntimeAdapter, ValidTransaction};
@@ -62,9 +59,6 @@ impl NetworkAdapter for NetworkRecipient {
         let _ = self.network_recipient.do_send(msg);
     }
 }
-
-#[derive(BorshSerialize, BorshDeserialize)]
-struct TransactionReceipt(Vec<SignedTransaction>, Vec<Receipt>);
 
 #[derive(PartialEq, Eq)]
 pub enum ChunkStatus {
@@ -314,7 +308,7 @@ impl ShardsManager {
             if let Some(_) = &chunk.content.parts[request.part_id as usize] {
                 served = true;
                 let _ = self.network_adapter.send(NetworkRequests::ChunkPart {
-                    peer_id,
+                    peer_id: peer_id.clone(),
                     part: chunk.create_chunk_part_msg(
                         request.part_id,
                         // Part should never exist in the chunk content if the merkle path for it is
@@ -493,10 +487,9 @@ impl ShardsManager {
                     ) {
                         ChunkStatus::Complete(merkle_paths) => {
                             let mut store_update = self.store.store_update();
-                            if let Ok(shard_chunk) = Self::decode_chunk(
-                                self.runtime_adapter.num_data_parts(&prev_block_hash),
-                                chunk,
-                            ) {
+                            if let Ok(shard_chunk) = chunk
+                                .decode_chunk(self.runtime_adapter.num_data_parts(&prev_block_hash))
+                            {
                                 debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk.header.chunk_hash().0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
                                 // Decoded a valid chunk, store it in the permanent store ...
                                 store_update.set_ser(
@@ -565,7 +558,7 @@ impl ShardsManager {
             Err(err) => {
                 self.orphaned_one_parts
                     .cache_set((prev_block_hash, one_part.shard_id, one_part.part_id), one_part);
-                return Err(err);
+                return Err(err.into());
             }
         }
 
@@ -706,29 +699,6 @@ impl ShardsManager {
         ret
     }
 
-    pub fn decode_chunk(
-        data_parts: usize,
-        encoded_chunk: &EncodedShardChunk,
-    ) -> Result<ShardChunk, io::Error> {
-        let encoded_data =
-            option_shards_into_shards(encoded_chunk.content.parts[0..data_parts].to_vec())
-                .iter()
-                .map(|boxed| boxed.iter())
-                .flatten()
-                .cloned()
-                .collect::<Vec<u8>>()[0..encoded_chunk.header.inner.encoded_length as usize]
-                .to_vec();
-
-        let transaction_receipts = TransactionReceipt::try_from_slice(&encoded_data)?;
-
-        Ok(ShardChunk {
-            chunk_hash: encoded_chunk.chunk_hash(),
-            header: encoded_chunk.header.clone(),
-            transactions: transaction_receipts.0,
-            receipts: transaction_receipts.1,
-        })
-    }
-
     pub fn create_encoded_shard_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
@@ -737,59 +707,36 @@ impl ShardsManager {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
-        validator_proposal: Vec<ValidatorStake>,
+        validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<Receipt>,
         receipts_root: CryptoHash,
         signer: Arc<dyn Signer>,
-    ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
-        let mut bytes =
-            TransactionReceipt(transactions.to_vec(), receipts.to_vec()).try_to_vec()?;
+    ) -> Result<EncodedShardChunk, Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
-        let parity_parts = total_parts - data_parts;
-
-        let mut parts = vec![];
-        let encoded_length = bytes.len();
-
-        if bytes.len() % data_parts != 0 {
-            bytes.extend((bytes.len() % data_parts..data_parts).map(|_| 0));
-        }
-        let shard_length = (encoded_length + data_parts - 1) / data_parts;
-        assert_eq!(bytes.len(), shard_length * data_parts);
-
-        for i in 0..data_parts {
-            parts.push(Some(
-                bytes[i * shard_length..(i + 1) * shard_length].to_vec().into_boxed_slice()
-                    as Box<[u8]>,
-            ));
-        }
-        for _i in data_parts..total_parts {
-            parts.push(None);
-        }
-
-        let (new_chunk, merkle_paths) = EncodedShardChunk::from_parts_and_metadata(
+        let (new_chunk, merkle_paths) = EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
             height,
             shard_id,
+            total_parts,
+            data_parts,
             gas_used,
             gas_limit,
+            validator_proposals,
+            transactions,
+            receipts,
             receipts_root,
-            validator_proposal,
-            encoded_length as u64,
-            parts,
-            data_parts,
-            parity_parts,
             signer,
-        );
+        )?;
 
         for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
             let part_id = part_id as u64;
             self.merkle_paths.insert((new_chunk.chunk_hash(), part_id), merkle_path.clone());
         }
 
-        Ok((new_chunk, merkle_paths))
+        Ok(new_chunk)
     }
 
     pub fn distribute_encoded_chunk(

@@ -572,7 +572,7 @@ impl StateSync {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     use near_chain::test_utils::setup;
     use near_chain::Provenance;
@@ -606,9 +606,8 @@ mod test {
     /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
     #[test]
     fn test_sync_headers_fork() {
-        let requests = Arc::new(RwLock::new(vec![]));
-        let mock_adapter = Arc::new(MockNetworkAdapter { requests: requests.clone() });
-        let mut header_sync = HeaderSync::new(mock_adapter);
+        let mock_adapter = Arc::new(MockNetworkAdapter::default());
+        let mut header_sync = HeaderSync::new(mock_adapter.clone());
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
@@ -637,7 +636,7 @@ mod test {
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
         assert_eq!(
-            requests.read().unwrap()[0],
+            mock_adapter.pop().unwrap(),
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()

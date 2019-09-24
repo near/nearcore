@@ -351,24 +351,19 @@ impl Client {
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
 
-        let (encoded_chunk, _) = self
-            .shards_mgr
-            .create_encoded_shard_chunk(
-                prev_block_hash,
-                chunk_extra.state_root,
-                next_height,
-                shard_id,
-                chunk_extra.gas_used,
-                chunk_extra.gas_limit,
-                chunk_extra.validator_proposals.clone(),
-                &filtered_transactions,
-                &receipts,
-                receipts_root,
-                block_producer.signer.clone(),
-            )
-            .map_err(|_e| {
-                Error::ChunkProducer("Can't create encoded chunk, serialization error.".to_string())
-            })?;
+        let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
+            prev_block_hash,
+            chunk_extra.state_root,
+            next_height,
+            shard_id,
+            chunk_extra.gas_used,
+            chunk_extra.gas_limit,
+            chunk_extra.validator_proposals.clone(),
+            &filtered_transactions,
+            &receipts,
+            receipts_root,
+            block_producer.signer.clone(),
+        )?;
 
         debug!(
             target: "client",
