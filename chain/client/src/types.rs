@@ -15,6 +15,7 @@ use near_primitives::views::{
     BlockView, ChunkView, FinalTransactionResult, QueryResponse, TransactionResultView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
+pub use near_network::types::PeerInfo;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
@@ -270,12 +271,6 @@ pub struct GetNetworkInfo {}
 
 impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PeerInfo {
-    pub addr: Option<SocketAddr>,
-    pub account_id: Option<AccountId>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

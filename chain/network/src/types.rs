@@ -1,6 +1,7 @@
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
+use serde_derive::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
@@ -27,7 +28,7 @@ use crate::peer::Peer;
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -75,7 +76,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,

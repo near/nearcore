@@ -46,8 +46,8 @@ use crate::sync::{
     most_weight_peer, BlockSync, HeaderSync, StateSync, StateSyncResult, SyncNetworkRecipient,
 };
 use crate::types::{
-    BlockProducer, ClientConfig, Error, GetNetworkInfo, PeerInfo, NetworkInfoResponse, ShardSyncStatus,
-    Status, StatusSyncInfo, SyncStatus,
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, PeerInfo,
+    ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -537,12 +537,13 @@ impl Handler<GetNetworkInfo> for ClientActor {
 
     fn handle(&mut self, _: GetNetworkInfo, _: &mut Context<Self>) -> Self::Result {
         Ok(NetworkInfoResponse {
-            active_peers: self.network_info.active_peers.clone().into_iter().map(|a| {
-                PeerInfo {
-                    addr: a.peer_info.addr,
-                    account_id: a.peer_info.account_id,
-                }
-            }).collect::<Vec<_>>(),
+            active_peers: self
+                .network_info
+                .active_peers
+                .clone()
+                .into_iter()
+                .map(|a| a.peer_info.clone())
+                .collect::<Vec<_>>(),
             num_active_peers: self.network_info.num_active_peers,
             peer_max_count: self.network_info.peer_max_count,
             sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
