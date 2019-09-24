@@ -142,7 +142,7 @@ def spin_up_node(config, near_root, node_dir, ordinal, boot_key, boot_addr):
     return node
 
 
-def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes = []):
+def init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
     is_local = config['local']
     near_root = config['near_root']
 
@@ -155,8 +155,9 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     node_dirs = [line.split()[-1] for line in err.decode('utf8').split('\n') if '/test' in line]
     assert len(node_dirs) == num_nodes + num_observers
 
-    # apply genesis_config_changes
-    for node_dir in node_dirs:
+    # apply config changes
+    for i, node_dir in enumerate(node_dirs):
+        # apply genesis_config.json changes
         fname = os.path.join(node_dir, 'genesis.json')
         with open(fname) as f:
             genesis_config = json.loads(f.read())
@@ -169,6 +170,24 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
         with open(fname, 'w') as f:
             f.write(json.dumps(genesis_config, indent=2))
 
+        # apply config.json changes
+        fname = os.path.join(node_dir, 'config.json')
+        with open(fname) as f:
+            config_json = json.loads(f.read())
+
+        if i in client_config_changes:
+            for k, v in client_config_changes[i].items():
+                assert k in config_json
+                config_json[k] = v
+
+        with open(fname, 'w') as f:
+            f.write(json.dumps(config_json, indent=2))
+
+    return near_root, node_dirs
+
+
+def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes):
+    near_root, node_dirs = init_cluster(num_nodes, num_observers, num_shards, config, genesis_config_changes, client_config_changes)
 
     ret = []
     def spin_up_node_and_push(i, boot_key, boot_addr):
@@ -181,7 +200,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
     boot_node = spin_up_node_and_push(0, None, None)
 
     handles = []
-    for i in range(1, num_nodes):
+    for i in range(1, num_nodes + num_observers):
         handle = threading.Thread(target = spin_up_node_and_push, args=(i, boot_node.account.pk, boot_node.addr()))
         handle.start()
         handles.append(handle)

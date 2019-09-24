@@ -159,8 +159,22 @@ def create_payment_action(amount):
     action.transfer = transfer
     return action
 
+def create_staking_action(amount, pk):
+    stake = Stake()
+    stake.stake = amount
+    stake.publicKey = PublicKey()
+    stake.publicKey.keyType = 0
+    stake.publicKey.data = pk
+    action = Action()
+    action.enum = 'stake'
+    action.stake = stake
+    return action
+
 def sign_payment_tx(account, to, amount, nonce, blockHash):
     action = create_payment_action(amount)
     return sign_and_serialize_transaction(to, nonce, [action], blockHash, account.account_id, account.decoded_pk(), account.decoded_sk())
 
+def sign_staking_tx(account, amount, nonce, blockHash):
+    action = create_staking_action(amount, account.decoded_pk())
+    return sign_and_serialize_transaction(account.account_id, nonce, [action], blockHash, account.account_id, account.decoded_pk(), account.decoded_sk())
 

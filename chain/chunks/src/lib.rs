@@ -215,7 +215,7 @@ impl ShardsManager {
                         self.me.as_ref(),
                         &parent_hash,
                         shard_id,
-                        true,
+                        false,
                     ) {
                         assert!(requested_one_part)
                     };
