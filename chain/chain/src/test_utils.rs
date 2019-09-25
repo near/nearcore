@@ -64,7 +64,7 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
-    ((hash(&account_id.clone().into_bytes()).0).0[0] as u64) % num_shards
+    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -165,10 +165,12 @@ impl KeyValueRuntime {
         if prev_hash == CryptoHash::default() {
             return Ok((EpochId(prev_hash), 0, EpochId(prev_hash)));
         }
-        let prev_block_header =
-            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?.ok_or(
-                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash)),
-            )?;
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
+            .ok_or_else(|| {
+                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
+            })?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -225,7 +227,7 @@ impl KeyValueRuntime {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or(Error::from(ErrorKind::EpochOutOfBounds))? as usize
+            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds))? as usize
             % self.validators.len())
     }
 }
@@ -465,7 +467,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         ));
                     }
                 } else {
-                    assert!(false); // receipts should never be applied twice
+                    panic!("receipts should never be applied twice");
                 }
             } else {
                 unreachable!();
@@ -474,18 +476,18 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
-            if transaction.transaction.actions.len() == 0 {
+            if transaction.transaction.actions.is_empty() {
                 continue;
             }
             if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
                     transaction.transaction.receiver_id.clone(),
-                    transaction.transaction.nonce.clone(),
+                    transaction.transaction.nonce,
                 )) {
                     state.tx_nonces.insert(AccountNonce(
                         transaction.transaction.receiver_id.clone(),
-                        transaction.transaction.nonce.clone(),
+                        transaction.transaction.nonce,
                     ));
                     balance_transfers.push((
                         transaction.get_hash(),
@@ -594,7 +596,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
-                TrieChanges::empty(state_root.clone()),
+                TrieChanges::empty(*state_root),
             ),
             new_root: new_state_root,
             transaction_results: tx_results,
@@ -656,10 +658,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header =
-            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.ok_or(
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
-            )?;
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
+            .ok_or_else(|| {
+                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
+            })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)

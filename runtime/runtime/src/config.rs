@@ -45,7 +45,7 @@ pub fn safe_gas_to_balance(
     gas_price: Balance,
     gas: Gas,
 ) -> Result<Balance, Box<dyn std::error::Error>> {
-    gas_price.checked_mul(gas as Balance).ok_or_else(|| "gas to balance overflow".into())
+    gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| "gas to balance overflow".into())
 }
 
 pub fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, Box<dyn std::error::Error>> {

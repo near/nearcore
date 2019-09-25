@@ -85,7 +85,7 @@ impl From<&InMemorySigner> for KeyFile {
     fn from(signer: &InMemorySigner) -> KeyFile {
         KeyFile {
             account_id: signer.account_id.clone(),
-            public_key: signer.public_key,
+            public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
         }
     }
@@ -95,7 +95,7 @@ impl From<Arc<InMemorySigner>> for KeyFile {
     fn from(signer: Arc<InMemorySigner>) -> KeyFile {
         KeyFile {
             account_id: signer.account_id.clone(),
-            public_key: signer.public_key,
+            public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
         }
     }

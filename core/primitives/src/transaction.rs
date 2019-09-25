@@ -274,7 +274,7 @@ mod tests {
         }
         .sign(&signer);
         let wrong_public_key = PublicKey::from_seed(KeyType::ED25519, "wrong");
-        let valid_keys = vec![signer.public_key(), wrong_public_key];
+        let valid_keys = vec![signer.public_key(), wrong_public_key.clone()];
         assert!(verify_transaction_signature(&transaction, &valid_keys));
 
         let invalid_keys = vec![wrong_public_key];
@@ -295,7 +295,7 @@ mod tests {
                 .unwrap();
         let transaction = Transaction {
             signer_id: "test.near".to_string(),
-            public_key,
+            public_key: public_key.clone(),
             nonce: 1,
             receiver_id: "123".to_string(),
             block_hash: Default::default(),
@@ -309,9 +309,9 @@ mod tests {
                     deposit: 1_000_000,
                 }),
                 Action::Transfer(TransferAction { deposit: 123 }),
-                Action::Stake(StakeAction { public_key, stake: 1_000_000 }),
+                Action::Stake(StakeAction { public_key: public_key.clone(), stake: 1_000_000 }),
                 Action::AddKey(AddKeyAction {
-                    public_key,
+                    public_key: public_key.clone(),
                     access_key: AccessKey {
                         nonce: 0,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {

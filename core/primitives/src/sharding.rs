@@ -135,7 +135,7 @@ impl EncodedShardChunkBody {
             }
         }
 
-        return fetched_parts;
+        fetched_parts
     }
 
     pub fn reconstruct(&mut self, data_shards: usize, parity_shards: usize) {

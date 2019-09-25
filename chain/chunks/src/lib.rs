@@ -110,17 +110,8 @@ impl ShardsManager {
         shard_id: ShardId,
         is_me: bool,
     ) -> bool {
-        return self.runtime_adapter.cares_about_shard(
-            account_id.clone(),
-            parent_hash,
-            shard_id,
-            is_me,
-        ) || self.runtime_adapter.will_care_about_shard(
-            account_id,
-            parent_hash,
-            shard_id,
-            is_me,
-        );
+        self.runtime_adapter.cares_about_shard(account_id.clone(), parent_hash, shard_id, is_me)
+            || self.runtime_adapter.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
     }
 
     fn request_one_part(
@@ -250,14 +241,13 @@ impl ShardsManager {
         &mut self,
         prev_block_hash: CryptoHash,
     ) -> Vec<(ShardId, ShardChunkHeader)> {
-        self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or(vec![])
+        self.block_hash_to_chunk_headers.remove(&prev_block_hash).unwrap_or_else(|| vec![])
     }
 
     pub fn insert_transaction(&mut self, shard_id: ShardId, tx: ValidTransaction) {
-        let _ = self
-            .tx_pools
+        self.tx_pools
             .entry(shard_id)
-            .or_insert_with(|| TransactionPool::new())
+            .or_insert_with(TransactionPool::default)
             .insert_transaction(tx);
     }
 
@@ -266,7 +256,9 @@ impl ShardsManager {
         shard_id: ShardId,
         transactions: &Vec<SignedTransaction>,
     ) {
-        self.tx_pools.get_mut(&shard_id).map(|pool| pool.remove_transactions(transactions));
+        if let Some(pool) = self.tx_pools.get_mut(&shard_id) {
+            pool.remove_transactions(transactions)
+        }
     }
 
     pub fn reintroduce_transactions(
@@ -276,7 +268,7 @@ impl ShardsManager {
     ) {
         self.tx_pools
             .entry(shard_id)
-            .or_insert_with(|| TransactionPool::new())
+            .or_insert_with(TransactionPool::default)
             .reintroduce_transactions(transactions);
     }
 
@@ -294,7 +286,7 @@ impl ShardsManager {
             if let Some(part) = &chunk.content.parts[request.part_id as usize] {
                 served = true;
                 let _ = self.peer_mgr.do_send(NetworkRequests::ChunkPart {
-                    peer_id,
+                    peer_id: peer_id.clone(),
                     part: ChunkPartMsg {
                         shard_id: request.shard_id,
                         chunk_hash: request.chunk_hash.clone(),
@@ -333,8 +325,8 @@ impl ShardsManager {
             if self
                 .requests
                 .entry((request.shard_id, request.chunk_hash.clone(), request.part_id))
-                .or_insert(HashSet::default())
-                .insert(peer_id)
+                .or_insert_with(HashSet::default)
+                .insert(peer_id.clone())
             {
                 self.requests_fifo.push_back((
                     request.shard_id,
@@ -660,9 +652,9 @@ impl ShardsManager {
         }
         store_update.commit()?;
 
-        self.encoded_chunks
-            .get_mut(&one_part.chunk_hash)
-            .map(|x| x.content.parts[one_part.part_id as usize] = Some(one_part.part));
+        if let Some(encoded_chunk) = self.encoded_chunks.get_mut(&one_part.chunk_hash) {
+            encoded_chunk.content.parts[one_part.part_id as usize] = Some(one_part.part);
+        }
 
         Ok(ret)
     }
@@ -678,22 +670,19 @@ impl ShardsManager {
                 {
                     let shard_id = a.shard_id;
                     let chunk_header = a.header.clone();
-                    match self.process_chunk_one_part(a) {
-                        Ok(cur) => {
-                            ret |= cur;
+                    if let Ok(cur) = self.process_chunk_one_part(a) {
+                        ret |= cur;
 
-                            if self.cares_about_shard_this_or_next_epoch(
-                                self.me.as_ref(),
-                                &block_hash,
-                                shard_id,
-                                true,
-                            ) {
-                                self.request_chunks(vec![chunk_header]).unwrap();
-                            }
+                        if self.cares_about_shard_this_or_next_epoch(
+                            self.me.as_ref(),
+                            &block_hash,
+                            shard_id,
+                            true,
+                        ) {
+                            self.request_chunks(vec![chunk_header]).unwrap();
                         }
-                        Err(_) => {
-                            byzantine_assert!(false); /* ignore error */
-                        }
+                    } else {
+                        byzantine_assert!(false); /* ignore error */
                     }
                 }
             }
