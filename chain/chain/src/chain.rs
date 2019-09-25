@@ -1095,7 +1095,7 @@ impl Chain {
         }
         chain_store_update.save_outgoing_receipt(&block_header.hash(), shard_id, outgoing_receipts);
         // Saving transaction results.
-        for tx_result in apply_result.transaction_results.into_iter() {
+        for tx_result in apply_result.transaction_results {
             chain_store_update.save_transaction_result(&tx_result.id, tx_result.outcome);
         }
         // Saving all incoming receipts.
@@ -1662,7 +1662,7 @@ impl<'a> ChainUpdate<'a> {
                         outgoing_receipts,
                     );
                     // Save receipt and transaction results.
-                    for tx_result in apply_result.transaction_results.into_iter() {
+                    for tx_result in apply_result.transaction_results {
                         self.chain_store_update
                             .save_transaction_result(&tx_result.id, tx_result.outcome);
                     }
