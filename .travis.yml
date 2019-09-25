@@ -23,6 +23,10 @@ before_install:
   - sudo apt-get update -qq
   - sudo apt-get install -y -qq yarn
 
+stages:
+  - build
+  - test
+
 jobs:
   include:
   - stage: build
