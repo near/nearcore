@@ -89,7 +89,7 @@ mod tests {
             node.view_balance(&bob_account()).unwrap(),
         );
         assert_eq!(alice2, alice1 - 1 - transfer_cost);
-        let reward = gas_burnt_to_reward(transaction_result.transactions[1].result.gas_burnt);
+        let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
         assert_eq!(bob2, bob1 + 1 + reward);
     }
 

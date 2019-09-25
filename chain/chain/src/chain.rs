@@ -13,7 +13,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{check_tx_history, SignedTransaction, TransactionResult};
+use near_primitives::transaction::{check_tx_history, ExecutionOutcome, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::{Store, COL_CHUNKS};
 
@@ -1096,7 +1096,7 @@ impl Chain {
         chain_store_update.save_outgoing_receipt(&block_header.hash(), shard_id, outgoing_receipts);
         // Saving transaction results.
         for tx_result in apply_result.transaction_results.into_iter() {
-            chain_store_update.save_transaction_result(&tx_result.hash, tx_result.result);
+            chain_store_update.save_transaction_result(&tx_result.id, tx_result.outcome);
         }
         // Saving all incoming receipts.
         for receipt_proof_response in incoming_receipts_proofs {
@@ -1351,7 +1351,7 @@ impl Chain {
     pub fn get_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<&TransactionResult, Error> {
+    ) -> Result<&ExecutionOutcome, Error> {
         self.store.get_transaction_result(hash)
     }
 
@@ -1664,7 +1664,7 @@ impl<'a> ChainUpdate<'a> {
                     // Save receipt and transaction results.
                     for tx_result in apply_result.transaction_results.into_iter() {
                         self.chain_store_update
-                            .save_transaction_result(&tx_result.hash, tx_result.result);
+                            .save_transaction_result(&tx_result.id, tx_result.outcome);
                     }
                 } else {
                     let mut new_extra = self
