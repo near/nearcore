@@ -145,7 +145,7 @@ impl ShardsManager {
         chunk_hash: ChunkHash,
         tracking_shards: HashSet<ShardId>,
     ) -> Result<(), Error> {
-        let _ = self.network_adapter.send(NetworkRequests::ChunkOnePartRequest {
+        self.network_adapter.send(NetworkRequests::ChunkOnePartRequest {
             account_id: self.runtime_adapter.get_chunk_producer(epoch_id, height, shard_id)?,
             one_part_request: ChunkOnePartRequestMsg {
                 shard_id,
@@ -243,7 +243,7 @@ impl ShardsManager {
                     let part_id = part_id as u64;
                     let to_whom = self.runtime_adapter.get_part_owner(&parent_hash, part_id)?;
                     if Some(&to_whom) != self.me.as_ref() {
-                        let _ = self.network_adapter.send(NetworkRequests::ChunkPartRequest {
+                        self.network_adapter.send(NetworkRequests::ChunkPartRequest {
                             account_id: to_whom,
                             part_request: ChunkPartRequestMsg {
                                 shard_id,
@@ -305,9 +305,9 @@ impl ShardsManager {
                 return Err(Error::InvalidChunkPartId);
             }
 
-            if let Some(_) = &chunk.content.parts[request.part_id as usize] {
+            if chunk.content.parts[request.part_id as usize].is_some() {
                 served = true;
-                let _ = self.network_adapter.send(NetworkRequests::ChunkPart {
+                self.network_adapter.send(NetworkRequests::ChunkPart {
                     peer_id: peer_id.clone(),
                     part: chunk.create_chunk_part_msg(
                         request.part_id,
@@ -619,7 +619,7 @@ impl ShardsManager {
             self.requests.remove(&(one_part.shard_id, chunk_hash.clone(), one_part.part_id))
         {
             for whom in send_to {
-                let _ = self.network_adapter.send(NetworkRequests::ChunkPart {
+                self.network_adapter.send(NetworkRequests::ChunkPart {
                     peer_id: whom,
                     part: ChunkPartMsg {
                         shard_id: one_part.shard_id,
@@ -793,7 +793,7 @@ impl ShardsManager {
                     self.process_chunk_one_part(one_part.clone()).unwrap();
                 }
             } else {
-                let _ = self.network_adapter.send(NetworkRequests::ChunkOnePartMessage {
+                self.network_adapter.send(NetworkRequests::ChunkOnePartMessage {
                     account_id: to_whom.clone(),
                     header_and_part: one_part,
                 });
