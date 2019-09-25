@@ -513,10 +513,18 @@ impl StateSync {
                     self.prev_state_sync.insert(shard_id, now);
                     (true, false)
                 }
-                Some(prev) => (
-                    sync_need_restart.contains(&shard_id),
-                    now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT), // This needs to be in config, and properly configured for the production (i.e. not 10 minutes). #1237 tracks it
-                ),
+                Some(prev) => {
+                    if new_shard_sync.contains_key(&shard_id)
+                        && new_shard_sync[&shard_id] != ShardSyncStatus::StateDone
+                    {
+                        (
+                            sync_need_restart.contains(&shard_id),
+                            now - *prev > Duration::seconds(STATE_SYNC_TIMEOUT),
+                        ) // This needs to be in config, and properly configured for the production (i.e. not 10 minutes). #1237 tracks it
+                    } else {
+                        (false, false)
+                    }
+                }
             };
 
             if download_timeout {
@@ -526,6 +534,7 @@ impl StateSync {
             if go || download_timeout {
                 match self.request_state(shard_id, chain, runtime_adapter, sync_hash) {
                     Some(_) => {
+                        self.prev_state_sync.insert(shard_id, now);
                         new_shard_sync.insert(
                             shard_id,
                             ShardSyncStatus::StateDownload {

@@ -5,8 +5,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
 use near_primitives::transaction::{SignedTransaction, TransactionLog};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
@@ -18,6 +19,12 @@ use crate::error::Error;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct RootProof(pub CryptoHash, pub MerklePath);
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum BlockStatus {
@@ -59,15 +66,6 @@ pub struct ValidTransaction {
 
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
-
-pub enum ShardFullChunkOrOnePart<'a> {
-    // The validator follows the shard, and has the full chunk
-    FullChunk(&'a ShardChunk),
-    // The validator doesn't follow the shard, and only has one part
-    OnePart(&'a ChunkOnePart),
-    // The chunk for particular shard is not present in the block
-    NoChunk,
-}
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValidatorSignatureVerificationResult {

@@ -2,16 +2,18 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use near_chain::types::ReceiptResponse;
+use reed_solomon_erasure::Shard;
+use tokio::net::TcpStream;
+
+use near_chain::types::{ReceiptProofResponse, RootProof};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use reed_solomon_erasure::Shard;
 use std::collections::HashSet;
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
@@ -19,7 +21,6 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::net::TcpStream;
 
 use crate::peer::Peer;
 
@@ -669,10 +670,12 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub prev_chunk_extra: ChunkExtra,
-    pub payload: Vec<u8>,
-    pub outgoing_receipts: ReceiptResponse,
-    pub incoming_receipts: Vec<ReceiptResponse>,
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_payload: Vec<u8>,
+    pub block_transactions: Vec<SignedTransaction>,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
 }
 
 #[derive(Debug)]
@@ -804,7 +807,7 @@ pub struct ChunkOnePartRequestMsg {
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkPartMsg {
-    pub shard_id: u64,
+    pub shard_id: ShardId,
     pub chunk_hash: ChunkHash,
     pub part_id: u64,
     pub part: Shard,
