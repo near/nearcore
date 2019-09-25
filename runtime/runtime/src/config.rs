@@ -35,7 +35,7 @@ impl RuntimeConfig {
             storage_cost_byte_per_block: 0,
             poke_threshold: 0,
             transaction_costs: RuntimeFeesConfig::free(),
-            wasm_config: Default::default(),
+            wasm_config: Config::free(),
             account_length_baseline_cost_per_block: 0,
         }
     }
