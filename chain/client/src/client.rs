@@ -2,7 +2,6 @@
 //! Block production is done in done in this actor as well (at the moment).
 
 use std::collections::HashMap;
-use std::ops::Sub;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -45,6 +44,7 @@ use crate::types::{
 };
 use crate::{sync, StatusResponse};
 use std::cmp::min;
+use std::ops::Sub;
 
 pub struct ClientActor {
     config: ClientConfig,
@@ -640,9 +640,11 @@ impl ClientActor {
         last_height: BlockIndex,
         next_height: BlockIndex,
     ) -> Result<(), Error> {
-        let block_producer = self.block_producer.as_ref().ok_or_else(|| {
-            Error::BlockProducer("Called without block producer info.".to_string())
-        })?;
+        let block_producer = self
+            .block_producer
+            .as_ref()
+            .ok_or_else(|| Error::BlockProducer("Called without block producer info.".to_string()))?
+            .clone();
         let head = self.chain.head()?;
         // If last height changed, this process should stop as we spun up another one.
         if head.height != last_height {
@@ -675,10 +677,12 @@ impl ClientActor {
             .map_err(|err| Error::Other(err.to_string()))?
             == block_producer.account_id.clone();
         // If epoch changed, and before there was 2 validators and now there is 1 - prev_same_bp is false, but total validators right now is 1.
-        let total_approvals =
+        let _total_approvals =
             total_validators - min(if prev_same_bp { 1 } else { 2 }, total_validators);
-        if self.approvals.len() < total_approvals
-            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
+        // TODO(#1287): Reenable block approval
+        if false
+        //        if self.approvals.len() < total_approvals
+        //            && self.last_block_processed.elapsed() < self.config.max_block_production_delay
         {
             // Schedule itself for (max BP delay - how much time passed).
             ctx.run_later(
@@ -705,10 +709,21 @@ impl ClientActor {
         let validator_proposals =
             self.chain.get_post_validator_proposals(&head.last_block_hash)?.clone();
 
-        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
-
         // Take transactions from the pool.
-        let transactions = self.tx_pool.prepare_transactions(self.config.block_expected_weight)?;
+        let transactions = self
+            .tx_pool
+            .prepare_transactions(self.config.block_expected_weight)?
+            .into_iter()
+            .filter(|t| {
+                check_tx_history(
+                    self.chain.get_block_header(&t.transaction.block_hash).ok(),
+                    head.height,
+                    self.config.transaction_validity_period,
+                )
+            })
+            .collect();
+
+        let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
         // At this point, the previous epoch hash must be available
         let (epoch_hash, _) = self
