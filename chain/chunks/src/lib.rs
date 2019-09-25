@@ -746,25 +746,6 @@ impl ShardsManager {
         Ok(new_chunk)
     }
 
-    pub fn create_chunk_one_part(
-        &self,
-        chunk_hash: ChunkHash,
-        encoded_chunk: &EncodedShardChunk,
-        part_id: u64,
-        receipt_proofs: Vec<ReceiptProof>,
-    ) -> ChunkOnePart {
-        ChunkOnePart {
-            shard_id: encoded_chunk.header.inner.shard_id,
-            chunk_hash: chunk_hash.clone(),
-            header: encoded_chunk.header.clone(),
-            part_id,
-            part: encoded_chunk.content.parts[part_id as usize].clone().unwrap(),
-            receipt_proofs,
-            // It should be impossible to have a part but not the merkle path
-            merkle_path: self.merkle_paths.get(&(chunk_hash.clone(), part_id)).unwrap().clone(),
-        }
-    }
-
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
