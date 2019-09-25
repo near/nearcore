@@ -47,11 +47,10 @@ impl RoutingTable {
 
     /// Find peer that owns this AccountId.
     pub fn account_owner(&self, account_id: &AccountId) -> Result<PeerId, FindRouteError> {
-        if let Some(peer_id) = self.account_peers.get(account_id) {
-            Ok(peer_id.clone())
-        } else {
-            Err(FindRouteError::AccountNotFound)
-        }
+        self.account_peers
+            .get(account_id)
+            .cloned()
+            .ok_or_else(|| Err(FindRouteError::AccountNotFound))
     }
 
     pub fn add_peer(&mut self, peer_id: PeerId) {
