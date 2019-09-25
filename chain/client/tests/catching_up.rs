@@ -10,6 +10,7 @@ mod tests {
     use near_crypto::{InMemorySigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::init_integration_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::BlockIndex;
@@ -65,14 +66,23 @@ mod tests {
     enum ReceiptsSyncPhases {
         WaitingForFirstBlock,
         WaitingForSecondBlock,
-        WaitingForThirdEpoch,
+        WaitingForDistantEpoch,
         VerifyingOutgoingReceipts,
-        WaitingForFifthEpoch,
+        WaitingForValidate,
     }
 
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
-    fn test_catchup_receipts_sync() {
+    fn test_catchup_receipts_sync_third_epoch() {
+        test_catchup_receipts_sync_common(13)
+    }
+
+    #[test]
+    fn test_catchup_receipts_sync_distant_epoch() {
+        test_catchup_receipts_sync_common(35)
+    }
+
+    fn test_catchup_receipts_sync_common(wait_till: u64) {
         let validator_groups = 1;
         init_integration_logger();
         System::run(move || {
@@ -133,16 +143,16 @@ mod tests {
                             if let NetworkRequests::Block { block } = msg {
                                 assert!(block.header.inner.height <= 2);
                                 if block.header.inner.height == 2 {
-                                    *phase = ReceiptsSyncPhases::WaitingForThirdEpoch;
+                                    *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
                         }
-                        ReceiptsSyncPhases::WaitingForThirdEpoch => {
+                        ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
                                 assert!(block.header.inner.height >= 2);
-                                assert!(block.header.inner.height <= 13);
-                                if block.header.inner.height == 13 {
+                                assert!(block.header.inner.height <= wait_till);
+                                if block.header.inner.height == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
                                 }
                             }
@@ -150,10 +160,16 @@ mod tests {
                                 header_and_part, ..
                             } = msg
                             {
-                                // The chunk producers in all three epochs need to be trying to
-                                //     include the receipt. The third epoch is the first one that
+                                // The chunk producers in all epochs before `distant` need to be trying to
+                                //     include the receipt. The `distant` epoch is the first one that
                                 //     will get the receipt through the state sync.
-                                if header_and_part.receipts.len() > 0 {
+                                let receipts: Vec<Receipt> = header_and_part
+                                    .receipt_proofs
+                                    .iter()
+                                    .map(|x| x.0.clone())
+                                    .flatten()
+                                    .collect();
+                                if receipts.len() > 0 {
                                     assert_eq!(header_and_part.shard_id, source_shard_id);
                                     seen_heights_with_receipts
                                         .insert(header_and_part.header.inner.height_created);
@@ -166,36 +182,45 @@ mod tests {
                             }
                         }
                         ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
-                            for height in 3..=13 {
+                            for height in 3..=wait_till {
                                 assert!(seen_heights_with_receipts.contains(&height));
                             }
-                            *phase = ReceiptsSyncPhases::WaitingForFifthEpoch;
+                            *phase = ReceiptsSyncPhases::WaitingForValidate;
                         }
-                        ReceiptsSyncPhases::WaitingForFifthEpoch => {
+                        ReceiptsSyncPhases::WaitingForValidate => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 13);
-                                assert!(block.header.inner.height <= 23);
-                                if block.header.inner.height == 23 {
-                                    actix::spawn(
-                                        connectors1.write().unwrap()[5] // 5th account is one of the validators of epoch 5
-                                            .1
-                                            .send(Query {
-                                                path: "account/".to_owned() + &account_to,
-                                                data: vec![],
-                                            })
-                                            .then(move |res| {
-                                                let query_responce = res.unwrap().unwrap();
-                                                if let ViewAccount(view_account_result) =
-                                                    query_responce
-                                                {
-                                                    assert_eq!(view_account_result.amount, 1111);
-                                                    System::current().stop();
-                                                }
-
-                                                future::result(Ok(()))
-                                            }),
-                                    );
+                                assert!(block.header.inner.height >= wait_till);
+                                assert!(block.header.inner.height <= wait_till + 20);
+                                if block.header.inner.height == wait_till + 20 {
+                                    System::current().stop();
+                                }
+                                if block.header.inner.height == wait_till + 10 {
+                                    for i in 0..16 {
+                                        actix::spawn(
+                                            connectors1.write().unwrap()[i]
+                                                .1
+                                                .send(Query {
+                                                    path: "account/".to_owned() + &account_to,
+                                                    data: vec![],
+                                                })
+                                                .then(move |res| {
+                                                    let res_inner = res.unwrap();
+                                                    if res_inner.is_ok() {
+                                                        let query_response = res_inner.unwrap();
+                                                        if let ViewAccount(view_account_result) =
+                                                            query_response
+                                                        {
+                                                            assert_eq!(
+                                                                view_account_result.amount,
+                                                                1111
+                                                            );
+                                                        }
+                                                    }
+                                                    future::result(Ok(()))
+                                                }),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -205,7 +230,7 @@ mod tests {
             );
             *connectors.write().unwrap() = conn;
 
-            near_network::test_utils::wait_or_panic(30000);
+            near_network::test_utils::wait_or_panic(240000);
         })
         .unwrap();
     }
@@ -223,7 +248,7 @@ mod tests {
     /// been incorrect due to wrong receipts applied during the third epoch.
     #[test]
     fn test_catchup_random_single_part_sync() {
-        test_catchup_random_single_part_sync_common(false)
+        test_catchup_random_single_part_sync_common(false, false, 13)
     }
 
     // Same test as `test_catchup_random_single_part_sync`, but skips the chunks on height 14 and 15
@@ -232,10 +257,22 @@ mod tests {
     #[test]
     #[ignore]
     fn test_catchup_random_single_part_sync_skip_15() {
-        test_catchup_random_single_part_sync_common(true)
+        test_catchup_random_single_part_sync_common(true, false, 13)
     }
 
-    fn test_catchup_random_single_part_sync_common(skip_15: bool) {
+    // Make sure that transactions are at least applied.
+    #[test]
+    fn test_catchup_random_single_part_sync_non_zero_amounts() {
+        test_catchup_random_single_part_sync_common(false, true, 13)
+    }
+
+    // Use another height to send txs.
+    #[test]
+    fn test_catchup_random_single_part_sync_height_6() {
+        test_catchup_random_single_part_sync_common(false, false, 6)
+    }
+
+    fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
         let validator_groups = 2;
         init_integration_logger();
         System::run(move || {
@@ -247,7 +284,6 @@ mod tests {
 
             let phase = Arc::new(RwLock::new(RandomSinglePartPhases::WaitingForFirstBlock));
             let seen_heights_same_block = Arc::new(RwLock::new(HashSet::<CryptoHash>::new()));
-            let seen_receipts_size = Arc::new(RwLock::new(HashSet::<usize>::new()));
 
             let amounts = Arc::new(RwLock::new(HashMap::new()));
 
@@ -260,7 +296,11 @@ mod tests {
                         }
                         Entry::Vacant(entry) => {
                             println!("VACANT {:?}", entry);
-                            assert_eq!(amount % 100, 0);
+                            if non_zero {
+                                assert_ne!(amount % 100, 0);
+                            } else {
+                                assert_eq!(amount % 100, 0);
+                            }
                             entry.insert(amount);
                         }
                     }
@@ -275,7 +315,6 @@ mod tests {
                 1500,
                 Arc::new(RwLock::new(move |_account_id: String, msg: &NetworkRequests| {
                     let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
-                    let mut seen_receipts_size = seen_receipts_size.write().unwrap();
                     let mut phase = phase.write().unwrap();
                     match *phase {
                         RandomSinglePartPhases::WaitingForFirstBlock => {
@@ -287,23 +326,32 @@ mod tests {
                         RandomSinglePartPhases::WaitingForThirdEpoch => {
                             if let NetworkRequests::Block { block } = msg {
                                 assert!(block.header.inner.height >= 2);
-                                assert!(block.header.inner.height <= 13);
+                                assert!(block.header.inner.height <= height);
                                 let mut tx_count = 0;
-                                if block.header.inner.height == 13 {
+                                if block.header.inner.height == height {
                                     for (i, validator1) in flat_validators.iter().enumerate() {
                                         for (j, validator2) in flat_validators.iter().enumerate() {
+                                            let mut amount =
+                                                (((i + j + 17) * 701) % 42 + 1) as u128;
+                                            if non_zero {
+                                                if i > j {
+                                                    amount = 2;
+                                                } else {
+                                                    amount = 1;
+                                                }
+                                            }
                                             println!(
                                                 "VALUES {:?} {:?} {:?}",
                                                 validator1.to_string(),
                                                 validator2.to_string(),
-                                                (((i + j + 17) * 701) % 42 + 1) as u128
+                                                amount
                                             );
                                             for conn in 0..flat_validators.len() {
                                                 send_tx(
                                                     &connectors1.write().unwrap()[conn].0,
                                                     validator1.to_string(),
                                                     validator2.to_string(),
-                                                    (((i + j + 17) * 701) % 42 + 1) as u128,
+                                                    amount,
                                                     (12345 + tx_count) as u64,
                                                     block.header.inner.prev_hash,
                                                 );
@@ -318,7 +366,7 @@ mod tests {
                         }
                         RandomSinglePartPhases::WaitingForSixEpoch => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 13);
+                                assert!(block.header.inner.height >= height);
                                 assert!(block.header.inner.height <= 32);
                                 if block.header.inner.height >= 26 {
                                     println!("BLOCK HEIGHT {:?}", block.header.inner.height);
@@ -361,8 +409,6 @@ mod tests {
                                         seen_heights_same_block.len()
                                     );
                                     assert_eq!(seen_heights_same_block.len(), 1);
-                                    println!("SEEN RECEIPTS SIZE {:?}", seen_receipts_size.len());
-                                    assert_ne!(seen_receipts_size.len(), 1);
                                     let amounts1 = amounts.clone();
                                     for flat_validator in &flat_validators {
                                         match amounts1
@@ -389,7 +435,6 @@ mod tests {
                                 header_and_part, ..
                             } = msg
                             {
-                                seen_receipts_size.insert(header_and_part.receipts.len());
                                 if header_and_part.header.inner.height_created == 22 {
                                     seen_heights_same_block
                                         .insert(header_and_part.header.inner.prev_block_hash);
