@@ -1,12 +1,6 @@
 language: rust
 rust:
   - nightly-2019-05-22
-  - nightly
-
-matrix:
-  allow_failures:
-    - rust: nightly
-  fast_finish: true
 
 branches:
   only:
