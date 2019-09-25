@@ -8,6 +8,11 @@ matrix:
     - rust: nightly
   fast_finish: true
 
+branches:
+  only:
+  - master
+  - staging
+
 cache:
   yarn: true
   cargo: true
