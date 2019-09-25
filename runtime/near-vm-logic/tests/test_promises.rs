@@ -151,3 +151,22 @@ fn test_promise_batch_action_add_key_with_function_call() {
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}},{\"AddKeyWithFunctionCall\":{\"public_key\":\"RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ\",\"nonce\":1,\"allowance\":999,\"receiver_id\":\"sam\",\"method_names\":[\"foo\",\"bar\"]}}]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
 }
+
+#[test]
+fn test_promise_batch_then() {
+    let mut ext = MockedExternal::default();
+    let mut context = get_context(vec![]);
+    context.account_balance = 100;
+    let config = Config::default();
+    let promise_results = vec![];
+    let mut memory = MockedMemory::default();
+    let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
+
+    let account_id = b"rick.test";
+    let index = promise_create(&mut logic, account_id, 0, 0).expect("should crate promise");
+
+    logic.promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _);
+
+    let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}}]},{\"receipt_indices\":[0],\"receiver_id\":\"rick.test\",\"actions\":[]}]";
+    assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
+}
