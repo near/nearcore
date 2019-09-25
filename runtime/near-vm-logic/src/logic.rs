@@ -33,7 +33,7 @@ pub struct VMLogic<'a> {
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
     /// The amount of gas that was irreversibly used for contract execution.
-    pub burnt_gas: Gas,
+    burnt_gas: Gas,
     /// `burnt_gas` + gas that was attached to the promises.
     used_gas: Gas,
     /// What method returns.
