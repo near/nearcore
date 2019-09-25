@@ -380,7 +380,7 @@ mod tests {
 
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{BlsSignature, InMemorySigner, KeyType};
 
     use super::*;
 
@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
         let other_signer =
             Arc::new(InMemorySigner::from_seed("other2", KeyType::ED25519, "other2"));
-        let approvals: HashMap<usize, Signature> =
+        let approvals: HashMap<usize, BlsSignature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,

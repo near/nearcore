@@ -5,7 +5,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
@@ -281,8 +281,8 @@ pub struct BlockHeaderView {
     pub tx_root: CryptoHashView,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<Signature>,
-    pub total_weight: u64,
+    pub approval_sigs: BlsSignature,
+    pub total_weight: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     pub gas_used: Gas,
@@ -475,7 +475,7 @@ pub enum ActionView {
     Stake {
         #[serde(with = "u128_dec_format")]
         stake: Balance,
-        public_key: PublicKey,
+        public_key: BlsPublicKey,
     },
     AddKey {
         public_key: PublicKey,
@@ -695,7 +695,7 @@ impl FinalTransactionResult {
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
-    pub public_key: PublicKey,
+    pub public_key: BlsPublicKey,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }

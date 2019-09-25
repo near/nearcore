@@ -3,6 +3,9 @@ use milagro_bls::AggregatePublicKey;
 use std::io::{Error, ErrorKind, Read, Write};
 
 const BLS_DOMAIN: u64 = 42;
+const BLS_PUBLIC_KEY_LENGTH: usize = 48;
+const BLS_SECRET_KEY_LENGTH: usize = 48;
+const BLS_SIGNATURE_LENGTH: usize = 96;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BlsPublicKey(milagro_bls::PublicKey);
@@ -15,11 +18,45 @@ impl BorshSerialize for BlsPublicKey {
 
 impl BorshDeserialize for BlsPublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let mut buf = [0; 48];
+        let mut buf = [0; BLS_PUBLIC_KEY_LENGTH];
         reader.read(&mut buf)?;
         milagro_bls::PublicKey::from_bytes(&buf)
             .map(|pk| BlsPublicKey(pk))
             .map_err(|err| Error::new(ErrorKind::Other, format!("{:?}", err)))
+    }
+}
+
+impl serde::Serialize for BlsPublicKey {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BlsPublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut array = [0; BLS_PUBLIC_KEY_LENGTH];
+        let length = bs58::decode(s)
+            .into(&mut array[..])
+            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
+        if length != BLS_PUBLIC_KEY_LENGTH {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid length {} of BLS public key",
+                length,
+            )));
+        }
+        milagro_bls::PublicKey::from_bytes(&array)
+            .map(|pk| BlsPublicKey(pk))
+            .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
     }
 }
 
@@ -51,7 +88,7 @@ impl BorshSerialize for BlsSecretKey {
 
 impl BorshDeserialize for BlsSecretKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let mut buf = [0; 48];
+        let mut buf = [0; BLS_SECRET_KEY_LENGTH];
         reader.read(&mut buf)?;
         milagro_bls::SecretKey::from_bytes(&buf)
             .map(|sk| BlsSecretKey(sk))
@@ -63,6 +100,10 @@ impl BorshDeserialize for BlsSecretKey {
 pub struct BlsSignature(milagro_bls::AggregateSignature);
 
 impl BlsSignature {
+    pub fn empty() -> BlsSignature {
+        BlsSignature(milagro_bls::AggregateSignature::new())
+    }
+
     pub fn add(&mut self, signature: &BlsSignature) {
         self.0.add_aggregate(&signature.0);
     }
@@ -90,11 +131,45 @@ impl BorshSerialize for BlsSignature {
 
 impl BorshDeserialize for BlsSignature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
-        let mut buf = [0; 96];
+        let mut buf = [0; BLS_SIGNATURE_LENGTH];
         reader.read(&mut buf)?;
         milagro_bls::AggregateSignature::from_bytes(&buf)
             .map(|sig| BlsSignature(sig))
             .map_err(|err| Error::new(ErrorKind::Other, format!("{:?}", err)))
+    }
+}
+
+impl serde::Serialize for BlsSignature {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BlsSignature {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut array = [0; BLS_SIGNATURE_LENGTH];
+        let length = bs58::decode(s)
+            .into(&mut array[..])
+            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
+        if length != BLS_SIGNATURE_LENGTH {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid length {} of BLS signature",
+                length,
+            )));
+        }
+        milagro_bls::AggregateSignature::from_bytes(&array)
+            .map(|sig| BlsSignature(sig))
+            .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
     }
 }
 
@@ -128,7 +203,6 @@ mod tests {
 
         let sig = sk.sign(b"message");
         let bytes = sig.try_to_vec().unwrap();
-        println!("{}", bytes.len());
         let sig1 = BlsSignature::try_from_slice(&bytes).unwrap();
         assert_eq!(sig, sig1);
     }

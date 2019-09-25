@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
+
+use near_crypto::BlsPublicKey;
 
 use crate::hash::CryptoHash;
 
@@ -45,13 +46,13 @@ pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed validator.
-    pub public_key: PublicKey,
+    pub public_key: BlsPublicKey,
     /// Stake / weight of the validator.
     pub amount: Balance,
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
+    pub fn new(account_id: AccountId, public_key: BlsPublicKey, amount: Balance) -> Self {
         ValidatorStake { account_id, public_key, amount }
     }
 }

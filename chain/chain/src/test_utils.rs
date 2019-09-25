@@ -251,7 +251,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.num_approvals()))
     }
 
     fn verify_validator_signature(
