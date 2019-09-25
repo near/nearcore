@@ -80,9 +80,7 @@ fn produce_blocks_with_tx() {
                         total_parts,
                         &mut encoded_chunks[height - 2],
                     ) {
-                        let chunk =
-                            ShardsManager::decode_chunk(data_parts, &encoded_chunks[height - 2])
-                                .unwrap();
+                        let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
                         }

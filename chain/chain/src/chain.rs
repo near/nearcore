@@ -21,8 +21,8 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    Block, BlockHeader, BlockStatus, Provenance, ReceiptProofResponse, ReceiptResponse, RootProof,
-    RuntimeAdapter, Tip, ValidatorSignatureVerificationResult,
+    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptProofResponse,
+    ReceiptResponse, RootProof, RuntimeAdapter, Tip, ValidatorSignatureVerificationResult,
 };
 
 /// Maximum number of orphans chain can store.
@@ -336,7 +336,7 @@ impl Chain {
         block_misses_chunks: F2,
     ) -> Result<Option<Tip>, Error>
     where
-        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let block_hash = block.hash();
@@ -507,7 +507,7 @@ impl Chain {
         block_misses_chunks: F2,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         // Get header we were syncing into.
@@ -568,7 +568,7 @@ impl Chain {
         mut block_misses_chunks: F2,
     ) -> Result<Option<Tip>, Error>
     where
-        F: FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         if block.chunks.len() != self.runtime_adapter.num_shards() as usize {
@@ -596,7 +596,13 @@ impl Chain {
                 let status = self.determine_status(head.clone(), prev_head);
 
                 // Notify other parts of the system of the update.
-                block_accepted(&block, status, provenance);
+                block_accepted(AcceptedBlock {
+                    hash: block.hash(),
+                    status,
+                    provenance,
+                    gas_used: block.header.inner.gas_used,
+                    gas_limit: block.header.inner.gas_limit,
+                });
 
                 Ok(head)
             }
@@ -694,7 +700,7 @@ impl Chain {
         block_accepted: F,
         block_misses_chunks: F2,
     ) where
-        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let mut new_blocks_accepted = vec![];
@@ -734,7 +740,7 @@ impl Chain {
         block_misses_chunks: F2,
     ) -> Option<Tip>
     where
-        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         let mut queue = vec![prev_hash];
@@ -793,7 +799,6 @@ impl Chain {
 
     pub fn get_state_for_shard(
         &mut self,
-        _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
     ) -> Result<
@@ -1162,7 +1167,7 @@ impl Chain {
         block_misses_chunks: F2,
     ) -> Result<(), Error>
     where
-        F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
+        F: Copy + FnMut(AcceptedBlock) -> (),
         F2: Copy + FnMut(Vec<ShardChunkHeader>) -> (),
     {
         debug!("Catching up blocks after syncing pre {:?}, me: {:?}", epoch_first_block, me);
