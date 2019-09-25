@@ -4,7 +4,7 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::prelude::{DateTime, Utc};
 
-use near_crypto::{BlsPublicKey, BlsSignature, EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
@@ -121,7 +121,7 @@ impl BlockHeader {
         gas_limit: Gas,
         gas_price: Balance,
         total_supply: Balance,
-        signer: Arc<dyn Signer>,
+        signer: Arc<dyn BlsSigner>,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -178,15 +178,15 @@ impl BlockHeader {
 
     /// Verifies that given public key produced the block.
     pub fn verify_block_producer(&self, public_key: &BlsPublicKey) -> bool {
-        self.signature.verify(self.hash.as_ref(), public_key)
+        self.signature.verify_single(self.hash.as_ref(), public_key)
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
         from_timestamp(self.inner.timestamp)
     }
 
-    pub fn num_approvals(&self) -> u128 {
-        self.inner.approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum()
+    pub fn num_approvals(&self) -> u64 {
+        self.inner.approval_mask.iter().map(|x| if *x { 1u64 } else { 0u64 }).sum()
     }
 }
 
@@ -221,7 +221,7 @@ impl Block {
                     initial_gas_limit,
                     CryptoHash::default(),
                     vec![],
-                    Arc::new(EmptySigner {}),
+                    Arc::new(EmptyBlsSigner {}),
                 )
             })
             .collect();
@@ -248,7 +248,7 @@ impl Block {
         approvals: HashMap<usize, BlsSignature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
-        signer: Arc<dyn Signer>,
+        signer: Arc<dyn BlsSigner>,
     ) -> Self {
         let mut approval_sig = BlsSignature::empty();
         let max_approver = approvals.keys().max().unwrap_or(&0);

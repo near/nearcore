@@ -13,7 +13,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_crypto::{BlsPublicKey, BlsSecretKey, BlsSignature, ReadablePublicKey};
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
@@ -28,10 +28,10 @@ pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord)]
-pub struct PeerId(PublicKey);
+pub struct PeerId(BlsPublicKey);
 
 impl PeerId {
-    pub fn public_key(&self) -> PublicKey {
+    pub fn public_key(&self) -> BlsPublicKey {
         self.0.clone()
     }
 }
@@ -42,8 +42,8 @@ impl From<PeerId> for Vec<u8> {
     }
 }
 
-impl From<PublicKey> for PeerId {
-    fn from(public_key: PublicKey) -> PeerId {
+impl From<BlsPublicKey> for PeerId {
+    fn from(public_key: BlsPublicKey) -> PeerId {
         PeerId(public_key)
     }
 }
@@ -52,7 +52,7 @@ impl TryFrom<Vec<u8>> for PeerId {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
+        Ok(PeerId(BlsPublicKey::try_from_slice(&bytes)?))
     }
 }
 
@@ -191,7 +191,7 @@ struct AnnounceAccountRouteHeader {
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 /// Account announcement information
@@ -219,7 +219,7 @@ impl AnnounceAccount {
         epoch_id: EpochId,
         peer_id: PeerId,
         hash: CryptoHash,
-        signature: Signature,
+        signature: BlsSignature,
     ) -> Self {
         let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
         Self { account_id, epoch_id, route }
@@ -264,7 +264,7 @@ impl AnnounceAccount {
         self.route.len() - 1
     }
 
-    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
+    pub fn extend(&mut self, peer_id: PeerId, secret_key: &BlsSecretKey) {
         let last_hash = self.route.last().unwrap().hash;
         let new_hash =
             hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
@@ -283,7 +283,7 @@ pub enum HandshakeFailureReason {
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(AccountId, CryptoHash, BlsSignature),
     ForwardTx(SignedTransaction),
     StateRequest(ShardId, CryptoHash),
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -298,7 +298,7 @@ pub struct RawRoutedMessage {
 }
 
 impl RawRoutedMessage {
-    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
+    pub fn sign(self, author: PeerId, secret_key: &BlsSecretKey) -> RoutedMessage {
         let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
         RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
@@ -326,7 +326,7 @@ pub struct RoutedMessage {
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: Signature,
+    pub signature: BlsSignature,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -353,7 +353,7 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify_single(self.hash().as_ref(), &self.author.public_key())
     }
 }
 
@@ -428,8 +428,8 @@ impl fmt::Display for PeerMessage {
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
+    pub public_key: BlsPublicKey,
+    pub secret_key: BlsSecretKey,
     pub account_id: Option<AccountId>,
     pub addr: Option<SocketAddr>,
     pub boot_nodes: Vec<PeerInfo>,
@@ -690,7 +690,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(AccountId, CryptoHash, BlsSignature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.

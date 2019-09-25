@@ -11,7 +11,7 @@ use futures::future::Future;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::NetworkAdapter;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{BlsPublicKey, InMemoryBlsSigner};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -69,7 +69,7 @@ pub fn setup(
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
     let mut config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
@@ -79,7 +79,7 @@ pub fn setup(
         store,
         chain_genesis,
         runtime,
-        PublicKey::empty(KeyType::ED25519).into(),
+        BlsPublicKey::empty().into(),
         recipient,
         Some(signer.into()),
         telemetry,
@@ -392,6 +392,6 @@ pub fn setup_no_network_with_validity_period(
 
 impl BlockProducer {
     pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
+        Arc::new(InMemoryBlsSigner::from_seed(seed, seed)).into()
     }
 }

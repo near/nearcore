@@ -291,7 +291,7 @@ pub struct BlockHeaderView {
     pub gas_price: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -368,7 +368,7 @@ pub struct ChunkHeaderView {
     pub gas_limit: Gas,
     pub receipts_root: CryptoHashView,
     pub validator_proposals: Vec<ValidatorStakeView>,
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 impl From<ShardChunkHeader> for ChunkHeaderView {

@@ -4,16 +4,16 @@ use std::path::Path;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::signature::{PublicKey, SecretKey};
+use crate::bls::{BlsPublicKey, BlsSecretKey};
 
 #[derive(Serialize, Deserialize)]
-pub struct KeyFile {
+pub struct BlsKeyFile {
     pub account_id: String,
-    pub public_key: PublicKey,
-    pub secret_key: SecretKey,
+    pub public_key: BlsPublicKey,
+    pub secret_key: BlsSecretKey,
 }
 
-impl KeyFile {
+impl BlsKeyFile {
     pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a key file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");

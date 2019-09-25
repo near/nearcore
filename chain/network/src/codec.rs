@@ -68,7 +68,7 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::BlsSecretKey;
     use near_primitives::hash::CryptoHash;
 
     use crate::types::{
@@ -113,7 +113,7 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_account() {
-        let sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = BlsSecretKey::from_random();
         let signature = sk.sign(vec![].as_slice());
         let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
             "test1".to_string(),
@@ -127,7 +127,7 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_routed_block_approval() {
-        let sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = BlsSecretKey::from_random();
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
         let msg = PeerMessage::Routed(RoutedMessage {

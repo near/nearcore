@@ -19,7 +19,7 @@ use near_chain::{
     RuntimeAdapter,
 };
 use near_chunks::{NetworkAdapter, NetworkRecipient};
-use near_crypto::Signature;
+use near_crypto::BlsSignature;
 use near_network::types::{
     AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo,
 };
@@ -172,7 +172,7 @@ impl ClientActor {
                     return Err(ReasonForBan::InvalidHash);
                 }
 
-                if signature.verify(current_hash.as_ref(), &peer_id.public_key()) {
+                if signature.verify_single(current_hash.as_ref(), &peer_id.public_key()) {
                     Ok(current_hash.clone())
                 } else {
                     return Err(ReasonForBan::InvalidSignature);
@@ -463,7 +463,7 @@ impl Handler<Status> for ClientActor {
 }
 
 impl ClientActor {
-    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<(CryptoHash, Signature), ()> {
+    fn sign_announce_account(&self, epoch_id: &EpochId) -> Result<(CryptoHash, BlsSignature), ()> {
         if let Some(block_producer) = self.client.block_producer.as_ref() {
             let hash = AnnounceAccount::build_header_hash(
                 &block_producer.account_id,

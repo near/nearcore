@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use log::LevelFilter;
 
 use lazy_static::lazy_static;
-use near_crypto::{BlsPublicKey, BlsSignature, EmptySigner, PublicKey, Signer};
+use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptySigner, PublicKey, Signer};
 
 use crate::account::{AccessKey, AccessKeyPermission};
 use crate::block::Block;
@@ -134,16 +134,16 @@ impl Block {
         prev: &Block,
         height: BlockIndex,
         epoch_id: EpochId,
-        signer: Arc<dyn Signer>,
+        signer: Arc<dyn BlsSigner>,
     ) -> Self {
         Self::empty_with_approvals(prev, height, epoch_id, HashMap::default(), signer)
     }
 
-    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn Signer>) -> Self {
+    pub fn empty_with_height(prev: &Block, height: BlockIndex, signer: Arc<dyn BlsSigner>) -> Self {
         Self::empty_with_epoch(prev, height, prev.header.inner.epoch_id.clone(), signer)
     }
 
-    pub fn empty(prev: &Block, signer: Arc<dyn Signer>) -> Self {
+    pub fn empty(prev: &Block, signer: Arc<dyn BlsSigner>) -> Self {
         Self::empty_with_height(prev, prev.header.inner.height + 1, signer)
     }
 
@@ -154,7 +154,7 @@ impl Block {
         height: BlockIndex,
         epoch_id: EpochId,
         approvals: HashMap<usize, BlsSignature>,
-        signer: Arc<dyn Signer>,
+        signer: Arc<dyn BlsSigner>,
     ) -> Self {
         Block::produce(
             &prev.header,

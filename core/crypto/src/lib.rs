@@ -1,7 +1,9 @@
 pub use bls::{BlsPublicKey, BlsSecretKey, BlsSignature};
-pub use key_file::KeyFile;
+pub use key_file::BlsKeyFile;
 pub use signature::{KeyType, PublicKey, ReadablePublicKey, SecretKey, Signature};
-pub use signer::{EmptySigner, InMemorySigner, Signer};
+pub use signer::{
+    BlsSigner, EmptyBlsSigner, EmptySigner, InMemoryBlsSigner, InMemorySigner, Signer,
+};
 
 mod bls;
 mod key_file;

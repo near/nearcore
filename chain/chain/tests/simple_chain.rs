@@ -10,14 +10,14 @@ use std::collections::HashMap;
 #[test]
 fn empty_chain() {
     init_test_logger();
-    let (chain, _, _) = setup();
+    let (chain, _, _, _) = setup();
     assert_eq!(chain.head().unwrap().height, 0);
 }
 
 #[test]
 fn build_chain() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     for i in 0..4 {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
@@ -31,7 +31,7 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orhpans() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], signer.clone());
@@ -82,7 +82,7 @@ fn build_chain_with_orhpans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, signer.clone());
     let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
@@ -101,9 +101,9 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn test_apply_expired_tx() {
     init_test_logger();
-    let (mut chain, _, signer) = setup_with_tx_validity_period(0);
+    let (mut chain, _, signer, bls_signer) = setup_with_tx_validity_period(0);
     let genesis = chain.get_block_by_height(0).unwrap().clone();
-    let b1 = Block::empty(&genesis, signer.clone());
+    let b1 = Block::empty(&genesis, bls_signer.clone());
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -124,7 +124,7 @@ fn test_apply_expired_tx() {
         HashMap::default(),
         0,
         Some(0),
-        signer.clone(),
+        bls_signer.clone(),
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.
@@ -134,9 +134,9 @@ fn test_apply_expired_tx() {
 #[test]
 fn test_tx_wrong_fork() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, signer, bls_signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b1 = Block::empty(genesis, signer.clone());
+    let b1 = Block::empty(genesis, bls_signer.clone());
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -157,7 +157,7 @@ fn test_tx_wrong_fork() {
         HashMap::default(),
         0,
         Some(0),
-        signer.clone(),
+        bls_signer.clone(),
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.

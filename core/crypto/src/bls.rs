@@ -1,14 +1,68 @@
+use std::cmp::Ordering;
+use std::convert::TryFrom;
+use std::io::{Error, ErrorKind, Read, Write};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use milagro_bls::AggregatePublicKey;
-use std::io::{Error, ErrorKind, Read, Write};
+
+use crate::ReadablePublicKey;
 
 const BLS_DOMAIN: u64 = 42;
 const BLS_PUBLIC_KEY_LENGTH: usize = 48;
 const BLS_SECRET_KEY_LENGTH: usize = 48;
 const BLS_SIGNATURE_LENGTH: usize = 96;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BlsPublicKey(milagro_bls::PublicKey);
+
+fn str_to_public_key(s: &str) -> Result<BlsPublicKey, String> {
+    let mut array = [0; BLS_PUBLIC_KEY_LENGTH];
+    let length = bs58::decode(s).into(&mut array[..]).map_err(|err| err.to_string())?;
+    if length != BLS_PUBLIC_KEY_LENGTH {
+        return Err(format!("Invalid length {} of BLS public key", length));
+    }
+    milagro_bls::PublicKey::from_bytes(&array)
+        .map(|pk| BlsPublicKey(pk))
+        .map_err(|err| format!("{:?}", err))
+}
+
+impl BlsPublicKey {
+    pub fn empty() -> Self {
+        BlsPublicKey(milagro_bls::PublicKey::from_bytes(&[0; BLS_PUBLIC_KEY_LENGTH]).unwrap())
+    }
+}
+
+impl PartialOrd for BlsPublicKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.as_bytes().partial_cmp(&other.0.as_bytes())
+    }
+}
+
+impl Ord for BlsPublicKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.as_bytes().cmp(&other.0.as_bytes())
+    }
+}
+
+impl std::fmt::Display for BlsPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl std::fmt::Debug for BlsPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl TryFrom<ReadablePublicKey> for BlsPublicKey {
+    type Error = String;
+
+    fn try_from(pk: ReadablePublicKey) -> Result<Self, Self::Error> {
+        str_to_public_key(&pk.0)
+    }
+}
 
 impl BorshSerialize for BlsPublicKey {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
@@ -44,27 +98,15 @@ impl<'de> serde::Deserialize<'de> for BlsPublicKey {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        let mut array = [0; BLS_PUBLIC_KEY_LENGTH];
-        let length = bs58::decode(s)
-            .into(&mut array[..])
-            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
-        if length != BLS_PUBLIC_KEY_LENGTH {
-            return Err(serde::de::Error::custom(format!(
-                "Invalid length {} of BLS public key",
-                length,
-            )));
-        }
-        milagro_bls::PublicKey::from_bytes(&array)
-            .map(|pk| BlsPublicKey(pk))
-            .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
+        str_to_public_key(&s).map_err(|err| serde::de::Error::custom(err))
     }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct BlsSecretKey(milagro_bls::SecretKey);
+pub struct BlsSecretKey(pub milagro_bls::SecretKey);
 
 impl BlsSecretKey {
-    pub fn random() -> BlsSecretKey {
+    pub fn from_random() -> BlsSecretKey {
         let sk = milagro_bls::SecretKey::random(&mut rand::thread_rng());
         BlsSecretKey(sk)
     }
@@ -96,7 +138,53 @@ impl BorshDeserialize for BlsSecretKey {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+impl serde::Serialize for BlsSecretKey {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BlsSecretKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let mut array = [0; BLS_SECRET_KEY_LENGTH];
+        let length = bs58::decode(s)
+            .into(&mut array[..])
+            .map_err(|err| serde::de::Error::custom(err.to_string()))?;
+        if length != BLS_SECRET_KEY_LENGTH {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid length {} of BLS secret key",
+                length,
+            )));
+        }
+        milagro_bls::SecretKey::from_bytes(&array)
+            .map(|sig| BlsSecretKey(sig))
+            .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
+    }
+}
+
+impl std::fmt::Display for BlsSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+impl std::fmt::Debug for BlsSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", bs58::encode(self.0.as_bytes()).into_string())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct BlsSignature(milagro_bls::AggregateSignature);
 
 impl BlsSignature {
@@ -178,12 +266,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_seed() {
+        let sk = BlsSecretKey::from_seed("test");
+        let sk2 = BlsSecretKey::from_seed("test");
+        assert_eq!(sk, sk2);
+    }
+
+    #[test]
     fn test_sign_verify() {
-        let sk = BlsSecretKey::random();
+        let sk = BlsSecretKey::from_random();
         let message = b"123".to_vec();
         let mut sig = sk.sign(&message);
         assert!(sig.verify_single(&message, &sk.public_key()));
-        let sk2 = BlsSecretKey::random();
+        let sk2 = BlsSecretKey::from_random();
         let sig2 = sk2.sign(&message);
         sig.add(&sig2);
         assert!(sig.verify_aggregate(&message, &[sk.public_key(), sk2.public_key()]));
@@ -191,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_serialize() {
-        let sk = BlsSecretKey::random();
+        let sk = BlsSecretKey::from_random();
         let bytes = sk.try_to_vec().unwrap();
         let sk1 = BlsSecretKey::try_from_slice(&bytes).unwrap();
         assert_eq!(sk, sk1);
