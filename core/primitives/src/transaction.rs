@@ -213,6 +213,7 @@ impl Default for ExecutionStatus {
     }
 }
 
+/// Execution outcome for one signed transaction or one receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Clone, Default)]
 pub struct ExecutionOutcome {
     /// Execution status. Contains the result in case of successful execution.
@@ -236,6 +237,9 @@ impl fmt::Debug for ExecutionOutcome {
     }
 }
 
+/// Execution outcome with the identifier.
+/// For a signed transaction, the ID is the hash of the transaction.
+/// For a receipt, the ID is the receipt ID.
 #[derive(PartialEq, Clone, Default, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ExecutionOutcomeWithId {
     /// The transaction hash or the receipt ID.
