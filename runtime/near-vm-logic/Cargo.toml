@@ -36,6 +36,11 @@ name = "test_promises"
 path = "tests/test_promises.rs"
 required-features = ["mocks"]
 
+[[test]]
+name = "test_misc"
+path = "tests/test_misc.rs"
+required-features = ["mocks"]
+
 [features]
 default = []
 # Mocks include some unsafe code to workaround lifetimes and therefore are optional.
