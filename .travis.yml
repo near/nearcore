@@ -1,6 +1,5 @@
 language: rust
-rust:
-  - nightly-2019-05-22
+rust: nightly-2019-05-22
 
 branches:
   only:
