@@ -451,11 +451,12 @@ impl GenesisConfig {
         let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
+            let bls_signer = InMemoryBlsSigner::from_seed(account, account);
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: (&signer.public_key).into(),
+                    public_key: bls_signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }

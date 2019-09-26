@@ -1015,7 +1015,7 @@ mod test {
             new_account,
             TESTING_INIT_STAKE * 3,
             new_signer.public_key(),
-            &new_signer,
+            &signer,
             CryptoHash::default(),
         );
         env.step_default(vec![staking_transaction, create_account_transaction]);
@@ -1516,7 +1516,7 @@ mod test {
         );
         let block_producers: Vec<_> =
             validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
-        let signer = InMemorySigner::from_seed(&validators[0], KeyType::ED25519, &validators[0]);
+        let signer = InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
         let staking_transaction = stake(1, &signer, &block_producers[1], 0);
         env.step(vec![vec![staking_transaction], vec![]], vec![true, true]);
         env.step(vec![vec![], vec![]], vec![true, true]);

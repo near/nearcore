@@ -28,7 +28,7 @@ fn str_to_public_key(s: &str) -> Result<BlsPublicKey, String> {
 
 impl BlsPublicKey {
     pub fn empty() -> Self {
-        BlsPublicKey(milagro_bls::PublicKey::from_bytes(&[0; BLS_PUBLIC_KEY_LENGTH]).unwrap())
+        BlsSecretKey::from_seed("").public_key()
     }
 }
 
@@ -61,6 +61,12 @@ impl TryFrom<ReadablePublicKey> for BlsPublicKey {
 
     fn try_from(pk: ReadablePublicKey) -> Result<Self, Self::Error> {
         str_to_public_key(&pk.0)
+    }
+}
+
+impl From<BlsPublicKey> for ReadablePublicKey {
+    fn from(pk: BlsPublicKey) -> Self {
+        ReadablePublicKey(bs58::encode(pk.0.as_bytes()).into_string())
     }
 }
 
