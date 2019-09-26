@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Benchmark, Criterion};
+use near_crypto::BlsSecretKey;
 
 fn signing(c: &mut Criterion) {
     let sk = milagro_bls::SecretKey::random(&mut rand::thread_rng());
@@ -21,6 +22,20 @@ fn signing(c: &mut Criterion) {
             b.iter(|| {
                 black_box(sig.verify(&message, domain, &pk));
             })
+        })
+        .sample_size(10),
+    );
+}
+
+fn verify_aggregate(c: &mut Criterion) {
+    let sk = BlsSecretKey::from_random();
+    let pk = sk.public_key();
+    let message = [1; 32];
+    let sig = sk.sign(&message);
+    c.bench(
+        "verify_aggregate",
+        Benchmark::new("Verify signature", move |b| {
+            b.iter(|| black_box(sig.verify_single(&message, &pk)))
         })
         .sample_size(10),
     );
@@ -90,5 +105,5 @@ fn aggregate_verfication(c: &mut Criterion) {
         .sample_size(10),
     );
 }
-criterion_group!(benches, signing, aggregate, aggregate_verfication);
+criterion_group!(benches, signing, aggregate, aggregate_verfication, verify_aggregate);
 criterion_main!(benches);

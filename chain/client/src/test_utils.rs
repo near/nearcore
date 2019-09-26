@@ -197,11 +197,7 @@ pub fn setup_mock_all_validators(
 
                     match msg {
                         NetworkRequests::FetchInfo{ .. } => {
-                            resp = NetworkResponses::Info ( NetworkInfo {
-                                num_active_peers: key_pairs.len(),
-                                peer_max_count: key_pairs.len() as u32,
-                                most_weight_peers: key_pairs
-                                    .iter()
+                            let peers: Vec<_> = key_pairs.iter()
                                     .map(|peer_info| FullPeerInfo {
                                         peer_info: peer_info.clone(),
                                         chain_info: PeerChainInfo {
@@ -209,8 +205,13 @@ pub fn setup_mock_all_validators(
                                             height: 0,
                                             total_weight: 0.into(),
                                         },
-                                    })
-                                    .collect(),
+                                    }).collect();
+                            let peers2 = peers.clone();
+                            resp = NetworkResponses::Info ( NetworkInfo {
+                                active_peers: peers,
+                                num_active_peers: key_pairs.len(),
+                                peer_max_count: key_pairs.len() as u32,
+                                most_weight_peers: peers2,
                                 sent_bytes_per_sec: 0,
                                 received_bytes_per_sec: 0,
                                 known_producers: vec![],
@@ -377,6 +378,7 @@ pub fn setup_no_network_with_validity_period(
         skip_sync_wait,
         Box::new(|req, _, _| match req {
             NetworkRequests::FetchInfo { .. } => NetworkResponses::Info(NetworkInfo {
+                active_peers: vec![],
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
