@@ -70,32 +70,27 @@ impl ViewClientActor {
         hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, String> {
         let mut outcomes = self.get_recursive_transaction_results(hash)?;
-        let status = if outcomes.iter().any(|o| &o.outcome.status == &ExecutionStatusView::Pending)
-        {
-            FinalExecutionStatus::Started
-        } else {
-            let mut looking_for_id = (*hash).into();
-            outcomes
-                .iter()
-                .find_map(|outcome_with_id| {
-                    if outcome_with_id.id == looking_for_id {
-                        match &outcome_with_id.outcome.status {
-                            ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
-                            ExecutionStatusView::SuccessValue(v) => {
-                                Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                            }
-                            ExecutionStatusView::SuccessReceiptId(id) => {
-                                looking_for_id = id.clone();
-                                None
-                            }
-                            _ => unreachable!(),
+        let mut looking_for_id = (*hash).into();
+        let status = outcomes
+            .iter()
+            .find_map(|outcome_with_id| {
+                if outcome_with_id.id == looking_for_id {
+                    match &outcome_with_id.outcome.status {
+                        ExecutionStatusView::Pending => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::SuccessValue(v) => {
+                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
                         }
-                    } else {
-                        None
+                        ExecutionStatusView::SuccessReceiptId(id) => {
+                            looking_for_id = id.clone();
+                            None
+                        }
                     }
-                })
-                .expect("results should resolve to a final outcome")
-        };
+                } else {
+                    None
+                }
+            })
+            .expect("results should resolve to a final outcome");
         let receipts = outcomes.split_off(1);
         Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
     }
