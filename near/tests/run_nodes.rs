@@ -1,12 +1,11 @@
-use actix::{Actor, Addr, System};
+use actix::{Actor, System};
 use futures::future::Future;
 use tempdir::TempDir;
 
-use near::{load_test_config, start_with_config, GenesisConfig};
-use near_client::{ClientActor, GetBlock, ViewClientActor};
-use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
-use near_primitives::types::{BlockIndex, ShardId};
+use near_client::GetBlock;
+use near_network::test_utils::WaitOrTimeout;
+use near_primitives::test_utils::heavy_test;
+use near_primitives::types::BlockIndex;
 use testlib::start_nodes;
 
 fn run_nodes(

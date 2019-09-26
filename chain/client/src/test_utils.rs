@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
 
@@ -10,6 +10,7 @@ use futures::future::Future;
 
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis};
+use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -24,6 +25,23 @@ use near_telemetry::TelemetryActor;
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
+
+#[derive(Default)]
+pub struct MockNetworkAdapter {
+    pub requests: Arc<RwLock<VecDeque<NetworkRequests>>>,
+}
+
+impl NetworkAdapter for MockNetworkAdapter {
+    fn send(&self, msg: NetworkRequests) {
+        self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl MockNetworkAdapter {
+    pub fn pop(&self) -> Option<NetworkRequests> {
+        self.requests.write().unwrap().pop_front()
+    }
+}
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -179,11 +197,7 @@ pub fn setup_mock_all_validators(
 
                     match msg {
                         NetworkRequests::FetchInfo{ .. } => {
-                            resp = NetworkResponses::Info ( NetworkInfo {
-                                num_active_peers: key_pairs.len(),
-                                peer_max_count: key_pairs.len() as u32,
-                                most_weight_peers: key_pairs
-                                    .iter()
+                            let peers: Vec<_> = key_pairs.iter()
                                     .map(|peer_info| FullPeerInfo {
                                         peer_info: peer_info.clone(),
                                         chain_info: PeerChainInfo {
@@ -191,8 +205,13 @@ pub fn setup_mock_all_validators(
                                             height: 0,
                                             total_weight: 0.into(),
                                         },
-                                    })
-                                    .collect(),
+                                    }).collect();
+                            let peers2 = peers.clone();
+                            resp = NetworkResponses::Info ( NetworkInfo {
+                                active_peers: peers,
+                                num_active_peers: key_pairs.len(),
+                                peer_max_count: key_pairs.len() as u32,
+                                most_weight_peers: peers2,
                                 sent_bytes_per_sec: 0,
                                 received_bytes_per_sec: 0,
                                 known_producers: vec![],
@@ -359,6 +378,7 @@ pub fn setup_no_network_with_validity_period(
         skip_sync_wait,
         Box::new(|req, _, _| match req {
             NetworkRequests::FetchInfo { .. } => NetworkResponses::Info(NetworkInfo {
+                active_peers: vec![],
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],

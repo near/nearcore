@@ -2,12 +2,12 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use actix::Recipient;
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, info};
 use rand::{thread_rng, Rng};
 
 use near_chain::{Chain, RuntimeAdapter, Tip};
+use near_chunks::NetworkAdapter;
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
@@ -37,29 +37,6 @@ const BLOCK_REQUEST_BROADCAST_OFFSET: u64 = 2;
 /// Sync state download timeout in minutes.
 const STATE_SYNC_TIMEOUT: i64 = 10;
 
-/// Adapter to allow to test Header/Body/State sync without actix.
-pub trait SyncNetworkAdapter: Sync + Send {
-    fn send(&self, msg: NetworkRequests);
-}
-
-pub struct SyncNetworkRecipient {
-    network_recipient: Recipient<NetworkRequests>,
-}
-
-unsafe impl Sync for SyncNetworkRecipient {}
-
-impl SyncNetworkRecipient {
-    pub fn new(network_recipient: Recipient<NetworkRequests>) -> Box<Self> {
-        Box::new(Self { network_recipient })
-    }
-}
-
-impl SyncNetworkAdapter for SyncNetworkRecipient {
-    fn send(&self, msg: NetworkRequests) {
-        let _ = self.network_recipient.do_send(msg);
-    }
-}
-
 /// Get random peer from the most weighted peers.
 pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPeerInfo> {
     if most_weight_peers.len() == 0 {
@@ -72,7 +49,7 @@ pub fn most_weight_peer(most_weight_peers: &Vec<FullPeerInfo>) -> Option<FullPee
 /// Helper to keep track of sync headers.
 /// Handles major re-orgs by finding closest header that matches and re-downloading headers from that point.
 pub struct HeaderSync {
-    network_adapter: Box<dyn SyncNetworkAdapter>,
+    network_adapter: Arc<dyn NetworkAdapter>,
     history_locator: Vec<(BlockIndex, CryptoHash)>,
     prev_header_sync: (DateTime<Utc>, BlockIndex, BlockIndex),
     syncing_peer: Option<FullPeerInfo>,
@@ -80,7 +57,7 @@ pub struct HeaderSync {
 }
 
 impl HeaderSync {
-    pub fn new(network_adapter: Box<dyn SyncNetworkAdapter>) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
         HeaderSync {
             network_adapter,
             history_locator: vec![],
@@ -289,7 +266,7 @@ fn get_locator_heights(height: u64) -> Vec<u64> {
 
 /// Helper to track block syncing.
 pub struct BlockSync {
-    network_adapter: Box<dyn SyncNetworkAdapter>,
+    network_adapter: Arc<dyn NetworkAdapter>,
     blocks_requested: BlockIndex,
     receive_timeout: DateTime<Utc>,
     prev_blocks_received: BlockIndex,
@@ -298,10 +275,7 @@ pub struct BlockSync {
 }
 
 impl BlockSync {
-    pub fn new(
-        network_adapter: Box<dyn SyncNetworkAdapter>,
-        block_fetch_horizon: BlockIndex,
-    ) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>, block_fetch_horizon: BlockIndex) -> Self {
         BlockSync {
             network_adapter,
             blocks_requested: 0,
@@ -429,14 +403,14 @@ pub enum StateSyncResult {
 
 /// Helper to track state sync.
 pub struct StateSync {
-    network_adapter: Box<dyn SyncNetworkAdapter>,
+    network_adapter: Arc<dyn NetworkAdapter>,
 
     prev_state_sync: HashMap<ShardId, DateTime<Utc>>,
     last_time_block_requested: Option<DateTime<Utc>>,
 }
 
 impl StateSync {
-    pub fn new(network_adapter: Box<dyn SyncNetworkAdapter>) -> Self {
+    pub fn new(network_adapter: Arc<dyn NetworkAdapter>) -> Self {
         StateSync {
             network_adapter,
             prev_state_sync: Default::default(),
@@ -607,7 +581,7 @@ impl StateSync {
 
 #[cfg(test)]
 mod test {
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     use near_chain::test_utils::setup;
     use near_chain::Provenance;
@@ -615,18 +589,9 @@ mod test {
     use near_network::PeerInfo;
     use near_primitives::block::Block;
 
+    use crate::test_utils::MockNetworkAdapter;
+
     use super::*;
-
-    #[derive(Default)]
-    struct MockNetworkAdapter {
-        pub requests: Arc<RwLock<Vec<NetworkRequests>>>,
-    }
-
-    impl SyncNetworkAdapter for MockNetworkAdapter {
-        fn send(&self, msg: NetworkRequests) {
-            self.requests.write().unwrap().push(msg);
-        }
-    }
 
     #[test]
     fn test_get_locator_heights() {
@@ -650,20 +615,19 @@ mod test {
     /// Starts two chains that fork of genesis and checks that they can sync heaaders to the longest.
     #[test]
     fn test_sync_headers_fork() {
-        let requests = Arc::new(RwLock::new(vec![]));
-        let mock_adapter = Box::new(MockNetworkAdapter { requests: requests.clone() });
-        let mut header_sync = HeaderSync::new(mock_adapter);
+        let mock_adapter = Arc::new(MockNetworkAdapter::default());
+        let mut header_sync = HeaderSync::new(mock_adapter.clone());
         let (mut chain, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, signer.clone());
-            chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
+            chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
         let (mut chain2, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, signer2.clone());
-            chain2.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
+            chain2.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
         let mut sync_status = SyncStatus::NoSync;
         let peer1 = FullPeerInfo {
@@ -681,7 +645,7 @@ mod test {
         assert!(sync_status.is_syncing());
         // Check that it queried last block, and then stepped down to genesis block to find common block with the peer.
         assert_eq!(
-            requests.read().unwrap()[0],
+            mock_adapter.pop().unwrap(),
             NetworkRequests::BlockHeadersRequest {
                 hashes: [3, 1, 0]
                     .iter()

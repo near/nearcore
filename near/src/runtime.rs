@@ -466,6 +466,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk_mask: Vec<bool>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -485,6 +486,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             slashed,
             gas_used,
             gas_price,
+            rent_paid,
             total_supply,
         );
         // TODO: add randomness here
@@ -888,6 +890,7 @@ mod test {
                     vec![],
                     0,
                     genesis_config.gas_price,
+                    0,
                     genesis_config.total_supply,
                 )
                 .unwrap();
@@ -941,6 +944,7 @@ mod test {
                     chunk_mask,
                     0,
                     self.runtime.genesis_config.gas_price,
+                    0,
                     self.runtime.genesis_config.total_supply,
                 )
                 .unwrap();
@@ -1331,6 +1335,7 @@ mod test {
                     vec![true],
                     0,
                     new_env.runtime.genesis_config.gas_price,
+                    0,
                     new_env.runtime.genesis_config.total_supply,
                 )
                 .unwrap();

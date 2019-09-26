@@ -80,9 +80,7 @@ fn produce_blocks_with_tx() {
                         total_parts,
                         &mut encoded_chunks[height - 2],
                     ) {
-                        let chunk =
-                            ShardsManager::decode_chunk(data_parts, &encoded_chunks[height - 2])
-                                .unwrap();
+                        let chunk = encoded_chunks[height - 2].decode_chunk(data_parts).unwrap();
                         if chunk.transactions.len() > 0 {
                             System::current().stop();
                         }
@@ -370,6 +368,14 @@ fn client_sync_headers() {
             false,
             Box::new(move |msg, _ctx, _client_actor| match msg {
                 NetworkRequests::FetchInfo => NetworkResponses::Info(NetworkInfo {
+                    active_peers: vec![FullPeerInfo {
+                        peer_info: peer_info1.clone(),
+                        chain_info: PeerChainInfo {
+                            genesis: Default::default(),
+                            height: 5,
+                            total_weight: 100.into(),
+                        }
+                    }],
                     num_active_peers: 1,
                     peer_max_count: 1,
                     most_weight_peers: vec![FullPeerInfo {

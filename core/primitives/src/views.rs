@@ -293,6 +293,8 @@ pub struct BlockHeaderView {
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
     #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
+    #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub signature: Signature,
 }
@@ -323,6 +325,7 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_used: header.inner.gas_used,
             gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
+            rent_paid: header.inner.rent_paid,
             total_supply: header.inner.total_supply,
             signature: header.signature,
         }
@@ -355,6 +358,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
+                rent_paid: view.rent_paid,
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -375,6 +379,8 @@ pub struct ChunkHeaderView {
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
+    #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
     pub outgoing_receipts_root: CryptoHashView,
     pub tx_root: CryptoHashView,
     pub validator_proposals: Vec<ValidatorStakeView>,
@@ -393,6 +399,7 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: chunk.inner.shard_id,
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
+            rent_paid: chunk.inner.rent_paid,
             outgoing_receipts_root: chunk.inner.outgoing_receipts_root.into(),
             tx_root: chunk.inner.tx_root.into(),
             validator_proposals: chunk
@@ -418,6 +425,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
+                rent_paid: view.rent_paid,
                 outgoing_receipts_root: view.outgoing_receipts_root.into(),
                 tx_root: view.tx_root.into(),
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
