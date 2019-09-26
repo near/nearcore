@@ -8,7 +8,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
-use near_primitives::transaction::{SignedTransaction, TransactionLog};
+use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
@@ -87,7 +87,7 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
-    pub transaction_results: Vec<TransactionLog>,
+    pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,

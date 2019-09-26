@@ -12,7 +12,7 @@ use near_primitives::contract::ContractCode;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{
-    Action, FunctionCallAction, SignedTransaction, TransactionStatus, TransferAction,
+    Action, ExecutionStatus, FunctionCallAction, SignedTransaction, TransferAction,
 };
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
@@ -201,9 +201,11 @@ fn template_test(transaction_type: TransactionType, db_type: DataBaseType, expec
         let (curr_receipts, transactions_logs) = runtime.process_block(&prev_receipts, &chunk);
         prev_receipts = curr_receipts;
         for tl in transactions_logs {
-            match tl.result.status {
-                TransactionStatus::Completed => _successful_transactions += 1,
-                TransactionStatus::Failed => failed_transactions += 1,
+            match tl.outcome.status {
+                ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_) => {
+                    _successful_transactions += 1
+                }
+                ExecutionStatus::Failure => failed_transactions += 1,
                 _ => {}
             }
         }

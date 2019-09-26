@@ -17,7 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceivedData};
 use near_primitives::serialize::from_base64;
 use near_primitives::transaction::{
-    Action, LogEntry, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
@@ -77,7 +77,7 @@ pub struct ApplyResult {
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
-    pub tx_result: Vec<TransactionLog>,
+    pub tx_result: Vec<ExecutionOutcomeWithId>,
     pub total_rent_paid: Balance,
 }
 
@@ -314,8 +314,8 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
         total_rent_paid: &mut Balance,
-    ) -> Result<TransactionLog, StorageError> {
-        let result =
+    ) -> Result<ExecutionOutcomeWithId, StorageError> {
+        let outcome =
             match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
             {
                 Ok(verification_result) => {
@@ -342,11 +342,10 @@ impl Runtime {
                         new_receipts.push(receipt);
                     }
                     *total_rent_paid += verification_result.rent_paid;
-                    TransactionResult {
-                        status: TransactionStatus::Completed,
+                    ExecutionOutcome {
+                        status: ExecutionStatus::SuccessReceiptId(receipt_id),
                         logs: vec![],
-                        receipts: vec![receipt_id],
-                        result: None,
+                        receipt_ids: vec![receipt_id],
                         gas_burnt: verification_result.gas_burnt,
                     }
                 }
@@ -356,17 +355,16 @@ impl Runtime {
                         // TODO fix error type in apply_signed_transaction
                         return Err(e.clone());
                     }
-                    TransactionResult {
-                        status: TransactionStatus::Failed,
+                    ExecutionOutcome {
+                        status: ExecutionStatus::Failure,
                         logs: vec![format!("Runtime error: {}", s)],
-                        receipts: vec![],
-                        result: None,
+                        receipt_ids: vec![],
                         gas_burnt: 0,
                     }
                 }
             };
-        Self::print_log(&result.logs);
-        Ok(TransactionLog { hash: signed_transaction.get_hash(), result })
+        Self::print_log(&outcome.logs);
+        Ok(ExecutionOutcomeWithId { id: signed_transaction.get_hash(), outcome })
     }
 
     fn apply_action(
@@ -462,7 +460,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         total_rent_paid: &mut Balance,
-    ) -> Result<TransactionLog, StorageError> {
+    ) -> Result<ExecutionOutcomeWithId, StorageError> {
         let action_receipt = match receipt.receipt {
             ReceiptEnum::Action(ref action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
@@ -556,16 +554,14 @@ impl Runtime {
         validator_proposals.append(&mut result.validator_proposals);
 
         // Generating transaction result and committing or rolling back state.
-        let transaction_status = match &result.result {
+        match &result.result {
             Ok(_) => {
                 *total_rent_paid += rent_paid;
                 state_update.commit();
-                TransactionStatus::Completed
             }
             Err(e) => {
                 state_update.rollback();
                 result.logs.push(format!("Runtime error: {}", e));
-                TransactionStatus::Failed
             }
         };
 
@@ -582,44 +578,43 @@ impl Runtime {
             }
         }
 
-        // Generating outgoing data and receipts
-        let transaction_result = if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result
-        {
-            // Modifying a new receipt instead of sending data
-            match result
-                .new_receipts
-                .get_mut(receipt_index as usize)
-                .expect("the receipt for the given receipt index should exist")
-                .receipt
-            {
-                ReceiptEnum::Action(ref mut new_action_receipt) => new_action_receipt
-                    .output_data_receivers
-                    .extend_from_slice(&action_receipt.output_data_receivers),
-                _ => unreachable!("the receipt should be an action receipt"),
-            }
-            None
-        } else {
-            let data = match result.result {
-                Ok(ReturnData::Value(data)) => Some(data),
-                Ok(_) => Some(vec![]),
-                Err(_) => None,
+        // Generating outgoing data
+        if !action_receipt.output_data_receivers.is_empty() {
+            if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result {
+                // Modifying a new receipt instead of sending data
+                match result
+                    .new_receipts
+                    .get_mut(receipt_index as usize)
+                    .expect("the receipt for the given receipt index should exist")
+                    .receipt
+                {
+                    ReceiptEnum::Action(ref mut new_action_receipt) => new_action_receipt
+                        .output_data_receivers
+                        .extend_from_slice(&action_receipt.output_data_receivers),
+                    _ => unreachable!("the receipt should be an action receipt"),
+                }
+            } else {
+                let data = match result.result {
+                    Ok(ReturnData::Value(ref data)) => Some(data.clone()),
+                    Ok(_) => Some(vec![]),
+                    Err(_) => None,
+                };
+                result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
+                    |data_receiver| Receipt {
+                        predecessor_id: account_id.clone(),
+                        receiver_id: data_receiver.receiver_id.clone(),
+                        receipt_id: CryptoHash::default(),
+                        receipt: ReceiptEnum::Data(DataReceipt {
+                            data_id: data_receiver.data_id,
+                            data: data.clone(),
+                        }),
+                    },
+                ));
             };
-            result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
-                |data_receiver| Receipt {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: data_receiver.receiver_id.clone(),
-                    receipt_id: CryptoHash::default(),
-                    receipt: ReceiptEnum::Data(DataReceipt {
-                        data_id: data_receiver.data_id,
-                        data: data.clone(),
-                    }),
-                },
-            ));
-            data
-        };
+        }
 
         // Generating receipt IDs
-        let transaction_new_receipt_ids = result
+        let receipt_ids = result
             .new_receipts
             .into_iter()
             .enumerate()
@@ -640,15 +635,23 @@ impl Runtime {
             })
             .collect();
 
+        let status = match result.result {
+            Ok(ReturnData::ReceiptIndex(receipt_index)) => ExecutionStatus::SuccessReceiptId(
+                create_nonce_with_nonce(&receipt.receipt_id, receipt_index as Nonce),
+            ),
+            Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
+            Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
+            Err(_) => ExecutionStatus::Failure,
+        };
+
         Self::print_log(&result.logs);
 
-        Ok(TransactionLog {
-            hash: receipt.receipt_id,
-            result: TransactionResult {
-                status: transaction_status,
+        Ok(ExecutionOutcomeWithId {
+            id: receipt.receipt_id,
+            outcome: ExecutionOutcome {
+                status,
                 logs: result.logs,
-                receipts: transaction_new_receipt_ids,
-                result: transaction_result,
+                receipt_ids,
                 gas_burnt: result.gas_burnt,
             },
         })
@@ -696,7 +699,7 @@ impl Runtime {
         new_receipts: &mut Vec<Receipt>,
         validator_proposals: &mut Vec<ValidatorStake>,
         total_rent_paid: &mut Balance,
-    ) -> Result<Option<TransactionLog>, StorageError> {
+    ) -> Result<Option<ExecutionOutcomeWithId>, StorageError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
             ReceiptEnum::Data(ref data_receipt) => {

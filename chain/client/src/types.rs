@@ -12,7 +12,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::views::{
-    BlockView, ChunkView, FinalTransactionResult, QueryResponse, TransactionResultView,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -297,7 +297,7 @@ pub struct TxStatus {
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalTransactionResult, String>;
+    type Result = Result<FinalExecutionOutcomeView, String>;
 }
 
 /// Details about given transaction.
@@ -306,5 +306,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResultView, String>;
+    type Result = Result<ExecutionOutcomeView, String>;
 }

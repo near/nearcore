@@ -1,5 +1,6 @@
+use near_primitives::serialize::to_base64;
 use near_primitives::types::Gas;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
@@ -15,13 +16,13 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         node.signer().public_key(),
         10u128.pow(14),
     );
-    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
-    assert_eq!(transaction_result.transactions.len(), 2);
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.receipts.len(), 1);
 
     let transaction_result =
         node_user.deploy_contract("test_contract".to_string(), wasm_binary.to_vec());
-    assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
-    assert_eq!(transaction_result.transactions.len(), 2);
+    assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
+    assert_eq!(transaction_result.receipts.len(), 1);
 
     node
 }
@@ -45,7 +46,7 @@ fn test_evil_deep_trie() {
             FUNCTION_CALL_GAS_AMOUNT,
             0,
         );
-        assert_eq!(res.status, FinalTransactionStatus::Completed, "{:?}", res);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
     (0..50).rev().for_each(|i| {
         println!("deleteStrings #{}", i);
@@ -62,7 +63,7 @@ fn test_evil_deep_trie() {
             FUNCTION_CALL_GAS_AMOUNT,
             0,
         );
-        assert_eq!(res.status, FinalTransactionStatus::Completed, "{:?}", res);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&[])), "{:?}", res);
     });
 }
 
@@ -78,10 +79,10 @@ fn test_evil_deep_recursion() {
             "alice.near".to_string(),
             "test_contract".to_string(),
             "recurse",
-            n,
+            n.clone(),
             FUNCTION_CALL_GAS_AMOUNT,
             0,
         );
-        assert_eq!(res.status, FinalTransactionStatus::Completed, "{:?}", res);
+        assert_eq!(res.status, FinalExecutionStatus::SuccessValue(to_base64(&n)), "{:?}", res);
     });
 }
