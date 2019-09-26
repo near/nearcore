@@ -323,6 +323,7 @@ impl Client {
             chunk_extra.state_root,
             transactions,
         );
+        let (tx_root, _) = merklize(&filtered_transactions);
         debug!(
             "Creating a chunk with {} filtered transactions from {} total transactions for shard {}",
             filtered_transactions.len(),
@@ -362,6 +363,7 @@ impl Client {
             &filtered_transactions,
             &receipts,
             receipts_root,
+            tx_root,
             block_producer.signer.clone(),
         )?;
 

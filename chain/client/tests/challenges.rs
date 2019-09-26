@@ -69,7 +69,6 @@ fn test_request_chunk_restart() {
             accepted_blocks[0].provenance.clone(),
         );
         network_adapter.pop();
-        println!("{:?}", block);
     }
     let block1 = block.clone().unwrap();
     let request = ChunkOnePartRequestMsg {
@@ -80,7 +79,7 @@ fn test_request_chunk_restart() {
         tracking_shards: HashSet::default(),
     };
     client.shards_mgr.process_chunk_one_part_request(request.clone(), PeerId::random()).unwrap();
-    println!("hunk: {:?}", network_adapter.pop());
+    assert!(network_adapter.pop().is_some());
 
     let mut client2 = setup_client(
         store,
@@ -92,7 +91,8 @@ fn test_request_chunk_restart() {
         genesis_time,
     );
     client2.shards_mgr.process_chunk_one_part_request(request, PeerId::random()).unwrap();
-    println!("hunk: {:?}", network_adapter.pop());
+    // TODO: should be some() with the same chunk.
+    assert!(network_adapter.pop().is_none());
 }
 
 /// Validator signed on block X on fork A, and then signs on block X + 1 on fork B which doesn't have X.
@@ -113,6 +113,7 @@ fn create_block_with_invalid_chunk(
         12,
         0,
         0,
+        MerkleHash::default(),
         vec![],
         &vec![],
         &vec![],
@@ -156,21 +157,6 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     // At this point we should create a challenge and add it.
     assert!(result.is_err());
     assert_eq!(client.chain.head().unwrap().height, 0);
-
-    //    println!("{:?}", result);
-    //    assert!(result.is_ok());
-    //    println!("Chunk: {:?}", invalid_encoded_chunk);
-    //    let chunk_one_part =
-    //        invalid_encoded_chunk.create_chunk_one_part(0, vec![], vec![], merkle_paths[0].clone());
-    //    let _ = client.process_chunk_one_part(chunk_one_part).unwrap();
-    //    for (i, _part) in invalid_encoded_chunk.content.parts.iter().enumerate() {
-    //        let chunk_part_msg =
-    //            invalid_encoded_chunk.create_chunk_part_msg(i as u64, merkle_paths[i].clone());
-    //        println!("{:?}", client.process_chunk_part(chunk_part_msg).unwrap());
-    //    }
-    //    let block = client.produce_block(1, Duration::from_millis(20)).unwrap();
-    //    println!("{:?}", block);
-    //    let (_, _) = client.process_block(block.unwrap(), Provenance::PRODUCED);
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.
