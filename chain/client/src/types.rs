@@ -5,9 +5,9 @@ use std::time::Duration;
 use actix::Message;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
-use std::net::SocketAddr;
 
 use near_crypto::{InMemorySigner, Signer};
+pub use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
@@ -15,13 +15,13 @@ use near_primitives::views::{
     BlockView, ChunkView, FinalTransactionResult, QueryResponse, TransactionResultView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-pub use near_network::types::PeerInfo;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug)]
 pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
+    Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
     Other(String),
@@ -32,6 +32,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Pool(err) => write!(f, "Pool: {}", err),
+            Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
             Error::Other(err) => write!(f, "Other: {}", err),
@@ -57,6 +58,12 @@ impl From<near_chain::ErrorKind> for Error {
 impl From<near_pool::Error> for Error {
     fn from(e: near_pool::Error) -> Self {
         Error::Pool(e)
+    }
+}
+
+impl From<near_chunks::Error> for Error {
+    fn from(err: near_chunks::Error) -> Self {
+        Error::Chunk(err)
     }
 }
 

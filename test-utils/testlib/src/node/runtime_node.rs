@@ -32,6 +32,12 @@ impl RuntimeNode {
         }));
         RuntimeNode { signer, client }
     }
+
+    pub fn free(account_id: &AccountId) -> Self {
+        let genesis_config =
+            GenesisConfig::test_free(vec![&alice_account(), &bob_account(), "carol.near"], 3);
+        Self::new_from_genesis(account_id, genesis_config)
+    }
 }
 
 impl Node for RuntimeNode {

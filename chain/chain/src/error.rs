@@ -47,9 +47,18 @@ pub enum ErrorKind {
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
-    /// Invalid tx root hash.
-    #[fail(display = "Invalid Tx Root Hash")]
+    /// Invalid block tx root hash.
+    #[fail(display = "Invalid Block Tx Root Hash")]
     InvalidTxRoot,
+    /// Invalid chunk receipts root hash.
+    #[fail(display = "Invalid Chunk Receipts Root Hash")]
+    InvalidChunkReceiptsRoot,
+    /// Invalid chunk headers root hash.
+    #[fail(display = "Invalid Chunk Headers Root Hash")]
+    InvalidChunkHeadersRoot,
+    /// Invalid chunk tx root hash.
+    #[fail(display = "Invalid Chunk Tx Root Hash")]
+    InvalidChunkTxRoot,
     /// Invalid receipts proof.
     #[fail(display = "Invalid Receipts Proof")]
     InvalidReceiptsProof,
@@ -141,6 +150,9 @@ impl Error {
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
+            | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidChunkHeadersRoot
+            | ErrorKind::InvalidChunkTxRoot
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions
