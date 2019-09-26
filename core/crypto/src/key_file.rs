@@ -1,6 +1,7 @@
 extern crate sodiumoxide;
 extern crate tiny_keccak;
 
+use std::mem;
 use std::fs::File;
 use std::io::{Read, Write, Error,  ErrorKind};
 use std::path::Path;
@@ -21,99 +22,113 @@ pub struct KeyFile {
     pub key_hash: KeyHash
 }
 
+fn secretKeyToVec(secret_key: SecretKey) -> Vec<u8> {
+    match secret_key {
+        SecretKey::ED25519(sk) => { sk.0.to_vec() },
+        SecretKey::SECP256K1(sk) => unsafe {
+            mem::transmute_copy::<secp256k1::key::SecretKey, [u8; 32]>(&sk).to_vec()
+        },
+    }
+}
+
+fn secretKeyFromVec(vec: Vec<u8>) -> SecretKey {
+    if vec.len() == 64 {
+        SecretKey::ED25519(
+            unsafe {
+                mem::transmute_copy::<Vec<u8>, sodiumoxide::crypto::sign::ed25519::SecretKey>(&vec)
+            }
+        )
+    }
+    else {
+        let mut array = [0u8; 32];
+        array.copy_from_slice(&vec[..]); 
+        SecretKey::SECP256K1(
+            secp256k1::key::SecretKey::from(array)
+        )
+    }
+}
+
 impl KeyFile {
-    fn write_to_file(&self, path: &Path) {
+    pub fn write_to_file(&self, path: &Path) {
         let mut file = File::create(path).expect("Failed to create / write a key file.");
         let str = serde_json::to_string_pretty(self).expect("Error serializing the key file.");
         if let Err(err) = file.write_all(str.as_bytes()) {
             panic!("Failed to write a key file {}", err);
         }
     }
-    // is_encrypted checks if current keyhash struct matches default one
-    fn is_encrypted(&self)-> bool {
-        let keyhash = self.key_hash; 
-        let default_keyhash = KeyHash::default(); //?
-        keyhash.eq(&default_keyhash)
-    }
+
     //asks for a password in console and encrypt a  private key ( secret_key field from keyFile structure) with an entered password
     // if password is empty just write to the file
-    fn write_to_encrypted_file(&mut self, path: &Path, ssb: &SodiumoxideSecretBox) -> Result<(), Error> {   
+    pub fn write_to_encrypted_file(&mut self, path: &Path) -> Result<(), Error> {   
         let password_input = PasswordInput::process()?;//ask for input of password
         if password_input.not_empty() {
-            // TODO adapt to keyType
-            let secretkey_vec = Vec::<u8>::from(self.secret_key);
+            let secretkey_vec = secretKeyToVec(self.secret_key.clone());
             let encryption_key = password_input.gen_key_from_password_input()?;
             let key_hash = KeyHash::new(&password_input.content);
-            let encrypted_secretkey = ssb.encrypt(&secretkey_vec, &encryption_key);//Vec<u8>
-            //ToDO convert encrypted_secretkey: vec<U8> to SecretKey
-            //adapt it to 2 curve types
-           // TODO self.secret_key = KeyType
+            let ssb = SodiumoxideSecretBox::new();
+            let encrypted_secretkey = ssb.encrypt(&secretkey_vec, &encryption_key);
+            self.secret_key = secretKeyFromVec(encrypted_secretkey);
             self.key_hash = key_hash;
-            self.write_to_file(path);
-            Ok(())
-        } else {
-            // console input is empty do not encryot, just write to the file
-            self.write_to_file(path); //self.key_hash will be default
-            Ok(())
-          }
+        }
+
+        self.write_to_file(path);
+        Ok(())
     }
 
-    fn read_from_file(path: &Path) -> Self {  
+    pub fn from_file(path: &Path) -> Self {  
         let mut file = File::open(path).expect("Could not open key file.");
         let mut content = String::new();
         file.read_to_string(&mut content).expect("Could not read from key file.");
         serde_json::from_str(&content).expect("Failed to deserialize KeyFile")
     }
-     //decrypts a file and return an instance of the file
-    fn read_from_encrypted_file(&mut self, path: &Path, key : &Key, ssb: &SodiumoxideSecretBox) { //-> Self 
-      // reads the file and the decodes it with the password
+    
+    // decrypts a file and return an instance of the file
+    pub fn from_encrypted_file(path: &Path, key : &Key) -> Self {
+        let key_file = KeyFile::from_file(path);
         let ssb = SodiumoxideSecretBox::new();
-        let decrypted_secretkey = ssb.decrypt(&self.secret_key, &key); //Vec<u8>
-
-        // TODO to adjust it to KeyType 
-        //let secret_key_value = SecretKey::From(decrypted_secretkey);
-        //return decrypted Keyfile.secret_key
+        let decrypted_secretkey = ssb.decrypt(&secretKeyToVec(key_file.secret_key), &key);
+        KeyFile {
+            account_id: key_file.account_id,
+            public_key: key_file.public_key,
+            secret_key: secretKeyFromVec(decrypted_secretkey),
+            key_hash: KeyHash::default(),
+        }
     }
 
-    //if a private key is encrypted , ask for a password in console
-    //if an entered password matches a password entered in step 3, decode an encrypted password otherwise keep asking for a correct password
-    
-    fn read_from_encrypted_file_with_password(path : &Path, ssb: &SodiumoxideSecretBox) -> Result<KeyFile, Error>  {  
-        let keyfile = KeyFile::read_from_file(path);
-        if keyfile.is_encrypted()   {
-            let password_input = PasswordInput::process()?;//ask for a password in command line
-            if  password_input.not_empty() {   //password is not empty decode a file with a passwordm if password empty do nothing
-                    let decryption_keyhash = KeyHash::new(&password_input.content);
-                    if decryption_keyhash.eq(&keyfile.key_hash) { //if hashes of passwords match then decrypt Keyfile.secret_key
-                        let decryption_key  = password_input.gen_key_from_password_input()?;
-                        keyfile.read_from_encrypted_file(path, &decryption_key, ssb);
-                        Ok(key_file)
-                    }  
-            } 
-        } else {
-         //keyfile is not encrypted or imported password is empty
-        Ok(keyfile)
+    // if a private key is encrypted , ask for a password in console
+    // if an entered password matches a password entered in step 3, decode an encrypted password otherwise keep asking for a correct password
+    pub fn from_encrypted_file_with_password(path : &Path) -> Result<Self, Error>  {  
+        let mut key_file = KeyFile::from_file(path);
+        if key_file.key_hash.eq(&KeyHash::default()) {
+            let password_input = PasswordInput::process()?; // ask for a password in command line
+            if  password_input.not_empty() { // password is not empty decode a file with a passwordm if password empty do nothing
+                let decryption_keyhash = KeyHash::new(&password_input.content);
+                if decryption_keyhash.eq(&key_file.key_hash) { // if hashes of passwords match then decrypt Keyfile.secret_key
+                    let decryption_key = password_input.gen_key_from_password_input()?;
+                    key_file = KeyFile::from_encrypted_file(path, &decryption_key);
+                }
+            }
         }
+
+        Ok(key_file)
     }
 }
 
-
 pub fn perform_encryption(
-    key_file : &KeyFile,
+    key_file : &mut KeyFile,
     key_store_path: &Path,
     home_dir: &Path,
-    ) -> Result<(), Error> {
-        key_file.write_to_file(&key_store_path);
+) -> Result<(), Error> {
+    key_file.write_to_file(&key_store_path);
+    
+    if home_dir.join("config.json").exists() {
+        //add password corrrectness validation to from_encrypted_file_with_password
+        KeyFile::from_encrypted_file_with_password(&key_store_path)?;
+    } else {
+        key_file.write_to_encrypted_file(&key_store_path)?;
+    }
 
-        let ssb = SodiumoxideSecretBox::new();
-        
-        if home_dir.join("config.json").exists() {
-            //add password corrrectness validation to read_from_encrypted_file_with_password
-            KeyFile::read_from_encrypted_file_with_password(&key_store_path, &ssb)?;
-        } else {
-            key_file.write_to_encrypted_file(&key_store_path, &ssb)?;
-        }
-        Ok(())
+    Ok(())
 }
 
 pub struct PasswordInput {
@@ -154,13 +169,13 @@ impl PasswordInput {
         if password_input.exceed_max_length() {
             return Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
         }
-       if password_input.not_empty() {
+       
+        if password_input.not_empty() {
             let content = password_input.pad_content();
             let length = content.len();
             password_input = PasswordInput{content, length};
-            Ok(password_input)
         }
-         //  if user didn't enter password - don't encrypt or decrypt
+
         Ok(password_input)
     }
 
@@ -244,15 +259,14 @@ mod tests {
         fn password_input_helper(input : &str) -> Result<PasswordInput, Error> {
             let mut content = input.trim().as_bytes().to_vec();
             let mut length = content.len();
-            let password_input = PasswordInput { content, length };
+            let mut password_input = PasswordInput { content, length };
             if password_input.exceed_max_length() {
                 return Err(Error::new(ErrorKind::InvalidInput, "Input is too long"))
-             }
+            }
             if password_input.not_empty() {
                 content = password_input.pad_content();
                 length = content.len();
                 password_input = PasswordInput{content, length};
-                Ok(password_input)
             }
             Ok(password_input)
         }
