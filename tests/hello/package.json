@@ -2,11 +2,11 @@
     "name": "hello-wasm",
     "version": "0.1.0",
     "dependencies": {
-        "assemblyscript": "github:nearprotocol/assemblyscript",
-        "near-runtime-ts": "github:nearprotocol/near-runtime-ts"
+        "near-assemblyscript": "github:nearprotocol/assemblyscript#v0.7.2",
+        "near-runtime-ts": "^0.3.1"
     },
     "scripts": {
         "build": "npm run build:as && cp ./out/main.wasm ../hello.wasm",
-        "build:as": "asc assembly/main.ts -o out/main.wasm -t out/main.wat --runtime stub -O3 --validate --measure"
+        "build:as": "near-asc assembly/main.ts -o out/main.wasm -t out/main.wat --runtime stub -O3 --validate --measure"
     }
 }
