@@ -44,4 +44,3 @@ High level milestones:
  - [ ] (In progress) Nightshade: Added sharding and staking.
  - [ ] TestNet: Added governance module, ready to launch as MainNet
  - [ ] MainNet: Launched full blockchain.
- 
