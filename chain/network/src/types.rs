@@ -22,6 +22,7 @@ use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
 
@@ -29,7 +30,7 @@ use crate::peer::Peer;
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -83,7 +84,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -636,6 +637,7 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
+    pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub most_weight_peers: Vec<FullPeerInfo>,

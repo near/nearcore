@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 
 use near_crypto::{InMemorySigner, Signer};
+pub use near_network::types::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
@@ -270,6 +272,23 @@ pub struct Status {}
 
 impl Message for Status {
     type Result = Result<StatusResponse, String>;
+}
+
+pub struct GetNetworkInfo {}
+
+impl Message for GetNetworkInfo {
+    type Result = Result<NetworkInfoResponse, String>;
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NetworkInfoResponse {
+    pub active_peers: Vec<PeerInfo>,
+    pub num_active_peers: usize,
+    pub peer_max_count: u32,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<AccountId>,
 }
 
 /// Status of given transaction including all the subsequent receipts.

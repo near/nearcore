@@ -679,6 +679,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     self.routing_table.account_peers.keys().cloned().collect::<Vec<_>>();
 
                 NetworkResponses::Info(NetworkInfo {
+                    active_peers: self
+                        .active_peers
+                        .values()
+                        .map(|a| a.full_peer_info.clone())
+                        .collect::<Vec<_>>(),
                     num_active_peers: self.num_active_peers(),
                     peer_max_count: self.config.peer_max_count,
                     most_weight_peers: self.most_weight_peers(),

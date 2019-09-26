@@ -39,7 +39,7 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSync, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus,
+    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus, GetNetworkInfo, NetworkInfoResponse
 };
 use crate::{sync, StatusResponse};
 
@@ -109,6 +109,7 @@ impl ClientActor {
             network_adapter,
             node_id,
             network_info: NetworkInfo {
+                active_peers: vec![],
                 num_active_peers: 0,
                 peer_max_count: 0,
                 most_weight_peers: vec![],
@@ -470,6 +471,27 @@ impl Handler<Status> for ClientActor {
                 latest_block_time: from_timestamp(latest_block_time),
                 syncing: self.client.sync_status.is_syncing(),
             },
+        })
+    }
+}
+
+impl Handler<GetNetworkInfo> for ClientActor {
+    type Result = Result<NetworkInfoResponse, String>;
+
+    fn handle(&mut self, _: GetNetworkInfo, _: &mut Context<Self>) -> Self::Result {
+        Ok(NetworkInfoResponse {
+            active_peers: self
+                .network_info
+                .active_peers
+                .clone()
+                .into_iter()
+                .map(|a| a.peer_info.clone())
+                .collect::<Vec<_>>(),
+            num_active_peers: self.network_info.num_active_peers,
+            peer_max_count: self.network_info.peer_max_count,
+            sent_bytes_per_sec: self.network_info.sent_bytes_per_sec,
+            received_bytes_per_sec: self.network_info.received_bytes_per_sec,
+            known_producers: self.network_info.known_producers.clone(),
         })
     }
 }
