@@ -232,6 +232,7 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 

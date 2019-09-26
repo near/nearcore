@@ -45,7 +45,6 @@ fn test_storage_remove() {
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
-    let data_record_cost = config.runtime_fees.storage_usage_config.data_record_cost;
     let key = b"foo";
     let val = b"bar";
 

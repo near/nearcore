@@ -24,7 +24,9 @@ use near_primitives::sharding::{
     ShardChunkHeaderInner, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, EpochId, Gas, ShardId, ValidatorStake};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, ValidatorStake,
+};
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
 pub use crate::types::Error;
@@ -712,6 +714,7 @@ impl ShardsManager {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
+        rent_paid: Balance,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<Receipt>,
@@ -730,6 +733,7 @@ impl ShardsManager {
             data_parts,
             gas_used,
             gas_limit,
+            rent_paid,
             tx_root,
             validator_proposals,
             transactions,
