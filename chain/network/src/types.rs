@@ -18,7 +18,7 @@ use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -675,6 +675,8 @@ pub struct StateResponseInfo {
     pub hash: CryptoHash,
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
+    pub prev_chunk_header: ShardChunkHeader,
+    pub prev_chunk_proof: MerklePath,
     pub prev_payload: Vec<u8>,
     pub block_transactions: Vec<SignedTransaction>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,

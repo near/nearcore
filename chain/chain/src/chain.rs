@@ -807,6 +807,8 @@ impl Chain {
         (
             ShardChunk,
             MerklePath,
+            ShardChunkHeader,
+            MerklePath,
             Vec<u8>,
             Vec<SignedTransaction>,
             Vec<ReceiptProofResponse>,
@@ -835,17 +837,19 @@ impl Chain {
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
-        let (chunk_headers_root, chunks_proofs) = merklize(
+        let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks
                 .iter()
-                .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
+                .map(|shard_chunk| {
+                    ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                })
                 .collect::<Vec<ChunkHashHeight>>(),
         );
-
         assert_eq!(chunk_headers_root, sync_prev_block.header.inner.chunk_headers_root);
+
         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
-        let chunk_proof = chunks_proofs[shard_id as usize].clone();
+        let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header = self.get_header_by_height(chunk_header.height_included)?.clone();
         let block = self.get_block(&block_header.hash)?;
         let block_transactions = block.transactions.clone();
@@ -855,7 +859,19 @@ impl Chain {
         if shard_id as usize >= prev_block.chunks.len() {
             return Err(ErrorKind::Other("Invalid request: ShardId out of bounds".into()).into());
         }
-        let prev_chunk_header = &prev_block.chunks[shard_id as usize];
+        let prev_chunk_header = prev_block.chunks[shard_id as usize].clone();
+        let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
+            &prev_block
+                .chunks
+                .iter()
+                .map(|shard_chunk| {
+                    ChunkHashHeight(shard_chunk.hash.clone(), shard_chunk.height_included)
+                })
+                .collect::<Vec<ChunkHashHeight>>(),
+        );
+        assert_eq!(prev_chunk_headers_root, prev_block.header.inner.chunk_headers_root);
+
+        let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
         let prev_chunk_height_included = prev_chunk_header.height_included;
         let prev_payload = self
             .runtime_adapter
@@ -905,6 +921,8 @@ impl Chain {
         Ok((
             chunk,
             chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
             prev_payload,
             block_transactions,
             incoming_receipts_proofs,
@@ -919,6 +937,8 @@ impl Chain {
         sync_hash: CryptoHash,
         chunk: ShardChunk,
         chunk_proof: MerklePath,
+        prev_chunk_header: ShardChunkHeader,
+        prev_chunk_proof: MerklePath,
         prev_payload: Vec<u8>,
         block_transactions: Vec<SignedTransaction>,
         incoming_receipts_proofs: Vec<ReceiptProofResponse>,
@@ -984,8 +1004,9 @@ impl Chain {
 
         // Consider chunk itself is valid.
 
-        // 3. Checking that chunk `chunk` is included into block at last height before sync_hash
-        // 3a. Also checking chunk.height_included
+        // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
+        // 3a. Checking that chunk `chunk` is included into block at last height before sync_hash
+        // 3aa. Also checking chunk.height_included
         let sync_prev_block_header =
             self.get_block_header(&sync_block_header.inner.prev_hash)?.clone();
         if !verify_path(
@@ -1000,8 +1021,23 @@ impl Chain {
             .into());
         }
 
-        // 4. Checking block_transactions validity
         let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
+        // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
+        // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
+        let prev_block_header = self.get_block_header(&block_header.inner.prev_hash)?.clone();
+        if !verify_path(
+            prev_block_header.inner.chunk_headers_root,
+            &prev_chunk_proof,
+            &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_header.height_included),
+        ) {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other(
+                "set_shard_state failed: prev_chunk isn't included into block".into(),
+            )
+            .into());
+        }
+
+        // 4. Checking block_transactions validity
         if Block::compute_tx_root(&block_transactions) != block_header.inner.tx_root {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
