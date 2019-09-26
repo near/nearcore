@@ -43,15 +43,19 @@ fn test_promise_batch_action_function_call() {
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
-    promise_batch_action_function_call(&mut logic, 123, 0, 0).expect_err("shouldn't accept not existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    promise_batch_action_function_call(&mut logic, non_receipt, 0, 0).expect_err("shouldn't accept non-receipt promise index");
+    promise_batch_action_function_call(&mut logic, 123, 0, 0)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    promise_batch_action_function_call(&mut logic, non_receipt, 0, 0)
+        .expect_err("shouldn't accept non-receipt promise index");
 
-    promise_batch_action_function_call(&mut logic, index, 0, 0).expect("should add an action to receipt");
+    promise_batch_action_function_call(&mut logic, index, 0, 0)
+        .expect("should add an action to receipt");
     let expected = r#"[{"receipt_indices":[],"receiver_id":"rick.test","actions":[{"FunctionCall":{"method_name":"promise_create","args":"args","gas":0,"deposit":0}},{"FunctionCall":{"method_name":"promise_batch_action","args":"promise_batch_action_args","gas":0,"deposit":0}}]}]"#;
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
 }
-
 
 #[test]
 fn test_promise_batch_action_create_account() {
@@ -63,10 +67,18 @@ fn test_promise_batch_action_create_account() {
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
-    logic.promise_batch_action_create_account(123).expect_err("shouldn't accept not existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    logic.promise_batch_action_create_account(non_receipt).expect_err("shouldn't accept non-receipt promise index");
-    logic.promise_batch_action_create_account(index).expect("should add an action to create account");
+    logic
+        .promise_batch_action_create_account(123)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_create_account(non_receipt)
+        .expect_err("shouldn't accept non-receipt promise index");
+    logic
+        .promise_batch_action_create_account(index)
+        .expect("should add an action to create account");
 
     let expected = r#"[{"receipt_indices":[],"receiver_id":"rick.test","actions":[{"FunctionCall":{"method_name":"promise_create","args":"args","gas":0,"deposit":0}},"CreateAccount"]}]"#;
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
@@ -83,11 +95,19 @@ fn test_promise_batch_action_deploy_contract() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let code = b"sample";
 
-    logic.promise_batch_action_deploy_contract(123, code.len() as u64, code.as_ptr() as _).expect_err("shouldn't accept not existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    logic.promise_batch_action_deploy_contract(non_receipt, code.len() as u64, code.as_ptr() as _).expect_err("shouldn't accept non-receipt promise index");
+    logic
+        .promise_batch_action_deploy_contract(123, code.len() as u64, code.as_ptr() as _)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_deploy_contract(non_receipt, code.len() as u64, code.as_ptr() as _)
+        .expect_err("shouldn't accept non-receipt promise index");
 
-    logic.promise_batch_action_deploy_contract(index, code.len() as u64, code.as_ptr() as _).expect("should add an action to deploy contract");
+    logic
+        .promise_batch_action_deploy_contract(index, code.len() as u64, code.as_ptr() as _)
+        .expect("should add an action to deploy contract");
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}},{\"DeployContract\":{\"code\":[115,97,109,112,108,101]}}]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
 }
@@ -104,16 +124,25 @@ fn test_promise_batch_action_transfer() {
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
 
-    logic.promise_batch_action_transfer(123, 110u128.to_le_bytes().as_ptr() as _).expect_err("shouldn't accept not existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    logic.promise_batch_action_transfer(non_receipt, 110u128.to_le_bytes().as_ptr() as _).expect_err("shouldn't accept non-receipt promise index");
+    logic
+        .promise_batch_action_transfer(123, 110u128.to_le_bytes().as_ptr() as _)
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_transfer(non_receipt, 110u128.to_le_bytes().as_ptr() as _)
+        .expect_err("shouldn't accept non-receipt promise index");
 
-    logic.promise_batch_action_transfer(index, 110u128.to_le_bytes().as_ptr() as _).expect("should add an action to transfer money");
-    logic.promise_batch_action_transfer(index, 1u128.to_le_bytes().as_ptr() as _).expect_err("not enough money");
+    logic
+        .promise_batch_action_transfer(index, 110u128.to_le_bytes().as_ptr() as _)
+        .expect("should add an action to transfer money");
+    logic
+        .promise_batch_action_transfer(index, 1u128.to_le_bytes().as_ptr() as _)
+        .expect_err("not enough money");
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}},{\"Transfer\":{\"deposit\":110}}]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
 }
-
 
 #[test]
 fn test_promise_batch_action_stake() {
@@ -127,12 +156,42 @@ fn test_promise_batch_action_stake() {
     let index = promise_create(&mut logic, b"rick.test", 0, 0).expect("should create a promise");
     let key = b"ed25519:5do5nkAEVhL8iteDvXNgxi4pWK78Y7DDadX11ArFNyrf";
 
-    logic.promise_batch_action_stake(123, 110u128.to_le_bytes().as_ptr() as _, key.len() as u64, key.as_ptr() as _).expect_err("shouldn't accept not existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    logic.promise_batch_action_stake(non_receipt, 110u128.to_le_bytes().as_ptr() as _, key.len() as u64, key.as_ptr() as _).expect_err("shouldn't accept non-receipt promise index");
+    logic
+        .promise_batch_action_stake(
+            123,
+            110u128.to_le_bytes().as_ptr() as _,
+            key.len() as u64,
+            key.as_ptr() as _,
+        )
+        .expect_err("shouldn't accept not existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    logic
+        .promise_batch_action_stake(
+            non_receipt,
+            110u128.to_le_bytes().as_ptr() as _,
+            key.len() as u64,
+            key.as_ptr() as _,
+        )
+        .expect_err("shouldn't accept non-receipt promise index");
 
-    logic.promise_batch_action_stake(index, 110u128.to_le_bytes().as_ptr() as _, key.len() as u64, key.as_ptr() as _).expect("should add an action to stake");
-    logic.promise_batch_action_stake(index, 1u128.to_le_bytes().as_ptr() as _, key.len() as u64, key.as_ptr() as _).expect_err("not enough money to stake");
+    logic
+        .promise_batch_action_stake(
+            index,
+            110u128.to_le_bytes().as_ptr() as _,
+            key.len() as u64,
+            key.as_ptr() as _,
+        )
+        .expect("should add an action to stake");
+    logic
+        .promise_batch_action_stake(
+            index,
+            1u128.to_le_bytes().as_ptr() as _,
+            key.len() as u64,
+            key.as_ptr() as _,
+        )
+        .expect_err("not enough money to stake");
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}},{\"Stake\":{\"stake\":110,\"public_key\":\"RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ\"}}]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
 }
@@ -153,11 +212,40 @@ fn test_promise_batch_action_add_key_with_function_call() {
     let receiver_id = b"sam";
     let method_names = b"foo,bar";
 
-    promise_batch_action_add_key_with_function_call(&mut logic, 123, key, nonce, allowance, receiver_id, method_names).expect_err("shouldn't accept non-existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    promise_batch_action_add_key_with_function_call(&mut logic, non_receipt, key, nonce, allowance, receiver_id, method_names).expect_err("shouldn't accept non-receipt promise index");
+    promise_batch_action_add_key_with_function_call(
+        &mut logic,
+        123,
+        key,
+        nonce,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    promise_batch_action_add_key_with_function_call(
+        &mut logic,
+        non_receipt,
+        key,
+        nonce,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect_err("shouldn't accept non-receipt promise index");
 
-    promise_batch_action_add_key_with_function_call(&mut logic, index, key, nonce, allowance, receiver_id, method_names).expect("should add allowance");
+    promise_batch_action_add_key_with_function_call(
+        &mut logic,
+        index,
+        key,
+        nonce,
+        allowance,
+        receiver_id,
+        method_names,
+    )
+    .expect("should add allowance");
 
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}},{\"AddKeyWithFunctionCall\":{\"public_key\":\"RLb4qQXoZPAFqzZhiLFAcGFPFC7JWcDd8xKvQHHEqLUgDXuQkr2ehKAN28MNGQN9vUZ1qGZ\",\"nonce\":1,\"allowance\":999,\"receiver_id\":\"sam\",\"method_names\":[\"foo\",\"bar\"]}}]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
@@ -176,11 +264,19 @@ fn test_promise_batch_then() {
     let account_id = b"rick.test";
     let index = promise_create(&mut logic, account_id, 0, 0).expect("should create a promise");
 
-    logic.promise_batch_then(123, account_id.len() as u64, account_id.as_ptr() as _).expect_err("shouldn't accept non-existent promise index");
-    let non_receipt = logic.promise_and(index.to_le_bytes().as_ptr() as _, 1u64).expect("should create a non-receipt promise");
-    logic.promise_batch_then(non_receipt, account_id.len() as u64, account_id.as_ptr() as _).expect("should accept non-receipt promise index");
+    logic
+        .promise_batch_then(123, account_id.len() as u64, account_id.as_ptr() as _)
+        .expect_err("shouldn't accept non-existent promise index");
+    let non_receipt = logic
+        .promise_and(index.to_le_bytes().as_ptr() as _, 1u64)
+        .expect("should create a non-receipt promise");
+    logic
+        .promise_batch_then(non_receipt, account_id.len() as u64, account_id.as_ptr() as _)
+        .expect("should accept non-receipt promise index");
 
-    logic.promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _).expect("promise batch should run ok");
+    logic
+        .promise_batch_then(index, account_id.len() as u64, account_id.as_ptr() as _)
+        .expect("promise batch should run ok");
 
     let expected = "[{\"receipt_indices\":[],\"receiver_id\":\"rick.test\",\"actions\":[{\"FunctionCall\":{\"method_name\":\"promise_create\",\"args\":\"args\",\"gas\":0,\"deposit\":0}}]},{\"receipt_indices\":[0],\"receiver_id\":\"rick.test\",\"actions\":[]},{\"receipt_indices\":[0],\"receiver_id\":\"rick.test\",\"actions\":[]}]";
     assert_eq!(&serde_json::to_string(ext.get_receipt_create_calls()).unwrap(), &expected);
