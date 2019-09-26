@@ -50,6 +50,8 @@ pub struct BlockHeaderInner {
     pub gas_limit: Gas,
     /// Gas price. Same for all chunks
     pub gas_price: Balance,
+    /// Sum of all storage rent paid across all chunks.
+    pub rent_paid: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
 }
@@ -73,6 +75,7 @@ impl BlockHeaderInner {
         gas_used: Gas,
         gas_limit: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -93,6 +96,7 @@ impl BlockHeaderInner {
             gas_used,
             gas_limit,
             gas_price,
+            rent_paid,
             total_supply,
         }
     }
@@ -135,6 +139,7 @@ impl BlockHeader {
         gas_used: Gas,
         gas_limit: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
         signer: Arc<dyn Signer>,
     ) -> Self {
@@ -156,6 +161,7 @@ impl BlockHeader {
             gas_used,
             gas_limit,
             gas_price,
+            rent_paid,
             total_supply,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
@@ -190,6 +196,7 @@ impl BlockHeader {
             0,
             initial_gas_limit,
             initial_gas_price,
+            0,
             initial_total_supply,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
@@ -239,6 +246,7 @@ impl Block {
                     i,
                     0,
                     initial_gas_limit,
+                    0,
                     CryptoHash::default(),
                     CryptoHash::default(),
                     vec![],
@@ -289,11 +297,13 @@ impl Block {
         let mut gas_limit = 0;
         // This computation of chunk_mask relies on the fact that chunks are ordered by shard_id.
         let mut chunk_mask = vec![];
+        let mut storage_rent = 0;
         for chunk in chunks.iter() {
             if chunk.height_included == height {
                 validator_proposals.extend_from_slice(&chunk.inner.validator_proposals);
                 gas_used += chunk.inner.gas_used;
                 gas_limit += chunk.inner.gas_limit;
+                storage_rent += chunk.inner.rent_paid;
                 chunk_mask.push(true);
             } else {
                 chunk_mask.push(false);
@@ -333,6 +343,7 @@ impl Block {
                 gas_limit,
                 // TODO: calculate this correctly
                 new_gas_price,
+                storage_rent,
                 new_total_supply,
                 signer,
             ),

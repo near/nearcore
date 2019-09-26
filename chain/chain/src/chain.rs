@@ -234,6 +234,7 @@ impl Chain {
                         vec![],
                         0,
                         chain_genesis.gas_price,
+                        0,
                         chain_genesis.total_supply,
                     )?;
                     store_update.save_block_header(genesis.header.clone());
@@ -244,7 +245,7 @@ impl Chain {
                         store_update.save_chunk_extra(
                             &genesis.hash(),
                             chunk_header.inner.shard_id,
-                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit),
+                            ChunkExtra::new(state_root, vec![], 0, chain_genesis.gas_limit, 0),
                         );
                     }
 
@@ -395,6 +396,7 @@ impl Chain {
                     header.inner.chunk_mask.clone(),
                     header.inner.gas_used,
                     header.inner.gas_price,
+                    header.inner.rent_paid,
                     header.inner.total_supply,
                 )?;
             }
@@ -1091,6 +1093,7 @@ impl Chain {
             apply_result.validator_proposals,
             apply_result.total_gas_burnt,
             gas_limit,
+            apply_result.total_rent_paid,
         );
         chain_store_update.save_chunk_extra(&block_header.hash, shard_id, chunk_extra);
         // Saving outgoing receipts.
@@ -1626,7 +1629,7 @@ impl<'a> ChainUpdate<'a> {
                     }
                     let gas_limit = chunk.header.inner.gas_limit;
 
-                    // Apply block to runtime.
+                    // Apply transactions and receipts
                     let mut apply_result = self
                         .runtime_adapter
                         .apply_transactions(
@@ -1651,6 +1654,7 @@ impl<'a> ChainUpdate<'a> {
                             apply_result.validator_proposals,
                             apply_result.total_gas_burnt,
                             gas_limit,
+                            apply_result.total_rent_paid,
                         ),
                     );
                     // Save resulting receipts.
@@ -1838,6 +1842,7 @@ impl<'a> ChainUpdate<'a> {
             block.header.inner.chunk_mask.clone(),
             block.header.inner.gas_used,
             block.header.inner.gas_price,
+            block.header.inner.rent_paid,
             block.header.inner.total_supply,
         )?;
 
