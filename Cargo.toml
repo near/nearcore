@@ -23,6 +23,7 @@ members = [
     "chain/network",
     "chain/jsonrpc",
     "chain/jsonrpc/client",
+    "chain/near-metrics",
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/state-viewer",

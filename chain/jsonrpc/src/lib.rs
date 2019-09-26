@@ -1,7 +1,11 @@
 #![feature(await_macro, async_await)]
+#[macro_use]
+extern crate lazy_static;
+extern crate prometheus;
 
 use std::convert::TryFrom;
 use std::time::Duration;
+use std::string::FromUtf8Error;
 
 use actix::{Addr, MailboxError};
 use actix_cors::Cors;
@@ -24,11 +28,19 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::views::{FinalTransactionStatus};
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
+use near_metrics::{IntCounter, TextEncoder, Encoder};
 
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
+
+lazy_static! {
+    pub static ref REQUEST_COUNT: near_metrics::Result<IntCounter> = near_metrics::try_create_int_counter(
+        "http_server_request_total",
+        "Total count of HTTP requests received"
+    );
+}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -217,6 +229,20 @@ impl JsonRpcHandler {
             BlockId::Hash(hash) => GetBlock::Hash(hash.into()),
         }).compat().await)
     }
+
+    pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
+        // Increment Request Counter
+        near_metrics::inc_counter(&*REQUEST_COUNT);
+
+        // Gather metrics and return them as a String
+        let mut buffer = vec![];
+        let encoder = TextEncoder::new();
+        encoder
+            .encode(&prometheus::gather(), &mut buffer)
+            .unwrap();
+
+        String::from_utf8(buffer)
+    }
 }
 
 fn rpc_handler(
@@ -234,6 +260,18 @@ fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = Http
     let response = async move {
         match handler.status().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+        }
+    };
+    response.boxed().compat()
+}
+
+fn prometheus_handler(
+        handler: web::Data<JsonRpcHandler>,
+    ) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    let response = async move {
+        match handler.metrics().await {
+            Ok(value) => Ok(HttpResponse::Ok().body(value)),
             Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
         }
     };
@@ -271,6 +309,7 @@ pub fn start_http(
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
             .service(web::resource("/status").route(web::get().to_async(status_handler)))
+            .service(web::resource("/metrics").route(web::get().to_async(prometheus_handler)))
     })
     .bind(addr)
     .unwrap()
