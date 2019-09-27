@@ -19,14 +19,13 @@ use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
-    AccountOrPeerId, Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages,
-    PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
-    PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage,
-    Unregister, PROTOCOL_VERSION,
+    AccountOrPeerId, Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
+    NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus,
+    PeerType, PeersRequest, PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 use futures::Future;
-use near_crypto::Signature;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -195,6 +194,8 @@ impl Peer {
     }
 
     fn send_handshake(&mut self, ctx: &mut Context<Peer>) {
+        println!("SENDING HANDSHAKE: {:?} {:?}", self.node_info.id, self.edge_info);
+
         self.client_addr
             .send(NetworkClientMessages::GetChainInfo)
             .into_actor(self)
@@ -445,14 +446,22 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 // Verify signature of the new edge in handshake.
                 if !Edge::partial_verify(
                     self.node_info.id.clone(),
-                    handshake.peer_id,
-                    handshake.edge_info,
+                    handshake.peer_id.clone(),
+                    &handshake.edge_info,
                 ) {
                     info!(target: "network", "Received invalid signature on handshake. Disconnecting this peer.");
                     ctx.stop();
                 }
 
-                // TODO(MarX): Verify from second handshake that nonce is correct, otherwise drop connection.
+                // Check that received nonce on handshake match our proposed nonce.
+                if self.peer_type == PeerType::Outbound {
+                    if handshake.edge_info.nonce
+                        != self.edge_info.as_ref().map(|edge_info| edge_info.nonce).unwrap()
+                    {
+                        info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
+                        ctx.stop();
+                    }
+                }
 
                 let peer_info = PeerInfo {
                     id: handshake.peer_id.clone(),
@@ -468,17 +477,19 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
                         chain_info: handshake.chain_info,
-                        edge_info: handshake.edge_info,
+                        this_edge_info: self.edge_info.clone(),
+                        other_edge_info: handshake.edge_info.clone(),
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {
                         match res {
-                            Ok(true) => {
+                            Ok(ConsolidateResponse(true, edge_info)) => {
                                 debug!(target: "network", "{:?}: Peer {:?} successfully consolidated", act.node_info.id.clone(), act.peer_addr);
                                 act.peer_info = Some(peer_info).into();
                                 act.peer_status = PeerStatus::Ready;
                                 // Respond to handshake if it's inbound and connection was consolidated.
                                 if act.peer_type == PeerType::Inbound {
+                                    act.edge_info = edge_info;
                                     act.send_handshake(ctx);
                                 }
                                 actix::fut::ok(())

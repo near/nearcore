@@ -1,30 +1,44 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::WriteBytesExt;
 use bytes::LittleEndian;
 use log::debug;
 
-use near_crypto::Signature;
+use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
 use near_primitives::unwrap_obj_or_return;
 
 use crate::types::PeerId;
-use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Information that will be ultimately used to create a new edge.
 /// It contains nonce proposed for the edge with signature from peer.
-#[derive(Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Default)]
 pub struct EdgeInfo {
     pub nonce: u64,
     pub signature: Signature,
 }
 
+impl EdgeInfo {
+    pub fn new(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        edge_type: &EdgeType,
+        secret_key: &SecretKey,
+    ) -> Self {
+        let (peer0, peer1) = Edge::key(peer0, peer1);
+        let data = Edge::hash(&peer0, &peer1, nonce, &edge_type);
+        let signature = secret_key.sign(data.as_ref());
+        Self { nonce, signature }
+    }
+}
+
 /// Status of the edge
 #[derive(Clone, PartialEq, Eq, Debug)]
-enum EdgeType {
+pub enum EdgeType {
     Added,
     Removed,
 }
@@ -56,6 +70,23 @@ pub struct Edge {
 }
 
 impl Edge {
+    pub fn new(
+        peer0: PeerId,
+        peer1: PeerId,
+        nonce: u64,
+        edge_type: EdgeType,
+        signature0: Option<Signature>,
+        signature1: Option<Signature>,
+    ) -> Self {
+        let (peer0, signature0, peer1, signature1) = if peer0 < peer1 {
+            (peer0, signature0, peer1, signature1)
+        } else {
+            (peer1, signature1, peer0, signature0)
+        };
+
+        Self { peer0, peer1, nonce, edge_type, signature0, signature1 }
+    }
+
     fn hash(peer0: &PeerId, peer1: &PeerId, nonce: u64, edge_type: &EdgeType) -> CryptoHash {
         let mut buffer = Vec::<u8>::new();
         let peer0: Vec<u8> = peer0.clone().into();
@@ -67,7 +98,7 @@ impl Edge {
         hash(buffer.as_slice())
     }
 
-    fn verify(&self) -> bool {
+    pub fn verify(&self) -> bool {
         if self.peer0 > self.peer1 {
             return false;
         }
@@ -105,7 +136,7 @@ impl Edge {
 
     /// Helper function when adding a new edge and we receive information from new potential peer
     /// to verify the signature.
-    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: EdgeInfo) -> bool {
+    pub fn partial_verify(peer0: PeerId, peer1: PeerId, edge_info: &EdgeInfo) -> bool {
         let pk = peer1.public_key();
         let (peer0, peer1) = Edge::key(peer0, peer1);
         let data = Edge::hash(&peer0, &peer1, edge_info.nonce, &EdgeType::Added);

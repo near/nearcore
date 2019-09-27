@@ -443,6 +443,13 @@ impl Signature {
     }
 }
 
+impl Default for Signature {
+    fn default() -> Self {
+        let signature_str = "\"secp256k1:Ng9nnxbC1BBWJ8NZ8XyExB7kUMtWNn8xCdxRtVC1m7ghH8EpwcupZU3BAxk6ehamaB89aSzhC6UeME4QgZtfkhtwi\"";
+        serde_json::from_str(signature_str).unwrap()
+    }
+}
+
 #[allow(clippy::unused_io_amount)]
 impl BorshSerialize for Signature {
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {

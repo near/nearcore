@@ -11,10 +11,8 @@ use actix::{
     Actor, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, Handler, Recipient,
     WrapFuture,
 };
-use borsh::BorshSerialize;
 use cached::{Cached, SizedCache};
 use chrono::{DateTime, Utc};
-use futures::Future;
 use log::{debug, error, info, warn};
 
 use near_chain::types::{LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult};
@@ -28,7 +26,7 @@ use near_network::types::{AnnounceAccount, NetworkInfo, PeerId, ReasonForBan, St
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
-use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
@@ -435,7 +433,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::AnnounceAccount(announce_account) => {
                 match self.check_signature_account_announce(&announce_account) {
                     AccountAnnounceVerificationResult::Valid => {
-                        self.network_actor
+                        let _ = self
+                            .network_actor
                             .do_send(NetworkRequests::AnnounceAccount(announce_account));
                         NetworkClientResponses::NoResponse
                     }

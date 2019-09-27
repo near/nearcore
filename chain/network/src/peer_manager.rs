@@ -25,12 +25,12 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
-use crate::routing::{Edge, EdgeInfo, RoutingTable};
+use crate::routing::{Edge, EdgeInfo, EdgeType, RoutingTable};
 use crate::types::{
-    AccountOrPeerId, AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect,
-    KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType,
-    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessage, RoutedMessageBody, SendMessage, Unregister,
+    AccountOrPeerId, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
+    InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
+    PeerMessage, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -108,7 +108,16 @@ impl PeerManagerActor {
 
     /// Register a direct connection to a new peer. This will be called after successfully
     /// establishing a connection with another peer. It become part of the active peers.
-    fn register_peer(&mut self, full_peer_info: FullPeerInfo, addr: Addr<Peer>) {
+    ///
+    /// To build new edge between this pair of nodes both signatures are required.
+    /// Signature from this node is passed in `edge_info`
+    /// Signature from the other node is passed in `full_peer_info.edge_info`.
+    fn register_peer(
+        &mut self,
+        full_peer_info: FullPeerInfo,
+        edge_info: EdgeInfo,
+        addr: Addr<Peer>,
+    ) {
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
         }
@@ -117,8 +126,14 @@ impl PeerManagerActor {
             "Failed to save peer data"
         );
 
-        let source = self.peer_id.clone();
-        let target = full_peer_info.peer_info.id.clone();
+        let new_edge = Edge::new(
+            self.peer_id.clone(),                // source
+            full_peer_info.peer_info.id.clone(), // target
+            edge_info.nonce,
+            EdgeType::Added,
+            Some(edge_info.signature),
+            Some(full_peer_info.edge_info.signature.clone()),
+        );
 
         self.active_peers.insert(
             full_peer_info.peer_info.id.clone(),
@@ -131,10 +146,12 @@ impl PeerManagerActor {
             },
         );
 
-        // TODO(MarX): Trigger sync actions after a peer is added successfully regarding networking
-        //  (Write specification about the actions)
+        // TODO(MarX): Remove this asserts
+        println!("\nASD NEW DIRECT CONNECTION: {:?}\n", new_edge);
+        assert!(new_edge.verify());
+        assert!(self.routing_table.process_edge(new_edge));
 
-        //        self.routing_table.add_connection(source, target);
+        // TODO(MarX): Broadcast connection
     }
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
@@ -437,6 +454,17 @@ impl PeerManagerActor {
         msg.sign(self.peer_id.clone(), &self.config.secret_key)
     }
 
+    fn propose_edge(&self, peer1: PeerId, with_nonce: Option<u64>) -> EdgeInfo {
+        let key = Edge::key(self.peer_id.clone(), peer1);
+
+        // When we create a new edge we increase the latest nonce by 2 in case we miss a removal
+        // proposal from our partner.
+        let nonce = with_nonce.unwrap_or_else(|| self.routing_table.find_nonce(&key) + 2);
+
+        EdgeInfo::new(key.0, key.1, nonce, &EdgeType::Added, &self.config.secret_key)
+    }
+
+    // TODO(MarX): Store ping/pong for testing
     fn handle_ping(&mut self, ping: Ping) {}
 
     fn handle_pong(&mut self, pong: Pong) {}
@@ -597,6 +625,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: OutboundTcpConnect, ctx: &mut Self::Context) {
+        println!("\nASD RECEIVE OUTBOUND\n");
         if let Some(addr) = msg.peer_info.addr {
             Resolver::from_registry()
                 .send(ConnectAddr(addr))
@@ -605,11 +634,14 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
                     Ok(res) => match res {
                         Ok(stream) => {
                             debug!(target: "network", "Connected to {}", msg.peer_info);
+                            let edge_info = act.propose_edge(msg.peer_info.id.clone(), None);
+
                             act.connect_peer(
                                 ctx.address(),
                                 stream,
                                 PeerType::Outbound,
                                 Some(msg.peer_info),
+                                Some(edge_info),
                             );
                             actix::fut::ok(())
                         }
@@ -633,38 +665,50 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 }
 
 impl Handler<Consolidate> for PeerManagerActor {
-    type Result = bool;
+    type Result = ConsolidateResponse;
 
     fn handle(&mut self, msg: Consolidate, _ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
-            return false;
+            return ConsolidateResponse(false, None);
         }
         // This is incoming connection but we have this peer already in outgoing.
         // This only happens when both of us connect at the same time, break tie using higher peer id.
         if msg.peer_type == PeerType::Inbound && self.outgoing_peers.contains(&msg.peer_info.id) {
             // We pick connection that has lower id.
             if msg.peer_info.id > self.peer_id {
-                return false;
+                return ConsolidateResponse(false, None);
             }
         }
 
         // Check that the received nonce is greater than the current nonce of this connection.
-        if self.routing_table.find_nonce(&Edge::key(self.peer_id, msg.peer_info.id)) >= msg.nonce {
+        if self.routing_table.find_nonce(&Edge::key(self.peer_id.clone(), msg.peer_info.id.clone()))
+            >= msg.other_edge_info.nonce
+        {
             // If the check fails don't allow this connection.
-            return false;
+            return ConsolidateResponse(false, None);
         }
+
+        let require_response = msg.this_edge_info.is_none();
+
+        let edge_info = msg.this_edge_info.clone().unwrap_or_else(|| {
+            self.propose_edge(msg.peer_info.id.clone(), Some(msg.other_edge_info.nonce))
+        });
+
+        let edge_info_response = if require_response { Some(edge_info.clone()) } else { None };
 
         // TODO: double check that address is connectable and add account id.
         self.register_peer(
             FullPeerInfo {
                 peer_info: msg.peer_info,
                 chain_info: msg.chain_info,
-                edge_info: msg.edge_info,
+                edge_info: msg.other_edge_info,
             },
+            edge_info,
             msg.actor,
         );
-        true
+
+        ConsolidateResponse(true, edge_info_response)
     }
 }
 

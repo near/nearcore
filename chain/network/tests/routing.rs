@@ -1,5 +1,5 @@
 use std::iter::Iterator;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,15 +12,13 @@ use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{
-    convert_boot_nodes, expected_routing_tables, open_port, vec_ref_to_str, WaitOrTimeout,
+    convert_boot_nodes, expected_routing_tables, open_port, WaitOrTimeout,
 };
-use near_network::types::{NetworkInfo, OutboundTcpConnect};
+use near_network::types::OutboundTcpConnect;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo, PeerManagerActor};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::AccountId;
 use near_store::test_utils::create_test_store;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
-use serde::export::PhantomData;
 
 /// Sets up a node with a valid Client, Peer
 pub fn setup_network_node(
@@ -144,7 +142,7 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    println!("NODE: {} {:?}", u, routing_table);
+                                    println!("\nNODE: {} {:?}\n", u, routing_table);
                                     if expected_routing_tables(routing_table, expected1) {
                                         flag.store(true, Ordering::Relaxed);
                                     }
@@ -202,9 +200,12 @@ impl Runner {
 
     fn run(&mut self) {
         let info = self.build();
+
+        println!("\nTEST PEERS");
         for (ix, peer_info) in info.peer_info.iter().enumerate() {
-            println!("{} {}", ix, peer_info.id);
+            println!("ASD {} {}", ix, peer_info.id);
         }
+        println!("");
 
         let mut pointer = None;
         let mut flag = Arc::new(AtomicBool::new(true));

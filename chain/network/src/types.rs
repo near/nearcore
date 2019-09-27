@@ -514,12 +514,20 @@ pub struct Consolidate {
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfo,
-    pub edge_info: EdgeInfo,
+    // Edge information from this node.
+    // If this is None it implies we are outbound connection, so we need to create our
+    // EdgeInfo part and send it to the other peer.
+    pub this_edge_info: Option<EdgeInfo>,
+    // Edge information from other node.
+    pub other_edge_info: EdgeInfo,
 }
 
 impl Message for Consolidate {
-    type Result = bool;
+    type Result = ConsolidateResponse;
 }
+
+#[derive(MessageResponse)]
+pub struct ConsolidateResponse(pub bool, pub Option<EdgeInfo>);
 
 /// Unregister message from Peer to PeerManager.
 #[derive(Message)]

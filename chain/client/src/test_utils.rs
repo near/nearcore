@@ -22,6 +22,7 @@ use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
+use near_network::routing::EdgeInfo;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -191,6 +192,7 @@ pub fn setup_mock_all_validators(
                                             height: 0,
                                             total_weight: 0.into(),
                                         },
+                                        edge_info: EdgeInfo::default(),
                                     })
                                     .collect(),
                                 sent_bytes_per_sec: 0,
