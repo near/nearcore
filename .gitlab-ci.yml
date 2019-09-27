@@ -28,7 +28,7 @@ variables:
     sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +60 -delete
+    find "${CACHE_ROOT}/target" -mmin +1440 -exec rm -rf {} \;
 
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
@@ -134,6 +134,8 @@ test_nearlib:
    - release_build
    script:
    - ./scripts/test_nearlib.sh
+   after_script:
+   - *cleanup_obsolete_cache
 
 #test_pynear:
 #    stage: libs
