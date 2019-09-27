@@ -28,7 +28,7 @@ def docker_init(image, home_dir, init_flags):
 
 
 """Inits the node configuration using local build."""
-def local_init(home_dir, is_release, init_flags):
+def nodocker_init(home_dir, is_release, init_flags):
     target = './target/%s/near' % ('release' if is_release else 'debug')
     subprocess.call([target,
         '--home=%s' % home_dir, 'init'] + init_flags)
@@ -43,8 +43,8 @@ def get_chain_id_from_flags(flags):
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
-def check_and_setup(is_local, is_release, image, home_dir, init_flags):
-    if is_local:
+def check_and_setup(nodocker, is_release, image, home_dir, init_flags):
+    if nodocker:
         subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
             'default', 'nightly'])
         flags = ['-p', 'near']
@@ -58,9 +58,7 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
 
     chain_id = get_chain_id_from_flags(init_flags)
     if os.path.exists(os.path.join(home_dir, 'config.json')):
-        print("")
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
-        print(chain_id)
         if chain_id !='' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print("Folder %s already has network configuration for %s, which is not the official TestNet.\n"
@@ -78,10 +76,15 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
 
     print("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
-        account_id = input("Enter your account ID (leave empty if not going to be a validator): ")
+        prompt = "Enter your account ID"
+        if chain_id != '':
+          prompt += " (leave empty if not going to be a validator): "
+        else:
+          prompt += ": "
+        account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
-    if is_local:
-        local_init(home_dir, is_release, init_flags)
+    if nodocker:
+        nodocker_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
 
@@ -98,13 +101,14 @@ def print_staking_key(home_dir):
     print("Stake for user '%s' with '%s'" % (key_file['account_id'], key_file['public_key']))
 
 
-"""Stops given docker container."""
+"""Stops and removes given docker container."""
 def docker_stop_if_exists(name):
     try:
-        result = subprocess.check_output(['docker', 'ps', '-f', 'name=%s' % name])
-        if name.encode('utf-8') in result:
-            subprocess.check_output(['docker', 'stop', name])
-            subprocess.check_output(['docker', 'rm', name])
+        subprocess.check_output(['docker', 'stop', name])
+    except subprocess.CalledProcessError:
+        pass
+    try:
+        subprocess.check_output(['docker', 'rm', name])
     except subprocess.CalledProcessError:
         pass
 
@@ -136,10 +140,10 @@ def run_docker(image, home_dir, boot_nodes, verbose):
                     'v2tec/watchtower', image])
     print("Node is running! \nTo check logs call: docker logs --follow nearcore")
 
-"""Runs NEAR core locally."""
-def run_local(home_dir, is_release, boot_nodes, verbose):
+"""Runs NEAR core outside of docker."""
+def run_nodocker(home_dir, is_release, boot_nodes, verbose):
     print("Starting NEAR client...")
-    print("Autoupdate is not supported at the moment for local run")
+    print("Autoupdate is not supported at the moment for runs outside of docker")
     cmd = ['./target/%s/near' % ('release' if is_release else 'debug')]
     cmd.extend(['--home', home_dir])
     if verbose:
@@ -152,8 +156,8 @@ def run_local(home_dir, is_release, boot_nodes, verbose):
         print("\nStopping NEARCore.")
 
 
-def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
-    if local:
+def setup_and_run(nodocker, is_release, image, home_dir, init_flags, boot_nodes, verbose=False):
+    if nodocker:
         install_cargo()
     else:
         try:
@@ -163,14 +167,14 @@ def setup_and_run(local, is_release, image, home_dir, init_flags, boot_nodes, ve
             print("Failed to fetch docker containers: %s" % exc)
             exit(1)
 
-    check_and_setup(local, is_release, image, home_dir, init_flags)
+    check_and_setup(nodocker, is_release, image, home_dir, init_flags)
 
     print_staking_key(home_dir)
 
-    if not local:
-        run_docker(image, home_dir, boot_nodes, verbose)
+    if nodocker:
+        run_nodocker(home_dir, is_release, boot_nodes, verbose)
     else:
-        run_local(home_dir, is_release, boot_nodes, verbose)
+        run_docker(image, home_dir, boot_nodes, verbose)
 
 
 """Stops docker for Nearcore and watchtower if they are running."""
