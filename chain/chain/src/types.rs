@@ -7,7 +7,7 @@ pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
+use near_primitives::sharding::{ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
@@ -370,6 +370,43 @@ impl BlockApproval {
     pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
+    }
+}
+
+/// Block approval by other block producers.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardState {
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_chunk_header: ShardChunkHeader,
+    pub prev_chunk_proof: MerklePath,
+    pub prev_payload: Vec<u8>,
+    pub block_transactions: Vec<SignedTransaction>,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
+}
+
+impl ShardState {
+    pub fn new(
+        chunk: ShardChunk,
+        chunk_proof: MerklePath,
+        prev_chunk_header: ShardChunkHeader,
+        prev_chunk_proof: MerklePath,
+        prev_payload: Vec<u8>,
+        block_transactions: Vec<SignedTransaction>,
+        incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+        root_proofs: Vec<Vec<RootProof>>,
+    ) -> Self {
+        Self {
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            prev_payload,
+            block_transactions,
+            incoming_receipts_proofs,
+            root_proofs,
+        }
     }
 }
 

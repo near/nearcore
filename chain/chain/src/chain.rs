@@ -8,12 +8,12 @@ use chrono::Duration;
 use log::{debug, info};
 
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::{merklize, verify_path, MerklePath};
+use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
-use near_primitives::transaction::{check_tx_history, ExecutionOutcome, SignedTransaction};
+use near_primitives::transaction::{check_tx_history, ExecutionOutcome};
 use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
 use near_store::{Store, COL_CHUNKS};
 
@@ -22,7 +22,8 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, Tip, ValidatorSignatureVerificationResult,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardState, Tip,
+    ValidatorSignatureVerificationResult,
 };
 
 /// Maximum number of orphans chain can store.
@@ -803,19 +804,7 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<
-        (
-            ShardChunk,
-            MerklePath,
-            ShardChunkHeader,
-            MerklePath,
-            Vec<u8>,
-            Vec<SignedTransaction>,
-            Vec<ReceiptProofResponse>,
-            Vec<Vec<RootProof>>,
-        ),
-        Error,
-    > {
+    ) -> Result<ShardState, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -882,16 +871,12 @@ impl Chain {
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
             .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?
             .clone();
-        assert_eq!(
-            incoming_receipts_proofs.len(),
-            (sync_block_header.inner.height - prev_chunk_height_included) as usize
-        );
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
         for receipt_response in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
-            let block_header = self.get_block_header(block_hash)?.clone();
+            let block_header = self.get_block_header(&block_hash)?.clone();
             let block = self.get_block(&block_hash)?;
 
             let mut root_proofs_cur = vec![];
@@ -925,7 +910,7 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        Ok((
+        Ok(ShardState::new(
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -942,14 +927,7 @@ impl Chain {
         _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        chunk: ShardChunk,
-        chunk_proof: MerklePath,
-        prev_chunk_header: ShardChunkHeader,
-        prev_chunk_proof: MerklePath,
-        prev_payload: Vec<u8>,
-        block_transactions: Vec<SignedTransaction>,
-        incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-        root_proofs: Vec<Vec<RootProof>>,
+        shard_state: ShardState,
     ) -> Result<(), Error> {
         // Ensure that sync_hash block is included into the canonical chain
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
@@ -962,6 +940,17 @@ impl Chain {
             )
             .into());
         }
+
+        let ShardState {
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            prev_payload,
+            block_transactions,
+            incoming_receipts_proofs,
+            root_proofs,
+        } = shard_state;
 
         // 1. Checking that chunk header is at least valid
         // 1a. Checking chunk.header.hash
@@ -1055,16 +1044,28 @@ impl Chain {
         }
 
         // 5. Proving incoming receipts validity
-        if root_proofs.len() != incoming_receipts_proofs.len()
-            || root_proofs.len()
-                != (sync_block_header.inner.height - prev_chunk_height_included) as usize
-        {
+        // 5a. Checking len of proofs
+        if root_proofs.len() != incoming_receipts_proofs.len() {
             byzantine_assert!(false);
             return Err(ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into());
         }
+        let mut hash_to_compare = sync_hash;
         for (i, receipt_response) in incoming_receipts_proofs.iter().enumerate() {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
+
+            // 5b. Checking that there is a valid sequence of continuous blocks
+            if *block_hash != hash_to_compare {
+                byzantine_assert!(false);
+                return Err(ErrorKind::Other(
+                    "set_shard_state failed: invalid incoming receipts".into(),
+                )
+                .into());
+            }
+            let header = self.get_block_header(&hash_to_compare)?;
+            hash_to_compare = header.inner.prev_hash;
+
             let block_header = self.get_block_header(&block_hash)?;
+            // 5c. Checking len of receipt_proofs for current block
             if receipt_proofs.len() != root_proofs[i].len()
                 || receipt_proofs.len() != block_header.inner.chunks_included as usize
             {
@@ -1076,11 +1077,12 @@ impl Chain {
             // We know there were exactly `block_header.inner.chunks_included` chunks included
             // on the height of block `block_hash`.
             // There were no other proofs except for included chunks.
-            // According to Dirichlet's principle, it's enough to ensure all receipt_proofs are distinct
+            // According to Pigeonhole principle, it's enough to ensure all receipt_proofs are distinct
             // to prove that all receipts were received and no receipts were hidden.
             let mut visited_shard_ids = HashSet::<ShardId>::new();
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
                 let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
+                // 5d. Checking uniqueness for set of `from_shard_id`
                 match visited_shard_ids.get(from_shard_id) {
                     Some(_) => {
                         byzantine_assert!(false);
@@ -1093,12 +1095,14 @@ impl Chain {
                 };
                 let RootProof(root, block_proof) = &root_proofs[i][j];
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                // 5e. Proving the set of receipts is the subset of outgoing_receipts of shard `shard_id`
                 if !verify_path(*root, &proof, &receipts_hash) {
                     byzantine_assert!(false);
                     return Err(
                         ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into()
                     );
                 }
+                // 5f. Proving the outgoing_receipts_root contains in the block
                 if !verify_path(block_header.inner.chunk_receipts_root, block_proof, root) {
                     byzantine_assert!(false);
                     return Err(
@@ -1106,6 +1110,15 @@ impl Chain {
                     );
                 }
             }
+        }
+        // 5g. Checking that there are no more heights to get incoming_receipts
+        let header = self.get_block_header(&hash_to_compare)?;
+        if header.inner.height != prev_chunk_height_included {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other(
+                "set_shard_state failed: invalid incoming receipts".into(),
+            )
+            .into());
         }
 
         // 6. Proving prev_payload validity and setting it

@@ -39,7 +39,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSync, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus, GetNetworkInfo, NetworkInfoResponse
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
+    Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -303,28 +304,11 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
             }
             NetworkClientMessages::StateRequest(shard_id, hash) => {
-                if let Ok((
-                    chunk,
-                    chunk_proof,
-                    prev_chunk_header,
-                    prev_chunk_proof,
-                    prev_payload,
-                    block_transactions,
-                    incoming_receipts_proofs,
-                    root_proofs,
-                )) = self.client.chain.get_state_for_shard(shard_id, hash)
-                {
+                if let Ok(shard_state) = self.client.chain.get_state_for_shard(shard_id, hash) {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
                         shard_id,
                         hash,
-                        chunk,
-                        chunk_proof,
-                        prev_chunk_header,
-                        prev_chunk_proof,
-                        prev_payload,
-                        block_transactions,
-                        incoming_receipts_proofs,
-                        root_proofs,
+                        shard_state,
                     });
                 }
                 NetworkClientResponses::NoResponse
@@ -332,14 +316,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
                 hash,
-                chunk,
-                chunk_proof,
-                prev_chunk_header,
-                prev_chunk_proof,
-                prev_payload,
-                block_transactions,
-                incoming_receipts_proofs,
-                root_proofs,
+                shard_state,
             }) => {
                 // Populate the hashmaps with shard statuses that might be interested in this state
                 //     (naturally, the plural of statuses is statuseses)
@@ -375,14 +352,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
                         shard_id,
                         hash,
-                        chunk,
-                        chunk_proof,
-                        prev_chunk_header,
-                        prev_chunk_proof,
-                        prev_payload,
-                        block_transactions,
-                        incoming_receipts_proofs,
-                        root_proofs,
+                        shard_state,
                     ) {
                         Ok(()) => {
                             for shard_statuses in shard_statuseses {
