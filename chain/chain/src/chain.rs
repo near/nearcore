@@ -882,19 +882,26 @@ impl Chain {
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
             .get_incoming_receipts_for_shard(shard_id, sync_hash, prev_chunk_height_included)?
             .clone();
+        assert_eq!(
+            incoming_receipts_proofs.len(),
+            (sync_block_header.inner.height - prev_chunk_height_included) as usize
+        );
 
         // Collecting proofs for incoming receipts.
         let mut root_proofs = vec![];
         for receipt_response in incoming_receipts_proofs.iter() {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
+            let block_header = self.get_block_header(block_hash)?.clone();
+            let block = self.get_block(&block_hash)?;
+
             let mut root_proofs_cur = vec![];
+            assert_eq!(receipt_proofs.len(), block_header.inner.chunks_included as usize);
             for receipt_proof in receipt_proofs {
                 let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
-                let block = self.get_block(&block_hash)?;
-                // TODO assert that block.chunks[from_shard] is reachable?
                 let chunk_header = block.chunks[from_shard_id].clone();
+
                 let root_proof = chunk_header.inner.outgoing_receipts_root;
                 let (block_receipts_root, block_receipts_proofs) = merklize(
                     &block
@@ -907,7 +914,7 @@ impl Chain {
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
-                assert_eq!(block.header.inner.chunk_receipts_root, block_receipts_root);
+                assert_eq!(block_header.inner.chunk_receipts_root, block_receipts_root);
                 assert!(verify_path(root_proof, &proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
@@ -1025,10 +1032,11 @@ impl Chain {
         // 3b. Checking that chunk `prev_chunk` is included into block at height before chunk.height_included
         // 3ba. Also checking prev_chunk.height_included - it's important for getting correct incoming receipts
         let prev_block_header = self.get_block_header(&block_header.inner.prev_hash)?.clone();
+        let prev_chunk_height_included = prev_chunk_header.height_included;
         if !verify_path(
             prev_block_header.inner.chunk_headers_root,
             &prev_chunk_proof,
-            &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_header.height_included),
+            &ChunkHashHeight(prev_chunk_header.hash.clone(), prev_chunk_height_included),
         ) {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
@@ -1047,21 +1055,42 @@ impl Chain {
         }
 
         // 5. Proving incoming receipts validity
-        if incoming_receipts_proofs.len() != root_proofs.len() {
+        if root_proofs.len() != incoming_receipts_proofs.len()
+            || root_proofs.len()
+                != (sync_block_header.inner.height - prev_chunk_height_included) as usize
+        {
             byzantine_assert!(false);
             return Err(ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into());
         }
         for (i, receipt_response) in incoming_receipts_proofs.iter().enumerate() {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
-            if receipt_proofs.len() != root_proofs[i].len() {
+            let block_header = self.get_block_header(&block_hash)?;
+            if receipt_proofs.len() != root_proofs[i].len()
+                || receipt_proofs.len() != block_header.inner.chunks_included as usize
+            {
                 byzantine_assert!(false);
                 return Err(
                     ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into()
                 );
             }
-
+            // We know there were exactly `block_header.inner.chunks_included` chunks included
+            // on the height of block `block_hash`.
+            // There were no other proofs except for included chunks.
+            // According to Dirichlet's principle, it's enough to ensure all receipt_proofs are distinct
+            // to prove that all receipts were received and no receipts were hidden.
+            let mut visited_shard_ids = HashSet::<ShardId>::new();
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
-                let ReceiptProof(receipts, ShardProof(_, _, proof)) = receipt_proof;
+                let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
+                match visited_shard_ids.get(from_shard_id) {
+                    Some(_) => {
+                        byzantine_assert!(false);
+                        return Err(ErrorKind::Other(
+                            "set_shard_state failed: invalid proofs".into(),
+                        )
+                        .into());
+                    }
+                    _ => visited_shard_ids.insert(*from_shard_id),
+                };
                 let RootProof(root, block_proof) = &root_proofs[i][j];
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 if !verify_path(*root, &proof, &receipts_hash) {
@@ -1070,7 +1099,6 @@ impl Chain {
                         ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into()
                     );
                 }
-                let block_header = self.get_block_header(&block_hash)?;
                 if !verify_path(block_header.inner.chunk_receipts_root, block_proof, root) {
                     byzantine_assert!(false);
                     return Err(

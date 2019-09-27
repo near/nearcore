@@ -32,6 +32,8 @@ pub struct BlockHeaderInner {
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
+    /// Number of chunks included into the block.
+    pub chunks_included: u64,
     /// Timestamp at which the block was built.
     pub timestamp: u64,
     /// Approval mask, given current block producers.
@@ -66,6 +68,7 @@ impl BlockHeaderInner {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        chunks_included: u64,
         time: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
@@ -87,6 +90,7 @@ impl BlockHeaderInner {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            chunks_included,
             timestamp: to_timestamp(time),
             approval_mask,
             approval_sigs,
@@ -129,6 +133,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        chunks_included: u64,
         timestamp: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: Vec<Signature>,
@@ -152,6 +157,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            chunks_included,
             timestamp,
             approval_mask,
             approval_sigs,
@@ -173,6 +179,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        chunks_included: u64,
         timestamp: DateTime<Utc>,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
@@ -187,6 +194,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            chunks_included,
             timestamp,
             vec![],
             vec![],
@@ -260,6 +268,7 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
+                Block::compute_chunks_included(&chunks, 0),
                 timestamp,
                 initial_gas_limit,
                 initial_gas_price,
@@ -332,6 +341,7 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
+                Block::compute_chunks_included(&chunks, height),
                 Utc::now(),
                 approval_mask,
                 approval_sigs,
@@ -385,6 +395,10 @@ impl Block {
 
     pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
+    }
+
+    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
+        chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
     }
 
     pub fn hash(&self) -> CryptoHash {

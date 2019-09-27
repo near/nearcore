@@ -483,7 +483,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         loop {
             let header = self.get_block_header(&block_hash)?;
 
-            // TODO >= <= ?
+            if header.inner.height < last_chunk_height_included {
+                panic!("get_incoming_receipts_for_shard failed");
+            }
+
             if header.inner.height == last_chunk_height_included {
                 break;
             }
@@ -492,6 +495,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
             if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
                 ret.push(ReceiptProofResponse(block_hash, receipt_proofs.clone()));
+            } else {
+                ret.push(ReceiptProofResponse(block_hash, vec![]));
             }
 
             block_hash = prev_hash;
