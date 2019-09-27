@@ -216,6 +216,22 @@ impl RemoteNode {
         Ok(result["result"].as_str().ok_or(VALUE_NOT_STR_ERR)?.to_owned())
     }
 
+    pub fn add_transaction_committed(
+        &self,
+        transaction: SignedTransaction,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = transaction.try_to_vec().unwrap();
+        let params = (to_base64(&bytes),);
+        let message = Message::request(
+            "broadcast_tx_commit".to_string(),
+            Some(serde_json::to_value(&params).unwrap()),
+        );
+        let result: serde_json::Value =
+            self.sync_client.post(self.url.as_str()).json(&message).send()?.json()?;
+        info!("{:?}", result);
+        Ok(())
+    }
+
     /// Returns () if transaction is completed
     pub fn transaction_committed(&self, hash: &String) -> Result<(), Box<dyn std::error::Error>> {
         let params = (hash,);
