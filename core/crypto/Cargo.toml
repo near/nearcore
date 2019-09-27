@@ -10,7 +10,7 @@ fake_crypto = []
 [dependencies]
 sodiumoxide = "0.2.2"
 eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
-milagro_bls = { git = "https://github.com/sigp/milagro_bls" }
+milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
 
 bs58 = "0.2.4"
 borsh = "0.2.2"
