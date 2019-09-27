@@ -61,7 +61,10 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
-[profile.dev.overrides.milagro_bls]
+[profile.dev.overrides."milagro_bls"]
+opt-level = 3 # BLS library is too slow to use in debug
+
+[profile.dev.overrides."amcl"]
 opt-level = 3 # BLS library is too slow to use in debug
 
 [profile.dev.overrides.bs58]

@@ -98,7 +98,7 @@ impl NightshadeRuntime {
                             .public_key
                             .clone()
                             .try_into()
-                            .expect("Failed to deserialize"),
+                            .expect("Failed to deserialize validator public key"),
                         amount: account_info.amount,
                     })
                     .collect(),

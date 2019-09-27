@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::bls::{BlsPublicKey, BlsSecretKey, BlsSignature};
-use crate::key_file::BlsKeyFile;
+use crate::key_file::{BlsKeyFile, KeyFile};
 use crate::{KeyType, PublicKey, SecretKey, Signature};
 
 /// Generic signer trait, that can sign with some subset of supported curves.
@@ -63,8 +63,38 @@ impl Signer for InMemorySigner {
         self.secret_key.sign(data)
     }
 
-    fn write_to_file(&self, _path: &Path) {
-        unimplemented!()
+    fn write_to_file(&self, path: &Path) {
+        KeyFile::from(self).write_to_file(path);
+    }
+}
+
+impl From<KeyFile> for InMemorySigner {
+    fn from(key_file: KeyFile) -> Self {
+        Self {
+            account_id: key_file.account_id,
+            public_key: key_file.public_key,
+            secret_key: key_file.secret_key,
+        }
+    }
+}
+
+impl From<&InMemorySigner> for KeyFile {
+    fn from(signer: &InMemorySigner) -> KeyFile {
+        KeyFile {
+            account_id: signer.account_id.clone(),
+            public_key: signer.public_key.clone(),
+            secret_key: signer.secret_key.clone(),
+        }
+    }
+}
+
+impl From<Arc<InMemorySigner>> for KeyFile {
+    fn from(signer: Arc<InMemorySigner>) -> KeyFile {
+        KeyFile {
+            account_id: signer.account_id.clone(),
+            public_key: signer.public_key.clone(),
+            secret_key: signer.secret_key.clone(),
+        }
     }
 }
 

@@ -844,8 +844,6 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result =
         node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0);
-    assert_eq!(transaction_result.status, FinalTransactionStatus::Failed);
-    assert_eq!(transaction_result.transactions.len(), 2);
     assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
     assert_eq!(transaction_result.receipts.len(), 1);
 }
