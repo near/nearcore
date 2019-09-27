@@ -311,14 +311,14 @@ pub trait RuntimeAdapter: Send + Sync {
                 .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash(&ReceiptList(shard_receipts).try_to_vec()?));
+            receipts_hashes.push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec()?));
         }
         Ok(receipts_hashes)
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
-struct ReceiptList(Vec<Receipt>);
+pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.

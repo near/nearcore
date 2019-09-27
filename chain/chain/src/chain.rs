@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
@@ -21,7 +21,7 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptProofResponse,
+    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
     ReceiptResponse, RootProof, RuntimeAdapter, Tip, ValidatorSignatureVerificationResult,
 };
 
@@ -889,12 +889,12 @@ impl Chain {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let mut root_proofs_cur = vec![];
             for receipt_proof in receipt_proofs {
-                let ReceiptProof(receipts, ShardProof(from_shard, proof)) = receipt_proof;
-                let receipts_hash = hash(&ReceiptList(receipts.to_vec()).try_to_vec()?);
-                let from_shard = *from_shard as usize;
+                let ReceiptProof(receipts, ShardProof(from_shard_id, proof)) = receipt_proof;
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
+                let from_shard_id = *from_shard_id as usize;
                 let block = self.get_block(&block_hash)?;
                 // TODO assert that block.chunks[from_shard] is reachable?
-                let chunk_header = block.chunks[from_shard].clone();
+                let chunk_header = block.chunks[from_shard_id].clone();
                 let root_proof = chunk_header.inner.outgoing_receipts_root;
                 let (block_receipts_root, block_receipts_proofs) = merklize(
                     &block
@@ -904,14 +904,14 @@ impl Chain {
                         .collect::<Vec<CryptoHash>>(),
                 );
                 root_proofs_cur
-                    .push(RootProof(root_proof, block_receipts_proofs[from_shard].clone()));
+                    .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
                 // Make sure we send something reasonable.
                 assert_eq!(block.header.inner.chunk_receipts_root, block_receipts_root);
                 assert!(verify_path(root_proof, &proof, &receipts_hash));
                 assert!(verify_path(
                     block_receipts_root,
-                    &block_receipts_proofs[from_shard],
+                    &block_receipts_proofs[from_shard_id],
                     &root_proof,
                 ));
             }
@@ -1063,7 +1063,7 @@ impl Chain {
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
                 let ReceiptProof(receipts, ShardProof(_, proof)) = receipt_proof;
                 let RootProof(root, block_proof) = &root_proofs[i][j];
-                let receipts_hash = hash(&ReceiptList(receipts.to_vec()).try_to_vec()?);
+                let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 if !verify_path(*root, &proof, &receipts_hash) {
                     byzantine_assert!(false);
                     return Err(
@@ -1291,9 +1291,6 @@ impl Chain {
         Ok(())
     }
 }
-
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
-struct ReceiptList(Vec<Receipt>);
 
 /// Various chain getters.
 impl Chain {
