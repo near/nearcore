@@ -156,6 +156,7 @@ impl EpochManager {
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
         let mut total_gas_used = 0;
+        let mut total_storage_rent = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -196,6 +197,7 @@ impl EpochManager {
             }
 
             total_gas_used += info.gas_used;
+            total_storage_rent += info.rent_paid;
 
             hash = info.prev_hash;
         }
@@ -228,6 +230,7 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         })
     }
 
@@ -245,6 +248,7 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
@@ -252,6 +256,7 @@ impl EpochManager {
             validator_online_ratio,
             total_gas_used,
             block_info.gas_price,
+            total_storage_rent,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -988,6 +993,7 @@ mod tests {
                     slashed,
                     0,
                     DEFAULT_GAS_PRICE,
+                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1092,6 +1098,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1110,6 +1117,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1128,6 +1136,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1140,6 +1149,7 @@ mod tests {
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1191,6 +1201,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1209,6 +1220,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1227,6 +1239,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1238,6 +1251,7 @@ mod tests {
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();

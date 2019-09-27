@@ -7,11 +7,11 @@ use actix::{Actor, Context, Handler};
 
 use near_chain::{Chain, ChainGenesis, ErrorKind, RuntimeAdapter};
 use near_primitives::hash::CryptoHash;
-use near_primitives::transaction::{TransactionResult, TransactionStatus};
+use near_primitives::transaction::{ExecutionOutcome, ExecutionStatus};
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    BlockView, ChunkView, FinalTransactionResult, FinalTransactionStatus, QueryResponse,
-    TransactionLogView, TransactionResultView,
+    BlockView, ChunkView, ExecutionOutcomeView, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    FinalExecutionOutcomeView, FinalExecutionStatus, QueryResponse,
 };
 use near_store::Store;
 
@@ -38,15 +38,14 @@ impl ViewClientActor {
     pub fn get_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<TransactionResultView, String> {
+    ) -> Result<ExecutionOutcomeView, String> {
         match self.chain.get_transaction_result(hash) {
             Ok(result) => Ok(result.clone().into()),
             Err(err) => match err.kind() {
-                ErrorKind::DBNotFoundErr(_) => Ok(TransactionResult {
-                    status: TransactionStatus::Unknown,
-                    ..Default::default()
+                ErrorKind::DBNotFoundErr(_) => {
+                    Ok(ExecutionOutcome { status: ExecutionStatus::Pending, ..Default::default() }
+                        .into())
                 }
-                .into()),
                 _ => Err(err.to_string()),
             },
         }
@@ -55,10 +54,10 @@ impl ViewClientActor {
     fn get_recursive_transaction_results(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<Vec<TransactionLogView>, String> {
-        let result = self.get_transaction_result(hash)?;
-        let receipt_ids = result.receipts.clone();
-        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
+    ) -> Result<Vec<ExecutionOutcomeWithIdView>, String> {
+        let outcome = self.get_transaction_result(hash)?;
+        let receipt_ids = outcome.receipt_ids.clone();
+        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into())?.into_iter());
@@ -69,27 +68,31 @@ impl ViewClientActor {
     fn get_final_transaction_result(
         &mut self,
         hash: &CryptoHash,
-    ) -> Result<FinalTransactionResult, String> {
-        let transactions = self.get_recursive_transaction_results(hash)?;
-        let status = if transactions
+    ) -> Result<FinalExecutionOutcomeView, String> {
+        let mut outcomes = self.get_recursive_transaction_results(hash)?;
+        let mut looking_for_id = (*hash).into();
+        let status = outcomes
             .iter()
-            .find(|t| &t.result.status == &TransactionStatus::Failed)
-            .is_some()
-        {
-            FinalTransactionStatus::Failed
-        } else if transactions
-            .iter()
-            .find(|t| &t.result.status == &TransactionStatus::Unknown)
-            .is_some()
-        {
-            FinalTransactionStatus::Started
-        } else {
-            FinalTransactionStatus::Completed
-        };
-        Ok(FinalTransactionResult {
-            status,
-            transactions: transactions.into_iter().map(|t| t.into()).collect(),
-        })
+            .find_map(|outcome_with_id| {
+                if outcome_with_id.id == looking_for_id {
+                    match &outcome_with_id.outcome.status {
+                        ExecutionStatusView::Pending => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::SuccessValue(v) => {
+                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                        }
+                        ExecutionStatusView::SuccessReceiptId(id) => {
+                            looking_for_id = id.clone();
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("results should resolve to a final outcome");
+        let receipts = outcomes.split_off(1);
+        Ok(FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts })
     }
 }
 
@@ -165,7 +168,7 @@ impl Handler<GetChunk> for ViewClientActor {
 }
 
 impl Handler<TxStatus> for ViewClientActor {
-    type Result = Result<FinalTransactionResult, String>;
+    type Result = Result<FinalExecutionOutcomeView, String>;
 
     fn handle(&mut self, msg: TxStatus, _: &mut Context<Self>) -> Self::Result {
         self.get_final_transaction_result(&msg.tx_hash)
@@ -173,7 +176,7 @@ impl Handler<TxStatus> for ViewClientActor {
 }
 
 impl Handler<TxDetails> for ViewClientActor {
-    type Result = Result<TransactionResultView, String>;
+    type Result = Result<ExecutionOutcomeView, String>;
 
     fn handle(&mut self, msg: TxDetails, _: &mut Context<Self>) -> Self::Result {
         self.get_transaction_result(&msg.tx_hash)

@@ -9,7 +9,7 @@ use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
-use crate::types::{BlockIndex, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{Balance, BlockIndex, Gas, MerkleHash, ShardId, ValidatorStake};
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
 pub struct ChunkHash(pub CryptoHash);
@@ -34,6 +34,8 @@ pub struct ShardChunkHeaderInner {
     pub gas_used: Gas,
     /// Gas limit voted by validators.
     pub gas_limit: Gas,
+    /// Rent paid in the previous chunk
+    pub rent_paid: Balance,
     /// Outgoing receipts merkle root.
     pub outgoing_receipts_root: CryptoHash,
     /// Tx merkle root.
@@ -77,6 +79,7 @@ impl ShardChunkHeader {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
+        rent_paid: Balance,
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -91,6 +94,7 @@ impl ShardChunkHeader {
             shard_id,
             gas_used,
             gas_limit,
+            rent_paid,
             outgoing_receipts_root,
             tx_root,
             validator_proposals,
@@ -187,6 +191,7 @@ impl EncodedShardChunk {
         data_parts: usize,
         gas_used: Gas,
         gas_limit: Gas,
+        rent_paid: Balance,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
@@ -224,6 +229,7 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
+            rent_paid,
             receipts_root,
             tx_root,
             validator_proposals,
@@ -243,6 +249,7 @@ impl EncodedShardChunk {
         shard_id: ShardId,
         gas_used: Gas,
         gas_limit: Gas,
+        rent_paid: Balance,
         receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
@@ -267,6 +274,7 @@ impl EncodedShardChunk {
             shard_id,
             gas_used,
             gas_limit,
+            rent_paid,
             receipts_root,
             tx_root,
             validator_proposals,

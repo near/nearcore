@@ -359,6 +359,7 @@ impl Client {
             shard_id,
             chunk_extra.gas_used,
             chunk_extra.gas_limit,
+            chunk_extra.rent_paid,
             chunk_extra.validator_proposals.clone(),
             &filtered_transactions,
             &receipts,

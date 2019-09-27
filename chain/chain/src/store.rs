@@ -13,7 +13,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, ChunkOnePart, ReceiptProof, ShardChunk, ShardChunkHeader,
 };
-use near_primitives::transaction::TransactionResult;
+use near_primitives::transaction::ExecutionOutcome;
 use near_primitives::types::{BlockIndex, ChunkExtra, ShardId};
 use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
@@ -126,7 +126,7 @@ pub trait ChainStoreAccess {
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptProof>, Error>;
     /// Returns transaction result for given tx hash.
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error>;
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error>;
 
     fn get_blocks_to_catchup(&self, prev_hash: &CryptoHash) -> Result<Vec<CryptoHash>, Error>;
 
@@ -159,7 +159,7 @@ pub struct ChainStore {
     /// Cache with incoming receipts.
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
-    transaction_results: SizedCache<Vec<u8>, TransactionResult>,
+    transaction_results: SizedCache<Vec<u8>, ExecutionOutcome>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -388,7 +388,7 @@ impl ChainStoreAccess for ChainStore {
         )
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
         option_to_not_found(
             read_with_cache(
                 &*self.store,
@@ -435,7 +435,7 @@ pub struct ChainStoreUpdate<'a, T> {
     block_index: HashMap<BlockIndex, Option<CryptoHash>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Vec<Receipt>>,
     incoming_receipts: HashMap<(CryptoHash, ShardId), Vec<ReceiptProof>>,
-    transaction_results: HashMap<CryptoHash, TransactionResult>,
+    transaction_results: HashMap<CryptoHash, ExecutionOutcome>,
     head: Option<Tip>,
     tail: Option<Tip>,
     header_head: Option<Tip>,
@@ -627,7 +627,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         }
     }
 
-    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&TransactionResult, Error> {
+    fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error> {
         self.chain_store.get_transaction_result(hash)
     }
 
@@ -773,7 +773,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.incoming_receipts.insert((*hash, shard_id), receipt_proof);
     }
 
-    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: TransactionResult) {
+    pub fn save_transaction_result(&mut self, hash: &CryptoHash, result: ExecutionOutcome) {
         self.transaction_results.insert(*hash, result);
     }
 

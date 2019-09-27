@@ -16,7 +16,8 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{
-    Action, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus, TransferAction,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
+    TransferAction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
@@ -429,6 +430,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _validator_mask: Vec<bool>,
         _gas_used: Gas,
         _gas_price: Balance,
+        _rent_paid: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -554,13 +556,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                     vec![receipt_hash]
                 };
 
-                tx_results.push(TransactionLog {
-                    hash,
-                    result: TransactionResult {
-                        status: TransactionStatus::Completed,
+                tx_results.push(ExecutionOutcomeWithId {
+                    id: hash,
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::SuccessValue(vec![]),
                         logs: vec![],
-                        receipts: new_receipt_hashes,
-                        result: None,
+                        receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
                     },
                 });
