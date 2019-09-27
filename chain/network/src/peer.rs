@@ -17,6 +17,7 @@ use near_primitives::utils::DisplayOption;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
+use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     AccountOrPeerId, Ban, Consolidate, Handshake, HandshakeFailureReason, NetworkClientMessages,
     PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus, PeerType, PeersRequest,
@@ -25,6 +26,7 @@ use crate::types::{
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
 use futures::Future;
+use near_crypto::Signature;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -118,6 +120,8 @@ pub struct Peer {
     genesis: CryptoHash,
     /// Latest chain info from the peer.
     chain_info: PeerChainInfo,
+    /// Edge information needed to build the real edge. This is relevant for handshake.
+    edge_info: Option<EdgeInfo>,
 }
 
 impl Peer {
@@ -130,6 +134,7 @@ impl Peer {
         handshake_timeout: Duration,
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
+        edge_info: Option<EdgeInfo>,
     ) -> Self {
         Peer {
             node_info,
@@ -144,6 +149,7 @@ impl Peer {
             tracker: Default::default(),
             genesis: Default::default(),
             chain_info: Default::default(),
+            edge_info,
         }
     }
 
@@ -198,6 +204,7 @@ impl Peer {
                         act.node_info.id.clone(),
                         act.node_info.addr_port(),
                         PeerChainInfo { genesis, height, total_weight },
+                        act.edge_info.as_ref().unwrap().clone(),
                     );
                     act.send_message(PeerMessage::Handshake(handshake));
                     actix::fut::ok(())
@@ -276,6 +283,10 @@ impl Peer {
                     NetworkClientMessages::ChunkOnePartRequest(request, peer_id)
                 }
                 RoutedMessageBody::ChunkOnePart(part) => NetworkClientMessages::ChunkOnePart(part),
+                RoutedMessageBody::Ping(_) | RoutedMessageBody::Pong(_) => {
+                    error!(target: "network", "Peer receive_client_message received unexpected type");
+                    return;
+                }
             },
             PeerMessage::ChunkPartRequest(request) => {
                 NetworkClientMessages::ChunkPartRequest(request, peer_id)
@@ -400,6 +411,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
+                // TODO(MarX): Fix this. We compare genesis two times in a row.
                 if handshake.chain_info.genesis != self.genesis {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
@@ -420,6 +432,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         ),
                     });
                 }
+
                 if handshake.chain_info.genesis != self.genesis {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.stop();
@@ -428,6 +441,19 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
                 }
+
+                // Verify signature of the new edge in handshake.
+                if !Edge::partial_verify(
+                    self.node_info.id.clone(),
+                    handshake.peer_id,
+                    handshake.edge_info,
+                ) {
+                    info!(target: "network", "Received invalid signature on handshake. Disconnecting this peer.");
+                    ctx.stop();
+                }
+
+                // TODO(MarX): Verify from second handshake that nonce is correct, otherwise drop connection.
+
                 let peer_info = PeerInfo {
                     id: handshake.peer_id.clone(),
                     addr: handshake
@@ -442,6 +468,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                         peer_info: peer_info.clone(),
                         peer_type: self.peer_type,
                         chain_info: handshake.chain_info,
+                        edge_info: handshake.edge_info,
                     })
                     .into_actor(self)
                     .then(move |res, act, ctx| {

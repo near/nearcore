@@ -1,7 +1,18 @@
+use std::collections::{HashMap, HashSet};
+use std::convert::{From, TryInto};
+use std::convert::{Into, TryFrom};
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::net::SocketAddr;
+use std::time::Duration;
+
 use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
+use reed_solomon_erasure::Shard;
+use tokio::net::TcpStream;
+
 use near_chain::types::ReceiptResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
@@ -11,17 +22,9 @@ use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
-use reed_solomon_erasure::Shard;
-use std::collections::HashSet;
-use std::convert::{From, TryInto};
-use std::convert::{Into, TryFrom};
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::time::Duration;
-use tokio::net::TcpStream;
 
 use crate::peer::Peer;
+use crate::routing::EdgeInfo;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -171,11 +174,18 @@ pub struct Handshake {
     pub listen_port: Option<u16>,
     /// Peer's chain information.
     pub chain_info: PeerChainInfo,
+    /// Info for new edge.
+    pub edge_info: EdgeInfo,
 }
 
 impl Handshake {
-    pub fn new(peer_id: PeerId, listen_port: Option<u16>, chain_info: PeerChainInfo) -> Self {
-        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info }
+    pub fn new(
+        peer_id: PeerId,
+        listen_port: Option<u16>,
+        chain_info: PeerChainInfo,
+        edge_info: EdgeInfo,
+    ) -> Self {
+        Handshake { version: PROTOCOL_VERSION, peer_id, listen_port, chain_info, edge_info }
     }
 }
 
@@ -225,7 +235,17 @@ pub enum HandshakeFailureReason {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct Ping {
+    nonce: usize,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct Pong {
+    nonce: usize,
+}
+
 // TODO(#1313): Use Box
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
@@ -234,6 +254,9 @@ pub enum RoutedMessageBody {
     ChunkPartRequest(ChunkPartRequestMsg),
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkOnePart(ChunkOnePart),
+    /// Ping and Pong are used for testing networking and routing
+    Ping(Ping),
+    Pong(Pong),
 }
 
 pub enum AccountOrPeerId {
@@ -376,6 +399,8 @@ impl fmt::Display for PeerMessage {
                 RoutedMessageBody::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
                 RoutedMessageBody::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
                 RoutedMessageBody::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+                RoutedMessageBody::Ping(_) => f.write_str("Ping"),
+                RoutedMessageBody::Pong(_) => f.write_str("Pong"),
             },
             PeerMessage::ChunkPartRequest(_) => f.write_str("ChunkPartRequest"),
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
@@ -489,6 +514,7 @@ pub struct Consolidate {
     pub peer_info: PeerInfo,
     pub peer_type: PeerType,
     pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
 }
 
 impl Message for Consolidate {
@@ -551,8 +577,8 @@ pub struct Ban {
     pub ban_reason: ReasonForBan,
 }
 
-#[derive(Debug, Clone, PartialEq)]
 // TODO(#1313): Use Box
+#[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
@@ -583,6 +609,10 @@ pub enum NetworkRequests {
     ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
     /// A chunk part
     ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+
+    // The following types of requests are used to trigger actions in the Peer Manager for testing.
+    /// Fetch current routing table
+    FetchRoutingTable,
 }
 
 /// Combines peer address info and chain information.
@@ -590,6 +620,7 @@ pub enum NetworkRequests {
 pub struct FullPeerInfo {
     pub peer_info: PeerInfo,
     pub chain_info: PeerChainInfo,
+    pub edge_info: EdgeInfo,
 }
 
 #[derive(Debug)]
@@ -607,6 +638,7 @@ pub struct NetworkInfo {
 pub enum NetworkResponses {
     NoResponse,
     Info(NetworkInfo),
+    RoutingTableInfo(HashMap<PeerId, HashSet<PeerId>>),
 }
 
 impl<A, M> MessageResponse<A, M> for NetworkResponses

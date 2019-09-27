@@ -25,12 +25,12 @@ use near_store::Store;
 use crate::codec::Codec;
 use crate::peer::Peer;
 use crate::peer_store::PeerStore;
-use crate::routing::RoutingTable;
+use crate::routing::{Edge, EdgeInfo, RoutingTable};
 use crate::types::{
     AccountOrPeerId, AnnounceAccount, Ban, Consolidate, FullPeerInfo, InboundTcpConnect,
     KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList, PeerMessage, PeerType,
-    PeersRequest, PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage,
-    RoutedMessageBody, SendMessage, Unregister,
+    PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats, RawRoutedMessage, ReasonForBan,
+    RoutedMessage, RoutedMessageBody, SendMessage, Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -134,7 +134,7 @@ impl PeerManagerActor {
         // TODO(MarX): Trigger sync actions after a peer is added successfully regarding networking
         //  (Write specification about the actions)
 
-        self.routing_table.add_connection(source, target);
+        //        self.routing_table.add_connection(source, target);
     }
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
@@ -171,6 +171,7 @@ impl PeerManagerActor {
         stream: TcpStream,
         peer_type: PeerType,
         peer_info: Option<PeerInfo>,
+        edge_info: Option<EdgeInfo>,
     ) {
         let peer_id = self.peer_id.clone();
         let account_id = self.config.account_id.clone();
@@ -194,6 +195,7 @@ impl PeerManagerActor {
                 handshake_timeout,
                 recipient,
                 client_addr,
+                edge_info,
             )
         });
     }
@@ -434,6 +436,10 @@ impl PeerManagerActor {
     fn sign_routed_message(&self, msg: RawRoutedMessage) -> RoutedMessage {
         msg.sign(self.peer_id.clone(), &self.config.secret_key)
     }
+
+    fn handle_ping(&mut self, ping: Ping) {}
+
+    fn handle_pong(&mut self, pong: Pong) {}
 }
 
 impl Actor for PeerManagerActor {
@@ -572,6 +578,9 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::FetchRoutingTable => {
+                NetworkResponses::RoutingTableInfo(self.routing_table.peer_forwarding.clone())
+            }
         }
     }
 }
@@ -580,7 +589,7 @@ impl Handler<InboundTcpConnect> for PeerManagerActor {
     type Result = ();
 
     fn handle(&mut self, msg: InboundTcpConnect, ctx: &mut Self::Context) {
-        self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None);
+        self.connect_peer(ctx.address(), msg.stream, PeerType::Inbound, None, None);
     }
 }
 
@@ -639,9 +648,20 @@ impl Handler<Consolidate> for PeerManagerActor {
                 return false;
             }
         }
+
+        // Check that the received nonce is greater than the current nonce of this connection.
+        if self.routing_table.find_nonce(&Edge::key(self.peer_id, msg.peer_info.id)) >= msg.nonce {
+            // If the check fails don't allow this connection.
+            return false;
+        }
+
         // TODO: double check that address is connectable and add account id.
         self.register_peer(
-            FullPeerInfo { peer_info: msg.peer_info, chain_info: msg.chain_info },
+            FullPeerInfo {
+                peer_info: msg.peer_info,
+                chain_info: msg.chain_info,
+                edge_info: msg.edge_info,
+            },
             msg.actor,
         );
         true
@@ -689,7 +709,15 @@ impl Handler<RoutedMessage> for PeerManagerActor {
 
     fn handle(&mut self, msg: RoutedMessage, ctx: &mut Self::Context) -> Self::Result {
         if self.peer_id == msg.target {
-            true
+            // Handle Ping and Pong message if they are for us without sending to client.
+            // i.e. Return false in case of Ping and Pong
+            match msg.body {
+                RoutedMessageBody::Ping(ping) => self.handle_ping(ping),
+                RoutedMessageBody::Pong(pong) => self.handle_pong(pong),
+                _ => return true,
+            }
+
+            false
         } else {
             // Otherwise route it to its corresponding destination.
             if msg.expect_response() {
