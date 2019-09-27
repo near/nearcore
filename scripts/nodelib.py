@@ -43,8 +43,8 @@ def get_chain_id_from_flags(flags):
 
 
 """Checks if there is already everything setup on this machine, otherwise sets up NEAR node."""
-def check_and_setup(is_local, is_release, image, home_dir, init_flags):
-    if is_local:
+def check_and_setup(no_docker, is_release, image, home_dir, init_flags):
+    if no_docker:
         subprocess.call([os.path.expanduser('~/.cargo/bin/rustup'),
             'default', 'nightly'])
         flags = ['-p', 'near']
@@ -61,7 +61,7 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
         print("")
         genesis_config = json.loads(open(os.path.join(os.path.join(home_dir, 'genesis.json'))).read())
         print(chain_id)
-        if chain_id !='' and genesis_config['chain_id'] != chain_id:
+        if chain_id !='' and chain_id !='localnet' and genesis_config['chain_id'] != chain_id:
             if chain_id == 'testnet':
                 print("Folder %s already has network configuration for %s, which is not the official TestNet.\n"
                       "Use ./scripts/start_localnet.py instead to keep running with existing configuration.\n"
@@ -78,9 +78,14 @@ def check_and_setup(is_local, is_release, image, home_dir, init_flags):
 
     print("Setting up network configuration.")
     if len([x for x in init_flags if x.startswith('--account-id')]) == 0:
-        account_id = input("Enter your account ID (leave empty if not going to be a validator): ")
+        prompt = "Enter your account ID"
+        if chain_id != 'localnet':
+          prompt += " (leave empty if not going to be a validator): "
+        else:
+          prompt += ": "
+        account_id = input(prompt)
         init_flags.append('--account-id=%s' % account_id)
-    if is_local:
+    if no_docker:
         local_init(home_dir, is_release, init_flags)
     else:
         docker_init(image, home_dir, init_flags)
