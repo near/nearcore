@@ -266,7 +266,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
@@ -283,7 +283,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
@@ -300,7 +300,7 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView`.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
@@ -349,7 +349,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView``.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("attached_deposit".to_string()));
@@ -361,7 +361,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("prepaid_gas".to_string()));
@@ -373,7 +373,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If called as view function returns `ProhibitInView`.
+    /// If called as view function returns `ProhibitedInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("used_gas".to_string()));
