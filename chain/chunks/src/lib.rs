@@ -379,7 +379,7 @@ impl ShardsManager {
                         })
                         .cloned()
                         .collect(),
-                    ShardProof(from_shard_id, proofs[to_shard_id as usize].clone()),
+                    ShardProof(from_shard_id, to_shard_id, proofs[to_shard_id as usize].clone()),
                 ))
             }
         }
@@ -600,9 +600,10 @@ impl ShardsManager {
                 true,
             ) {
                 if proof_index == one_part.receipt_proofs.len()
+                    || shard_id != (one_part.receipt_proofs[proof_index].1).1
                     || !verify_path(
                         one_part.header.inner.outgoing_receipts_root,
-                        &(one_part.receipt_proofs[proof_index].1).1,
+                        &(one_part.receipt_proofs[proof_index].1).2,
                         &receipts_hashes[shard_id as usize],
                     )
                 {

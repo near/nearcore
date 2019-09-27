@@ -889,7 +889,7 @@ impl Chain {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let mut root_proofs_cur = vec![];
             for receipt_proof in receipt_proofs {
-                let ReceiptProof(receipts, ShardProof(from_shard_id, proof)) = receipt_proof;
+                let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
                 let block = self.get_block(&block_hash)?;
@@ -1061,7 +1061,7 @@ impl Chain {
             }
 
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
-                let ReceiptProof(receipts, ShardProof(_, proof)) = receipt_proof;
+                let ReceiptProof(receipts, ShardProof(_, _, proof)) = receipt_proof;
                 let RootProof(root, block_proof) = &root_proofs[i][j];
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 if !verify_path(*root, &proof, &receipts_hash) {
@@ -1543,16 +1543,11 @@ impl<'a> ChainUpdate<'a> {
             if chunk_header.height_included == height {
                 let one_part = self.chain_store_update.get_chunk_one_part(chunk_header).unwrap();
                 for receipt_proof in one_part.receipt_proofs.iter() {
-                    let ReceiptProof(receipt, _) = receipt_proof;
-                    if !receipt.is_empty() {
-                        let shard_id =
-                            self.runtime_adapter.account_id_to_shard_id(&receipt[0].receiver_id);
-                        // TODO in debug only: assert all receipts are from the same shard
-                        receipt_proofs_by_shard_id
-                            .entry(shard_id)
-                            .or_insert_with(Vec::new)
-                            .push(receipt_proof.clone());
-                    }
+                    let ReceiptProof(_, ShardProof(_, to_shard_id, _)) = receipt_proof;
+                    receipt_proofs_by_shard_id
+                        .entry(*to_shard_id)
+                        .or_insert_with(Vec::new)
+                        .push(receipt_proof.clone());
                 }
             }
         }
