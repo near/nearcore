@@ -1285,30 +1285,6 @@ mod test {
     }
 
     #[test]
-    fn test_verify_validator_signature_failure() {
-        let validators = (0..2).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
-        let env = TestEnv::new(
-            "verify_validator_signature_failure",
-            vec![validators.clone()],
-            2,
-            vec![],
-            vec![],
-        );
-        let data = [0; 32];
-        let signer = InMemoryBlsSigner::from_seed(&validators[0], &validators[0]);
-        let signature = signer.sign(&data);
-        assert_eq!(
-            ValidatorSignatureVerificationResult::Invalid,
-            env.runtime.verify_validator_signature(
-                &EpochId::default(),
-                &validators[1],
-                &data,
-                &signature
-            )
-        );
-    }
-
-    #[test]
     fn test_state_sync() {
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();

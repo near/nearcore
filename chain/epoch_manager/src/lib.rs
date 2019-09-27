@@ -42,6 +42,9 @@ impl EpochManager {
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
+        let validator_reward = vec![(reward_calculator.protocol_treasury_account.clone(), 0u128)]
+            .into_iter()
+            .collect();
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -58,7 +61,7 @@ impl EpochManager {
                 &EpochInfo::default(),
                 validators,
                 HashSet::default(),
-                HashMap::default(),
+                validator_reward,
                 0,
                 0,
             )?;
@@ -163,10 +166,8 @@ impl EpochManager {
         }
 
         let mut hash = *last_block_hash;
-        //        println!("Epoch {:?}, kickout: {:?}", epoch_id, validator_kickout);
         loop {
             let info = self.get_block_info(&hash)?.clone();
-            //            println!("Info: {:?}", info);
             if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
                 break;
             }
@@ -247,10 +248,6 @@ impl EpochManager {
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
-        //        println!(
-        //            "EpochId: {:?}, LBH: {:?}, proposals: {:?}, kickout: {:?}, current: {:?}",
-        //            epoch_id, last_block_hash, proposals, validator_kickout, current_epoch_info
-        //        );
         let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_online_ratio,
             total_gas_used,
@@ -292,7 +289,6 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(current_hash)? {
-            //            println!("Record block info: {:?}", block_info);
             if block_info.prev_hash == CryptoHash::default() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals.len(), 0);
@@ -306,11 +302,6 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
-                //                println!(
-                //                    "Prev block info: {:?}: {}",
-                //                    prev_block_info,
-                //                    self.is_next_block_in_next_epoch(&prev_block_info).unwrap()
-                //                );
                 for item in prev_block_info.slashed.iter() {
                     block_info.slashed.insert(item.clone());
                 }
@@ -655,7 +646,6 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        /*println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);*/
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
             .map_err(EpochError::from)?;
@@ -680,7 +670,6 @@ impl EpochManager {
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
             self.blocks_info.insert(*hash, block_info);
         }
-        // println!("Block info {:?}, {:?}", hash, self.blocks_info.get(hash).unwrap());
         self.blocks_info.get(hash).ok_or(EpochError::MissingBlock(*hash))
     }
 
