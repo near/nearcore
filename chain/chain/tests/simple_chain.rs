@@ -1,6 +1,6 @@
 use near_chain::test_utils::{setup, setup_with_tx_validity_period};
 use near_chain::{Block, ErrorKind, Provenance};
-use near_crypto::{KeyType, Signature, Signer};
+use near_crypto::{BlsSigner, KeyType, Signature, Signer};
 use near_primitives::hash::hash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
@@ -169,7 +169,7 @@ fn test_tx_wrong_fork() {
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = Block::empty_with_height(genesis, 1, signer.clone());
     let b_2 = Block::empty_with_height(&b_1, 2, signer.clone());
