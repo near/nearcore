@@ -147,7 +147,7 @@ pub(crate) fn action_function_call(
         attached_deposit: function_call.deposit,
         prepaid_gas: function_call.gas,
         random_seed: action_hash.as_ref().to_vec(),
-        free_of_charge: false,
+        is_view: false,
         output_data_receivers,
     };
 

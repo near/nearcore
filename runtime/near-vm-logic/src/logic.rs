@@ -266,8 +266,12 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// If called as view function returns `ProhibitInView`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_id".to_string()));
+        }
         let data = context.signer_account_id.as_bytes();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -279,8 +283,12 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// If called as view function returns `ProhibitInView`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()));
+        }
         let data = context.signer_account_pk.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -292,9 +300,12 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
+    /// If called as view function returns `ProhibitInView`.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()));
+        }
         let data = context.predecessor_account_id.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -335,17 +346,38 @@ impl<'a> VMLogic<'a> {
 
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitInView`.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("attached_deposit".to_string()));
+        }
         Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()));
+        }
         Ok(self.context.prepaid_gas)
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("used_gas".to_string()));
+        }
         Ok(self.used_gas)
     }
 
@@ -1200,7 +1232,7 @@ impl<'a> VMLogic<'a> {
             self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.config.max_gas_burnt
-            && (self.context.free_of_charge || new_used_gas <= self.context.prepaid_gas)
+            && (self.context.is_view || new_used_gas <= self.context.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;
