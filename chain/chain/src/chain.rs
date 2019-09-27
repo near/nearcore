@@ -215,7 +215,7 @@ impl Chain {
                 let header_head = store_update.header_head()?;
                 if store_update.get_block_header(&header_head.last_block_hash).is_err() {
                     // Reset header head and "sync" head to be consistent with current block head.
-                    store_update.save_header_head(&head)?;
+                    store_update.save_header_head_if_not_challenged(&head)?;
                     store_update.save_sync_head(&head);
                 } else {
                     // Reset sync head to be consistent with current header head.
@@ -326,6 +326,23 @@ impl Chain {
         Ok(())
     }
 
+    pub fn mark_block_as_challenged(
+        &mut self,
+        block_hash: &CryptoHash,
+        challenger_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let mut chain_update = ChainUpdate::new(
+            &mut self.store,
+            self.runtime_adapter.clone(),
+            &self.orphans,
+            &self.blocks_with_missing_chunks,
+            self.transaction_validity_period,
+        );
+        chain_update.mark_block_as_challenged(block_hash, challenger_hash)?;
+        chain_update.commit()?;
+        Ok(())
+    }
+
     /// Process a received or produced block, and unroll any orphans that may depend on it.
     /// Changes current state, and calls `block_accepted` callback in case block was successfully applied.
     pub fn process_block<F, F2>(
@@ -414,7 +431,7 @@ impl Chain {
             // Update sync_head regardless of the total weight.
             chain_update.update_sync_head(header)?;
             // Update header_head if total weight changed.
-            chain_update.update_header_head(header)?;
+            chain_update.update_header_head_if_not_challenged(header)?;
         }
 
         chain_update.commit()
@@ -657,7 +674,7 @@ impl Chain {
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
                 }
-                _ => Err(ErrorKind::Other(format!("{:?}", e)).into()),
+                e => Err(e.into()),
             },
         }
     }
@@ -1877,7 +1894,7 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header.clone());
-        self.update_header_head(header)?;
+        self.update_header_head_if_not_challenged(header)?;
         Ok(())
     }
 
@@ -1942,11 +1959,14 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Update the header head if this header has most work.
-    fn update_header_head(&mut self, header: &BlockHeader) -> Result<Option<Tip>, Error> {
+    fn update_header_head_if_not_challenged(
+        &mut self,
+        header: &BlockHeader,
+    ) -> Result<Option<Tip>, Error> {
         let header_head = self.chain_store_update.header_head()?;
         if header.inner.total_weight > header_head.total_weight {
             let tip = Tip::from_header(header);
-            self.chain_store_update.save_header_head(&tip)?;
+            self.chain_store_update.save_header_head_if_not_challenged(&tip)?;
             debug!(target: "chain", "Header head updated to {} at {}", tip.last_block_hash, tip.height);
 
             Ok(Some(tip))
@@ -1978,6 +1998,46 @@ impl<'a> ChainUpdate<'a> {
         let tip = Tip::from_header(header);
         self.chain_store_update.save_sync_head(&tip);
         debug!(target: "chain", "Sync head {} @ {}", tip.last_block_hash, tip.height);
+        Ok(())
+    }
+
+    /// Marks a block as invalid,
+    fn mark_block_as_challenged(
+        &mut self,
+        block_hash: &CryptoHash,
+        challenger_hash: &CryptoHash,
+    ) -> Result<(), Error> {
+        let block_header = self.chain_store_update.get_block_header(block_hash)?.clone();
+
+        let cur_block_at_same_height =
+            self.chain_store_update.get_block_hash_by_height(block_header.inner.height)?.clone();
+
+        self.chain_store_update.save_challenged_block(*block_hash);
+
+        // If the block being invalidated is on the canonical chain, update head
+        if cur_block_at_same_height == *block_hash {
+            // We only consider two candidates for the new head: the challenger and the block
+            //   immediately preceding the block being challenged
+            // It could be that there is a better chain known. However, it is extremely unlikely,
+            //   and even if there's such chain available, the very next block built on it will
+            //   bring this node's head to that chain.
+            let prev_weight = self
+                .chain_store_update
+                .get_block_header(&block_header.inner.prev_hash)?
+                .inner
+                .total_weight;
+            let challenger_header = self.chain_store_update.get_block_header(challenger_hash)?;
+
+            let new_head_header = if challenger_header.inner.total_weight > prev_weight {
+                challenger_header
+            } else {
+                &self.chain_store_update.get_block_header(&block_header.inner.prev_hash)?
+            };
+
+            let tip = Tip::from_header(new_head_header);
+            self.chain_store_update.save_head(&tip)?;
+        }
+
         Ok(())
     }
 
@@ -2023,7 +2083,7 @@ impl<'a> ChainUpdate<'a> {
         match self.chain_store_update.block_exists(&header.hash()) {
             Ok(true) => {
                 let head = self.chain_store_update.head()?;
-                if header.inner.height > 50 && header.inner.height < head.height - 50 {
+                if head.height > 50 && header.inner.height < head.height - 50 {
                     // We flag this as an "abusive peer" but only in the case
                     // where we have the full block in our store.
                     // So this is not a particularly exhaustive check.

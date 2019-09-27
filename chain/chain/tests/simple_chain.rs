@@ -128,7 +128,7 @@ fn test_apply_expired_tx() {
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.
-    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
+    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_err());
 }
 
 #[test]
@@ -161,5 +161,89 @@ fn test_tx_wrong_fork() {
     );
     assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.
-    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
+    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_err());
+}
+
+/// Verifies that the block at height are updated correctly when blocks from different forks are
+/// processed, especially when certain heights are skipped
+#[test]
+fn blocks_at_height() {
+    init_test_logger();
+    let (mut chain, _, signer) = setup();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let b_1 = Block::empty_with_height(genesis, 1, signer.clone());
+    let b_2 = Block::empty_with_height(&b_1, 2, signer.clone());
+    let b_3 = Block::empty_with_height(&b_2, 3, signer.clone());
+
+    let c_1 = Block::empty_with_height(&genesis, 1, signer.clone());
+    let c_3 = Block::empty_with_height(&c_1, 3, signer.clone());
+    let c_4 = Block::empty_with_height(&c_3, 4, signer.clone());
+    let c_5 = Block::empty_with_height(&c_4, 5, signer.clone());
+
+    let d_3 = Block::empty_with_height(&b_2, 3, signer.clone());
+    let d_4 = Block::empty_with_height(&d_3, 4, signer.clone());
+    let d_5 = Block::empty_with_height(&d_4, 5, signer.clone());
+
+    let mut e_2 = Block::empty_with_height(&b_1, 2, signer.clone());
+    e_2.header.inner.total_weight = (10 * e_2.header.inner.total_weight.to_num()).into();
+    e_2.header.init();
+    e_2.header.signature = signer.sign(e_2.header.hash().as_ref());
+
+    let b_1_hash = b_1.hash();
+    let b_2_hash = b_2.hash();
+    let b_3_hash = b_3.hash();
+
+    let c_1_hash = c_1.hash();
+    let c_3_hash = c_3.hash();
+    let c_4_hash = c_4.hash();
+    let c_5_hash = c_5.hash();
+
+    let d_3_hash = d_3.hash();
+    let d_4_hash = d_4.hash();
+    let d_5_hash = d_5.hash();
+
+    let e_2_hash = e_2.hash();
+
+    assert_ne!(d_3_hash, b_3_hash);
+
+    chain.process_block(&None, b_1, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, b_2, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, b_3, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 3);
+
+    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), b_2_hash);
+    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), b_3_hash);
+
+    chain.process_block(&None, c_1, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_3, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_4, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, c_5, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 5);
+
+    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), c_1_hash);
+    assert!(chain.get_header_by_height(2).is_err());
+    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), c_3_hash);
+    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), c_4_hash);
+    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), c_5_hash);
+
+    chain.process_block(&None, d_3, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, d_4, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    chain.process_block(&None, d_5, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 5);
+
+    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), b_2_hash);
+    assert_eq!(chain.get_header_by_height(3).unwrap().hash(), d_3_hash);
+    assert_eq!(chain.get_header_by_height(4).unwrap().hash(), d_4_hash);
+    assert_eq!(chain.get_header_by_height(5).unwrap().hash(), d_5_hash);
+
+    chain.process_block(&None, e_2, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
+    assert_eq!(chain.header_head().unwrap().height, 2);
+
+    assert_eq!(chain.get_header_by_height(1).unwrap().hash(), b_1_hash);
+    assert_eq!(chain.get_header_by_height(2).unwrap().hash(), e_2_hash);
+    assert!(chain.get_header_by_height(3).is_err());
+    assert!(chain.get_header_by_height(4).is_err());
+    assert!(chain.get_header_by_height(5).is_err());
 }
