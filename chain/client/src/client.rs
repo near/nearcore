@@ -159,6 +159,10 @@ impl Client {
         next_height: BlockIndex,
         elapsed_since_last_block: Duration,
     ) -> Result<Option<Block>, Error> {
+        // Check that this height is not known yet.
+        if next_height <= self.chain.mut_store().get_latest_known()?.height {
+            return Ok(None);
+        }
         let block_producer = self.block_producer.as_ref().ok_or_else(|| {
             Error::BlockProducer("Called without block producer info.".to_string())
         })?;
@@ -257,7 +261,7 @@ impl Client {
             self.approvals.drain().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -269,7 +273,7 @@ impl Client {
         Ok(Some(block))
     }
 
-    fn produce_chunk(
+    pub fn produce_chunk(
         &mut self,
         prev_block_hash: CryptoHash,
         epoch_id: &EpochId,
@@ -366,7 +370,7 @@ impl Client {
             &receipts,
             receipts_root,
             tx_root,
-            block_producer.signer.clone(),
+            &*block_producer.signer,
         )?;
 
         debug!(

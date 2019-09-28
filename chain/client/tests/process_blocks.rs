@@ -5,10 +5,10 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
+use near_chain::{Block, BlockApproval, ChainGenesis};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
-use near_client::{Client, GetBlock};
+use near_client::test_utils::{setup_mock, TestEnv};
+use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
@@ -22,7 +22,6 @@ use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
-use near_store::test_utils::create_test_store;
 use std::time::Duration;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -403,39 +402,21 @@ fn client_sync_headers() {
     .unwrap();
 }
 
-fn produce_blocks(client: &mut Client, num: u64) {
-    for i in 1..num {
-        let b = client.produce_block(i, Duration::from_millis(100)).unwrap().unwrap();
-        let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
-        let more_accepted_blocks = client.run_catchup().unwrap();
-        accepted_blocks.extend(more_accepted_blocks);
-        for accepted_block in accepted_blocks {
-            client.on_block_accepted(
-                accepted_block.hash,
-                accepted_block.status,
-                accepted_block.provenance,
-            );
-        }
-    }
+#[test]
+fn test_no_double_sign() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let _ = env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap().unwrap();
+    // Second time producing with the same height should fail.
+    assert_eq!(env.clients[0].produce_block(1, Duration::from_millis(10)).unwrap(), None);
 }
 
 #[test]
 fn test_process_invalid_tx() {
     init_test_logger();
-    let store = create_test_store();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.transaction_validity_period = 10;
-    let mut client = setup_client(
-        store,
-        vec![vec!["test1"]],
-        1,
-        1,
-        Some("test1"),
-        network_adapter,
-        chain_genesis,
-    );
-    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let mut env = TestEnv::new(chain_genesis, 1, 1);
+    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
     let tx = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
         Transaction {
@@ -443,13 +424,15 @@ fn test_process_invalid_tx() {
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "".to_string(),
-            block_hash: client.chain.genesis().hash(),
+            block_hash: env.clients[0].chain.genesis().hash(),
             actions: vec![],
         },
     );
-    produce_blocks(&mut client, 12);
+    for i in 1..12 {
+        env.produce_block(0, i);
+    }
     assert_eq!(
-        client.process_tx(tx),
+        env.clients[0].process_tx(tx),
         NetworkClientResponses::InvalidTx(
             "Transaction has either expired or from a different fork".to_string()
         )
@@ -466,7 +449,7 @@ fn test_process_invalid_tx() {
         },
     );
     assert_eq!(
-        client.process_tx(tx2),
+        env.clients[0].process_tx(tx2),
         NetworkClientResponses::InvalidTx(
             "Transaction has either expired or from a different fork".to_string()
         )

@@ -9,7 +9,7 @@ use futures::future;
 use futures::future::Future;
 
 use near_chain::test_utils::KeyValueRuntime;
-use near_chain::{Chain, ChainGenesis};
+use near_chain::{Chain, ChainGenesis, Provenance};
 use near_chunks::NetworkAdapter;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
@@ -18,12 +18,14 @@ use near_network::{
     PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::Block;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
+use near_primitives::transaction::SignedTransaction;
+use std::time::Duration;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -421,4 +423,76 @@ pub fn setup_client(
     config.transaction_validity_period = chain_genesis.transaction_validity_period;
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
+}
+
+pub struct TestEnv {
+    chain_genesis: ChainGenesis,
+    validators: Vec<AccountId>,
+    pub network_adapters: Vec<Arc<MockNetworkAdapter>>,
+    pub clients: Vec<Client>,
+}
+
+impl TestEnv {
+    pub fn new(chain_genesis: ChainGenesis, num_clients: usize, num_validators: usize) -> Self {
+        let validators: Vec<AccountId> =
+            (0..num_validators).map(|i| format!("test{}", i)).collect();
+        let network_adapters =
+            (0..num_clients).map(|_| Arc::new(MockNetworkAdapter::default())).collect::<Vec<_>>();
+        let clients = (0..num_clients)
+            .map(|i| {
+                let store = create_test_store();
+                setup_client(
+                    store.clone(),
+                    vec![validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
+                    1,
+                    1,
+                    Some(&format!("test{}", i)),
+                    network_adapters[i].clone(),
+                    chain_genesis.clone(),
+                )
+            })
+            .collect();
+        TestEnv { chain_genesis, validators, network_adapters, clients }
+    }
+
+    pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
+        let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
+        let (mut accepted_blocks, _) =
+            self.clients[id].process_block(block.clone().unwrap(), Provenance::PRODUCED);
+        let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
+        accepted_blocks.extend(more_accepted_blocks);
+        for accepted_block in accepted_blocks.into_iter() {
+            self.clients[id].on_block_accepted(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+            );
+        }
+    }
+
+    pub fn send_money(&mut self, id: usize) -> NetworkClientResponses {
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let tx = SignedTransaction::send_money(
+            1,
+            "test1".to_string(),
+            "test1".to_string(),
+            &signer,
+            100,
+            self.clients[id].chain.head().unwrap().last_block_hash,
+        );
+        self.clients[id].process_tx(tx)
+    }
+
+    pub fn restart(&mut self, id: usize) {
+        let store = self.clients[id].chain.store().store().clone();
+        self.clients[id] = setup_client(
+            store,
+            vec![self.validators.iter().map(|x| x.as_str()).collect::<Vec<&str>>()],
+            1,
+            1,
+            Some(&format!("test{}", id)),
+            self.network_adapters[id].clone(),
+            self.chain_genesis.clone(),
+        )
+    }
 }
