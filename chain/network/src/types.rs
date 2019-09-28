@@ -297,7 +297,7 @@ pub struct RoutedMessageNoSignature {
     body: RoutedMessageBody,
 }
 
-// TODO(MarX): Add TTL for routed message to avoid infinite loops
+// TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
 /// RoutedMessage represent a package that will travel the network towards a specific account id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
@@ -335,7 +335,7 @@ impl RoutedMessage {
     }
 
     pub fn expect_response(&self) -> bool {
-        // TODO(MarX): Mark some message as requiring response
+        // TODO(MarX, #1368): Mark some message as requiring response
         false
     }
 }
@@ -344,9 +344,9 @@ impl Message for RoutedMessage {
     type Result = bool;
 }
 
-// TODO(MarX): We have duplicated types of messages for now while routing between non-validators
+// TODO(MarX, #1312): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
-// TODO(MarX): Seperate PeerMessages in client messages and network messages. I expect that most of
+// TODO(MarX, #1312): Separate PeerMessages in client messages and network messages. I expect that most of
 //  the client messages are routed.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box

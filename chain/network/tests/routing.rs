@@ -211,7 +211,7 @@ impl Runner {
         let mut flag = Arc::new(AtomicBool::new(true));
         let mut state_machine = self.state_machine.take().unwrap();
 
-        // TODO(MarX): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
+        // TODO(MarX, #1312): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
         //  instead of using fixed `check_interval_ms`.
         WaitOrTimeout::new(
             Box::new(move |_| {
@@ -250,7 +250,6 @@ fn simple() {
     .unwrap();
 }
 
-// TODO(MarX): Implement edge broadcasting
 #[test]
 fn three_nodes_path() {
     init_test_logger();
@@ -319,3 +318,13 @@ fn join_components() {
     })
     .unwrap();
 }
+
+// TODO(Marx, #1312): Test handshake nonce after Added -> Removed -> Added
+
+// TODO(MarX, #1312): What happens with Outbound connection if it doesn't receive the Handshake.
+//      In this case new edge will be broadcasted but will be unusable from this node POV.
+//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
+//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
+//      higher nonce, forget this new connection.
+
+// TODO(MarX, #1312): Test routing (between peers / between validator)

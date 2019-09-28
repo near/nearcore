@@ -148,14 +148,12 @@ impl PeerManagerActor {
             },
         );
 
-        // TODO(MarX): Remove this asserts
         println!("\nASD NEW DIRECT CONNECTION: {:?} {:?}\n", self.peer_id, new_edge);
-        assert!(new_edge.verify());
-        assert!(self.routing_table.process_edge(new_edge.clone()));
+        self.routing_table.process_edge(new_edge.clone());
 
         self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
 
-        // TODO(MarX): Implement sync service. Right now all edges are sent during handshake.
+        // TODO(MarX, #1363): Implement sync service. Right now all edges are sent during handshake.
         // Start syncing network point of view. Wait until both parties are connected before start
         // sending messages.
         let known_edges = self.routing_table.get_edges();
@@ -176,7 +174,7 @@ impl PeerManagerActor {
         }
         self.active_peers.remove(&peer_id);
 
-        // TODO(MarX): Trigger actions after a peer is removed successfully regarding networking
+        // TODO(MarX, #1312): Trigger actions after a peer is removed successfully regarding networking
         //  (Write specification about the actions)
 
         unwrap_or_error!(self.peer_store.peer_disconnected(&peer_id), "Failed to save peer data");
@@ -186,10 +184,6 @@ impl PeerManagerActor {
     fn ban_peer(&mut self, peer_id: &PeerId, ban_reason: ReasonForBan) {
         info!(target: "network", "Banning peer {:?} for {:?}", peer_id, ban_reason);
         self.active_peers.remove(&peer_id);
-
-        // TODO(MarX): Trigger actions after a peer is banned regarding networking
-        //  (Write specification about the actions)
-
         unwrap_or_error!(self.peer_store.peer_ban(peer_id, ban_reason), "Failed to save peer data");
     }
 
@@ -373,7 +367,7 @@ impl PeerManagerActor {
 
     /// Broadcast message to all active peers.
     fn broadcast_message(&self, ctx: &mut Context<Self>, msg: SendMessage) {
-        // TODO(MarX): Implement smart broadcasting. (MST)
+        // TODO(MarX, #1363): Implement smart broadcasting. (MST)
 
         let requests: Vec<_> =
             self.active_peers.values().map(|peer| peer.addr.send(msg.clone())).collect();
@@ -425,7 +419,7 @@ impl PeerManagerActor {
                 self.send_message(ctx, &peer_id, PeerMessage::Routed(msg));
             }
             Err(find_route_error) => {
-                // TODO(MarX): Message is dropped here. Define policy for this case.
+                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
                       msg.target,
                       find_route_error,
@@ -446,7 +440,7 @@ impl PeerManagerActor {
         let target = match self.routing_table.account_owner(&account_id) {
             Ok(peer_id) => peer_id,
             Err(find_route_error) => {
-                // TODO(MarX): Message is dropped here. Define policy for this case.
+                // TODO(MarX, #1369): Message is dropped here. Define policy for this case.
                 warn!(target: "network", "Drop message to {} Reason {:?}. Known peers: {:?} Message {:?}",
                       account_id,
                       find_route_error,
@@ -476,7 +470,7 @@ impl PeerManagerActor {
         EdgeInfo::new(key.0, key.1, nonce, &EdgeType::Added, &self.config.secret_key)
     }
 
-    // TODO(MarX): Store ping/pong for testing
+    // TODO(MarX, #1312): Store ping/pong for testing
     fn handle_ping(&mut self, ping: Ping) {}
 
     fn handle_pong(&mut self, pong: Pong) {}
@@ -798,7 +792,7 @@ impl Handler<RoutedMessage> for PeerManagerActor {
         } else {
             // Otherwise route it to its corresponding destination.
             if msg.expect_response() {
-                // TODO(MarX): Handle route back for message that requires response.
+                // TODO(MarX, #1368): Handle route back for message that requires response.
             }
             self.send_message_to_peer(ctx, msg);
             false

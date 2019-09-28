@@ -412,7 +412,6 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             (_, PeerStatus::Connecting, PeerMessage::Handshake(handshake)) => {
                 debug!(target: "network", "{:?}: Received handshake {:?}", self.node_info.id, handshake);
 
-                // TODO(MarX): Fix this. We compare genesis two times in a row.
                 if handshake.chain_info.genesis != self.genesis {
                     info!(target: "network", "Received connection from node with different genesis.");
                     ctx.address().do_send(SendMessage {
@@ -424,6 +423,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     return;
                     // Connection will be closed by a handshake timeout
                 }
+
                 if handshake.version != PROTOCOL_VERSION {
                     info!(target: "network", "Received connection from node with different network protocol version.");
                     ctx.address().do_send(SendMessage {
@@ -434,13 +434,10 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     });
                 }
 
-                if handshake.chain_info.genesis != self.genesis {
-                    info!(target: "network", "Received connection from node with different genesis.");
-                    ctx.stop();
-                }
                 if handshake.peer_id == self.node_info.id {
                     warn!(target: "network", "Received info about itself. Disconnecting this peer.");
                     ctx.stop();
+                    return;
                 }
 
                 // Verify signature of the new edge in handshake.
@@ -450,7 +447,8 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     &handshake.edge_info,
                 ) {
                     info!(target: "network", "Received invalid signature on handshake. Disconnecting this peer.");
-                    ctx.stop();
+                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
+                    return;
                 }
 
                 // Check that received nonce on handshake match our proposed nonce.
@@ -460,6 +458,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                     {
                         info!(target: "network", "Received invalid nonce on handshake. Disconnecting this peer.");
                         ctx.stop();
+                        return;
                     }
                 }
 

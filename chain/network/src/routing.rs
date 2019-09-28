@@ -150,7 +150,7 @@ impl Edge {
 
 #[derive(Clone)]
 pub struct RoutingTable {
-    // TODO(MarX): Use cache and file storing to keep this information.
+    // TODO(MarX, #1363): Use cache and file storing to keep this information.
     /// PeerId associated for every known account id.
     pub account_peers: HashMap<AccountId, PeerId>,
     /// Active PeerId that are part of the shortest path to each PeerId.
@@ -185,7 +185,7 @@ impl RoutingTable {
             if routes.is_empty() {
                 Err(FindRouteError::Disconnected)
             } else {
-                // TODO(MarX): Do Round Robin
+                // TODO(MarX, #1363): Do Round Robin
                 Ok(routes.iter().next().unwrap().clone())
             }
         } else {
@@ -241,14 +241,9 @@ impl RoutingTable {
         }
 
         self.edges_info.insert(key, edge);
-        // TODO(MarX): Don't recalculate all the time
+        // TODO(MarX, #1363): Don't recalculate all the time
         self.peer_forwarding = self.raw_graph.calculate_distance();
         true
-    }
-
-    pub fn sample_peers(&self) -> Vec<PeerId> {
-        // TODO(MarX): Sample instead of reporting all peers
-        self.peer_forwarding.keys().map(|key| key.clone()).collect()
     }
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
@@ -303,14 +298,14 @@ impl Graph {
         }
     }
 
-    // TODO(MarX): This is too slow right now. (See benchmarks)
+    // TODO(MarX, #1363): This is too slow right now. (See benchmarks)
     /// Compute for every node `u` on the graph (other than `source`) which are the neighbors of
     /// `sources` which belong to the shortest path from `source` to `u`. Nodes that are
     /// not connected to `source` will not appear in the result.
     pub fn calculate_distance(&self) -> HashMap<PeerId, HashSet<PeerId>> {
         let mut queue = vec![];
         let mut distance = HashMap::new();
-        // TODO(MarX): Represent routes more efficiently at least while calculating distances
+        // TODO(MarX, #1363): Represent routes more efficiently at least while calculating distances
         let mut routes: HashMap<PeerId, HashSet<PeerId>> = HashMap::new();
 
         distance.insert(&self.source, 0);
@@ -510,25 +505,3 @@ mod test {
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
     }
 }
-
-// TODO(MarX): Add #github reference to every todo.
-
-// TODO(Marx): Handshake nonce signature after addition -> removal -> addition
-
-// TODO(MarX): What happens with Outbound connection if it doesn't receive the Handshake.
-//      In this case new edge will be broadcasted but will be unusable from this node POV.
-//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
-//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
-//      higher nonce, forget this new connection.
-
-// TODO(MarX): Test graph is synced between nodes after starting connection
-
-// TODO(MarX): Test graph is readjusted after edges are deleted
-
-// TODO(MarX): Test routing (between peers / between validator)
-
-// TODO(MarX): Test when one node joins late
-
-// TODO(MarX): Test when one node quit gracefully/(non gracefully)
-
-// TODO(MarX): Implement connection between validators/block producers.
