@@ -142,7 +142,7 @@ impl StateMachine {
                             .map_err(|_| ())
                             .and_then(move |res| {
                                 if let NetworkResponses::RoutingTableInfo(routing_table) = res {
-                                    println!("\nNODE: {} {:?}\n", u, routing_table);
+                                    println!("\nASD NODE: {} {:?}\n", u, routing_table);
                                     if expected_routing_tables(routing_table, expected1) {
                                         flag.store(true, Ordering::Relaxed);
                                     }
@@ -211,6 +211,8 @@ impl Runner {
         let mut flag = Arc::new(AtomicBool::new(true));
         let mut state_machine = self.state_machine.take().unwrap();
 
+        // TODO(MarX): Switch WaitOrTimeout for other mechanism that triggers events on given timeouts
+        //  instead of using fixed `check_interval_ms`.
         WaitOrTimeout::new(
             Box::new(move |_| {
                 if flag.load(Ordering::Relaxed) {
@@ -250,8 +252,7 @@ fn simple() {
 
 // TODO(MarX): Implement edge broadcasting
 #[test]
-#[should_panic]
-fn three_nodes_two_validators() {
+fn three_nodes_path() {
     init_test_logger();
 
     System::run(|| {
@@ -259,78 +260,62 @@ fn three_nodes_two_validators() {
 
         runner.push(Action::AddEdge(0, 1));
         runner.push(Action::AddEdge(1, 2));
-        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
         runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
         runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
 
         runner.run();
     })
     .unwrap();
 }
-//
-//#[test]
-//fn long_path() {
-//    let num_peers = 7;
-//    let max_peer_connections = 2;
-//
-//    let accounts_id = (0..num_peers).map(|ix| format!("test{}", ix)).collect();
-//    let adjacency_list = (0..num_peers)
-//        .map(|ix| {
-//            let mut neigs = vec![];
-//            if ix > 0 {
-//                neigs.push(ix - 1);
-//            }
-//            if ix + 1 < num_peers {
-//                neigs.push(ix + 1);
-//            }
-//            neigs
-//        })
-//        .collect();
-//
-//    let mut validator_mask = vec![false; num_peers];
-//    validator_mask[0] = true;
-//    validator_mask[num_peers - 1] = true;
-//
-//    check_routing_table(accounts_id, adjacency_list, max_peer_connections, 3000, validator_mask);
-//}
 
-// test.actions
-//
-// action(peer_managers, flag) {
-//     peer
-// }
-//
-// test.push(AddEdge(1, 2));
-// test.push(AddEdge(2, 3));
-// test.push(Send(1, 2));
-// test.push(AddEdge(1, 2));
-// test.push(RemoveEdge(1, 2));
-// test.push(Send(1, 2));
-// test.run();
+#[test]
+fn three_nodes_star() {
+    init_test_logger();
 
-// 1. Get routing table data
-// 2. Start a ping to node x
-//
-// AddEdge(1, 2)
-//     Add one edge to the graph
-// RemoveEdge(1, 2)
-//     Remove one edge of the graph
-// RoutingTable(1; 2; 3; 4, 2, 3)
-//     Check the Routing table of one peer
-// SendMessage(1, 4)
-//     Send a message between two peers and wait until the message and the response arrive.
-//
-// Test routing between validators.
-// PromoteValidator(1)
-// DemoteValidator(1)
-// SendMessageValidator(1, 4) // second element must be a v
-//
-//
-// network = CreateNetwork(4);
-// spawn_graph(network; 1, 2; 1, 3; 3, 4)
-//
-// network.add();
-// network.add()
-//
-// network.step();
-//
+    System::run(|| {
+        let mut runner = Runner::new(3, 2);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(1, 2));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![1])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![1])]));
+        runner.push(Action::AddEdge(0, 2));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(1, vec![1]), (0, vec![0])]));
+
+        runner.run();
+    })
+    .unwrap();
+}
+
+#[test]
+fn join_components() {
+    init_test_logger();
+
+    System::run(|| {
+        let mut runner = Runner::new(4, 4);
+
+        runner.push(Action::AddEdge(0, 1));
+        runner.push(Action::AddEdge(2, 3));
+        runner.push(Action::CheckRoutingTable(0, vec![(1, vec![1])]));
+        runner.push(Action::CheckRoutingTable(1, vec![(0, vec![0])]));
+        runner.push(Action::CheckRoutingTable(2, vec![(3, vec![3])]));
+        runner.push(Action::CheckRoutingTable(3, vec![(2, vec![2])]));
+        runner.push(Action::AddEdge(0, 2));
+        runner.push(Action::AddEdge(3, 1));
+        runner
+            .push(Action::CheckRoutingTable(0, vec![(1, vec![1]), (2, vec![2]), (3, vec![1, 2])]));
+        runner
+            .push(Action::CheckRoutingTable(3, vec![(1, vec![1]), (2, vec![2]), (0, vec![1, 2])]));
+        runner
+            .push(Action::CheckRoutingTable(1, vec![(0, vec![0]), (3, vec![3]), (2, vec![0, 3])]));
+        runner
+            .push(Action::CheckRoutingTable(2, vec![(0, vec![0]), (3, vec![3]), (1, vec![0, 3])]));
+
+        runner.run();
+    })
+    .unwrap();
+}

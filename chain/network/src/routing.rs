@@ -37,7 +37,7 @@ impl EdgeInfo {
 }
 
 /// Status of the edge
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum EdgeType {
     Added,
     Removed,
@@ -54,7 +54,7 @@ impl EdgeType {
 
 /// Edge object. Contains information relative to a new edge that is being added or removed
 /// from the network. This is the information that is required
-#[derive(Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Edge {
     /// Since edges are not directed `peer0 < peer1` should hold.
     peer0: PeerId,
@@ -217,7 +217,9 @@ impl RoutingTable {
         }
     }
 
+    /// Add this edge to the current view of the network.
     /// This edge is assumed to be valid at this point.
+    /// Edge contains about being added or removed (this can trigger both types of events).
     /// Return true if the edge contains new information about the network. Old if this information
     /// is outdated.
     pub fn process_edge(&mut self, edge: Edge) -> bool {
@@ -251,6 +253,10 @@ impl RoutingTable {
 
     pub fn find_nonce(&self, edge: &(PeerId, PeerId)) -> u64 {
         self.edges_info.get(&edge).map_or(0, |x| x.nonce)
+    }
+
+    pub fn get_edges(&self) -> Vec<Edge> {
+        self.edges_info.iter().map(|(_, edge)| edge.clone()).collect()
     }
 }
 
@@ -504,6 +510,16 @@ mod test {
         assert!(expected_routing_tables(graph.calculate_distance(), next_hops));
     }
 }
+
+// TODO(MarX): Add #github reference to every todo.
+
+// TODO(Marx): Handshake nonce signature after addition -> removal -> addition
+
+// TODO(MarX): What happens with Outbound connection if it doesn't receive the Handshake.
+//      In this case new edge will be broadcasted but will be unusable from this node POV.
+//      The simplest approach here is broadcast edge removal if we receive new edge that we belongs
+//      to, but we are not connected to this peer. Note, if we have already broadcasted edge with
+//      higher nonce, forget this new connection.
 
 // TODO(MarX): Test graph is synced between nodes after starting connection
 

@@ -29,8 +29,9 @@ use crate::routing::{Edge, EdgeInfo, EdgeType, RoutingTable};
 use crate::types::{
     AccountOrPeerId, AnnounceAccount, Ban, Consolidate, ConsolidateResponse, FullPeerInfo,
     InboundTcpConnect, KnownPeerStatus, NetworkInfo, OutboundTcpConnect, PeerId, PeerList,
-    PeerMessage, PeerType, PeersRequest, PeersResponse, Ping, Pong, QueryPeerStats,
-    RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, SendMessage, Unregister,
+    PeerManagerRequest, PeerMessage, PeerType, PeersRequest, PeersResponse, Ping, Pong,
+    QueryPeerStats, RawRoutedMessage, ReasonForBan, RoutedMessage, RoutedMessageBody, SendMessage,
+    Unregister,
 };
 use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
@@ -117,6 +118,7 @@ impl PeerManagerActor {
         full_peer_info: FullPeerInfo,
         edge_info: EdgeInfo,
         addr: Addr<Peer>,
+        ctx: &mut Context<Self>,
     ) {
         if self.outgoing_peers.contains(&full_peer_info.peer_info.id) {
             self.outgoing_peers.remove(&full_peer_info.peer_info.id);
@@ -147,11 +149,21 @@ impl PeerManagerActor {
         );
 
         // TODO(MarX): Remove this asserts
-        println!("\nASD NEW DIRECT CONNECTION: {:?}\n", new_edge);
+        println!("\nASD NEW DIRECT CONNECTION: {:?} {:?}\n", self.peer_id, new_edge);
         assert!(new_edge.verify());
-        assert!(self.routing_table.process_edge(new_edge));
+        assert!(self.routing_table.process_edge(new_edge.clone()));
 
-        // TODO(MarX): Broadcast connection
+        self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(vec![new_edge]) });
+
+        // TODO(MarX): Implement sync service. Right now all edges are sent during handshake.
+        // Start syncing network point of view. Wait until both parties are connected before start
+        // sending messages.
+        let known_edges = self.routing_table.get_edges();
+        let wait_for_sync = 1;
+
+        ctx.run_later(Duration::from_secs(wait_for_sync), move |_act, _ctx| {
+            let _ = addr.do_send(SendMessage { message: PeerMessage::Edges(known_edges) });
+        });
     }
 
     /// Remove a peer from the active peer set. If the peer doesn't belong to the active peer set
@@ -559,9 +571,15 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
-                // TODO: send stop signal to the addr.
-                // if let Some(_) = self.active_peers.get(&peer_id) {}
-                self.ban_peer(&peer_id, ban_reason);
+                if let Some(peer) = self.active_peers.get(&peer_id) {
+                    let _ = peer.addr.do_send(PeerManagerRequest::BanPeer(ban_reason));
+                } else {
+                    warn!(target: "network", "Try to ban a disconnected peer: {:?}", peer_id);
+                    // Call `ban_peer` in peer manager to trigger action that persists information
+                    // of ban in disk.
+                    self.ban_peer(&peer_id, ban_reason);
+                }
+
                 NetworkResponses::NoResponse
             }
             NetworkRequests::AnnounceAccount(announce_account) => {
@@ -608,6 +626,20 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::FetchRoutingTable => {
                 NetworkResponses::RoutingTableInfo(self.routing_table.peer_forwarding.clone())
+            }
+            NetworkRequests::Edges(edges) => {
+                // If this is a new edge broadcast it.
+                let edges: Vec<_> = edges
+                    .into_iter()
+                    .filter(|edge| self.routing_table.process_edge(edge.clone()))
+                    .collect();
+
+                if !edges.is_empty() {
+                    println!("\nASD NEW DIRECT CONNECTIONS: {:?} {:?}\n", self.peer_id, edges);
+                    self.broadcast_message(ctx, SendMessage { message: PeerMessage::Edges(edges) });
+                }
+
+                NetworkResponses::NoResponse
             }
         }
     }
@@ -667,7 +699,7 @@ impl Handler<OutboundTcpConnect> for PeerManagerActor {
 impl Handler<Consolidate> for PeerManagerActor {
     type Result = ConsolidateResponse;
 
-    fn handle(&mut self, msg: Consolidate, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: Consolidate, ctx: &mut Self::Context) -> Self::Result {
         // We already connected to this peer.
         if self.active_peers.contains_key(&msg.peer_info.id) {
             return ConsolidateResponse(false, None);
@@ -706,6 +738,7 @@ impl Handler<Consolidate> for PeerManagerActor {
             },
             edge_info,
             msg.actor,
+            ctx,
         );
 
         ConsolidateResponse(true, edge_info_response)

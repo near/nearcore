@@ -20,12 +20,11 @@ use crate::rate_counter::RateCounter;
 use crate::routing::{Edge, EdgeInfo};
 use crate::types::{
     AccountOrPeerId, Ban, Consolidate, ConsolidateResponse, Handshake, HandshakeFailureReason,
-    NetworkClientMessages, PeerChainInfo, PeerInfo, PeerMessage, PeerStatsResult, PeerStatus,
-    PeerType, PeersRequest, PeersResponse, QueryPeerStats, RawRoutedMessage, ReasonForBan,
-    RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
+    NetworkClientMessages, PeerChainInfo, PeerInfo, PeerManagerRequest, PeerMessage,
+    PeerStatsResult, PeerStatus, PeerType, PeersRequest, PeersResponse, QueryPeerStats,
+    RawRoutedMessage, ReasonForBan, RoutedMessageBody, SendMessage, Unregister, PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
-use futures::Future;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -300,7 +299,8 @@ impl Peer {
             PeerMessage::Handshake(_)
             | PeerMessage::HandshakeFailure(_, _)
             | PeerMessage::PeersRequest
-            | PeerMessage::PeersResponse(_) => {
+            | PeerMessage::PeersResponse(_)
+            | PeerMessage::Edges(_) => {
                 error!(target: "network", "Peer receive_client_message received unexpected type");
                 return;
             }
@@ -520,22 +520,22 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 debug!(target: "network", "Received peers from {}: {} peers.", self.peer_info, peers.len());
                 self.peer_manager_addr.do_send(PeersResponse { peers });
             }
+            (_, PeerStatus::Ready, PeerMessage::Edges(edges)) => {
+                debug!(target: "network", "Received edges from {}: {:?}.", self.peer_info, edges);
+
+                // Check there is at least one invalid edge ban this peer and discard this batch.
+                if !edges.iter().all(|edge| edge.verify()) {
+                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
+                } else {
+                    self.peer_manager_addr.do_send(NetworkRequests::Edges(edges));
+                }
+            }
             (_, PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 debug!(target: "network", "Received routed message from {} to {}.", self.peer_info, routed_message.target);
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
-                    actix::spawn(
-                        self.peer_manager_addr
-                            .send(NetworkRequests::BanPeer {
-                                peer_id: self.node_info.id.clone(),
-                                ban_reason: ReasonForBan::InvalidSignature,
-                            })
-                            .map_err(|e| error!(target: "client", "{}", e))
-                            .map(|_| ()),
-                    );
-
-                    self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidSignature);
+                    self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
                         .send(routed_message.clone())
@@ -583,6 +583,18 @@ impl Handler<QueryPeerStats> for Peer {
                 self.tracker.sent_bytes.count_per_min(),
                 self.tracker.received_bytes.count_per_min(),
             ),
+        }
+    }
+}
+
+impl Handler<PeerManagerRequest> for Peer {
+    type Result = ();
+
+    fn handle(&mut self, pm_request: PeerManagerRequest, ctx: &mut Self::Context) -> Self::Result {
+        match pm_request {
+            PeerManagerRequest::BanPeer(ban_reason) => {
+                self.ban_peer(ctx, ban_reason);
+            }
         }
     }
 }
