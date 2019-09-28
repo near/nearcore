@@ -29,7 +29,7 @@ Launch a testnet in several remote nodes.
 
 Running loadtester with 100 tps, using 10 of accounts created in the first step.
 ```
-target/debug/loadtester run --tps 100 --accounts 10 --addrs  `gcloud compute instances list --format="value[terminator=':3030 '](networkInterfaces[0].accessConfigs[0].natIP)" --filter="name~load-test-${USER}"`
+target/debug/loadtester run --tps 100 --accounts 10 --addrs <list-of-node-socket-addrs>
 ```
 
 ## More usages
