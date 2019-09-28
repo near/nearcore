@@ -272,7 +272,6 @@ impl NearConfig {
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
-                transaction_validity_period: genesis_config.transaction_validity_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },

@@ -303,6 +303,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
+        let transaction_validity_period = self.chain.transaction_validity_period;
         let transactions: Vec<_> = self
             .shards_mgr
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
@@ -311,7 +312,7 @@ impl Client {
                 check_tx_history(
                     self.chain.get_block_header(&t.transaction.block_hash).ok(),
                     next_height,
-                    self.config.transaction_validity_period,
+                    transaction_validity_period,
                 )
             })
             .collect();

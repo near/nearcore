@@ -170,7 +170,7 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
-    transaction_validity_period: BlockIndex,
+    pub transaction_validity_period: BlockIndex,
 }
 
 impl Chain {

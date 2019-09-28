@@ -39,7 +39,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSync, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus, GetNetworkInfo, NetworkInfoResponse
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
+    Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -829,10 +830,11 @@ impl ClientActor {
         let me = self.client.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id =
             self.client.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let transaction_validity_period = self.client.chain.transaction_validity_period;
         if !check_tx_history(
             self.client.chain.get_block_header(&tx.transaction.block_hash).ok(),
             head.height,
-            self.client.config.transaction_validity_period,
+            transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(
