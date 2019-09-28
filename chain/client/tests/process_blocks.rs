@@ -10,6 +10,7 @@ use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::setup_mock;
 use near_client::GetBlock;
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::routing::EdgeInfo;
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
@@ -379,6 +380,7 @@ fn client_sync_headers() {
                             height: 5,
                             total_weight: 100.into(),
                         },
+                        edge_info: EdgeInfo::default(),
                     }],
                     sent_bytes_per_sec: 0,
                     received_bytes_per_sec: 0,

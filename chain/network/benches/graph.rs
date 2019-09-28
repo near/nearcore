@@ -50,6 +50,7 @@ fn calculate_distance_10_100(bench: &mut Bencher) {
     });
 }
 
+#[allow(dead_code)]
 fn calculate_distance_100_100(bench: &mut Bencher) {
     let graph = build_graph(100, 100);
     bench.iter(|| {

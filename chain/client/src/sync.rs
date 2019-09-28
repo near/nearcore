@@ -607,6 +607,7 @@ mod test {
     use near_primitives::block::Block;
 
     use super::*;
+    use near_network::routing::EdgeInfo;
 
     #[derive(Default)]
     struct MockNetworkAdapter {
@@ -664,6 +665,7 @@ mod test {
                 height: chain2.head().unwrap().height,
                 total_weight: chain2.head().unwrap().total_weight,
             },
+            edge_info: EdgeInfo::default(),
         };
         let head = chain.head().unwrap();
         assert!(header_sync

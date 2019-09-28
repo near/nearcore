@@ -76,6 +76,7 @@ mod test {
     };
 
     use super::*;
+    use crate::routing::EdgeInfo;
     use near_primitives::types::EpochId;
 
     fn test_codec(msg: PeerMessage) {
@@ -98,6 +99,7 @@ mod test {
                 height: 0,
                 total_weight: 0.into(),
             },
+            edge_info: EdgeInfo::default(),
         };
         let msg = PeerMessage::Handshake(fake_handshake);
         test_codec(msg);

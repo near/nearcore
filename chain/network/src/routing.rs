@@ -354,13 +354,8 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{HashMap, HashSet};
-
-    use near_crypto::{KeyType, PublicKey, SecretKey};
-
     use crate::routing::Graph;
     use crate::test_utils::{expected_routing_tables, random_peer_id};
-    use crate::types::PeerId;
 
     #[test]
     fn graph_contains_edge() {
