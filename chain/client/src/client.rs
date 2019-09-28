@@ -22,9 +22,11 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
@@ -34,7 +36,6 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncStatus};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::challenge::Challenge;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -280,7 +281,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<(EncodedShardChunk, Vec<Receipt>)>, Error> {
         let block_producer = self
             .block_producer
             .as_ref()
@@ -291,7 +292,7 @@ impl Client {
             self.runtime_adapter.get_chunk_producer(epoch_id, next_height, shard_id).unwrap();
         if block_producer.account_id != chunk_proposer {
             debug!(target: "client", "Not producing chunk for shard {}: chain at {}, not block producer for next block. Me: {}, proposer: {}", shard_id, next_height, block_producer.account_id, chunk_proposer);
-            return Ok(());
+            return Ok(None);
         }
 
         debug!(
@@ -384,9 +385,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts);
-
-        Ok(())
+        Ok(Some((encoded_chunk, receipts)))
     }
 
     pub fn process_block(
@@ -588,14 +587,20 @@ impl Client {
                         .unwrap();
 
                     if chunk_proposer == *bp.account_id {
-                        if let Err(err) = self.produce_chunk(
+                        match self.produce_chunk(
                             block.hash(),
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
                             block.header.inner.height + 1,
                             shard_id,
                         ) {
-                            error!(target: "client", "Error producing chunk {:?}", err);
+                            Ok(Some((encoded_chunk, receipts))) => {
+                                self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts)
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                error!(target: "client", "Error producing chunk {:?}", err);
+                            }
                         }
                     }
                 }
@@ -902,7 +907,10 @@ impl Client {
                         )
                         .valid())
             }
-            Challenge::ChunkDoubleSign { left_chunk_header, right_chunk_header } => Ok(false),
+            Challenge::ChunkDoubleSign { left_chunk_header, right_chunk_header } => {
+                // let chunk_producer = self.runtime_adapter.get_chunk_producer(left_chunk_header.inner.)
+                Ok(false)
+            }
             _ => Ok(false),
         }
     }

@@ -51,7 +51,35 @@ fn test_verify_block_double_sign_challenge() {
 #[test]
 fn test_verify_chunk_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    // env.clients[0].pro
+    env.produce_block(0, 1);
+    let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
+    let (chunk1, _) = env.clients[0]
+        .produce_chunk(
+            last_block.hash(),
+            &last_block.header.inner.epoch_id,
+            last_block.chunks[0].clone(),
+            2,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+    let (chunk2, _) = env.clients[0]
+        .produce_chunk(
+            last_block.header.inner.prev_hash,
+            &last_block.header.inner.epoch_id,
+            last_block.chunks[0].clone(),
+            2,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+    println!("{:?}", chunk1);
+    println!("{:?}", chunk2);
+    let valid_challenge = Challenge::ChunkDoubleSign {
+        left_chunk_header: chunk1.header.clone(),
+        right_chunk_header: chunk2.header.clone(),
+    };
+    //    assert!(env.clients[0].verify_challenge(valid_challenge).unwrap());
 }
 
 #[test]
