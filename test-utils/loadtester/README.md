@@ -12,17 +12,12 @@ Create 10 validator accounts and totally 400 accounts (these are default argumen
 target/debug/loadtester create_genesis
 ```
 
-Start the local TestNet (default is 4 node):
-```bash
-near_ops/start_local_loadtest_network.sh
-```
+Start a local testnet.
 
 Launch the load tester:
 ```bash
 target/debug/loadtester run --addrs 127.0.0.1:3030 127.0.0.1:3031 127.0.0.1:3032 127.0.0.1:3033
 ```
-
-Observe that the TestNet produces up to 2000 TPS for 10 seconds in one shard, in my computer loadtester can generate up to 1600 tps and node can process up to 900 tps in the settings mentioned above.
 
 ## Example of a launch and load test a remote testnet
 Delete `sudo rm -rf ~/.near/near.*/data` if there is any. Create 10 validator accounts and totally 400 accounts (these are default arguments):
@@ -30,17 +25,12 @@ Delete `sudo rm -rf ~/.near/near.*/data` if there is any. Create 10 validator ac
 target/debug/loadtester create_genesis
 ```
 
-Create the testnet in google cloud (default is 10 nodes, 3 in us west, 3 in us east and 4 in us central):
-```bash
-near_ops/start_gcloud_load_test_network.sh
-```
+Launch a testnet in several remote nodes.
 
-Running loadtester with 100 tps, using 10 of accounts created in the former step. (Due to network latency, loadtest in a single node with higher parameters actually gives worse result in my laptop, but further experiment is welcomed)
+Running loadtester with 100 tps, using 10 of accounts created in the first step.
 ```
 target/debug/loadtester run --tps 100 --accounts 10 --addrs  `gcloud compute instances list --format="value[terminator=':3030 '](networkInterfaces[0].accessConfigs[0].natIP)" --filter="name~load-test-${USER}"`
 ```
-
-Observe the result. In my laptop the best result is 10 tps.
 
 ## More usages
 
