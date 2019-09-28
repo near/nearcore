@@ -11,7 +11,7 @@ use futures::future::Future;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis};
 use near_chunks::NetworkAdapter;
-use near_crypto::{BlsPublicKey, InMemoryBlsSigner};
+use near_crypto::{InMemoryBlsSigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -79,7 +79,7 @@ pub fn setup(
         store,
         chain_genesis,
         runtime,
-        BlsPublicKey::empty().into(),
+        PublicKey::empty(KeyType::ED25519).into(),
         recipient,
         Some(signer.into()),
         telemetry,

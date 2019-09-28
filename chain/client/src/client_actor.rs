@@ -21,7 +21,8 @@ use near_chain::{
 use near_chunks::{NetworkAdapter, NetworkRecipient};
 use near_crypto::BlsSignature;
 use near_network::types::{
-    AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId, ReasonForBan, StateResponseInfo,
+    AccountOrPeerSignature, AnnounceAccount, AnnounceAccountRoute, NetworkInfo, PeerId,
+    ReasonForBan, StateResponseInfo,
 };
 use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
@@ -39,7 +40,8 @@ use crate::client::Client;
 use crate::info::InfoHelper;
 use crate::sync::{most_weight_peer, StateSync, StateSyncResult};
 use crate::types::{
-    BlockProducer, ClientConfig, Error, ShardSyncStatus, Status, StatusSyncInfo, SyncStatus, GetNetworkInfo, NetworkInfoResponse
+    BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
+    Status, StatusSyncInfo, SyncStatus,
 };
 use crate::{sync, StatusResponse};
 
@@ -137,11 +139,15 @@ impl ClientActor {
         }
 
         // ... and signature should be valid.
+        let signature = header.signature.account_signature();
+        if None == signature {
+            return AccountAnnounceVerificationResult::Invalid(ReasonForBan::InvalidSignature);
+        }
         match self.client.runtime_adapter.verify_validator_signature(
             &announce_account.epoch_id,
             &announce_account.account_id,
             header_hash.as_ref(),
-            &header.signature,
+            signature.unwrap(),
         ) {
             ValidatorSignatureVerificationResult::Valid => {}
             ValidatorSignatureVerificationResult::Invalid => {
@@ -173,7 +179,7 @@ impl ClientActor {
                     return Err(ReasonForBan::InvalidHash);
                 }
 
-                if signature.verify_single(current_hash.as_ref(), &peer_id.public_key()) {
+                if signature.verify_peer(current_hash.as_ref(), &peer_id.public_key()) {
                     Ok(current_hash.clone())
                 } else {
                     return Err(ReasonForBan::InvalidSignature);
@@ -572,7 +578,7 @@ impl ClientActor {
                     next_epoch_id,
                     self.node_id.clone(),
                     hash,
-                    signature,
+                    AccountOrPeerSignature::AccountSignature(signature),
                 )));
             }
         }

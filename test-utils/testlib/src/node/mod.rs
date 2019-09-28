@@ -7,7 +7,7 @@ use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
-use near_crypto::{BlsSigner, InMemoryBlsSigner, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, Signer};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -121,7 +121,7 @@ impl dyn Node {
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
     signers: Vec<InMemoryBlsSigner>,
-    network_signers: Vec<InMemoryBlsSigner>,
+    network_signers: Vec<InMemorySigner>,
     genesis_config: GenesisConfig,
 ) -> Vec<NodeConfig> {
     let mut result = vec![];

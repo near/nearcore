@@ -14,7 +14,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::{ReceiptProofResponse, RootProof};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{BlsPublicKey, BlsSecretKey, BlsSignature, ReadablePublicKey};
+use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 pub use near_primitives::sharding::ChunkPartMsg;
@@ -31,10 +31,10 @@ pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PeerId(BlsPublicKey);
+pub struct PeerId(PublicKey);
 
 impl PeerId {
-    pub fn public_key(&self) -> BlsPublicKey {
+    pub fn public_key(&self) -> PublicKey {
         self.0.clone()
     }
 }
@@ -45,8 +45,8 @@ impl From<PeerId> for Vec<u8> {
     }
 }
 
-impl From<BlsPublicKey> for PeerId {
-    fn from(public_key: BlsPublicKey) -> PeerId {
+impl From<PublicKey> for PeerId {
+    fn from(public_key: PublicKey) -> PeerId {
         PeerId(public_key)
     }
 }
@@ -55,7 +55,7 @@ impl TryFrom<Vec<u8>> for PeerId {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: Vec<u8>) -> Result<PeerId, Self::Error> {
-        Ok(PeerId(BlsPublicKey::try_from_slice(&bytes)?))
+        Ok(PeerId(PublicKey::try_from_slice(&bytes)?))
     }
 }
 
@@ -189,12 +189,41 @@ struct AnnounceAccountRouteHeader {
     pub epoch_id: EpochId,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum AccountOrPeerSignature {
+    PeerSignature(Signature),
+    AccountSignature(BlsSignature),
+}
+
+impl AccountOrPeerSignature {
+    pub fn peer_signature(&self) -> Option<&Signature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => Some(signature),
+            AccountOrPeerSignature::AccountSignature(_) => None,
+        }
+    }
+
+    pub fn account_signature(&self) -> Option<&BlsSignature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(_) => None,
+            AccountOrPeerSignature::AccountSignature(signature) => Some(signature),
+        }
+    }
+
+    pub fn verify_peer(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => signature.verify(data, public_key),
+            AccountOrPeerSignature::AccountSignature(_) => false,
+        }
+    }
+}
+
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
-    pub signature: BlsSignature,
+    pub signature: AccountOrPeerSignature,
 }
 
 /// Account announcement information
@@ -222,7 +251,7 @@ impl AnnounceAccount {
         epoch_id: EpochId,
         peer_id: PeerId,
         hash: CryptoHash,
-        signature: BlsSignature,
+        signature: AccountOrPeerSignature,
     ) -> Self {
         let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
         Self { account_id, epoch_id, route }
@@ -267,12 +296,16 @@ impl AnnounceAccount {
         self.route.len() - 1
     }
 
-    pub fn extend(&mut self, peer_id: PeerId, secret_key: &BlsSecretKey) {
+    pub fn extend(&mut self, peer_id: PeerId, secret_key: &SecretKey) {
         let last_hash = self.route.last().unwrap().hash;
         let new_hash =
             hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
         let signature = secret_key.sign(new_hash.as_ref());
-        self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
+        self.route.push(AnnounceAccountRoute {
+            peer_id,
+            hash: new_hash,
+            signature: AccountOrPeerSignature::PeerSignature(signature),
+        })
     }
 }
 
@@ -301,10 +334,15 @@ pub struct RawRoutedMessage {
 }
 
 impl RawRoutedMessage {
-    pub fn sign(self, author: PeerId, secret_key: &BlsSecretKey) -> RoutedMessage {
+    pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
         let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
+        RoutedMessage {
+            account_id: self.account_id,
+            author,
+            signature: AccountOrPeerSignature::PeerSignature(signature),
+            body: self.body,
+        }
     }
 }
 
@@ -329,7 +367,7 @@ pub struct RoutedMessage {
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: BlsSignature,
+    pub signature: AccountOrPeerSignature,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -356,7 +394,7 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify_single(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify_peer(self.hash().as_ref(), &self.author.public_key())
     }
 }
 
@@ -431,8 +469,8 @@ impl fmt::Display for PeerMessage {
 /// Configuration for the peer-to-peer manager.
 #[derive(Clone)]
 pub struct NetworkConfig {
-    pub public_key: BlsPublicKey,
-    pub secret_key: BlsSecretKey,
+    pub public_key: PublicKey,
+    pub secret_key: SecretKey,
     pub account_id: Option<AccountId>,
     pub addr: Option<SocketAddr>,
     pub boot_nodes: Vec<PeerInfo>,

@@ -52,6 +52,10 @@ impl InMemorySigner {
     pub fn from_secret_key(account_id: String, secret_key: SecretKey) -> Self {
         Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
+
+    pub fn from_file(path: &Path) -> Self {
+        KeyFile::from_file(path).into()
+    }
 }
 
 impl Signer for InMemorySigner {

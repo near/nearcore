@@ -258,7 +258,7 @@ fn test_validator_kickout() {
                 }));
             }),
             100,
-            10000,
+            20000,
         )
         .start();
 
@@ -381,7 +381,7 @@ fn test_validator_join() {
                 }
             }),
             1000,
-            20000,
+            40000,
         )
         .start();
 
@@ -397,7 +397,7 @@ fn test_inflation() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let epoch_length = 20;
+        let epoch_length = 10;
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
             num_nodes,
@@ -441,7 +441,7 @@ fn test_inflation() {
                 }
             }),
             100,
-            5000,
+            10000,
         )
         .start();
 

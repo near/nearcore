@@ -195,11 +195,11 @@ mod test {
     use near_store::create_store;
 
     use super::*;
-    use near_crypto::BlsSecretKey;
+    use near_crypto::{KeyType, SecretKey};
 
     fn gen_peer_info() -> PeerInfo {
         PeerInfo {
-            id: PeerId::from(BlsSecretKey::from_random().public_key()),
+            id: PeerId::from(SecretKey::from_random(KeyType::ED25519).public_key()),
             addr: None,
             account_id: None,
         }

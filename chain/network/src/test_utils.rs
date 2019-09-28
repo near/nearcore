@@ -7,7 +7,7 @@ use tokio::timer::Delay;
 
 use crate::types::{NetworkConfig, PeerId, PeerInfo};
 use futures::future;
-use near_crypto::BlsSecretKey;
+use near_crypto::{KeyType, SecretKey};
 
 /// Returns available port.
 pub fn open_port() -> u16 {
@@ -21,7 +21,7 @@ pub fn open_port() -> u16 {
 impl NetworkConfig {
     /// Returns network config with given seed used for peer id.
     pub fn from_seed(seed: &str, port: u16) -> Self {
-        let secret_key = BlsSecretKey::from_seed(seed);
+        let secret_key = SecretKey::from_seed(KeyType::ED25519, seed);
         let public_key = secret_key.public_key();
         NetworkConfig {
             public_key,
@@ -46,7 +46,7 @@ impl NetworkConfig {
 pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     let mut result = vec![];
     for (peer_seed, port) in boot_nodes {
-        let id = BlsSecretKey::from_seed(peer_seed).public_key();
+        let id = SecretKey::from_seed(KeyType::ED25519, peer_seed).public_key();
         result.push(PeerInfo::new(id.into(), format!("127.0.0.1:{}", port).parse().unwrap()))
     }
     result
@@ -54,7 +54,7 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
 
 impl PeerId {
     pub fn random() -> Self {
-        BlsSecretKey::from_random().public_key().into()
+        SecretKey::from_random(KeyType::ED25519).public_key().into()
     }
 }
 
