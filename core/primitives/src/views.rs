@@ -285,6 +285,7 @@ pub struct BlockHeaderView {
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
     pub approval_sigs: BlsSignature,
+    #[serde(with = "u128_dec_format")]
     pub total_weight: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
