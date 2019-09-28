@@ -800,3 +800,17 @@ pub fn display_chain(chain: &mut Chain, tail: bool) {
         }
     }
 }
+
+impl ChainGenesis {
+    pub fn test() -> Self {
+        ChainGenesis {
+            time: Utc::now(),
+            gas_limit: 1_000_000,
+            gas_price: 1,
+            total_supply: 1_000_000_000,
+            max_inflation_rate: 0,
+            gas_price_adjustment_rate: 0,
+            transaction_validity_period: 100,
+        }
+    }
+}
