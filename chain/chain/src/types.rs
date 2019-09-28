@@ -84,6 +84,12 @@ pub enum ValidatorSignatureVerificationResult {
     UnknownEpoch,
 }
 
+impl ValidatorSignatureVerificationResult {
+    pub fn valid(&self) -> bool {
+        *self == ValidatorSignatureVerificationResult::Valid
+    }
+}
+
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,

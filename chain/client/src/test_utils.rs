@@ -404,7 +404,7 @@ pub fn setup_client(
     validators: Vec<Vec<&str>>,
     validator_groups: u64,
     num_shards: ShardId,
-    account_id: &str,
+    account_id: Option<&str>,
     network_adapter: Arc<dyn NetworkAdapter>,
     chain_genesis: ChainGenesis,
 ) -> Client {
@@ -415,9 +415,10 @@ pub fn setup_client(
         validator_groups,
         num_shards,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let block_producer =
+        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
     let mut config = ClientConfig::test(true, 10, num_validators);
     config.transaction_validity_period = chain_genesis.transaction_validity_period;
-    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, Some(signer.into()))
+    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
 }

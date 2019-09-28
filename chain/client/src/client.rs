@@ -34,6 +34,7 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncStatus};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
+use near_primitives::challenge::Challenge;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -867,5 +868,38 @@ impl Client {
         }
 
         Ok(vec![])
+    }
+
+    pub fn verify_challenge(&self, challenge: Challenge) -> Result<bool, Error> {
+        match challenge {
+            Challenge::BlockDoubleSign { left_block_header, right_block_header } => {
+                let block_producer = self.runtime_adapter.get_block_producer(
+                    &left_block_header.inner.epoch_id,
+                    left_block_header.inner.height,
+                )?;
+                Ok(left_block_header.hash() != right_block_header.hash()
+                    && left_block_header.inner.height == right_block_header.inner.height
+                    && self
+                        .runtime_adapter
+                        .verify_validator_signature(
+                            &left_block_header.inner.epoch_id,
+                            &block_producer,
+                            left_block_header.hash().as_ref(),
+                            &left_block_header.signature,
+                        )
+                        .valid()
+                    && self
+                        .runtime_adapter
+                        .verify_validator_signature(
+                            &right_block_header.inner.epoch_id,
+                            &block_producer,
+                            right_block_header.hash().as_ref(),
+                            &right_block_header.signature,
+                        )
+                        .valid())
+            }
+            Challenge::ChunkDoubleSign { left_chunk_header, right_chunk_header } => Ok(false),
+            _ => Ok(false),
+        }
     }
 }
