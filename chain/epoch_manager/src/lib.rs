@@ -720,7 +720,7 @@ mod tests {
             vec![],
             change_stake(vec![("test1", amount_staked)]),
             0,
-            HashMap::default(),
+            reward(vec![("near", 0)]),
             0,
         );
         let epoch0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
