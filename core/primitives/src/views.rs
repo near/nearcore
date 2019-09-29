@@ -19,8 +19,8 @@ use crate::serialize::{
 use crate::sharding::{ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, LogEntry, SignedTransaction, StakeAction,
-    TransactionLog, TransactionResult, TransactionStatus, TransferAction,
+    DeployContractAction, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use crate::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StorageUsage, ValidatorStake,
@@ -279,6 +279,9 @@ pub struct BlockHeaderView {
     pub prev_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
     pub tx_root: CryptoHashView,
+    pub chunk_receipts_root: CryptoHashView,
+    pub chunk_headers_root: CryptoHashView,
+    pub chunk_tx_root: CryptoHashView,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
     pub approval_sigs: Vec<Signature>,
@@ -289,6 +292,8 @@ pub struct BlockHeaderView {
     pub gas_limit: Gas,
     #[serde(with = "u128_dec_format")]
     pub gas_price: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
     pub signature: Signature,
@@ -303,6 +308,9 @@ impl From<BlockHeader> for BlockHeaderView {
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
             tx_root: header.inner.tx_root.into(),
+            chunk_receipts_root: header.inner.chunk_receipts_root.into(),
+            chunk_headers_root: header.inner.chunk_headers_root.into(),
+            chunk_tx_root: header.inner.chunk_tx_root.into(),
             timestamp: header.inner.timestamp,
             approval_mask: header.inner.approval_mask,
             approval_sigs: header.inner.approval_sigs,
@@ -317,6 +325,7 @@ impl From<BlockHeader> for BlockHeaderView {
             gas_used: header.inner.gas_used,
             gas_limit: header.inner.gas_limit,
             gas_price: header.inner.gas_price,
+            rent_paid: header.inner.rent_paid,
             total_supply: header.inner.total_supply,
             signature: header.signature,
         }
@@ -332,6 +341,9 @@ impl From<BlockHeaderView> for BlockHeader {
                 prev_hash: view.prev_hash.into(),
                 prev_state_root: view.prev_state_root.into(),
                 tx_root: view.tx_root.into(),
+                chunk_receipts_root: view.chunk_receipts_root.into(),
+                chunk_headers_root: view.chunk_headers_root.into(),
+                chunk_tx_root: view.chunk_tx_root.into(),
                 timestamp: view.timestamp,
                 approval_mask: view.approval_mask,
                 approval_sigs: view.approval_sigs,
@@ -346,6 +358,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_price: view.gas_price,
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
+                rent_paid: view.rent_paid,
             },
             signature: view.signature,
             hash: CryptoHash::default(),
@@ -366,7 +379,10 @@ pub struct ChunkHeaderView {
     pub shard_id: ShardId,
     pub gas_used: Gas,
     pub gas_limit: Gas,
-    pub receipts_root: CryptoHashView,
+    #[serde(with = "u128_dec_format")]
+    pub rent_paid: Balance,
+    pub outgoing_receipts_root: CryptoHashView,
+    pub tx_root: CryptoHashView,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub signature: Signature,
 }
@@ -383,7 +399,9 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
             shard_id: chunk.inner.shard_id,
             gas_used: chunk.inner.gas_used,
             gas_limit: chunk.inner.gas_limit,
-            receipts_root: chunk.inner.receipts_root.into(),
+            rent_paid: chunk.inner.rent_paid,
+            outgoing_receipts_root: chunk.inner.outgoing_receipts_root.into(),
+            tx_root: chunk.inner.tx_root.into(),
             validator_proposals: chunk
                 .inner
                 .validator_proposals
@@ -407,7 +425,9 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
                 shard_id: view.shard_id,
                 gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                receipts_root: view.receipts_root.into(),
+                rent_paid: view.rent_paid,
+                outgoing_receipts_root: view.outgoing_receipts_root.into(),
+                tx_root: view.tx_root.into(),
                 validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
             },
             height_included: view.height_included,
@@ -583,112 +603,159 @@ impl From<SignedTransaction> for SignedTransactionView {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
-pub enum FinalTransactionStatus {
-    Unknown,
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub enum FinalExecutionStatus {
+    /// The execution has not yet started.
+    NotStarted,
+    /// The execution has started and still going.
     Started,
-    Failed,
-    Completed,
+    /// The execution has failed.
+    Failure,
+    /// The execution has succeeded and returned some value or an empty vec encoded in base64.
+    SuccessValue(String),
 }
 
-impl Default for FinalTransactionStatus {
-    fn default() -> Self {
-        FinalTransactionStatus::Unknown
+impl fmt::Debug for FinalExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FinalExecutionStatus::NotStarted => f.write_str("NotStarted"),
+            FinalExecutionStatus::Started => f.write_str("Started"),
+            FinalExecutionStatus::Failure => f.write_str("Failure"),
+            FinalExecutionStatus::SuccessValue(v) => f.write_fmt(format_args!(
+                "SuccessValue({})",
+                logging::pretty_utf8(&from_base64(&v).unwrap())
+            )),
+        }
     }
 }
 
-impl FinalTransactionStatus {
-    pub fn to_code(&self) -> u64 {
+impl Default for FinalExecutionStatus {
+    fn default() -> Self {
+        FinalExecutionStatus::NotStarted
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
+pub enum ExecutionStatusView {
+    /// The execution is pending.
+    Pending,
+    /// The execution has failed.
+    Failure,
+    /// The final action succeeded and returned some value or an empty vec encoded in base64.
+    SuccessValue(String),
+    /// The final action of the receipt returned a promise or the signed transaction was converted
+    /// to a receipt. Contains the receipt_id of the generated receipt.
+    SuccessReceiptId(CryptoHashView),
+}
+
+impl fmt::Debug for ExecutionStatusView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            FinalTransactionStatus::Completed => 0,
-            FinalTransactionStatus::Failed => 1,
-            FinalTransactionStatus::Started => 2,
-            FinalTransactionStatus::Unknown => std::u64::MAX,
+            ExecutionStatusView::Pending => f.write_str("Pending"),
+            ExecutionStatusView::Failure => f.write_str("Failure"),
+            ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
+                "SuccessValue({})",
+                logging::pretty_utf8(&from_base64(&v).unwrap())
+            )),
+            ExecutionStatusView::SuccessReceiptId(receipt_id) => {
+                f.write_fmt(format_args!("SuccessReceiptId({})", receipt_id))
+            }
+        }
+    }
+}
+
+impl From<ExecutionStatus> for ExecutionStatusView {
+    fn from(outcome: ExecutionStatus) -> Self {
+        match outcome {
+            ExecutionStatus::Pending => ExecutionStatusView::Pending,
+            ExecutionStatus::Failure => ExecutionStatusView::Failure,
+            ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
+            ExecutionStatus::SuccessReceiptId(receipt_id) => {
+                ExecutionStatusView::SuccessReceiptId(receipt_id.into())
+            }
+        }
+    }
+}
+
+impl From<ExecutionStatusView> for ExecutionStatus {
+    fn from(view: ExecutionStatusView) -> Self {
+        match view {
+            ExecutionStatusView::Pending => ExecutionStatus::Pending,
+            ExecutionStatusView::Failure => ExecutionStatus::Failure,
+            ExecutionStatusView::SuccessValue(v) => {
+                ExecutionStatus::SuccessValue(from_base64(&v).unwrap())
+            }
+            ExecutionStatusView::SuccessReceiptId(receipt_id) => {
+                ExecutionStatus::SuccessReceiptId(receipt_id.into())
+            }
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TransactionResultView {
-    pub status: TransactionStatus,
-    pub logs: Vec<LogEntry>,
-    pub receipts: Vec<CryptoHashView>,
-    pub result: Option<String>,
+pub struct ExecutionOutcomeView {
+    /// Execution status. Contains the result in case of successful execution.
+    pub status: ExecutionStatusView,
+    /// Logs from this transaction or receipt.
+    pub logs: Vec<String>,
+    /// Receipt IDs generated by this transaction or receipt.
+    pub receipt_ids: Vec<CryptoHashView>,
+    /// The amount of the gas burnt by the given transaction or receipt.
     pub gas_burnt: Gas,
 }
 
-impl From<TransactionResult> for TransactionResultView {
-    fn from(result: TransactionResult) -> Self {
+impl From<ExecutionOutcome> for ExecutionOutcomeView {
+    fn from(outcome: ExecutionOutcome) -> Self {
         Self {
-            status: result.status,
-            logs: result.logs,
-            receipts: result.receipts.into_iter().map(|h| h.into()).collect(),
-            result: result.result.map(|v| to_base64(&v)),
-            gas_burnt: result.gas_burnt,
+            status: outcome.status.into(),
+            logs: outcome.logs,
+            receipt_ids: outcome.receipt_ids.into_iter().map(|h| h.into()).collect(),
+            gas_burnt: outcome.gas_burnt,
         }
     }
 }
 
-impl From<TransactionResultView> for TransactionResult {
-    fn from(view: TransactionResultView) -> Self {
+impl From<ExecutionOutcomeView> for ExecutionOutcome {
+    fn from(view: ExecutionOutcomeView) -> Self {
         Self {
-            status: view.status,
+            status: view.status.into(),
             logs: view.logs,
-            receipts: view.receipts.into_iter().map(|h| h.into()).collect(),
-            result: view.result.map(|v| from_base64(&v).unwrap()),
+            receipt_ids: view.receipt_ids.into_iter().map(|h| h.into()).collect(),
             gas_burnt: view.gas_burnt,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct TransactionLogView {
-    pub hash: CryptoHashView,
-    pub result: TransactionResultView,
+pub struct ExecutionOutcomeWithIdView {
+    pub id: CryptoHashView,
+    pub outcome: ExecutionOutcomeView,
 }
 
-impl From<TransactionLog> for TransactionLogView {
-    fn from(log: TransactionLog) -> Self {
-        Self { hash: log.hash.into(), result: log.result.into() }
+impl From<ExecutionOutcomeWithId> for ExecutionOutcomeWithIdView {
+    fn from(outcome_with_id: ExecutionOutcomeWithId) -> Self {
+        Self { id: outcome_with_id.id.into(), outcome: outcome_with_id.outcome.into() }
     }
 }
 
-/// Result of transaction and all of subsequent the receipts.
+/// Final execution outcome of the transaction and all of subsequent the receipts.
 #[derive(Serialize, Deserialize)]
-pub struct FinalTransactionResult {
-    /// Status of the whole transaction and it's receipts.
-    pub status: FinalTransactionStatus,
-    /// Transaction results.
-    pub transactions: Vec<TransactionLogView>,
+pub struct FinalExecutionOutcomeView {
+    /// Execution status. Contains the result in case of successful execution.
+    pub status: FinalExecutionStatus,
+    /// The execution outcome of the signed transaction.
+    pub transaction: ExecutionOutcomeWithIdView,
+    /// The execution outcome of receipts.
+    pub receipts: Vec<ExecutionOutcomeWithIdView>,
 }
 
-impl fmt::Debug for FinalTransactionResult {
+impl fmt::Debug for FinalExecutionOutcomeView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("FinalTransactionResult")
+        f.debug_struct("FinalExecutionOutcome")
             .field("status", &self.status)
-            .field("transactions", &format_args!("{}", logging::pretty_vec(&self.transactions)))
+            .field("transaction", &self.transaction)
+            .field("receipts", &format_args!("{}", logging::pretty_vec(&self.receipts)))
             .finish()
-    }
-}
-
-impl FinalTransactionResult {
-    pub fn final_log(&self) -> String {
-        let mut logs = vec![];
-        for transaction in &self.transactions {
-            for line in &transaction.result.logs {
-                logs.push(line.clone());
-            }
-        }
-        logs.join("\n")
-    }
-
-    pub fn last_result(&self) -> String {
-        for transaction in self.transactions.iter().rev() {
-            if let Some(r) = &transaction.result.result {
-                return r.clone();
-            }
-        }
-        "".to_string()
     }
 }
 

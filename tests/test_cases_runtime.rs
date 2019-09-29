@@ -13,6 +13,10 @@ mod test {
         RuntimeNode::new(&alice_account())
     }
 
+    fn create_free_runtime_node() -> RuntimeNode {
+        RuntimeNode::free(&alice_account())
+    }
+
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
         let mut genesis_config =
             GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
@@ -320,5 +324,11 @@ mod test {
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
         test_delete_account_while_staking(node);
+    }
+
+    #[test]
+    fn test_smart_contract_free_runtime() {
+        let node = create_free_runtime_node();
+        test_smart_contract_free(node);
     }
 }

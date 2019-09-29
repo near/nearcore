@@ -242,6 +242,7 @@ fn replay_chain(
                     vec![],
                     header.inner.gas_used,
                     header.inner.gas_price,
+                    header.inner.rent_paid,
                     header.inner.total_supply,
                 )
                 .unwrap();

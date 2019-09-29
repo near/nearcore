@@ -22,8 +22,7 @@ fn build_chain() {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
         let block = Block::empty(&prev, signer.clone());
-        let tip =
-            chain.process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {}).unwrap();
+        let tip = chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         assert_eq!(tip.unwrap().height, i + 1);
     }
     assert_eq!(chain.head().unwrap().height, 4);
@@ -51,37 +50,29 @@ fn build_chain_with_orhpans() {
         signer.clone(),
     );
     assert_eq!(
+        chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap_err().kind(),
+        ErrorKind::Orphan
+    );
+    assert_eq!(
         chain
-            .process_block(&None, block, Provenance::PRODUCED, |_, _, _| {}, |_| {})
+            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_| {}, |_| {})
             .unwrap_err()
             .kind(),
         ErrorKind::Orphan
     );
     assert_eq!(
         chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}, |_| {})
+            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_| {}, |_| {})
             .unwrap_err()
             .kind(),
         ErrorKind::Orphan
     );
-    assert_eq!(
-        chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}, |_| {})
-            .unwrap_err()
-            .kind(),
-        ErrorKind::Orphan
-    );
-    let res = chain.process_block(
-        &None,
-        blocks.pop().unwrap(),
-        Provenance::PRODUCED,
-        |_, _, _| {},
-        |_| {},
-    );
+    let res =
+        chain.process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_| {}, |_| {});
     assert_eq!(res.unwrap().unwrap().height, 10);
     assert_eq!(
         chain
-            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_, _, _| {}, |_| {})
+            .process_block(&None, blocks.pop().unwrap(), Provenance::PRODUCED, |_| {}, |_| {})
             .unwrap_err()
             .kind(),
         ErrorKind::Unfit("already known in store".to_string())
@@ -98,11 +89,11 @@ fn build_chain_with_skips_and_forks() {
     let b3 = Block::empty_with_height(&b1, 3, signer.clone());
     let b4 = Block::empty_with_height(&b2, 4, signer.clone());
     let b5 = Block::empty(&b4, signer);
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
-    assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b3, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b4, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b5, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     assert!(chain.get_header_by_height(1).is_err());
     assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
 }
@@ -135,7 +126,7 @@ fn test_apply_expired_tx() {
         Some(0),
         signer.clone(),
     );
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.
     //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
 }
@@ -168,7 +159,7 @@ fn test_tx_wrong_fork() {
         Some(0),
         signer.clone(),
     );
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_ok());
+    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
     // TODO: MOO add shard tracking.
     //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_, _, _| {}, |_| {}).is_err());
 }

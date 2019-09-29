@@ -65,8 +65,13 @@ pub struct BlockInfo {
     pub proposals: Vec<ValidatorStake>,
     pub chunk_mask: Vec<bool>,
     pub slashed: HashSet<AccountId>,
+    /// Total gas used in this block.
     pub gas_used: Gas,
+    /// Current gas price.
     pub gas_price: Balance,
+    /// Total rent paid in this block.
+    pub rent_paid: Balance,
+    /// Total supply at this block.
     pub total_supply: Balance,
 }
 
@@ -79,6 +84,7 @@ impl BlockInfo {
         slashed: HashSet<AccountId>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Self {
         Self {
@@ -89,6 +95,7 @@ impl BlockInfo {
             slashed,
             gas_used,
             gas_price,
+            rent_paid,
             total_supply,
             // These values are not set. This code is suboptimal
             epoch_first_block: CryptoHash::default(),
@@ -172,4 +179,5 @@ pub struct EpochSummary {
     pub validator_kickout: HashSet<AccountId>,
     pub validator_online_ratio: HashMap<AccountId, (u64, u64)>,
     pub total_gas_used: Gas,
+    pub total_storage_rent: Balance,
 }

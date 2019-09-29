@@ -500,6 +500,12 @@ impl GenesisConfig {
         Self::test_with_seeds(seeds, num_validators, vec![num_validators])
     }
 
+    pub fn test_free(seeds: Vec<&str>, num_validators: usize) -> Self {
+        let mut config = Self::test_with_seeds(seeds, num_validators, vec![num_validators]);
+        config.runtime_config = RuntimeConfig::free();
+        config
+    }
+
     pub fn test_sharded(
         seeds: Vec<&str>,
         num_validators: usize,
