@@ -76,9 +76,6 @@ impl Client {
         network_adapter: Arc<dyn NetworkAdapter>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-        // TODO(1364): dedup ClientConfig and ChainGenesis transaction_validity_period field.
-        // Check consistency of two configs that have the same field.
-        assert_eq!(config.transaction_validity_period, chain_genesis.transaction_validity_period);
         let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
         let shards_mgr = ShardsManager::new(
             block_producer.as_ref().map(|x| x.account_id.clone()),
@@ -303,6 +300,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
+        let transaction_validity_period = self.chain.transaction_validity_period;
         let transactions: Vec<_> = self
             .shards_mgr
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
@@ -311,7 +309,7 @@ impl Client {
                 check_tx_history(
                     self.chain.get_block_header(&t.transaction.block_hash).ok(),
                     next_height,
-                    self.config.transaction_validity_period,
+                    transaction_validity_period,
                 )
             })
             .collect();
@@ -717,10 +715,11 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let transaction_validity_period = self.chain.transaction_validity_period;
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
             head.height,
-            self.config.transaction_validity_period,
+            transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(

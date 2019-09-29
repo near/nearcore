@@ -73,8 +73,7 @@ pub fn setup(
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
-    let mut config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
-    config.transaction_validity_period = tx_validity_period;
+    let config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
     let client = ClientActor::new(
         config,
         store,
@@ -416,8 +415,7 @@ pub fn setup_client(
         num_shards,
     ));
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
-    let mut config = ClientConfig::test(true, 10, num_validators);
-    config.transaction_validity_period = chain_genesis.transaction_validity_period;
+    let config = ClientConfig::test(true, 10, num_validators);
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, Some(signer.into()))
         .unwrap()
 }
