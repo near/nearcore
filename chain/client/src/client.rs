@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use cached::{Cached, SizedCache};
 use chrono::Utc;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use near_chain::types::{
     AcceptedBlock, LatestKnown, ReceiptResponse, ValidatorSignatureVerificationResult,
@@ -20,19 +20,20 @@ use near_chain::{
 use near_chunks::{NetworkAdapter, ShardsManager};
 use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
-use near_network::NetworkRequests;
+use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
+use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
+use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
 use near_store::Store;
 
-use crate::sync::{BlockSync, HeaderSync, StateSync};
+use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncStatus};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
-use near_primitives::merkle::merklize;
-use near_primitives::transaction::check_tx_history;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -230,9 +231,6 @@ impl Client {
 
         let prev_header = self.chain.get_block_header(&head.last_block_hash)?;
 
-        // This is kept here in case we want to revive txs on the block level.
-        let transactions = vec![];
-
         // At this point, the previous epoch hash must be available
         let epoch_id = self
             .runtime_adapter
@@ -252,7 +250,6 @@ impl Client {
             next_height,
             chunks,
             epoch_id,
-            transactions,
             self.approvals.drain().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
@@ -711,5 +708,163 @@ impl Client {
         debug!(target: "client", "Received approval for {} from {}", hash, account_id);
         self.approvals.insert(position, signature.clone());
         true
+    }
+
+    /// Process transaction and either add it to the mempool or return to redirect to another validator.
+    pub fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
+        let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
+        let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
+        let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let transaction_validity_period = self.chain.transaction_validity_period;
+        if !check_tx_history(
+            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
+            head.height,
+            transaction_validity_period,
+        ) {
+            debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
+            return NetworkClientResponses::InvalidTx(
+                "Transaction has either expired or from a different fork".to_string(),
+            );
+        }
+        let gas_price = unwrap_or_return!(
+            self.chain.get_block_header(&head.last_block_hash),
+            NetworkClientResponses::NoResponse
+        )
+        .inner
+        .gas_price;
+        let state_root = unwrap_or_return!(
+            self.chain.get_chunk_extra(&head.last_block_hash, shard_id),
+            NetworkClientResponses::NoResponse
+        )
+        .state_root
+        .clone();
+
+        match self.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
+            Ok(valid_transaction) => {
+                let active_validator = unwrap_or_return!(self.active_validator(), {
+                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                    NetworkClientResponses::NoResponse
+                });
+
+                // If I'm not an active validator I should forward tx to next validators.
+                if active_validator {
+                    debug!(
+                        "Recording a transaction. I'm {:?}, {}",
+                        self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                        shard_id
+                    );
+                    self.shards_mgr.insert_transaction(shard_id, valid_transaction);
+                    NetworkClientResponses::ValidTx
+                } else {
+                    // TODO(MarX): Forward tx even if I am a validator.
+                    // TODO(MarX): How many validators ahead of current time should we forward tx?
+                    let target_height = head.height + 2;
+
+                    debug!(target: "client",
+                           "{:?} Routing a transaction. {}",
+                           self.block_producer.as_ref().map(|bp| bp.account_id.clone()),
+                           shard_id
+                    );
+
+                    let validator = unwrap_or_return!(
+                        self.runtime_adapter.get_chunk_producer(
+                            &head.epoch_id,
+                            target_height,
+                            shard_id
+                        ),
+                        {
+                            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
+                            NetworkClientResponses::NoResponse
+                        }
+                    );
+
+                    NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
+                }
+            }
+            Err(err) => {
+                debug!(target: "client", "Invalid tx: {:?}", err);
+                NetworkClientResponses::InvalidTx(err.to_string())
+            }
+        }
+    }
+
+    /// Determine if I am a validator in current epoch for specified shard.
+    fn active_validator(&self) -> Result<bool, Error> {
+        let head = self.chain.head()?;
+
+        let account_id = if let Some(bp) = self.block_producer.as_ref() {
+            &bp.account_id
+        } else {
+            return Ok(false);
+        };
+
+        let block_proposers = self
+            .runtime_adapter
+            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
+            .map_err(|e| Error::Other(e.to_string()))?;
+
+        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
+        Ok(block_proposers
+            .into_iter()
+            .find_map(
+                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
+            )
+            .unwrap_or(false))
+    }
+
+    /// Walks through all the ongoing state syncs for future epochs and processes them
+    pub fn run_catchup(&mut self) -> Result<Vec<AcceptedBlock>, Error> {
+        let me = &self.block_producer.as_ref().map(|x| x.account_id.clone());
+        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos() {
+            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
+            let network_adapter1 = self.network_adapter.clone();
+
+            let (state_sync, new_shard_sync) = self
+                .catchup_state_syncs
+                .entry(sync_hash)
+                .or_insert_with(|| (StateSync::new(network_adapter1), HashMap::new()));
+
+            debug!(
+                target: "client",
+                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
+            );
+
+            match state_sync.run(
+                sync_hash,
+                new_shard_sync,
+                &mut self.chain,
+                &self.runtime_adapter,
+                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
+            )? {
+                StateSyncResult::Unchanged => {}
+                StateSyncResult::Changed(fetch_block) => {
+                    assert!(!fetch_block);
+                }
+                StateSyncResult::Completed => {
+                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
+                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
+
+                    self.chain.catchup_blocks(
+                        me,
+                        &sync_hash,
+                        |accepted_block| {
+                            accepted_blocks.write().unwrap().push(accepted_block);
+                        },
+                        |missing_chunks| {
+                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
+                        },
+                    )?;
+
+                    for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
+                        self.shards_mgr.request_chunks(missing_chunks).unwrap();
+                    }
+                    let unwrapped_accepted_blocks =
+                        accepted_blocks.write().unwrap().drain(..).collect();
+                    return Ok(unwrapped_accepted_blocks);
+                }
+            }
+        }
+
+        Ok(vec![])
     }
 }

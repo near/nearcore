@@ -41,7 +41,6 @@ fn add_blocks(
             prev.header.inner.height + 1,
             blocks[0].chunks.clone(),
             epoch_id,
-            vec![],
             HashMap::default(),
             0,
             Some(0),

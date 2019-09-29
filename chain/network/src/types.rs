@@ -676,7 +676,6 @@ pub struct StateResponseInfo {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
     pub prev_payload: Vec<u8>,
-    pub block_transactions: Vec<SignedTransaction>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
 }
@@ -719,6 +718,7 @@ pub enum NetworkClientMessages {
 }
 
 // TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// No response.

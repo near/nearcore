@@ -27,7 +27,6 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::transaction::{check_tx_history, SignedTransaction};
 use near_primitives::types::{BlockIndex, EpochId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -37,7 +36,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::client::Client;
 use crate::info::InfoHelper;
-use crate::sync::{most_weight_peer, StateSync, StateSyncResult};
+use crate::sync::{most_weight_peer, StateSyncResult};
 use crate::types::{
     BlockProducer, ClientConfig, Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncStatus,
     Status, StatusSyncInfo, SyncStatus,
@@ -187,31 +186,6 @@ impl ClientActor {
             Err(reason_for_ban) => AccountAnnounceVerificationResult::Invalid(reason_for_ban),
         }
     }
-
-    /// Determine if I am a validator in current epoch for specified shard.
-    fn active_validator(&self) -> Result<bool, Error> {
-        let head = self.client.chain.head()?;
-
-        let account_id = if let Some(bp) = self.client.block_producer.as_ref() {
-            &bp.account_id
-        } else {
-            return Ok(false);
-        };
-
-        let block_proposers = self
-            .client
-            .runtime_adapter
-            .get_epoch_block_producers(&head.epoch_id, &head.last_block_hash)
-            .map_err(|e| Error::Other(e.to_string()))?;
-
-        // I am a validator if I am in the assignment for current epoch and I'm not slashed.
-        Ok(block_proposers
-            .into_iter()
-            .find_map(
-                |(validator, slashed)| if &validator == account_id { Some(!slashed) } else { None },
-            )
-            .unwrap_or(false))
-    }
 }
 
 impl Actor for ClientActor {
@@ -242,7 +216,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
 
     fn handle(&mut self, msg: NetworkClientMessages, _ctx: &mut Context<Self>) -> Self::Result {
         match msg {
-            NetworkClientMessages::Transaction(tx) => self.process_tx(tx),
+            NetworkClientMessages::Transaction(tx) => self.client.process_tx(tx),
             NetworkClientMessages::BlockHeader(header, peer_id) => {
                 self.receive_header(header, peer_id)
             }
@@ -308,7 +282,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     chunk,
                     chunk_proof,
                     prev_payload,
-                    block_transactions,
                     incoming_receipts_proofs,
                     root_proofs,
                 )) = self.client.chain.get_state_for_shard(shard_id, hash)
@@ -319,7 +292,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         chunk,
                         chunk_proof,
                         prev_payload,
-                        block_transactions,
                         incoming_receipts_proofs,
                         root_proofs,
                     });
@@ -332,7 +304,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 chunk,
                 chunk_proof,
                 prev_payload,
-                block_transactions,
                 incoming_receipts_proofs,
                 root_proofs,
             }) => {
@@ -373,7 +344,6 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         chunk,
                         chunk_proof,
                         prev_payload,
-                        block_transactions,
                         incoming_receipts_proofs,
                         root_proofs,
                     ) {
@@ -824,85 +794,6 @@ impl ClientActor {
         Ok(headers)
     }
 
-    /// Validate transaction and return transaction information relevant to ordering it in the mempool.
-    fn process_tx(&mut self, tx: SignedTransaction) -> NetworkClientResponses {
-        let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
-        let me = self.client.block_producer.as_ref().map(|bp| &bp.account_id);
-        let shard_id =
-            self.client.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let transaction_validity_period = self.client.chain.transaction_validity_period;
-        if !check_tx_history(
-            self.client.chain.get_block_header(&tx.transaction.block_hash).ok(),
-            head.height,
-            transaction_validity_period,
-        ) {
-            debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(
-                "Transaction has either expired or from a different fork".to_string(),
-            );
-        }
-        let gas_price = unwrap_or_return!(
-            self.client.chain.get_block_header(&head.last_block_hash),
-            NetworkClientResponses::NoResponse
-        )
-        .inner
-        .gas_price;
-        let state_root = unwrap_or_return!(
-            self.client.chain.get_chunk_extra(&head.last_block_hash, shard_id),
-            NetworkClientResponses::NoResponse
-        )
-        .state_root
-        .clone();
-
-        match self.client.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
-            Ok(valid_transaction) => {
-                let active_validator = unwrap_or_return!(self.active_validator(), {
-                    warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                    NetworkClientResponses::NoResponse
-                });
-
-                // If I'm not an active validator I should forward tx to next validators.
-                if active_validator {
-                    debug!(
-                        "Recording a transaction. I'm {:?}, {}",
-                        self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id
-                    );
-                    self.client.shards_mgr.insert_transaction(shard_id, valid_transaction);
-                    NetworkClientResponses::ValidTx
-                } else {
-                    // TODO(MarX): Forward tx even if I am a validator.
-                    // TODO(MarX): How many validators ahead of current time should we forward tx?
-                    let target_height = head.height + 2;
-
-                    debug!(target: "client",
-                           "{:?} Routing a transaction. {}",
-                           self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                           shard_id
-                    );
-
-                    let validator = unwrap_or_return!(
-                        self.client.runtime_adapter.get_chunk_producer(
-                            &head.epoch_id,
-                            target_height,
-                            shard_id
-                        ),
-                        {
-                            warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
-                            NetworkClientResponses::NoResponse
-                        }
-                    );
-
-                    NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
-                }
-            }
-            Err(err) => {
-                debug!(target: "client", "Invalid transaction: {:?}", err);
-                NetworkClientResponses::InvalidTx(err.to_string())
-            }
-        }
-    }
-
     /// Check whether need to (continue) sync.
     fn needs_syncing(&self) -> Result<(bool, u64), near_chain::Error> {
         let head = self.client.chain.head()?;
@@ -967,68 +858,13 @@ impl ClientActor {
         Ok(sync_hash)
     }
 
-    /// Walks through all the ongoing state syncs for future epochs and processes them
-    fn run_catchup(&mut self) -> Result<(), Error> {
-        let me = &self.client.block_producer.as_ref().map(|x| x.account_id.clone());
-        for (sync_hash, state_sync_info) in self.client.chain.store().iterate_state_sync_infos() {
-            assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
-            let network_adapter1 = self.network_adapter.clone();
-
-            let (state_sync, new_shard_sync) = self
-                .client
-                .catchup_state_syncs
-                .entry(sync_hash)
-                .or_insert_with(|| (StateSync::new(network_adapter1), HashMap::new()));
-
-            debug!(
-                target: "client",
-                "Catchup me: {:?}: sync_hash: {:?}, sync_info: {:?}", me, sync_hash, new_shard_sync
-            );
-
-            match state_sync.run(
-                sync_hash,
-                new_shard_sync,
-                &mut self.client.chain,
-                &self.client.runtime_adapter,
-                state_sync_info.shards.iter().map(|tuple| tuple.0).collect(),
-            )? {
-                StateSyncResult::Unchanged => {}
-                StateSyncResult::Changed(fetch_block) => {
-                    assert!(!fetch_block);
-                }
-                StateSyncResult::Completed => {
-                    let accepted_blocks = Arc::new(RwLock::new(vec![]));
-                    let blocks_missing_chunks = Arc::new(RwLock::new(vec![]));
-
-                    self.client.chain.catchup_blocks(
-                        me,
-                        &sync_hash,
-                        |accepted_block| {
-                            accepted_blocks.write().unwrap().push(accepted_block);
-                        },
-                        |missing_chunks| {
-                            blocks_missing_chunks.write().unwrap().push(missing_chunks)
-                        },
-                    )?;
-
-                    self.process_accepted_blocks(
-                        accepted_blocks.write().unwrap().drain(..).collect(),
-                    );
-                    for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
-                        self.client.shards_mgr.request_chunks(missing_chunks).unwrap();
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
         if let Some(_) = self.client.block_producer {
-            match self.run_catchup() {
-                Ok(_) => {}
+            match self.client.run_catchup() {
+                Ok(accepted_blocks) => {
+                    self.process_accepted_blocks(accepted_blocks);
+                }
                 Err(err) => {
                     error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()), err)
                 }

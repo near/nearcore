@@ -20,9 +20,10 @@ use near_network::{
 use near_primitives::block::Block;
 use near_primitives::types::{BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
+use near_store::Store;
 use near_telemetry::TelemetryActor;
 
-use crate::{BlockProducer, ClientActor, ClientConfig, ViewClientActor};
+use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -395,4 +396,26 @@ impl BlockProducer {
     pub fn test(seed: &str) -> Self {
         Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
     }
+}
+
+pub fn setup_client(
+    store: Arc<Store>,
+    validators: Vec<Vec<&str>>,
+    validator_groups: u64,
+    num_shards: ShardId,
+    account_id: &str,
+    network_adapter: Arc<dyn NetworkAdapter>,
+    chain_genesis: ChainGenesis,
+) -> Client {
+    let num_validators = validators.iter().map(|x| x.len()).sum();
+    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
+        store.clone(),
+        validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
+        validator_groups,
+        num_shards,
+    ));
+    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let config = ClientConfig::test(true, 10, num_validators);
+    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, Some(signer.into()))
+        .unwrap()
 }

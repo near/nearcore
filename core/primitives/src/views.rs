@@ -278,7 +278,6 @@ pub struct BlockHeaderView {
     pub hash: CryptoHashView,
     pub prev_hash: CryptoHashView,
     pub prev_state_root: CryptoHashView,
-    pub tx_root: CryptoHashView,
     pub chunk_receipts_root: CryptoHashView,
     pub chunk_headers_root: CryptoHashView,
     pub chunk_tx_root: CryptoHashView,
@@ -307,7 +306,6 @@ impl From<BlockHeader> for BlockHeaderView {
             hash: header.hash.into(),
             prev_hash: header.inner.prev_hash.into(),
             prev_state_root: header.inner.prev_state_root.into(),
-            tx_root: header.inner.tx_root.into(),
             chunk_receipts_root: header.inner.chunk_receipts_root.into(),
             chunk_headers_root: header.inner.chunk_headers_root.into(),
             chunk_tx_root: header.inner.chunk_tx_root.into(),
@@ -340,7 +338,6 @@ impl From<BlockHeaderView> for BlockHeader {
                 epoch_id: EpochId(view.epoch_id.into()),
                 prev_hash: view.prev_hash.into(),
                 prev_state_root: view.prev_state_root.into(),
-                tx_root: view.tx_root.into(),
                 chunk_receipts_root: view.chunk_receipts_root.into(),
                 chunk_headers_root: view.chunk_headers_root.into(),
                 chunk_tx_root: view.chunk_tx_root.into(),
@@ -443,7 +440,6 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
 pub struct BlockView {
     pub header: BlockHeaderView,
     pub chunks: Vec<ChunkHeaderView>,
-    pub transactions: Vec<SignedTransactionView>,
 }
 
 impl From<Block> for BlockView {
@@ -451,7 +447,6 @@ impl From<Block> for BlockView {
         BlockView {
             header: block.header.into(),
             chunks: block.chunks.into_iter().map(Into::into).collect(),
-            transactions: block.transactions.into_iter().map(Into::into).collect(),
         }
     }
 }

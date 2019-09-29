@@ -2,13 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
-
-use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Block, ChainGenesis, Provenance};
-use near_chunks::NetworkAdapter;
-use near_client::test_utils::MockNetworkAdapter;
-use near_client::{Client, ClientConfig};
+use near_client::test_utils::{setup_client, MockNetworkAdapter};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::block::BlockHeader;
@@ -16,38 +11,14 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::{MerkleHash, ShardId};
+use near_primitives::types::MerkleHash;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
-
-fn setup_client(
-    store: Arc<Store>,
-    validators: Vec<Vec<&str>>,
-    validator_groups: u64,
-    num_shards: ShardId,
-    account_id: &str,
-    network_adapter: Arc<dyn NetworkAdapter>,
-    genesis_time: DateTime<Utc>,
-) -> Client {
-    let num_validators = validators.iter().map(|x| x.len()).sum();
-    let runtime_adapter = Arc::new(KeyValueRuntime::new_with_validators(
-        store.clone(),
-        validators.into_iter().map(|inner| inner.into_iter().map(Into::into).collect()).collect(),
-        validator_groups,
-        num_shards,
-    ));
-    let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 100);
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
-    let config = ClientConfig::test(true, 10, num_validators);
-    Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, Some(signer.into()))
-        .unwrap()
-}
 
 #[test]
 fn test_request_chunk_restart() {
     init_test_logger();
     let store = create_test_store();
-    let genesis_time = Utc::now();
+    let chain_genesis = ChainGenesis::test();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut client = setup_client(
         store.clone(),
@@ -56,7 +27,7 @@ fn test_request_chunk_restart() {
         1,
         "test1",
         network_adapter.clone(),
-        genesis_time,
+        chain_genesis.clone(),
     );
     let mut block = None;
     for i in 1..3 {
@@ -88,7 +59,7 @@ fn test_request_chunk_restart() {
         1,
         "test1",
         network_adapter.clone(),
-        genesis_time,
+        chain_genesis,
     );
     client2.shards_mgr.process_chunk_one_part_request(request, PeerId::random()).unwrap();
     // TODO: should be some() with the same chunk.
@@ -127,7 +98,6 @@ fn create_block_with_invalid_chunk(
         1,
         vec![invalid_encoded_chunk.header.clone()],
         prev_block_header.inner.epoch_id.clone(),
-        vec![],
         HashMap::default(),
         0,
         None,
@@ -141,6 +111,7 @@ fn create_block_with_invalid_chunk(
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let store = create_test_store();
+    let chain_genesis = ChainGenesis::test();
     let network_adapter = Arc::new(MockNetworkAdapter::default());
     let mut client = setup_client(
         store,
@@ -149,7 +120,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
         1,
         "test2",
         network_adapter,
-        Utc::now(),
+        chain_genesis,
     );
     let prev_block_header = client.chain.get_header_by_height(0).unwrap();
     let (block_with_invalid_chunk, _) = create_block_with_invalid_chunk(prev_block_header, "test2");

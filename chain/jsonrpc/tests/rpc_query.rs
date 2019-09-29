@@ -28,7 +28,6 @@ fn test_block() {
                     8, 151, 20, 133, 110, 226, 51, 179, 144, 42, 89, 29, 13, 95, 41, 37
                 ]
             );
-            assert_eq!(res.header.tx_root.0, &[0; 32]);
             assert!(res.header.timestamp > 0);
             assert_eq!(res.header.approval_mask.len(), 0);
             assert_eq!(res.header.approval_sigs.len(), 0);
