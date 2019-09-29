@@ -5,6 +5,7 @@ pub enum Error {
     InvalidChunkShardId,
     InvalidMerkleProof,
     InvalidChunkSignature,
+    UnknownChunk,
     ChainError(near_chain::Error),
     IOError(std::io::Error),
     PoolError(near_pool::Error),

@@ -44,7 +44,7 @@ fn add_blocks(
             HashMap::default(),
             0,
             Some(0),
-            signer.clone(),
+            &*signer,
         );
         let _ = client.do_send(NetworkClientMessages::Block(
             block.clone(),

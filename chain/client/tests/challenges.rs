@@ -110,7 +110,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
         near_chain::ErrorKind::ChunksMissing(vec![chunk.header])
     );
 
-    env.clients[1].process_chunk
+    // env.clients[1].process_chunk
 }
 
 #[test]

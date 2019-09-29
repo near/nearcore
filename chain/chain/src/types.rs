@@ -401,7 +401,7 @@ mod tests {
             1_000_000_000,
         );
         let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
-        let b1 = Block::empty(&genesis, signer.clone());
+        let b1 = Block::empty(&genesis, &*signer);
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
         let other_signer =
@@ -413,7 +413,7 @@ mod tests {
             2,
             b1.header.inner.epoch_id.clone(),
             approvals,
-            signer.clone(),
+            &*signer,
         );
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner.total_weight.to_num(), 3);

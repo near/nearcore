@@ -44,7 +44,7 @@ fn create_block() -> Block {
         HashMap::default(),
         0,
         Some(0),
-        signer.clone(),
+        &*signer,
     )
 }
 
