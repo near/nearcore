@@ -12,7 +12,7 @@ Create 10 validator accounts and totally 400 accounts (these are default argumen
 target/debug/loadtester create_genesis
 ```
 
-Start a local testnet.
+Start a local testnet from home dir of `~/.near/near.x`
 
 Launch the load tester:
 ```bash
