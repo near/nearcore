@@ -375,7 +375,7 @@ impl BlockApproval {
 
 /// Block approval by other block producers.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ShardState {
+pub struct ShardStateSyncResponse {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
     pub prev_chunk_header: ShardChunkHeader,
@@ -386,7 +386,7 @@ pub struct ShardState {
     pub root_proofs: Vec<Vec<RootProof>>,
 }
 
-impl ShardState {
+impl ShardStateSyncResponse {
     pub fn new(
         chunk: ShardChunk,
         chunk_proof: MerklePath,

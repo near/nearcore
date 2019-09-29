@@ -12,7 +12,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
 use tokio::net::TcpStream;
 
-use near_chain::types::ShardState;
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
@@ -672,7 +672,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub shard_state: ShardState,
+    pub shard_state: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]

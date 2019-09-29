@@ -22,7 +22,7 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardState, Tip,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, Tip,
     ValidatorSignatureVerificationResult,
 };
 
@@ -804,7 +804,7 @@ impl Chain {
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardState, Error> {
+    ) -> Result<ShardStateSyncResponse, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -910,7 +910,7 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        Ok(ShardState::new(
+        Ok(ShardStateSyncResponse::new(
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -927,7 +927,7 @@ impl Chain {
         _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state: ShardState,
+        shard_state: ShardStateSyncResponse,
     ) -> Result<(), Error> {
         // Ensure that sync_hash block is included into the canonical chain
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
@@ -941,7 +941,7 @@ impl Chain {
             .into());
         }
 
-        let ShardState {
+        let ShardStateSyncResponse {
             chunk,
             chunk_proof,
             prev_chunk_header,
@@ -1102,7 +1102,7 @@ impl Chain {
                         ErrorKind::Other("set_shard_state failed: invalid proofs".into()).into()
                     );
                 }
-                // 5f. Proving the outgoing_receipts_root contains in the block
+                // 5f. Proving the outgoing_receipts_root matches that in the block
                 if !verify_path(block_header.inner.chunk_receipts_root, block_proof, root) {
                     byzantine_assert!(false);
                     return Err(
