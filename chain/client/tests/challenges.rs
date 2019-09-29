@@ -2,15 +2,17 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use borsh::BorshSerialize;
+
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::{setup_client, MockNetworkAdapter, TestEnv};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::block::BlockHeader;
 use near_primitives::challenge::Challenge;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::serialize::BaseDecode;
-use near_primitives::sharding::EncodedShardChunk;
+use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::MerkleHash;
 use near_store::test_utils::create_test_store;
@@ -78,6 +80,37 @@ fn test_verify_chunk_double_sign_challenge() {
         right_chunk_header: chunk2.header.clone(),
     };
     assert!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap());
+}
+
+#[test]
+fn test_verify_chunk_invalid_proofs_challenge() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    env.produce_block(0, 1);
+    let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
+    let (mut chunk, _) = env.clients[0]
+        .produce_chunk(
+            last_block.hash(),
+            &last_block.header.inner.epoch_id,
+            last_block.chunks[0].clone(),
+            2,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+    chunk.header.inner.tx_root =
+        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap();
+    chunk.header.height_included = 2;
+    chunk.header.hash = ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap()));
+    chunk.header.signature =
+        env.clients[0].block_producer.as_ref().unwrap().signer.sign(chunk.header.hash.as_ref());
+
+    let valid_challenge = Challenge::ChunkProofs { chunk_header: chunk.header.clone() };
+    assert_eq!(
+        env.clients[1].chain.verify_challenge(valid_challenge).err().unwrap().kind(),
+        near_chain::ErrorKind::ChunksMissing(vec![chunk.header])
+    );
+
+    env.clients[1].process_chunk
 }
 
 #[test]
