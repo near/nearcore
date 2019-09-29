@@ -89,6 +89,9 @@ pub enum ErrorKind {
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
     EpochOutOfBounds,
+    /// A challenged block is on the chain that was attempted to become the head
+    #[fail(display = "Challenged block on chain")]
+    ChallengedBlockOnChain,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -139,6 +142,7 @@ impl Error {
             | ErrorKind::ValidatorError(_)
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
+            | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
