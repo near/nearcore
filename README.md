@@ -11,7 +11,7 @@
 
 ## NEAR Protocol - scalable and usable blockchain
 
-![Build status](https://img.shields.io/gitlab/pipeline/nearprotocol/nearcore.svg)
+![Build status](https://gitlab.com/near-protocol/nearcore/badges/master/pipeline.svg)
 [![codecov](https://codecov.io/gh/nearprotocol/nearcore/branch/master/graph/badge.svg)](https://codecov.io/gh/nearprotocol/nearcore)
 [![dependency status](https://deps.rs/repo/github/nearprotocol/nearcore/status.svg)](https://deps.rs/repo/github/nearprotocol/nearcore)
 [![Join the community on Spectrum](https://withspectrum.github.io/badge/badge.svg)](https://spectrum.chat/near)
