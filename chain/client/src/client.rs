@@ -23,7 +23,7 @@ use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::merklize;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkOnePart, EncodedShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{check_tx_history, SignedTransaction};
@@ -280,7 +280,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockIndex,
         shard_id: ShardId,
-    ) -> Result<Option<(EncodedShardChunk, Vec<Receipt>)>, Error> {
+    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let block_producer = self
             .block_producer
             .as_ref()
@@ -357,7 +357,7 @@ impl Client {
         let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
         let (receipts_root, _) = merklize(&receipts_hashes);
 
-        let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
+        let (encoded_chunk, merkle_paths) = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
             chunk_extra.state_root,
             next_height,
@@ -384,7 +384,7 @@ impl Client {
             encoded_chunk.chunk_hash().0,
         );
 
-        Ok(Some((encoded_chunk, receipts)))
+        Ok(Some((encoded_chunk, merkle_paths, receipts)))
     }
 
     pub fn process_block(
@@ -593,9 +593,9 @@ impl Client {
                             block.header.inner.height + 1,
                             shard_id,
                         ) {
-                            Ok(Some((encoded_chunk, receipts))) => {
-                                self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts)
-                            }
+                            Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
+                                .shards_mgr
+                                .distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts),
                             Ok(None) => {}
                             Err(err) => {
                                 error!(target: "client", "Error producing chunk {:?}", err);

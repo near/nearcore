@@ -55,7 +55,7 @@ fn test_verify_chunk_double_sign_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
     let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
-    let (chunk1, _) = env.clients[0]
+    let (chunk1, _, _) = env.clients[0]
         .produce_chunk(
             last_block.hash(),
             &last_block.header.inner.epoch_id,
@@ -65,7 +65,7 @@ fn test_verify_chunk_double_sign_challenge() {
         )
         .unwrap()
         .unwrap();
-    let (chunk2, _) = env.clients[0]
+    let (chunk2, _, _) = env.clients[0]
         .produce_chunk(
             last_block.header.inner.prev_hash,
             &last_block.header.inner.epoch_id,
@@ -84,10 +84,10 @@ fn test_verify_chunk_double_sign_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 2, 1);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
     let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
-    let (mut chunk, _) = env.clients[0]
+    let (mut chunk, merkle_paths, receipts) = env.clients[0]
         .produce_chunk(
             last_block.hash(),
             &last_block.header.inner.epoch_id,
@@ -106,11 +106,12 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
     let valid_challenge = Challenge::ChunkProofs { chunk_header: chunk.header.clone() };
     assert_eq!(
-        env.clients[1].chain.verify_challenge(valid_challenge).err().unwrap().kind(),
-        near_chain::ErrorKind::ChunksMissing(vec![chunk.header])
+        env.clients[0].chain.verify_challenge(valid_challenge.clone()).err().unwrap().kind(),
+        near_chain::ErrorKind::ChunksMissing(vec![chunk.header.clone()])
     );
 
-    // env.clients[1].process_chunk
+    env.clients[0].shards_mgr.distribute_encoded_chunk(chunk, merkle_paths, receipts);
+    assert!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap());
 }
 
 #[test]

@@ -155,7 +155,7 @@ impl KeyValueRuntime {
         let prev_block_header = self
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or("Missing block when computing the epoch")?;
+            .ok_or(format!("Missing block {} when computing the epoch", prev_hash))?;
         Ok(prev_block_header.inner.height)
     }
 
@@ -663,7 +663,10 @@ impl RuntimeAdapter for KeyValueRuntime {
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
             .ok_or_else(|| {
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
+                Error::from(ErrorKind::Other(format!(
+                    "Missing block {} when computing the epoch",
+                    parent_hash
+                )))
             })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0

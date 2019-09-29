@@ -687,10 +687,10 @@ impl ShardsManager {
         receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: &dyn Signer,
-    ) -> Result<EncodedShardChunk, Error> {
+    ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
-        let (new_chunk, merkle_paths) = EncodedShardChunk::new(
+        EncodedShardChunk::new(
             prev_block_hash,
             prev_state_root,
             height,
@@ -706,14 +706,8 @@ impl ShardsManager {
             receipts,
             receipts_root,
             signer,
-        )?;
-
-        for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
-            let part_id = part_id as u64;
-            self.merkle_paths.insert((new_chunk.chunk_hash(), part_id), merkle_path.clone());
-        }
-
-        Ok(new_chunk)
+        )
+        .map_err(|err| err.into())
     }
 
     pub fn process_encoded_chunk(
@@ -768,6 +762,7 @@ impl ShardsManager {
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
+        merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
     ) {
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
@@ -801,8 +796,7 @@ impl ShardsManager {
             let one_part = encoded_chunk.create_chunk_one_part(
                 part_ord,
                 one_part_receipt_proofs,
-                // It should be impossible to have a part but not the merkle path
-                self.merkle_paths.get(&(chunk_hash.clone(), part_ord)).unwrap().clone(),
+                merkle_paths[part_ord as usize].clone(),
             );
 
             // 1/2 This is a weird way to introduce the chunk to the producer's storage
@@ -819,8 +813,14 @@ impl ShardsManager {
             }
         }
 
+        // Save merkle paths.
+        for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
+            let part_id = part_id as u64;
+            self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
+        }
+
         // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
-        self.encoded_chunks.insert(encoded_chunk.header.chunk_hash(), encoded_chunk.clone());
+        self.encoded_chunks.insert(chunk_hash.clone(), encoded_chunk.clone());
         self.process_encoded_chunk(
             &encoded_chunk,
             (0..encoded_chunk.content.parts.len())

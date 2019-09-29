@@ -1253,8 +1253,7 @@ impl Chain {
                 // This tries to retrieve the chunk, if it's missing return ChunksMissing error to fetch it.
                 // TODO: ?? should we just get get_chunk() here? which type of error we need
                 let chunk = self.mut_store().get_chunk_clone_from_header(&chunk_header)?;
-                println!("Chunk {:?}", chunk);
-                validate_chunk_proofs(&chunk, &*self.runtime_adapter)
+                validate_chunk_proofs(&chunk, &*self.runtime_adapter).map(|valid| !valid)
             }
             Challenge::ChunkState { chunk_header, block_hash, shard_id, partial_state } => {
                 // Retrieve block, if it's missing return error to fetch it.
