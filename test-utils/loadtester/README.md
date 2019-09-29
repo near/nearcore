@@ -34,7 +34,7 @@ target/debug/loadtester run --tps 100 --accounts 10 --addrs <list-of-node-socket
 
 ## More usages
 
-Some parameters, like tps, number of accounts to create for loadtest network config, etc. is customizable. See them by
+More parameters, like tps, number of accounts to create for loadtest network config, etc. is customizable. See them by
 `loadtester run --help` and `loadtester create_genesis --help`.
 
 ## Further work
