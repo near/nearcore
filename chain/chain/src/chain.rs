@@ -21,9 +21,11 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, Tip, ValidatorSignatureVerificationResult,
+    validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance,
+    ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter, Tip,
+    ValidatorSignatureVerificationResult,
 };
+use near_primitives::challenge::Challenge;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -933,48 +935,20 @@ impl Chain {
 
         let block_header = self.get_header_by_height(chunk.header.height_included)?.clone();
 
-        // 1. Checking that chunk header is at least valid
-        // 1a. Checking chunk.header.hash
-        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        // Validate proofs in the chunk.
+        if validate_chunk_proofs(&chunk, &*self.runtime_adapter)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
-                "set_shard_state failed: chunk header hash is broken".into(),
-            )
-            .into());
-        }
-        // 1b. Checking signature
-        if !self.runtime_adapter.verify_chunk_header_signature(&chunk.header)? {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: incorrect chunk signature".to_string(),
+                "set_shard_state failed: chunk header proofs are invalid".into(),
             )
             .into());
         }
 
-        // 2. Checking that chunk body is at least valid
-        // 2a. Checking chunk hash
-        if chunk.chunk_hash != chunk.header.hash {
-            byzantine_assert!(false);
-            return Err(
-                ErrorKind::Other("set_shard_state failed: chunk hash is broken".into()).into()
-            );
-        }
-        // 2b. Checking that chunk transactions are valid
-        let (tx_root, _) = merklize(&chunk.transactions);
-        if tx_root != chunk.header.inner.tx_root {
-            byzantine_assert!(false);
-            return Err(
-                ErrorKind::Other("set_shard_state failed: chunk tx_root is broken".into()).into()
-            );
-        }
-        // 2c. Checking that chunk receipts are valid
-        let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        // Checking signature
+        if !self.runtime_adapter.verify_chunk_header_signature(&chunk.header)? {
             byzantine_assert!(false);
             return Err(ErrorKind::Other(
-                "set_shard_state failed: chunk receipts_root is broken".into(),
+                "set_shard_state failed: incorrect chunk signature".to_string(),
             )
             .into());
         }
@@ -1237,6 +1211,58 @@ impl Chain {
         }
 
         Ok(())
+    }
+
+    /// Returns true if challenge is correct.
+    pub fn verify_challenge(&mut self, challenge: Challenge) -> Result<bool, Error> {
+        match challenge {
+            Challenge::BlockDoubleSign { left_block_header, right_block_header } => {
+                let block_producer = self.runtime_adapter.get_block_producer(
+                    &left_block_header.inner.epoch_id,
+                    left_block_header.inner.height,
+                )?;
+                Ok(left_block_header.hash() != right_block_header.hash()
+                    && left_block_header.inner.height == right_block_header.inner.height
+                    && self
+                        .runtime_adapter
+                        .verify_validator_signature(
+                            &left_block_header.inner.epoch_id,
+                            &block_producer,
+                            left_block_header.hash().as_ref(),
+                            &left_block_header.signature,
+                        )
+                        .valid()
+                    && self
+                        .runtime_adapter
+                        .verify_validator_signature(
+                            &right_block_header.inner.epoch_id,
+                            &block_producer,
+                            right_block_header.hash().as_ref(),
+                            &right_block_header.signature,
+                        )
+                        .valid())
+            }
+            Challenge::ChunkDoubleSign { left_chunk_header, right_chunk_header } => {
+                Ok(left_chunk_header.hash != right_chunk_header.hash
+                    && left_chunk_header.inner.height_created
+                        == right_chunk_header.inner.height_created
+                    && self.runtime_adapter.verify_chunk_header_signature(&left_chunk_header)?
+                    && self.runtime_adapter.verify_chunk_header_signature(&right_chunk_header)?)
+            }
+            Challenge::ChunkProofs { chunk_header } => {
+                // This tries to retrieve the chunk, if it's missing return ChunksMissing error to fetch it.
+                // TODO: ?? should we just get get_chunk() here? which type of error we need
+                let chunk = self.mut_store().get_chunk_clone_from_header(&chunk_header)?;
+                validate_chunk_proofs(&chunk, &*self.runtime_adapter)
+            }
+            Challenge::ChunkState { chunk_header, block_hash, shard_id, partial_state } => {
+                // Retrieve block, if it's missing return error to fetch it.
+                let chunk_header =
+                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
+                let prev_chunk = self.store.get_chunk_clone_from_header(&chunk_header)?;
+                Ok(false)
+            }
+        }
     }
 }
 

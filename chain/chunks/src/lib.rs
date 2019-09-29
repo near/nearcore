@@ -524,6 +524,7 @@ impl ShardsManager {
                             } else {
                                 error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk.header.chunk_hash().0);
                                 // Can't decode chunk, ignore it
+                                // TODO: CHALLENGE send out challenge.
                                 for i in 0..self
                                     .runtime_adapter
                                     .num_total_parts(&chunk.header.inner.prev_block_hash)

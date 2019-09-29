@@ -16,7 +16,7 @@ pub enum Challenge {
     /// Double signed chunk within the same block.
     ChunkDoubleSign { left_chunk_header: ShardChunkHeader, right_chunk_header: ShardChunkHeader },
     /// Invalid chunk header (proofs are invalid).
-    ChunkProofs { chunk_header: ShardChunkHeader, block_hash: CryptoHash, shard_id: ShardId },
+    ChunkProofs { chunk_header: ShardChunkHeader },
     /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
     ChunkState {
         chunk_header: ShardChunkHeader,

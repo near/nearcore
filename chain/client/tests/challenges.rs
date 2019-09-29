@@ -36,16 +36,16 @@ fn test_verify_block_double_sign_challenge() {
         left_block_header: b1.header.clone(),
         right_block_header: b2.header.clone(),
     };
-    assert!(env.clients[1].verify_challenge(valid_challenge).unwrap());
+    assert!(env.clients[1].chain.verify_challenge(valid_challenge).unwrap());
     let invalid_challenge = Challenge::BlockDoubleSign {
         left_block_header: b1.header.clone(),
         right_block_header: b1.header.clone(),
     };
-    assert!(!env.clients[1].verify_challenge(invalid_challenge).unwrap());
+    assert!(!env.clients[1].chain.verify_challenge(invalid_challenge).unwrap());
     let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
     let invalid_challenge =
         Challenge::BlockDoubleSign { left_block_header: b1.header, right_block_header: b3.header };
-    assert!(!env.clients[1].verify_challenge(invalid_challenge).unwrap());
+    assert!(!env.clients[1].chain.verify_challenge(invalid_challenge).unwrap());
 }
 
 #[test]
@@ -73,13 +73,11 @@ fn test_verify_chunk_double_sign_challenge() {
         )
         .unwrap()
         .unwrap();
-    println!("{:?}", chunk1);
-    println!("{:?}", chunk2);
     let valid_challenge = Challenge::ChunkDoubleSign {
         left_chunk_header: chunk1.header.clone(),
         right_chunk_header: chunk2.header.clone(),
     };
-    //    assert!(env.clients[0].verify_challenge(valid_challenge).unwrap());
+    assert!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap());
 }
 
 #[test]

@@ -5,9 +5,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
+use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
@@ -418,4 +418,33 @@ mod tests {
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner.total_weight.to_num(), 3);
     }
+}
+
+/// Verifies that chunk's proofs in the header match the body.
+pub fn validate_chunk_proofs(
+    chunk: &ShardChunk,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> Result<bool, Error> {
+    // 1. Checking chunk.header.hash
+    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        return Ok(false);
+    }
+
+    // 2. Checking that chunk body is valid
+    // 2a. Checking chunk hash
+    if chunk.chunk_hash != chunk.header.hash {
+        return Ok(false);
+    }
+    // 2b. Checking that chunk transactions are valid
+    let (tx_root, _) = merklize(&chunk.transactions);
+    if tx_root != chunk.header.inner.tx_root {
+        return Ok(false);
+    }
+    // 2c. Checking that chunk receipts are valid
+    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+    if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        return Ok(false);
+    }
+    Ok(true)
 }
