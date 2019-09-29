@@ -518,53 +518,6 @@ impl ShardsManager {
             }
             Err(err) => Err(err),
         }
-        //        if let Some(chunk) = self.encoded_chunks.get_mut(&part.chunk_hash) {
-        //            let prev_block_hash = chunk.header.inner.prev_block_hash;
-        //            if chunk.header.inner.shard_id != part.shard_id {
-        //                return Err(Error::InvalidChunkShardId);
-        //            }
-        //            if (part.part_id as usize) < chunk.content.parts.len() {
-        //                if chunk.content.parts[part.part_id as usize].is_none() {
-        //                    // We have the chunk but haven't seen the part, so actually need to process it
-        //                    // First validate the merkle proof
-        //                    if !verify_path(
-        //                        chunk.header.inner.encoded_merkle_root,
-        //                        &part.merkle_path,
-        //                        &part.part,
-        //                    ) {
-        //                        return Err(Error::InvalidMerkleProof);
-        //                    }
-        //
-        //                    chunk.content.parts[part.part_id as usize] = Some(part.part);
-        //                    self.merkle_paths
-        //                        .insert((part.chunk_hash.clone(), part.part_id), part.merkle_path);
-        //
-        //                    match ShardsManager::check_chunk_complete(
-        //                        self.runtime_adapter.num_data_parts(&prev_block_hash),
-        //                        self.runtime_adapter.num_total_parts(&prev_block_hash),
-        //                        chunk,
-        //                    ) {
-        //                        ChunkStatus::Complete(merkle_paths) => {
-        //                            self.process_encoded_chunk(chunk, merkle_paths)
-        //                        }
-        //                        ChunkStatus::Incomplete => return Ok(None),
-        //                        ChunkStatus::Invalid => {
-        //                            for i in 0..self
-        //                                .runtime_adapter
-        //                                .num_total_parts(&chunk.header.inner.prev_block_hash)
-        //                            {
-        //                                self.merkle_paths.remove(&(part.chunk_hash.clone(), i as u64));
-        //                            }
-        //                            self.encoded_chunks.remove(&part.chunk_hash);
-        //                            return Ok(None);
-        //                        }
-        //                    };
-        //                }
-        //            }
-        //        } else {
-        //            debug!(target: "shards", "Received part {} for unknown chunk {:?}, declining", part.part_id, part.chunk_hash);
-        //        }
-        //        Ok(None)
     }
 
     /// Returns true if the chunk_one_part was not previously known
@@ -596,7 +549,7 @@ impl ShardsManager {
             &one_part.merkle_path,
             &one_part.part,
         ) {
-            // TODO: this is a slashable behavior
+            // TODO: CHALLENGE this is a slashable behavior
             byzantine_assert!(false);
             return Err(Error::InvalidMerkleProof);
         }
@@ -768,6 +721,8 @@ impl ShardsManager {
         chunk: &EncodedShardChunk,
         merkle_paths: Vec<MerklePath>,
     ) -> Result<Option<CryptoHash>, Error> {
+        let chunk_hash = chunk.header.chunk_hash();
+        assert!(self.encoded_chunks.contains_key(&chunk_hash));
         let cares_about_shard = self.cares_about_shard_this_or_next_epoch(
             self.me.as_ref(),
             &chunk.header.inner.prev_block_hash,
@@ -779,9 +734,9 @@ impl ShardsManager {
         if let Ok(shard_chunk) = chunk
             .decode_chunk(self.runtime_adapter.num_data_parts(&chunk.header.inner.prev_block_hash))
         {
-            debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk.header.chunk_hash().0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
+            debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
             // Decoded a valid chunk, store it in the permanent store ...
-            store_update.set_ser(COL_CHUNKS, chunk.header.chunk_hash().as_ref(), &shard_chunk)?;
+            store_update.set_ser(COL_CHUNKS, chunk_hash.as_ref(), &shard_chunk)?;
             store_update.commit()?;
             // ... and include into the block if we are the producer
             if cares_about_shard {
@@ -793,22 +748,23 @@ impl ShardsManager {
 
             for (part_id, merkle_path) in merkle_paths.iter().enumerate() {
                 let part_id = part_id as u64;
-                self.merkle_paths.insert((chunk.header.chunk_hash(), part_id), merkle_path.clone());
+                self.merkle_paths.insert((chunk_hash.clone(), part_id), merkle_path.clone());
             }
 
             return Ok(Some(chunk.header.inner.prev_block_hash));
         } else {
-            error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk.header.chunk_hash().0);
+            error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
             // Can't decode chunk, ignore it
             // TODO: CHALLENGE send out challenge.
             for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
-                self.merkle_paths.remove(&(chunk.header.chunk_hash(), i as u64));
+                self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
             }
-            self.encoded_chunks.remove(&chunk.header.chunk_hash());
+            self.encoded_chunks.remove(&chunk_hash);
             return Ok(None);
         }
     }
 
+    /// Distributes encoded chunk that was just produced.
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
@@ -863,6 +819,8 @@ impl ShardsManager {
             }
         }
 
+        // Save this chunk into encoded_chunks & process encoded chunk to add to the store.
+        self.encoded_chunks.insert(encoded_chunk.header.chunk_hash(), encoded_chunk.clone());
         self.process_encoded_chunk(
             &encoded_chunk,
             (0..encoded_chunk.content.parts.len())
@@ -872,15 +830,5 @@ impl ShardsManager {
                 .collect(),
         )
         .expect("Failed to process just created chunk");
-        // 2/2 This is a weird way to introduce the chunk to the producer's storage
-        //        for (part_id, _) in encoded_chunk.content.parts.iter().enumerate() {
-        //            let part_id = part_id as u64;
-        //            self.process_chunk_part(encoded_chunk.create_chunk_part_msg(
-        //                part_id,
-        //                // It should be impossible to have a part but not the merkle path
-        //                self.merkle_paths.get(&(chunk_hash.clone(), part_id)).unwrap().clone(),
-        //            ))
-        //            .unwrap();
-        //        }
     }
 }
