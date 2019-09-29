@@ -72,8 +72,7 @@ pub fn setup(
     let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
-    let mut config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
-    config.transaction_validity_period = tx_validity_period;
+    let config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
     let client = ClientActor::new(
         config,
         store,
