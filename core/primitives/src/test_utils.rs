@@ -161,7 +161,6 @@ impl Block {
             height,
             prev.chunks.clone(),
             epoch_id,
-            vec![],
             approvals,
             0,
             Some(0),

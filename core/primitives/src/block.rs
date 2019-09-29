@@ -9,7 +9,6 @@ use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
-use crate::transaction::SignedTransaction;
 use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
 
@@ -24,8 +23,6 @@ pub struct BlockHeaderInner {
     pub prev_hash: CryptoHash,
     /// Root hash of the state at the previous block.
     pub prev_state_root: MerkleHash,
-    /// Root hash of the transactions in the given block.
-    pub tx_root: MerkleHash,
     /// Root hash of the chunk receipts in the given block.
     pub chunk_receipts_root: MerkleHash,
     /// Root hash of the chunk headers in the given block.
@@ -62,7 +59,6 @@ impl BlockHeaderInner {
         epoch_id: EpochId,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
-        tx_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
@@ -83,7 +79,6 @@ impl BlockHeaderInner {
             epoch_id,
             prev_hash,
             prev_state_root,
-            tx_root,
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
@@ -125,7 +120,6 @@ impl BlockHeader {
         height: BlockIndex,
         prev_hash: CryptoHash,
         prev_state_root: MerkleHash,
-        tx_root: MerkleHash,
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
@@ -148,7 +142,6 @@ impl BlockHeader {
             epoch_id,
             prev_hash,
             prev_state_root,
-            tx_root,
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
@@ -183,7 +176,6 @@ impl BlockHeader {
             EpochId::default(),
             CryptoHash::default(),
             state_root,
-            MerkleHash::default(),
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
@@ -225,7 +217,6 @@ impl BlockHeader {
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
-    pub transactions: Vec<SignedTransaction>,
 }
 
 impl Block {
@@ -270,7 +261,6 @@ impl Block {
                 initial_total_supply,
             ),
             chunks,
-            transactions: vec![],
         }
     }
 
@@ -280,7 +270,6 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
-        transactions: Vec<SignedTransaction>,
         approvals: HashMap<usize, BlsSignature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
@@ -332,7 +321,6 @@ impl Block {
                 height,
                 prev.hash(),
                 Block::compute_state_root(&chunks),
-                Block::compute_tx_root(&transactions),
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
@@ -352,7 +340,6 @@ impl Block {
                 signer,
             ),
             chunks,
-            transactions,
         }
     }
 
@@ -361,10 +348,6 @@ impl Block {
             &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
         )
         .0
-    }
-
-    pub fn compute_tx_root(transactions: &Vec<SignedTransaction>) -> CryptoHash {
-        merklize(&transactions.iter().map(|tx| tx.get_hash()).collect::<Vec<CryptoHash>>()).0
     }
 
     pub fn compute_chunk_receipts_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
