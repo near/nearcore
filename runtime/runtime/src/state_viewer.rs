@@ -121,7 +121,7 @@ impl TrieViewer {
                 attached_deposit: 0,
                 prepaid_gas: 0,
                 random_seed: root.as_ref().into(),
-                free_of_charge: true,
+                is_view: true,
                 output_data_receivers: vec![],
             };
 

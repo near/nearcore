@@ -1,6 +1,6 @@
 use near_vm_logic::VMContext;
 
-pub fn get_context(input: Vec<u8>) -> VMContext {
+pub fn get_context(input: Vec<u8>, is_view: bool) -> VMContext {
     VMContext {
         current_account_id: "alice.near".to_string(),
         signer_account_id: "bob.near".to_string(),
@@ -13,7 +13,7 @@ pub fn get_context(input: Vec<u8>) -> VMContext {
         attached_deposit: 10,
         prepaid_gas: 10u64.pow(9),
         random_seed: vec![],
-        free_of_charge: false,
+        is_view,
         output_data_receivers: vec![],
     }
 }
