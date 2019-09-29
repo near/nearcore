@@ -44,3 +44,11 @@ High level milestones:
  - [ ] (In progress) Nightshade: Added sharding and staking.
  - [ ] TestNet: Added governance module, ready to launch as MainNet
  - [ ] MainNet: Launched full blockchain.
+
+## Running 
+
+Checkout the [Running Locally](https://docs.nearprotocol.com/docs/local-setup/running-testnet) and [Running Remotely](https://docs.nearprotocol.com/docs/local-setup/running-testnet#running-official-testnet-on-gcp) sections.
+
+## Developing
+
+Checkout the [Developing NEARCore](https://docs.nearprotocol.com/docs/contribution/contribution-overview#creating-and-submitting-a-pull-request-prs) section of documentation.
