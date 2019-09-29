@@ -34,7 +34,6 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let transactions = (0..1000).map(|_| create_transaction()).collect::<Vec<_>>();
     let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), 1, 1_000, 1_000, 1_000);
     let signer = Arc::new(InMemorySigner::from_random("".to_string(), KeyType::ED25519));
     Block::produce(
@@ -42,7 +41,6 @@ fn create_block() -> Block {
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
-        transactions,
         HashMap::default(),
         0,
         Some(0),

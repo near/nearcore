@@ -5,9 +5,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{Signature, Signer};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{SignedTransaction, TransactionLog};
+use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
+use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
@@ -19,7 +20,13 @@ use crate::error::Error;
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct RootProof(pub CryptoHash, pub MerklePath);
+
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
     Next,
@@ -41,7 +48,7 @@ impl BlockStatus {
 }
 
 /// Options for block origin.
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Provenance {
     /// No provenance.
     NONE,
@@ -49,6 +56,16 @@ pub enum Provenance {
     SYNC,
     /// Block we produced ourselves.
     PRODUCED,
+}
+
+/// Information about processed block.
+#[derive(Debug, Clone)]
+pub struct AcceptedBlock {
+    pub hash: CryptoHash,
+    pub status: BlockStatus,
+    pub provenance: Provenance,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
 }
 
 /// Information about valid transaction that was processed by chain + runtime.
@@ -60,15 +77,6 @@ pub struct ValidTransaction {
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
-pub enum ShardFullChunkOrOnePart<'a> {
-    // The validator follows the shard, and has the full chunk
-    FullChunk(&'a ShardChunk),
-    // The validator doesn't follow the shard, and only has one part
-    OnePart(&'a ChunkOnePart),
-    // The chunk for particular shard is not present in the block
-    NoChunk,
-}
-
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValidatorSignatureVerificationResult {
     Valid,
@@ -79,10 +87,11 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
-    pub transaction_results: Vec<TransactionLog>,
+    pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub gas_used: Gas,
+    pub total_gas_burnt: Gas,
+    pub total_rent_paid: Balance,
     pub proof: Option<PartialStorage>,
 }
 
@@ -104,10 +113,21 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Validate transaction and return transaction information relevant to ordering it in the mempool.
     fn validate_tx(
         &self,
-        shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>>;
+
+    /// Filter transactions by verifying each one by one in the given order. Every successful
+    /// verification stores the updated account balances to be used by next transactions.
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction>;
 
     /// Verify validator signature for the given epoch.
     fn verify_validator_signature(
@@ -154,6 +174,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Account Id to Shard Id mapping, given current number of shards.
     fn account_id_to_shard_id(&self, account_id: &AccountId) -> ShardId;
 
+    /// Returns `account_id` that suppose to have the `part_id` of all chunks given previous block hash.
     fn get_part_owner(&self, parent_hash: &CryptoHash, part_id: u64) -> Result<AccountId, Error>;
 
     /// Whether the client cares about some shard right now.
@@ -211,6 +232,7 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
@@ -225,6 +247,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
             shard_id,
@@ -234,6 +257,7 @@ pub trait RuntimeAdapter: Send + Sync {
             block_hash,
             receipts,
             transactions,
+            gas_price,
             false,
         )
     }
@@ -247,6 +271,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 

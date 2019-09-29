@@ -92,10 +92,10 @@ impl EpochManager {
             if slashed.contains(&account_id) {
                 continue;
             }
-            let num_blocks = block_validator_tracker.get(&i).unwrap_or(&0).clone();
+            let num_blocks = *block_validator_tracker.get(&i).unwrap_or(&0);
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
             let expected_blocks = *num_expected_blocks.get(&i).unwrap_or(&0);
-            if num_blocks * 100 < (validator_kickout_threshold as u64) * expected_blocks {
+            if num_blocks * 100 < u64::from(validator_kickout_threshold) * expected_blocks {
                 validator_kickout.insert(account_id);
                 continue;
             }
@@ -113,7 +113,7 @@ impl EpochManager {
                 }
             }
             if total_chunks_produced * 100
-                < validator_kickout_threshold as u64 * total_chunks_expected
+                < u64::from(validator_kickout_threshold) * total_chunks_expected
             {
                 validator_kickout.insert(account_id.clone());
                 continue;
@@ -153,6 +153,7 @@ impl EpochManager {
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
         let mut total_gas_used = 0;
+        let mut total_storage_rent = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -188,13 +189,14 @@ impl EpochManager {
                 let chunk_validator_id =
                     self.chunk_producer_from_info(&epoch_info, info.index, i as ShardId);
                 let tracker =
-                    chunk_validator_tracker.entry(i as ShardId).or_insert_with(|| HashMap::new());
+                    chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
                 if *mask {
                     tracker.entry(chunk_validator_id).and_modify(|e| *e += 1).or_insert(1);
                 }
             }
 
             total_gas_used += info.gas_used;
+            total_storage_rent += info.rent_paid;
 
             hash = info.prev_hash;
         }
@@ -227,6 +229,7 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         })
     }
 
@@ -244,6 +247,7 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
@@ -255,6 +259,7 @@ impl EpochManager {
             validator_online_ratio,
             total_gas_used,
             block_info.gas_price,
+            total_storage_rent,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -317,14 +322,14 @@ impl EpochManager {
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     block_info.epoch_id = EpochId::default();
-                    block_info.epoch_first_block = current_hash.clone();
+                    block_info.epoch_first_block = *current_hash;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
-                    block_info.epoch_first_block = current_hash.clone();
+                    block_info.epoch_first_block = *current_hash;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_index.
-                    block_info.epoch_id = prev_block_info.epoch_id.clone();
+                    block_info.epoch_id = prev_block_info.epoch_id;
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
@@ -445,6 +450,7 @@ impl EpochManager {
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_next_block_epoch_start(
         &mut self,
         parent_hash: &CryptoHash,
@@ -480,7 +486,7 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<BlockIndex, EpochError> {
-        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block.clone();
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
         Ok(self.get_block_info(&epoch_first_block)?.index)
     }
 
@@ -588,7 +594,7 @@ impl EpochManager {
             for i in 0..num_shards {
                 num_expected_chunks
                     .entry(i)
-                    .or_insert_with(|| HashMap::new())
+                    .or_insert_with(HashMap::new)
                     .entry(self.chunk_producer_from_info(epoch_info, index, i as ShardId))
                     .and_modify(|e| *e += 1)
                     .or_insert(1);
@@ -613,6 +619,7 @@ impl EpochManager {
     }
 
     /// Returns true, if given current block info, next block suppose to be in the next epoch.
+    #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         Ok(block_info.index + 1
             >= self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length)
@@ -656,7 +663,7 @@ impl EpochManager {
         /*println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);*/
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
-            .map_err(|err| EpochError::from(err))?;
+            .map_err(EpochError::from)?;
         self.epochs_info.insert(epoch_id.clone(), epoch_info);
         Ok(())
     }
@@ -674,7 +681,7 @@ impl EpochManager {
             let block_info = self
                 .store
                 .get_ser(COL_BLOCK_INFO, hash.as_ref())
-                .map_err(|err| EpochError::from(err))
+                .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
             self.blocks_info.insert(*hash, block_info);
         }
@@ -690,7 +697,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         store_update
             .set_ser(COL_BLOCK_INFO, block_hash.as_ref(), &block_info)
-            .map_err(|err| EpochError::from(err))?;
+            .map_err(EpochError::from)?;
         self.blocks_info.insert(*block_hash, block_info);
         Ok(())
     }
@@ -997,6 +1004,7 @@ mod tests {
                     slashed,
                     0,
                     DEFAULT_GAS_PRICE,
+                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1101,6 +1109,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1119,6 +1128,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1137,6 +1147,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1149,6 +1160,7 @@ mod tests {
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1200,6 +1212,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1218,6 +1231,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1236,6 +1250,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1247,6 +1262,7 @@ mod tests {
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();

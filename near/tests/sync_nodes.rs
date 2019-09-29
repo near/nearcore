@@ -41,7 +41,6 @@ fn add_blocks(
             prev.header.inner.height + 1,
             blocks[0].chunks.clone(),
             epoch_id,
-            vec![],
             HashMap::default(),
             0,
             Some(0),
@@ -64,7 +63,7 @@ fn sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["other"]);
+        let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
         let genesis_block = genesis_block(genesis_config.clone());
 
@@ -113,7 +112,7 @@ fn sync_after_sync_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["other"]);
+        let mut genesis_config = GenesisConfig::test(vec!["other"], 1);
         genesis_config.epoch_length = 5;
         let genesis_block = genesis_block(genesis_config.clone());
 
@@ -181,7 +180,7 @@ fn sync_state_stake_change() {
     heavy_test(|| {
         init_integration_logger();
 
-        let mut genesis_config = GenesisConfig::test(vec!["test1"]);
+        let mut genesis_config = GenesisConfig::test(vec!["test1"], 1);
         genesis_config.epoch_length = 5;
         genesis_config.validator_kickout_threshold = 80;
 

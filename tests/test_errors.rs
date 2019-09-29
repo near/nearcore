@@ -13,7 +13,7 @@ use testlib::node::{Node, ThreadNode};
 
 fn start_node() -> ThreadNode {
     init_integration_logger();
-    let genesis_config = GenesisConfig::legacy_test(vec!["alice.near", "bob.near"], 1, vec![1]);
+    let genesis_config = GenesisConfig::test(vec!["alice.near", "bob.near"], 1);
     let mut near_config = load_test_config("alice.near", open_port(), &genesis_config);
     near_config.client_config.skip_sync_wait = true;
 
@@ -55,7 +55,7 @@ fn test_deliver_tx_error_log() {
     let node = start_node();
     let signer = Arc::new(InMemorySigner::from_seed("alice.near", KeyType::ED25519, "alice.near"));
     let block_hash = node.user().get_best_block_hash().unwrap();
-    let cost = testlib::fees_utils::create_account_transfer_full_key_cost();
+    let cost = testlib::fees_utils::create_account_transfer_full_key_cost_no_reward();
     let tx = SignedTransaction::from_actions(
         1,
         "alice.near".to_string(),
@@ -72,11 +72,11 @@ fn test_deliver_tx_error_log() {
         block_hash,
     );
 
-    let tx_result = node.user().commit_transaction(tx).unwrap();
+    let tx_result = node.user().commit_transaction(tx).unwrap_err();
     assert_eq!(
-        tx_result.transactions[0].result.logs[0],
+        tx_result,
         format!(
-        "Runtime error: Sender alice.near does not have enough balance 999999950000000 for operation costing {}",
+            "RpcError {{ code: -32000, message: \"Server error\", data: Some(String(\"Sender alice.near does not have enough balance 999999950000000 for operation costing {}\")) }}",
             TESTING_INIT_BALANCE + 1 + cost
         )
     );

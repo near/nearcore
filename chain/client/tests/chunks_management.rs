@@ -1,5 +1,10 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 use actix::{Addr, System};
 use futures::{future, Future};
+
 use near_client::test_utils::setup_mock_all_validators;
 use near_client::{ClientActor, GetBlock, ViewClientActor};
 use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
@@ -7,9 +12,6 @@ use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 #[test]
 fn chunks_produced_and_distributed_all_in_all_shards() {
@@ -56,7 +58,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
         let mut part_msgs = 0;
         let mut part_request_msgs = 0;
 
-        *connectors.write().unwrap() = setup_mock_all_validators(
+        let (_, conn) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -120,6 +122,7 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
                 (NetworkResponses::NoResponse, true)
             })),
         );
+        *connectors.write().unwrap() = conn;
 
         let view_client = connectors.write().unwrap()[0].1.clone();
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {

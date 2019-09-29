@@ -30,7 +30,6 @@ use near_store::{
     get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
     TrieUpdate, WrappedTrieChanges,
 };
-use near_verifier::TransactionVerifier;
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -417,17 +416,44 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
-        let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let verifier = TransactionVerifier::new(&state_update);
-        if let Err(err) = verifier.verify_transaction(&transaction) {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+
+        if let Err(err) = self.runtime.verify_and_charge_transaction(
+            &mut state_update,
+            &apply_state,
+            &transaction,
+        ) {
             debug!(target: "runtime", "Tx {:?} validation failed: {:?}", transaction, err);
             return Err(err);
         }
         Ok(ValidTransaction { transaction })
+    }
+
+    fn filter_transactions(
+        &self,
+        block_index: BlockIndex,
+        gas_price: Balance,
+        state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        transactions
+            .into_iter()
+            .filter(|transaction| {
+                self.runtime
+                    .verify_and_charge_transaction(&mut state_update, &apply_state, transaction)
+                    .is_ok()
+            })
+            .collect()
     }
 
     fn add_validator_proposals(
@@ -440,6 +466,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chunk_mask: Vec<bool>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Result<(), Error> {
         // Check that genesis block doesn't have any proposals.
@@ -459,6 +486,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             slashed,
             gas_used,
             gas_price,
+            rent_paid,
             total_supply,
         );
         // TODO: add randomness here
@@ -479,6 +507,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         let trie = if generate_storage_proof {
@@ -509,12 +538,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
         }
 
-        let apply_state = ApplyState {
-            root: *state_root,
-            block_index,
-            parent_block_hash: *prev_block_hash,
-            epoch_length: self.genesis_config.epoch_length,
-        };
+        let apply_state =
+            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
 
         let apply_result = self
             .runtime
@@ -529,6 +554,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 .or_insert_with(|| vec![])
                 .push(receipt);
         }
+        let total_gas_burnt =
+            apply_result.tx_result.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
 
         let result = ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(self.trie.clone(), apply_result.trie_changes),
@@ -536,7 +563,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             transaction_results: apply_result.tx_result,
             receipt_result,
             validator_proposals: apply_result.validator_proposals,
-            gas_used: 0,
+            total_gas_burnt,
+            total_rent_paid: apply_result.total_rent_paid,
             proof: trie.recorded_storage(),
         };
 
@@ -792,6 +820,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
             transactions: &Vec<SignedTransaction>,
+            gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
                 .apply_transactions(
@@ -802,6 +831,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    gas_price,
                 )
                 .unwrap();
             let mut store_update = self.store.store_update();
@@ -831,8 +861,10 @@ mod test {
             let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
                 acc.union(&x.iter().map(|x| x.as_str()).collect()).cloned().collect()
             });
+            let validators_len = all_validators.len();
             let mut genesis_config = GenesisConfig::test_sharded(
                 all_validators.into_iter().collect(),
+                validators_len,
                 validators.iter().map(|x| x.len()).collect(),
             );
             // No fees mode.
@@ -858,6 +890,7 @@ mod test {
                     vec![],
                     0,
                     genesis_config.gas_price,
+                    0,
                     genesis_config.total_supply,
                 )
                 .unwrap();
@@ -890,6 +923,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
                 for (shard_id, mut shard_receipts) in receipts {
@@ -910,6 +944,7 @@ mod test {
                     chunk_mask,
                     0,
                     self.runtime.genesis_config.gas_price,
+                    0,
                     self.runtime.genesis_config.total_supply,
                 )
                 .unwrap();
@@ -1301,6 +1336,7 @@ mod test {
                     vec![true],
                     0,
                     new_env.runtime.genesis_config.gas_price,
+                    0,
                     new_env.runtime.genesis_config.total_supply,
                 )
                 .unwrap();

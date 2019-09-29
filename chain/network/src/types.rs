@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::convert::{From, TryInto};
 use std::convert::{Into, TryFrom};
 use std::fmt;
@@ -9,31 +10,32 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::Shard;
 use tokio::net::TcpStream;
 
-use near_chain::types::ReceiptResponse;
+use near_chain::types::{ReceiptProofResponse, RootProof};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+pub use near_primitives::sharding::ChunkPartMsg;
+use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
+use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
 
 /// Current latest version of the protocol
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialOrd, Ord, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
     pub fn public_key(&self) -> PublicKey {
-        self.0
+        self.0.clone()
     }
 }
 
@@ -63,6 +65,12 @@ impl Hash for PeerId {
     }
 }
 
+impl PartialEq for PeerId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 impl fmt::Display for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -76,7 +84,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -109,7 +117,7 @@ impl TryFrom<&str> for PeerInfo {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let chunks: Vec<_> = s.split("@").collect();
+        let chunks: Vec<_> = s.split('@').collect();
         if chunks.len() != 2 {
             return Err(format!("Invalid peer info format, got {}, must be id@ip_addr", s).into());
         }
@@ -247,12 +255,12 @@ impl AnnounceAccount {
 
     /// Peer Id sending this announcement.
     pub fn peer_id(&self) -> PeerId {
-        self.route.last().unwrap().peer_id
+        self.route.last().unwrap().peer_id.clone()
     }
 
     /// Peer Id of the originator of this announcement.
     pub fn original_peer_id(&self) -> PeerId {
-        self.route.first().unwrap().peer_id
+        self.route.first().unwrap().peer_id.clone()
     }
 
     pub fn num_hops(&self) -> usize {
@@ -275,6 +283,8 @@ pub enum HandshakeFailureReason {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
     BlockApproval(AccountId, CryptoHash, Signature),
     ForwardTx(SignedTransaction),
@@ -357,6 +367,8 @@ impl Message for RoutedMessage {
 // TODO(MarX): We have duplicated types of messages for now while routing between non-validators
 //  is necessary. Some message are routed and others are directed between peers.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum PeerMessage {
     Handshake(Handshake),
     HandshakeFailure(PeerInfo, HandshakeFailureReason),
@@ -583,6 +595,8 @@ pub struct Ban {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Fetch information from the network.
     FetchInfo,
@@ -623,6 +637,7 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
+    pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub most_weight_peers: Vec<FullPeerInfo>,
@@ -658,13 +673,16 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub prev_chunk_extra: ChunkExtra,
-    pub payload: Vec<u8>,
-    pub outgoing_receipts: ReceiptResponse,
-    pub incoming_receipts: Vec<ReceiptResponse>,
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_payload: Vec<u8>,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
 }
 
 #[derive(Debug)]
+// TODO(#1313): Use Box
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkClientMessages {
     /// Received transaction.
     Transaction(SignedTransaction),
@@ -699,6 +717,9 @@ pub enum NetworkClientMessages {
     ChunkOnePart(ChunkOnePart),
 }
 
+// TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// No response.
     NoResponse,
@@ -772,7 +793,7 @@ impl Message for QueryPeerStats {
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkPartRequestMsg {
-    pub shard_id: u64,
+    pub shard_id: ShardId,
     pub chunk_hash: ChunkHash,
     pub height: BlockIndex,
     pub part_id: u64,
@@ -780,18 +801,9 @@ pub struct ChunkPartRequestMsg {
 
 #[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkOnePartRequestMsg {
-    pub shard_id: u64,
+    pub shard_id: ShardId,
     pub chunk_hash: ChunkHash,
     pub height: BlockIndex,
     pub part_id: u64,
-    pub recipient: AccountId,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartMsg {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub part_id: u64,
-    pub part: Shard,
-    pub merkle_path: MerklePath,
+    pub tracking_shards: HashSet<ShardId>,
 }

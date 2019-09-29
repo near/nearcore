@@ -6,6 +6,12 @@
 use serde::{Deserialize, Serialize};
 pub type Gas = u64;
 
+#[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
+pub struct Fraction {
+    pub numerator: u64,
+    pub denominator: u64,
+}
+
 /// Costs associated with an object that can only be sent over the network (and executed
 /// by the receiver).
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
@@ -44,6 +50,9 @@ pub struct RuntimeFeesConfig {
     pub action_creation_config: ActionCreationConfig,
 
     pub storage_usage_config: StorageUsageConfig,
+
+    /// Fraction of the burnt gas to reward to the contract account for execution.
+    pub burnt_gas_reward: Fraction,
 }
 
 /// Describes the cost of creating a data receipt, `DataReceipt`.
@@ -115,26 +124,34 @@ pub struct StorageUsageConfig {
 impl Default for RuntimeFeesConfig {
     fn default() -> Self {
         Self {
-            action_receipt_creation_config: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+            action_receipt_creation_config: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             data_receipt_creation_config: DataReceiptCreationConfig {
-                base_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                base_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             },
             action_creation_config: ActionCreationConfig {
-                create_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                deploy_contract_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                deploy_contract_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                function_call_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                transfer_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                stake_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                add_key_cost: AccessKeyCreationConfig {
-                    full_access_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                    function_call_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                    function_call_cost_per_byte: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                create_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                deploy_contract_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                deploy_contract_cost_per_byte: Fee {
+                    send_sir: 10,
+                    send_not_sir: 10,
+                    execution: 10,
                 },
-                delete_key_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
-                delete_account_cost: Fee { send_sir: 1, send_not_sir: 1, execution: 1 },
+                function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                function_call_cost_per_byte: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                transfer_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                stake_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                add_key_cost: AccessKeyCreationConfig {
+                    full_access_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                    function_call_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                    function_call_cost_per_byte: Fee {
+                        send_sir: 10,
+                        send_not_sir: 10,
+                        execution: 10,
+                    },
+                },
+                delete_key_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
+                delete_account_cost: Fee { send_sir: 10, send_not_sir: 10, execution: 10 },
             },
             storage_usage_config: StorageUsageConfig {
                 account_cost: 100,
@@ -143,6 +160,7 @@ impl Default for RuntimeFeesConfig {
                 value_cost_per_byte: 1,
                 code_cost_per_byte: 1,
             },
+            burnt_gas_reward: Fraction { numerator: 3, denominator: 10 },
         }
     }
 }
@@ -179,6 +197,7 @@ impl RuntimeFeesConfig {
                 value_cost_per_byte: 0,
                 code_cost_per_byte: 0,
             },
+            burnt_gas_reward: Fraction { numerator: 0, denominator: 1 },
         }
     }
 }

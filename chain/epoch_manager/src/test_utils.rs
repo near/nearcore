@@ -15,7 +15,7 @@ pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
     for i in 0..num {
-        result.push(hash(&vec![i as u8]));
+        result.push(hash(&[i as u8]));
     }
     result
 }
@@ -173,6 +173,7 @@ pub fn record_block(
                 HashSet::default(),
                 0,
                 DEFAULT_GAS_PRICE,
+                0,
                 DEFAULT_TOTAL_SUPPLY,
             ),
             [0; 32],

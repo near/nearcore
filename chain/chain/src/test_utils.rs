@@ -14,7 +14,8 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{
-    Action, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus, TransferAction,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
+    TransferAction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
@@ -64,7 +65,7 @@ pub struct KeyValueRuntime {
 }
 
 pub fn account_id_to_shard_id(account_id: &AccountId, num_shards: ShardId) -> ShardId {
-    ((hash(&account_id.clone().into_bytes()).0).0[0] as u64) % num_shards
+    u64::from((hash(&account_id.clone().into_bytes()).0).0[0]) % num_shards
 }
 
 #[derive(BorshSerialize, BorshDeserialize)]
@@ -168,7 +169,9 @@ impl KeyValueRuntime {
         let prev_block_header = self
             .store
             .get_ser::<BlockHeader>(COL_BLOCK_HEADER, prev_hash.as_ref())?
-            .ok_or(ErrorKind::Other("Missing block when computing the epoch".to_string()))?;
+            .ok_or_else(|| {
+                ErrorKind::Other(format!("Missing block {} when computing the epoch", prev_hash))
+            })?;
 
         let mut hash_to_epoch = self.hash_to_epoch.write().unwrap();
         let mut hash_to_next_epoch = self.hash_to_next_epoch.write().unwrap();
@@ -225,7 +228,7 @@ impl KeyValueRuntime {
             .read()
             .unwrap()
             .get(epoch_id)
-            .ok_or(Error::from(ErrorKind::EpochOutOfBounds))? as usize
+            .ok_or_else(|| Error::from(ErrorKind::EpochOutOfBounds))? as usize
             % self.validators.len())
     }
 }
@@ -348,7 +351,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let validators = &self.validators[self.get_epoch_and_valset(*parent_hash).unwrap().1];
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let validators = &self.validators[epoch_valset.1];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
@@ -372,8 +379,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         _is_me: bool,
     ) -> bool {
-        let validators = &self.validators
-            [(self.get_epoch_and_valset(*parent_hash).unwrap().1 + 1) % self.validators.len()];
+        // This `unwrap` here tests that in all code paths we check that the epoch exists before
+        //    we check if we care about a shard. Please do not remove the unwrap, fix the logic of
+        //    the calling function.
+        let epoch_valset = self.get_epoch_and_valset(*parent_hash).unwrap();
+        let validators = &self.validators[(epoch_valset.1 + 1) % self.validators.len()];
         assert_eq!((validators.len() as u64) % self.num_shards(), 0);
         assert_eq!(0, validators.len() as u64 % self.validator_groups);
         let validators_per_shard = validators.len() as ShardId / self.validator_groups;
@@ -389,10 +399,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         false
     }
 
+    fn filter_transactions(
+        &self,
+        _block_index: u64,
+        _gas_price: u128,
+        _state_root: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+    ) -> Vec<SignedTransaction> {
+        transactions
+    }
+
     fn validate_tx(
         &self,
-        _shard_id: ShardId,
-        _state_root: MerkleHash,
+        _block_index: BlockIndex,
+        _gas_price: Balance,
+        _state_root: CryptoHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
         Ok(ValidTransaction { transaction })
@@ -408,6 +429,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _validator_mask: Vec<bool>,
         _gas_used: Gas,
         _gas_price: Balance,
+        _rent_paid: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -422,6 +444,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!generate_storage_proof);
@@ -446,7 +469,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         ));
                     }
                 } else {
-                    assert!(false); // receipts should never be applied twice
+                    panic!("receipts should never be applied twice");
                 }
             } else {
                 unreachable!();
@@ -455,18 +478,18 @@ impl RuntimeAdapter for KeyValueRuntime {
 
         for transaction in transactions {
             assert_eq!(self.account_id_to_shard_id(&transaction.transaction.signer_id), shard_id);
-            if transaction.transaction.actions.len() == 0 {
+            if transaction.transaction.actions.is_empty() {
                 continue;
             }
             if let Action::Transfer(TransferAction { deposit }) = transaction.transaction.actions[0]
             {
                 if !state.tx_nonces.contains(&AccountNonce(
                     transaction.transaction.receiver_id.clone(),
-                    transaction.transaction.nonce.clone(),
+                    transaction.transaction.nonce,
                 )) {
                     state.tx_nonces.insert(AccountNonce(
                         transaction.transaction.receiver_id.clone(),
-                        transaction.transaction.nonce.clone(),
+                        transaction.transaction.nonce,
                     ));
                     balance_transfers.push((
                         transaction.get_hash(),
@@ -518,7 +541,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price: 0,
+                            gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
@@ -532,13 +555,13 @@ impl RuntimeAdapter for KeyValueRuntime {
                     vec![receipt_hash]
                 };
 
-                tx_results.push(TransactionLog {
-                    hash,
-                    result: TransactionResult {
-                        status: TransactionStatus::Completed,
+                tx_results.push(ExecutionOutcomeWithId {
+                    id: hash,
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::SuccessValue(vec![]),
                         logs: vec![],
-                        receipts: new_receipt_hashes,
-                        result: None,
+                        receipt_ids: new_receipt_hashes,
+                        gas_burnt: 0,
                     },
                 });
             }
@@ -574,13 +597,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(ApplyTransactionResult {
             trie_changes: WrappedTrieChanges::new(
                 self.trie.clone(),
-                TrieChanges::empty(state_root.clone()),
+                TrieChanges::empty(*state_root),
             ),
             new_root: new_state_root,
             transaction_results: tx_results,
             receipt_result: new_receipts,
             validator_proposals: vec![],
-            gas_used: 0,
+            total_gas_burnt: 0,
+            total_rent_paid: 0,
             proof: None,
         })
     }
@@ -635,10 +659,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         if parent_hash == &CryptoHash::default() {
             return Ok(true);
         }
-        let prev_block_header =
-            self.store.get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?.ok_or(
-                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string())),
-            )?;
+        let prev_block_header = self
+            .store
+            .get_ser::<BlockHeader>(COL_BLOCK_HEADER, parent_hash.as_ref())?
+            .ok_or_else(|| {
+                Error::from(ErrorKind::Other("Missing block when computing the epoch".to_string()))
+            })?;
         let prev_prev_hash = prev_block_header.inner.prev_hash;
         Ok(self.get_epoch_and_valset(*parent_hash)?.0
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
@@ -691,8 +717,8 @@ pub fn format_hash(h: CryptoHash) -> String {
     to_base(&h)[..6].to_string()
 }
 
-// Displays chain from given store.
-pub fn display_chain(chain: &mut Chain) {
+/// Displays chain from given store.
+pub fn display_chain(chain: &mut Chain, tail: bool) {
     let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
@@ -703,7 +729,9 @@ pub fn display_chain(chain: &mut Chain) {
             .get_block_header(&CryptoHash::try_from(key.as_ref()).unwrap())
             .unwrap()
             .clone();
-        headers.push(header);
+        if !tail || header.inner.height + 10 > head.height {
+            headers.push(header);
+        }
     }
     headers.sort_by(|h_left, h_right| {
         if h_left.inner.height > h_right.inner.height {
@@ -746,7 +774,7 @@ pub fn display_chain(chain: &mut Chain) {
                             chunk_header.inner.shard_id,
                         )
                         .unwrap();
-                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header) {
+                    if let Ok(chunk) = chain_store.get_chunk(&chunk_header.chunk_hash()) {
                         debug!(
                             "    {: >3} {} | {} | {: >10} | tx = {: >2}, receipts = {: >2}",
                             chunk_header.inner.height_created,
@@ -769,6 +797,20 @@ pub fn display_chain(chain: &mut Chain) {
                     }
                 }
             }
+        }
+    }
+}
+
+impl ChainGenesis {
+    pub fn test() -> Self {
+        ChainGenesis {
+            time: Utc::now(),
+            gas_limit: 1_000_000,
+            gas_price: 1,
+            total_supply: 1_000_000_000,
+            max_inflation_rate: 0,
+            gas_price_adjustment_rate: 0,
+            transaction_validity_period: 100,
         }
     }
 }

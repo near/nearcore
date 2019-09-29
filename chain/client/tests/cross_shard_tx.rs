@@ -25,7 +25,7 @@ fn test_keyvalue_runtime_balances() {
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
 
-        *connectors.write().unwrap() = setup_mock_all_validators(
+        let (_, conn) = setup_mock_all_validators(
             validators.clone(),
             key_pairs.clone(),
             validator_groups,
@@ -35,6 +35,7 @@ fn test_keyvalue_runtime_balances() {
                 (NetworkResponses::NoResponse, true)
             })),
         );
+        *connectors.write().unwrap() = conn;
 
         let connectors_ = connectors.write().unwrap();
         let flat_validators = validators.iter().flatten().collect::<Vec<_>>();
@@ -79,14 +80,16 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
-    use near_primitives::rpc::QueryResponse;
-    use near_primitives::rpc::QueryResponse::ViewAccount;
+    use near_primitives::hash::CryptoHash;
     use near_primitives::test_utils::init_test_logger;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::AccountId;
+    use near_primitives::views::QueryResponse;
+    use near_primitives::views::QueryResponse::ViewAccount;
 
     fn send_tx(
         num_validators: usize,
@@ -96,16 +99,20 @@ mod tests {
         to: AccountId,
         amount: u128,
         nonce: u64,
+        block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
+        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
-                .send(NetworkClientMessages::Transaction(SignedTransaction::create_payment_tx(
+                .send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
+                    nonce,
                     from.clone(),
                     to.clone(),
+                    &signer,
                     amount,
-                    nonce,
+                    block_hash,
                 )))
                 .then(move |x| {
                     match x.unwrap() {
@@ -119,6 +126,7 @@ mod tests {
                                 to,
                                 amount,
                                 nonce,
+                                block_hash,
                             );
                         }
                         NetworkClientResponses::ValidTx => {
@@ -147,6 +155,7 @@ mod tests {
         observed_balances: Arc<RwLock<Vec<u128>>>,
         presumable_epoch: Arc<RwLock<usize>>,
         num_iters: usize,
+        block_hash: CryptoHash,
     ) {
         let res = res.unwrap();
 
@@ -184,6 +193,7 @@ mod tests {
                                 observed_balances1,
                                 presumable_epoch1,
                                 num_iters,
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -195,13 +205,11 @@ mod tests {
         if let ViewAccount(view_account_result) = query_response {
             let mut expected = 0;
             for i in 0..8 {
-                if validators[i] == view_account_result.account_id {
+                if validators[i] == account_id {
                     expected = balances.read().unwrap()[i];
                     observed_balances.write().unwrap()[i] = view_account_result.amount;
                 }
             }
-
-            assert_eq!(account_id, view_account_result.account_id);
 
             if view_account_result.amount == expected {
                 let mut successful_queries_local = successful_queries.write().unwrap();
@@ -229,6 +237,7 @@ mod tests {
                         validators[to].to_string(),
                         amount,
                         next_nonce as u64,
+                        block_hash,
                     );
 
                     let connectors_ = connectors.write().unwrap();
@@ -275,6 +284,7 @@ mod tests {
                                         observed_balances1,
                                         presumable_epoch1,
                                         num_iters,
+                                        block_hash,
                                     );
                                     future::result(Ok(()))
                                 }),
@@ -320,6 +330,7 @@ mod tests {
                                 observed_balances,
                                 presumable_epoch1,
                                 num_iters,
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -328,9 +339,8 @@ mod tests {
         }
     }
 
-    fn test_cross_shard_tx_common(rotate_validators: bool) {
+    fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool) {
         let validator_groups = 4;
-        let num_iters = 64;
         init_test_logger();
         System::run(move || {
             let connectors: Arc<RwLock<Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>>> =
@@ -369,7 +379,7 @@ mod tests {
                 observed_balances_local.push(0);
             }
 
-            *connectors.write().unwrap() = setup_mock_all_validators(
+            let (genesis_block, conn) = setup_mock_all_validators(
                 validators.clone(),
                 key_pairs.clone(),
                 validator_groups,
@@ -379,6 +389,8 @@ mod tests {
                     (NetworkResponses::NoResponse, true)
                 })),
             );
+            *connectors.write().unwrap() = conn;
+            let block_hash = genesis_block.hash();
 
             let connectors_ = connectors.write().unwrap();
             let iteration = Arc::new(AtomicUsize::new(0));
@@ -419,6 +431,7 @@ mod tests {
                                 observed_balances1,
                                 presumable_epoch1,
                                 num_iters,
+                                block_hash,
                             );
                             future::result(Ok(()))
                         }),
@@ -433,11 +446,16 @@ mod tests {
 
     #[test]
     fn test_cross_shard_tx() {
-        test_cross_shard_tx_common(false);
+        test_cross_shard_tx_common(64, false);
+    }
+
+    #[test]
+    fn test_cross_shard_tx_8_iterations() {
+        test_cross_shard_tx_common(8, false);
     }
 
     #[test]
     fn test_cross_shard_tx_with_validator_rotation() {
-        test_cross_shard_tx_common(true);
+        test_cross_shard_tx_common(64, true);
     }
 }

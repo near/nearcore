@@ -16,7 +16,7 @@ fn sync_state_nodes() {
     heavy_test(|| {
         init_integration_logger();
 
-        let genesis_config = GenesisConfig::test(vec!["test1"]);
+        let genesis_config = GenesisConfig::test(vec!["test1"], 1);
 
         let (port1, port2) = (open_port(), open_port());
         let mut near1 = load_test_config("test1", port1, &genesis_config);
@@ -96,7 +96,7 @@ fn sync_state_nodes_multishard() {
         init_integration_logger();
 
         let mut genesis_config =
-            GenesisConfig::test_sharded(vec!["test1", "test2", "test3", "test4"], vec![2, 2]);
+            GenesisConfig::test_sharded(vec!["test1", "test2", "test3", "test4"], 4, vec![2, 2]);
         genesis_config.epoch_length = 150; // so that by the time test2 joins it is not kicked out yet
 
         let system = System::new("NEAR");

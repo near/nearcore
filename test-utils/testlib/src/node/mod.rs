@@ -27,7 +27,7 @@ pub const TEST_BLOCK_FETCH_LIMIT: u64 = 5;
 pub const TEST_BLOCK_MAX_SIZE: u32 = 1000;
 
 pub fn configure_chain_spec() -> GenesisConfig {
-    GenesisConfig::test(vec!["alice.near", "bob.near"])
+    GenesisConfig::test(vec!["alice.near", "bob.near"], 2)
 }
 
 /// Config that can be used to start a node or connect to an existing node.

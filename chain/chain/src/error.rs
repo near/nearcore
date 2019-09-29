@@ -3,7 +3,7 @@ use std::io;
 
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
 pub struct Error {
@@ -18,7 +18,9 @@ pub enum ErrorKind {
     /// Orphan block.
     #[fail(display = "Orphan")]
     Orphan,
-    /// Chunks missing.
+    #[fail(display = "Chunk Missing: {:?}", _0)]
+    ChunkMissing(ChunkHash),
+    /// Chunks missing with header info.
     #[fail(display = "Chunks Missing: {:?}", _0)]
     ChunksMissing(Vec<(ShardChunkHeader)>),
     /// Peer abusively sending us an old block we already have
@@ -45,6 +47,18 @@ pub enum ErrorKind {
     /// Invalid state root hash.
     #[fail(display = "Invalid State Root Hash")]
     InvalidStateRoot,
+    /// Invalid block tx root hash.
+    #[fail(display = "Invalid Block Tx Root Hash")]
+    InvalidTxRoot,
+    /// Invalid chunk receipts root hash.
+    #[fail(display = "Invalid Chunk Receipts Root Hash")]
+    InvalidChunkReceiptsRoot,
+    /// Invalid chunk headers root hash.
+    #[fail(display = "Invalid Chunk Headers Root Hash")]
+    InvalidChunkHeadersRoot,
+    /// Invalid chunk tx root hash.
+    #[fail(display = "Invalid Chunk Tx Root Hash")]
+    InvalidChunkTxRoot,
     /// Invalid receipts proof.
     #[fail(display = "Invalid Receipts Proof")]
     InvalidReceiptsProof,
@@ -75,6 +89,9 @@ pub enum ErrorKind {
     /// Epoch out of bounds. Usually if received block is too far in the future or alternative fork.
     #[fail(display = "Epoch Out Of Bounds")]
     EpochOutOfBounds,
+    /// A challenged block is on the chain that was attempted to become the head
+    #[fail(display = "Challenged block on chain")]
+    ChallengedBlockOnChain,
     /// IO Error.
     #[fail(display = "IO Error: {}", _0)]
     IOErr(String),
@@ -118,12 +135,14 @@ impl Error {
         match self.kind() {
             ErrorKind::Unfit(_)
             | ErrorKind::Orphan
+            | ErrorKind::ChunkMissing(_)
             | ErrorKind::ChunksMissing(_)
             | ErrorKind::IOErr(_)
             | ErrorKind::Other(_)
             | ErrorKind::ValidatorError(_)
             // TODO: can be either way?
             | ErrorKind::EpochOutOfBounds
+            | ErrorKind::ChallengedBlockOnChain
             | ErrorKind::DBNotFoundErr(_) => false,
             ErrorKind::InvalidBlockPastTime(_, _)
             | ErrorKind::InvalidBlockFutureTime(_)
@@ -134,6 +153,10 @@ impl Error {
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
             | ErrorKind::InvalidStateRoot
+            | ErrorKind::InvalidTxRoot
+            | ErrorKind::InvalidChunkReceiptsRoot
+            | ErrorKind::InvalidChunkHeadersRoot
+            | ErrorKind::InvalidChunkTxRoot
             | ErrorKind::InvalidReceiptsProof
             | ErrorKind::InvalidStatePayload
             | ErrorKind::InvalidTransactions

@@ -3,10 +3,15 @@ use std::iter::Peekable;
 
 use kvdb::DBValue;
 
+use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
+use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
-use near_primitives::transaction::{Action, FunctionCallAction};
+use near_primitives::transaction::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
+};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{create_nonce_with_nonce, prefix_for_data};
 use near_store::{TrieUpdate, TrieUpdateIterator};
@@ -70,6 +75,15 @@ impl<'a> RuntimeExt<'a> {
                 receipt: ReceiptEnum::Action(action_receipt),
             })
             .collect()
+    }
+
+    fn append_action(&mut self, receipt_index: u64, action: Action) {
+        self.action_receipts
+            .get_mut(receipt_index as usize)
+            .expect("receipt index should be present")
+            .1
+            .actions
+            .push(action);
     }
 }
 
@@ -164,14 +178,10 @@ impl<'a> External for RuntimeExt<'a> {
         Ok(())
     }
 
-    fn receipt_create(
+    fn create_receipt(
         &mut self,
         receipt_indices: Vec<u64>,
         receiver_id: String,
-        method_name: Vec<u8>,
-        args: Vec<u8>,
-        attached_deposit: u128,
-        prepaid_gas: u64,
     ) -> Result<u64, ExternalError> {
         let mut input_data_ids = vec![];
         for receipt_index in receipt_indices {
@@ -191,17 +201,149 @@ impl<'a> External for RuntimeExt<'a> {
             gas_price: self.gas_price,
             output_data_receivers: vec![],
             input_data_ids,
-            actions: vec![Action::FunctionCall(FunctionCallAction {
+            actions: vec![],
+        };
+        let new_receipt_index = self.action_receipts.len() as u64;
+        self.action_receipts.push((receiver_id, new_receipt));
+        Ok(new_receipt_index)
+    }
+
+    fn append_action_create_account(&mut self, receipt_index: u64) -> Result<(), ExternalError> {
+        self.append_action(receipt_index, Action::CreateAccount(CreateAccountAction {}));
+        Ok(())
+    }
+
+    fn append_action_deploy_contract(
+        &mut self,
+        receipt_index: u64,
+        code: Vec<u8>,
+    ) -> Result<(), ExternalError> {
+        self.append_action(receipt_index, Action::DeployContract(DeployContractAction { code }));
+        Ok(())
+    }
+
+    fn append_action_function_call(
+        &mut self,
+        receipt_index: u64,
+        method_name: Vec<u8>,
+        args: Vec<u8>,
+        attached_deposit: u128,
+        prepaid_gas: u64,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::FunctionCall(FunctionCallAction {
                 method_name: String::from_utf8(method_name)
                     .map_err(|_| ExternalError::InvalidMethodName)?,
                 args,
                 gas: prepaid_gas,
                 deposit: attached_deposit,
-            })],
-        };
-        let new_receipt_index = self.action_receipts.len() as u64;
-        self.action_receipts.push((receiver_id, new_receipt));
-        Ok(new_receipt_index)
+            }),
+        );
+        Ok(())
+    }
+
+    fn append_action_transfer(
+        &mut self,
+        receipt_index: u64,
+        deposit: u128,
+    ) -> Result<(), ExternalError> {
+        self.append_action(receipt_index, Action::Transfer(TransferAction { deposit }));
+        Ok(())
+    }
+
+    fn append_action_stake(
+        &mut self,
+        receipt_index: u64,
+        stake: u128,
+        public_key: Vec<u8>,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::Stake(StakeAction {
+                stake,
+                public_key: PublicKey::try_from_slice(&public_key)
+                    .map_err(|_| ExternalError::InvalidPublicKey)?,
+            }),
+        );
+        Ok(())
+    }
+
+    fn append_action_add_key_with_full_access(
+        &mut self,
+        receipt_index: u64,
+        public_key: Vec<u8>,
+        nonce: u64,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(AddKeyAction {
+                public_key: PublicKey::try_from_slice(&public_key)
+                    .map_err(|_| ExternalError::InvalidPublicKey)?,
+                access_key: AccessKey { nonce, permission: AccessKeyPermission::FullAccess },
+            }),
+        );
+        Ok(())
+    }
+
+    fn append_action_add_key_with_function_call(
+        &mut self,
+        receipt_index: u64,
+        public_key: Vec<u8>,
+        nonce: u64,
+        allowance: Option<u128>,
+        receiver_id: AccountId,
+        method_names: Vec<Vec<u8>>,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::AddKey(AddKeyAction {
+                public_key: PublicKey::try_from_slice(&public_key)
+                    .map_err(|_| ExternalError::InvalidPublicKey)?,
+                access_key: AccessKey {
+                    nonce,
+                    permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                        allowance,
+                        receiver_id,
+                        method_names: method_names
+                            .into_iter()
+                            .map(|method_name| {
+                                String::from_utf8(method_name)
+                                    .map_err(|_| ExternalError::InvalidMethodName)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    }),
+                },
+            }),
+        );
+        Ok(())
+    }
+
+    fn append_action_delete_key(
+        &mut self,
+        receipt_index: u64,
+        public_key: Vec<u8>,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::DeleteKey(DeleteKeyAction {
+                public_key: PublicKey::try_from_slice(&public_key)
+                    .map_err(|_| ExternalError::InvalidPublicKey)?,
+            }),
+        );
+        Ok(())
+    }
+
+    fn append_action_delete_account(
+        &mut self,
+        receipt_index: u64,
+        beneficiary_id: AccountId,
+    ) -> Result<(), ExternalError> {
+        self.append_action(
+            receipt_index,
+            Action::DeleteAccount(DeleteAccountAction { beneficiary_id }),
+        );
+        Ok(())
     }
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
