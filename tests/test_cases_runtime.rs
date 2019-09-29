@@ -21,10 +21,10 @@ mod test {
         let mut genesis_config =
             GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
+        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
@@ -46,7 +46,7 @@ mod test {
         genesis_config.runtime_config.storage_cost_byte_per_block = 1;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
