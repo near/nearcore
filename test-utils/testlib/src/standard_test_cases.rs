@@ -4,6 +4,7 @@ use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::hash;
+use near_primitives::serialize::to_base64;
 use near_primitives::types::Balance;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives::views::{AccountView, FinalExecutionOutcomeView};
@@ -12,7 +13,6 @@ use crate::fees_utils::*;
 use crate::node::Node;
 use crate::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 use crate::user::User;
-use near_primitives::serialize::to_base64;
 
 /// The amount to send with function call.
 const FUNCTION_CALL_AMOUNT: Balance = 1_000_000_000_000;
@@ -802,7 +802,7 @@ pub fn test_increase_stake(node: impl Node) {
     let amount_staked = TESTING_INIT_STAKE + 1;
     let stake_cost = stake_cost();
     let transaction_result =
-        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
+        node_user.stake(account_id.clone(), node.block_signer().public_key(), amount_staked);
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
     let node_user = node.user();
@@ -820,7 +820,7 @@ pub fn test_decrease_stake(node: impl Node) {
     let amount_staked = 10;
     let account_id = &node.account_id().unwrap();
     let transaction_result =
-        node_user.stake(account_id.clone(), node.signer().public_key(), amount_staked);
+        node_user.stake(account_id.clone(), node.block_signer().public_key(), amount_staked);
     let stake_cost = stake_cost();
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
@@ -843,7 +843,7 @@ pub fn test_unstake_while_not_staked(node: impl Node) {
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
     let transaction_result =
-        node_user.stake(eve_dot_alice_account(), node.signer().public_key(), 0);
+        node_user.stake(eve_dot_alice_account(), node.block_signer().public_key(), 0);
     assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
     assert_eq!(transaction_result.receipts.len(), 1);
 }
@@ -872,13 +872,14 @@ fn test_stake_fail_not_enough_rent_with_balance(node: impl Node, initial_balance
     );
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));
     assert_eq!(transaction_result.receipts.len(), 1);
-    let transaction_result = node_user.stake(new_account_id.clone(), node.signer().public_key(), 5);
+    let transaction_result =
+        node_user.stake(new_account_id.clone(), node.block_signer().public_key(), 5);
     assert_eq!(transaction_result.status, FinalExecutionStatus::Failure);
     assert_eq!(transaction_result.receipts.len(), 1);
 }
 
 pub fn test_stake_fail_not_enough_rent_for_storage(node: impl Node) {
-    test_stake_fail_not_enough_rent_with_balance(node, 1_000_000_000_000_000_010);
+    test_stake_fail_not_enough_rent_with_balance(node, TESTING_INIT_BALANCE / 10);
 }
 
 pub fn test_stake_fail_not_enough_rent_for_account_id(node: impl Node) {
@@ -938,7 +939,7 @@ pub fn test_delete_account_while_staking(node: impl Node) {
     let stake_fee = stake_cost();
     let transaction_result = node_user.stake(
         eve_dot_alice_account(),
-        node.signer().public_key(),
+        node.block_signer().public_key(),
         money_used - stake_fee,
     );
     assert_eq!(transaction_result.status, FinalExecutionStatus::SuccessValue(to_base64(&[])));

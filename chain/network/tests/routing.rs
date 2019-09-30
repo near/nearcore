@@ -10,7 +10,7 @@ use futures::{future, Future};
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::ChainGenesis;
 use near_client::{BlockProducer, ClientActor, ClientConfig};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemoryBlsSigner;
 use near_network::test_utils::{convert_boot_nodes, open_port, vec_ref_to_str, WaitOrTimeout};
 use near_network::types::NetworkInfo;
 use near_network::{NetworkConfig, NetworkRequests, NetworkResponses, PeerManagerActor};
@@ -47,11 +47,7 @@ pub fn setup_network_node(
         1,
         1,
     ));
-    let signer = Arc::new(InMemorySigner::from_seed(
-        account_id.as_str(),
-        KeyType::ED25519,
-        account_id.as_str(),
-    ));
+    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id.as_str(), account_id.as_str()));
     let block_producer = BlockProducer::from(signer.clone());
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
     let chain_genesis = ChainGenesis::new(genesis_time, 1_000_000, 100, 1_000_000_000, 0, 0, 1000);

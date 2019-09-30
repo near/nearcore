@@ -1,9 +1,8 @@
 use std::io::{Error, ErrorKind};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{BufMut, BytesMut};
 use tokio::codec::{Decoder, Encoder};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::types::PeerMessage;
 
@@ -68,15 +67,16 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{BlsSecretKey, KeyType, SecretKey};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::types::EpochId;
 
     use crate::types::{
-        AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
+        AccountOrPeerSignature, AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage,
+        RoutedMessageBody,
     };
 
     use super::*;
-    use near_primitives::types::EpochId;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -113,27 +113,29 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_account() {
-        let sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = BlsSecretKey::from_random();
+        let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
         let msg = PeerMessage::AnnounceAccount(AnnounceAccount::new(
             "test1".to_string(),
             EpochId::default(),
-            sk.public_key().into(),
+            network_sk.public_key().into(),
             CryptoHash::default(),
-            signature,
+            AccountOrPeerSignature::AccountSignature(signature),
         ));
         test_codec(msg);
     }
 
     #[test]
     fn test_peer_message_announce_routed_block_approval() {
-        let sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = BlsSecretKey::from_random();
+        let network_sk = SecretKey::from_random(KeyType::ED25519);
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
         let msg = PeerMessage::Routed(RoutedMessage {
             account_id: "test1".to_string(),
-            author: sk.public_key().into(),
-            signature: signature.clone(),
+            author: network_sk.public_key().into(),
+            signature: AccountOrPeerSignature::AccountSignature(signature.clone()),
             body: RoutedMessageBody::BlockApproval(
                 "test2".to_string(),
                 CryptoHash::default(),

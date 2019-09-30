@@ -14,7 +14,7 @@ use tokio::net::TcpStream;
 
 use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 pub use near_primitives::sharding::ChunkPartMsg;
 use near_primitives::sharding::{ChunkHash, ChunkOnePart};
@@ -188,12 +188,41 @@ struct AnnounceAccountRouteHeader {
     pub epoch_id: EpochId,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum AccountOrPeerSignature {
+    PeerSignature(Signature),
+    AccountSignature(BlsSignature),
+}
+
+impl AccountOrPeerSignature {
+    pub fn peer_signature(&self) -> Option<&Signature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => Some(signature),
+            AccountOrPeerSignature::AccountSignature(_) => None,
+        }
+    }
+
+    pub fn account_signature(&self) -> Option<&BlsSignature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(_) => None,
+            AccountOrPeerSignature::AccountSignature(signature) => Some(signature),
+        }
+    }
+
+    pub fn verify_peer(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => signature.verify(data, public_key),
+            AccountOrPeerSignature::AccountSignature(_) => false,
+        }
+    }
+}
+
 /// Account route description
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccountRoute {
     pub peer_id: PeerId,
     pub hash: CryptoHash,
-    pub signature: Signature,
+    pub signature: AccountOrPeerSignature,
 }
 
 /// Account announcement information
@@ -221,7 +250,7 @@ impl AnnounceAccount {
         epoch_id: EpochId,
         peer_id: PeerId,
         hash: CryptoHash,
-        signature: Signature,
+        signature: AccountOrPeerSignature,
     ) -> Self {
         let route = vec![AnnounceAccountRoute { peer_id, hash, signature }];
         Self { account_id, epoch_id, route }
@@ -271,7 +300,11 @@ impl AnnounceAccount {
         let new_hash =
             hash([last_hash.as_ref(), peer_id.try_to_vec().unwrap().as_ref()].concat().as_slice());
         let signature = secret_key.sign(new_hash.as_ref());
-        self.route.push(AnnounceAccountRoute { peer_id, hash: new_hash, signature })
+        self.route.push(AnnounceAccountRoute {
+            peer_id,
+            hash: new_hash,
+            signature: AccountOrPeerSignature::PeerSignature(signature),
+        })
     }
 }
 
@@ -285,7 +318,7 @@ pub enum HandshakeFailureReason {
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(AccountId, CryptoHash, BlsSignature),
     ForwardTx(SignedTransaction),
     StateRequest(ShardId, CryptoHash),
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -303,7 +336,12 @@ impl RawRoutedMessage {
     pub fn sign(self, author: PeerId, secret_key: &SecretKey) -> RoutedMessage {
         let hash = RoutedMessage::build_hash(&self.account_id, &author, &self.body);
         let signature = secret_key.sign(hash.as_ref());
-        RoutedMessage { account_id: self.account_id, author, signature, body: self.body }
+        RoutedMessage {
+            account_id: self.account_id,
+            author,
+            signature: AccountOrPeerSignature::PeerSignature(signature),
+            body: self.body,
+        }
     }
 }
 
@@ -328,7 +366,7 @@ pub struct RoutedMessage {
     pub author: PeerId,
     /// Signature from the author of the message. If this signature is invalid we should ban
     /// last sender of this message. If the message is invalid we should ben author of the message.
-    pub signature: Signature,
+    pub signature: AccountOrPeerSignature,
     /// Message
     pub body: RoutedMessageBody,
 }
@@ -355,7 +393,7 @@ impl RoutedMessage {
     }
 
     pub fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), &self.author.public_key())
+        self.signature.verify_peer(self.hash().as_ref(), &self.author.public_key())
     }
 }
 
@@ -690,7 +728,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(AccountId, CryptoHash, BlsSignature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -713,6 +751,7 @@ pub enum NetworkClientMessages {
 }
 
 // TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// No response.

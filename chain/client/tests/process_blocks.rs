@@ -1,25 +1,29 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::System;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval};
+use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
-use near_client::test_utils::setup_mock;
-use near_client::GetBlock;
-use near_crypto::{InMemorySigner, KeyType};
+use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
+use near_client::{Client, GetBlock};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
-use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
+use near_network::{
+    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+};
 use near_primitives::block::BlockHeader;
-use near_primitives::hash::hash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::SignedTransaction;
+use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
+use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -121,13 +125,12 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 None,
@@ -171,13 +174,12 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 None,
@@ -208,7 +210,7 @@ fn produce_block_with_approvals() {
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    if block.header.inner.approval_sigs.len() == validators.len() - 2 {
+                    if block.header.num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
                     }
                 }
@@ -217,13 +219,12 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemorySigner::from_seed("test2", KeyType::ED25519, "test2"));
+            let signer1 = Arc::new(InMemoryBlsSigner::from_seed("test2", "test2"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 Some(0),
@@ -231,7 +232,7 @@ fn produce_block_with_approvals() {
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = Arc::new(InMemorySigner::from_seed(&s, KeyType::ED25519, &s));
+                let signer = Arc::new(InMemoryBlsSigner::from_seed(&s, &s));
                 let block_approval =
                     BlockApproval::new(block.hash(), &*signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
@@ -277,14 +278,13 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 Some(0),
@@ -302,7 +302,6 @@ fn invalid_blocks() {
                 block.header.inner.height + 1,
                 block.chunks.clone(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 Some(0),
@@ -315,7 +314,6 @@ fn invalid_blocks() {
                 last_block.header.height + 1,
                 last_block.chunks.into_iter().map(Into::into).collect(),
                 EpochId::default(),
-                vec![],
                 HashMap::default(),
                 0,
                 Some(0),
@@ -374,7 +372,7 @@ fn client_sync_headers() {
                             genesis: Default::default(),
                             height: 5,
                             total_weight: 100.into(),
-                        }
+                        },
                     }],
                     num_active_peers: 1,
                     peer_max_count: 1,
@@ -403,4 +401,67 @@ fn client_sync_headers() {
         wait_or_panic(2000);
     })
     .unwrap();
+}
+
+fn produce_blocks(client: &mut Client, num: u64) {
+    for i in 1..num {
+        let b = client.produce_block(i, Duration::from_millis(100)).unwrap().unwrap();
+        let (mut accepted_blocks, _) = client.process_block(b, Provenance::PRODUCED);
+        let more_accepted_blocks = client.run_catchup().unwrap();
+        accepted_blocks.extend(more_accepted_blocks);
+        for accepted_block in accepted_blocks {
+            client.on_block_accepted(
+                accepted_block.hash,
+                accepted_block.status,
+                accepted_block.provenance,
+            );
+        }
+    }
+}
+
+#[test]
+fn test_process_invalid_tx() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.transaction_validity_period = 10;
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: client.chain.genesis().hash(),
+            actions: vec![],
+        },
+    );
+    produce_blocks(&mut client, 12);
+    assert_eq!(
+        client.process_tx(tx),
+        NetworkClientResponses::InvalidTx(
+            "Transaction has either expired or from a different fork".to_string()
+        )
+    );
+    let tx2 = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: CryptoHash::default(),
+            actions: vec![],
+        },
+    );
+    assert_eq!(
+        client.process_tx(tx2),
+        NetworkClientResponses::InvalidTx(
+            "Transaction has either expired or from a different fork".to_string()
+        )
+    );
 }

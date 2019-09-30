@@ -10,6 +10,7 @@ use tempdir::TempDir;
 use near::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near::{load_test_config, start_with_config, GenesisConfig, NearConfig};
 use near_client::{ClientActor, GetBlock, Query, Status, ViewClientActor};
+use near_crypto::{InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::NetworkClientMessages;
 use near_primitives::hash::CryptoHash;
@@ -22,6 +23,7 @@ use testlib::genesis_hash;
 #[derive(Clone)]
 struct TestNode {
     account_id: AccountId,
+    signer: Arc<InMemorySigner>,
     config: NearConfig,
     client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
@@ -66,13 +68,10 @@ fn init_test_staking(
         .map(|(i, config)| {
             let genesis_hash = genesis_hash(&config.genesis_config);
             let (client, view_client) = start_with_config(paths[i], config.clone());
-            TestNode {
-                account_id: format!("near.{}", i),
-                config,
-                client,
-                view_client,
-                genesis_hash,
-            }
+            let account_id = format!("near.{}", i);
+            let signer =
+                Arc::new(InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id));
+            TestNode { account_id, signer, config, client, view_client, genesis_hash }
         })
         .collect()
 }
@@ -98,7 +97,8 @@ fn test_stake_nodes() {
         let tx = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
-            &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+            // &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+            &*test_nodes[1].signer,
             TESTING_INIT_STAKE,
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
@@ -154,10 +154,15 @@ fn test_validator_kickout() {
         let stakes = (0..num_nodes / 2).map(|_| rng.gen_range(1, 100));
         let stake_transactions = stakes.enumerate().map(|(i, stake)| {
             let test_node = &test_nodes[i];
+            let signer = Arc::new(InMemorySigner::from_seed(
+                &test_node.account_id,
+                KeyType::ED25519,
+                &test_node.account_id,
+            ));
             SignedTransaction::stake(
                 1,
                 test_node.account_id.clone(),
-                &*test_node.config.block_producer.as_ref().unwrap().signer,
+                &*signer,
                 stake,
                 test_node.config.block_producer.as_ref().unwrap().signer.public_key(),
                 test_node.genesis_hash,
@@ -253,7 +258,7 @@ fn test_validator_kickout() {
                 }));
             }),
             100,
-            10000,
+            20000,
         )
         .start();
 
@@ -276,19 +281,29 @@ fn test_validator_join() {
             16,
             false,
         );
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &test_nodes[1].account_id,
+            KeyType::ED25519,
+            &test_nodes[1].account_id,
+        ));
         let unstake_transaction = SignedTransaction::stake(
             1,
             test_nodes[1].account_id.clone(),
-            &*test_nodes[1].config.block_producer.as_ref().unwrap().signer,
+            &*signer,
             0,
             test_nodes[1].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[1].genesis_hash,
         );
 
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &test_nodes[2].account_id,
+            KeyType::ED25519,
+            &test_nodes[2].account_id,
+        ));
         let stake_transaction = SignedTransaction::stake(
             1,
             test_nodes[2].account_id.clone(),
-            &*test_nodes[2].config.block_producer.as_ref().unwrap().signer,
+            &*signer,
             TESTING_INIT_STAKE,
             test_nodes[2].config.block_producer.as_ref().unwrap().signer.public_key(),
             test_nodes[2].genesis_hash,
@@ -366,7 +381,7 @@ fn test_validator_join() {
                 }
             }),
             1000,
-            20000,
+            40000,
         )
         .start();
 
@@ -382,7 +397,7 @@ fn test_inflation() {
         let dirs = (0..num_nodes)
             .map(|i| TempDir::new(&format!("stake_node_{}", i)).unwrap())
             .collect::<Vec<_>>();
-        let epoch_length = 20;
+        let epoch_length = 10;
         let test_nodes = init_test_staking(
             dirs.iter().map(|dir| dir.path()).collect::<Vec<_>>(),
             num_nodes,
@@ -426,7 +441,7 @@ fn test_inflation() {
                 }
             }),
             100,
-            5000,
+            10000,
         )
         .start();
 

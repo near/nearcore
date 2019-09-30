@@ -8,7 +8,7 @@ mod fixtures;
 #[test]
 fn test_storage_write_counter() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -39,7 +39,7 @@ fn test_storage_write_counter() {
 #[test]
 fn test_storage_remove() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();

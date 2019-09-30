@@ -254,8 +254,9 @@ impl Runtime {
             }
         }
 
-        if !check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length) {
-            return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent", signer_id).into());
+        if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
+        {
+            return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent {}", signer_id, amount).into());
         }
 
         if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
@@ -526,17 +527,19 @@ impl Runtime {
         // Going to check rent
         if result.result.is_ok() {
             if let Some(ref mut account) = account {
-                if check_rent(account_id, account, &self.config, apply_state.epoch_length) {
-                    set_account(state_update, account_id, account);
-                } else {
+                if let Err(amount) =
+                    check_rent(account_id, account, &self.config, apply_state.epoch_length)
+                {
                     result.merge(ActionResult {
                         result: Err(format!(
-                            "`the account {} wouldn't have enough to pay required rent",
-                            account_id
+                            "The account {} wouldn't have enough to pay required rent {}",
+                            account_id, amount
                         )
                         .into()),
                         ..Default::default()
                     });
+                } else {
+                    set_account(state_update, account_id, account);
                 }
             }
         }
