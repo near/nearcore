@@ -34,7 +34,7 @@ Develop and deploy contracts without any setup required using [NEAR Studio](http
 
 ## Status
 
-This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and work items.
+This project is currently under heavy development. Please see Issues and Milestones to checkout the current progress and working items.
 
 High level milestones:
 
