@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::{setup_client, MockNetworkAdapter};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::InMemoryBlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
@@ -74,7 +74,7 @@ fn create_block_with_invalid_chunk(
     prev_block_header: &BlockHeader,
     account_id: &str,
 ) -> (Block, EncodedShardChunk) {
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
     let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
         prev_block_header.hash,
         CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),

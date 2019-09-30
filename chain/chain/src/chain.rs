@@ -1057,6 +1057,7 @@ impl Chain {
                 shard_id,
                 &chunk.header.inner.prev_state_root,
                 chunk.header.height_included,
+                block_header.inner.timestamp,
                 &chunk.header.inner.prev_block_hash,
                 &block_header.hash,
                 &receipts,
@@ -1127,6 +1128,7 @@ impl Chain {
                     shard_id,
                     &chunk_extra.state_root,
                     block_header.inner.height,
+                    block_header.inner.timestamp,
                     &prev_block_header.hash(),
                     &block_header.hash(),
                     &vec![],
@@ -1597,7 +1599,7 @@ impl<'a> ChainUpdate<'a> {
                         )
                     });
                     if any_transaction_is_invalid {
-                        debug!(target: "chain", "Invalid transactions in the block: {:?}", chunk.transactions);
+                        debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
                         return Err(ErrorKind::InvalidTransactions.into());
                     }
                     let gas_limit = chunk.header.inner.gas_limit;
@@ -1609,6 +1611,7 @@ impl<'a> ChainUpdate<'a> {
                             shard_id,
                             &chunk.header.inner.prev_state_root,
                             chunk_header.height_included,
+                            block.header.inner.timestamp,
                             &chunk_header.inner.prev_block_hash,
                             &block.hash(),
                             &receipts,
@@ -1661,6 +1664,7 @@ impl<'a> ChainUpdate<'a> {
                             shard_id,
                             &new_extra.state_root,
                             block.header.inner.height,
+                            block.header.inner.timestamp,
                             &prev_block.hash(),
                             &block.hash(),
                             &vec![],
@@ -1689,7 +1693,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<(Option<Tip>, bool), Error> {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.inner.approval_sigs.len(), me);
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;

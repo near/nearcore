@@ -23,6 +23,8 @@ pub struct VMContext {
     pub input: Vec<u8>,
     /// The current block index.
     pub block_index: BlockIndex,
+    /// The current block timestamp.
+    pub block_timestamp: u64,
 
     /// The balance attached to the given account. Excludes the `attached_deposit` that was
     /// attached to the transaction.

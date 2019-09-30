@@ -104,6 +104,7 @@ impl RuntimeUser {
         let client = self.client.read().expect(POISONED_LOCK_ERR);
         ApplyState {
             block_index: 0,
+            block_timestamp: 0,
             epoch_length: client.epoch_length,
             gas_price: INITIAL_GAS_PRICE,
         }

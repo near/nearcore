@@ -6,8 +6,8 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, Signer};
-pub use near_network::types::PeerInfo;
+use near_crypto::{BlsSigner, InMemoryBlsSigner};
+use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
@@ -98,9 +98,9 @@ pub struct ClientConfig {
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u64,
+    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
-    pub sync_height_threshold: u64,
+    pub sync_height_threshold: BlockIndex,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between fetching data from other parts of the system.
@@ -176,17 +176,17 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<dyn BlsSigner>,
 }
 
-impl From<InMemorySigner> for BlockProducer {
-    fn from(signer: InMemorySigner) -> Self {
+impl From<InMemoryBlsSigner> for BlockProducer {
+    fn from(signer: InMemoryBlsSigner) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
+impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
+    fn from(signer: Arc<InMemoryBlsSigner>) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }

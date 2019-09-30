@@ -617,13 +617,13 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockNetworkAdapter::default());
         let mut header_sync = HeaderSync::new(mock_adapter.clone());
-        let (mut chain, _, signer) = setup();
+        let (mut chain, _, _, signer) = setup();
         for _ in 0..3 {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(prev, signer.clone());
             chain.process_block(&None, block, Provenance::PRODUCED, |_| {}, |_| {}).unwrap();
         }
-        let (mut chain2, _, signer2) = setup();
+        let (mut chain2, _, _, signer2) = setup();
         for _ in 0..5 {
             let prev = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let block = Block::empty(&prev, signer2.clone());

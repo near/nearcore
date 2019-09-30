@@ -28,7 +28,8 @@ fn run_nodes(
             actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
                 match &res {
                     Ok(Ok(b))
-                        if b.header.height > num_blocks && b.header.total_weight > num_blocks =>
+                        if b.header.height > num_blocks
+                            && b.header.total_weight > num_blocks as u128 =>
                     {
                         System::current().stop()
                     }

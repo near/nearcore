@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use near_crypto::{PublicKey, Signer};
+use near_crypto::{BlsPublicKey, PublicKey, Signer};
 use near_primitives::account::AccessKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
@@ -203,7 +203,7 @@ pub trait User {
     fn stake(
         &self,
         signer_id: AccountId,
-        public_key: PublicKey,
+        public_key: BlsPublicKey,
         amount: Balance,
     ) -> FinalExecutionOutcomeView {
         self.sign_and_commit_actions(

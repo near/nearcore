@@ -1,24 +1,25 @@
 use borsh::BorshSerialize;
 use chrono::Duration;
+use std::collections::HashMap;
+
 use near_chain::test_utils::setup;
 use near_chain::{Block, ErrorKind, Provenance};
-use near_crypto::Signer;
+use near_crypto::BlsSigner;
 use near_primitives::hash::hash;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::utils::to_timestamp;
-use std::collections::HashMap;
 
 #[test]
 fn empty_chain() {
     init_test_logger();
-    let (chain, _, _) = setup();
+    let (chain, _, _, _) = setup();
     assert_eq!(chain.head().unwrap().height, 0);
 }
 
 #[test]
 fn build_chain() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     for i in 0..4 {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
@@ -32,7 +33,7 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orhpans() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], signer.clone());
@@ -82,7 +83,7 @@ fn build_chain_with_orhpans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, signer.clone());
     let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
@@ -103,7 +104,7 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = Block::empty_with_height(genesis, 1, signer.clone());
     let b_2 = Block::empty_with_height(&b_1, 2, signer.clone());
@@ -186,7 +187,7 @@ fn blocks_at_height() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
     b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + Duration::seconds(60));

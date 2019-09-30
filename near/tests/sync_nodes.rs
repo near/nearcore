@@ -12,7 +12,7 @@ use near::config::TESTING_INIT_STAKE;
 use near::{load_test_config, start_with_config, GenesisConfig};
 use near_chain::Block;
 use near_client::{ClientActor, GetBlock};
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType};
 use near_network::test_utils::{convert_boot_nodes, open_port, WaitOrTimeout};
 use near_network::{NetworkClientMessages, PeerInfo};
 use near_primitives::test_utils::{heavy_test, init_integration_logger};
@@ -26,7 +26,7 @@ fn add_blocks(
     client: Addr<ClientActor>,
     num: usize,
     epoch_length: BlockIndex,
-    signer: Arc<InMemorySigner>,
+    signer: Arc<InMemoryBlsSigner>,
 ) -> Vec<Block> {
     let mut prev = &blocks[blocks.len() - 1];
     for _ in 0..num {
@@ -80,7 +80,7 @@ fn sync_nodes() {
         let dir1 = TempDir::new("sync_nodes_1").unwrap();
         let (client1, _) = start_with_config(dir1.path(), near1);
 
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
+        let signer = Arc::new(InMemoryBlsSigner::from_seed("other", "other"));
         let _ = add_blocks(vec![genesis_block], client1, 12, genesis_config.epoch_length, signer);
 
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
@@ -132,7 +132,7 @@ fn sync_after_sync_nodes() {
         let dir2 = TempDir::new("sync_nodes_2").unwrap();
         let (_, view_client2) = start_with_config(dir2.path(), near2);
 
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
+        let signer = Arc::new(InMemoryBlsSigner::from_seed("other", "other"));
         let blocks = add_blocks(
             vec![genesis_block],
             client1.clone(),
@@ -202,10 +202,11 @@ fn sync_state_stake_change() {
         let (client1, view_client1) = start_with_config(dir1.path(), near1.clone());
 
         let genesis_hash = genesis_block(genesis_config).hash();
+        let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
         let unstake_transaction = SignedTransaction::stake(
             1,
             "test1".to_string(),
-            &*near1.block_producer.as_ref().unwrap().signer,
+            &*signer,
             TESTING_INIT_STAKE / 2,
             near1.block_producer.as_ref().unwrap().signer.public_key(),
             genesis_hash,
