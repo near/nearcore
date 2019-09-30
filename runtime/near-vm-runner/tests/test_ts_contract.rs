@@ -18,6 +18,7 @@ fn create_context(input: &[u8]) -> VMContext {
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
         input: Vec::from(input),
         block_index: 0,
+        block_timestamp: 0,
         account_balance: 0,
         storage_usage: 0, // it's not actually 0 and storage_remove will overflow but we don't use it
         attached_deposit: 0,
