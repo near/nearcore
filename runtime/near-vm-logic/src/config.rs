@@ -47,8 +47,8 @@ impl Default for Config {
             regular_op_cost: 1,
             max_gas_burnt: 10u64.pow(9),
             max_stack_height: 2u32.pow(21),     // 4Mib of stack.
-            initial_memory_pages: 2u32.pow(10), // 4Mib of memory.
-            max_memory_pages: 2u32.pow(11),     // 8Mib of memory.
+            initial_memory_pages: 2u32.pow(10), // 64Mib of memory.
+            max_memory_pages: 2u32.pow(11),     // 128Mib of memory.
             // By default registers are limited by 1GiB of memory.
             registers_memory_limit: 2u64.pow(30),
             // By default each register is limited by 100MiB of memory.
