@@ -312,7 +312,7 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_index)
     }
 
-    /// Returns the current block index.
+    /// Returns the current block timestamp.
     pub fn block_timestamp(&self) -> Result<u64> {
         Ok(self.context.block_timestamp)
     }
