@@ -82,17 +82,6 @@ test_cases_testnet_rpc:
     only:
         - schedules
 
-release_build:
-   stage: rust
-   tags:
-   - gcloud
-   before_script:
-   - *setup_rust
-   - *setup_cache
-   script:
-   - rustc --version && cargo --version
-   after_script:
-   - *cleanup_obsolete_cache
 #
 #coverage:
 #    stage: libs
