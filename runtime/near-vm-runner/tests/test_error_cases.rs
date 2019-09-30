@@ -392,3 +392,37 @@ fn test_initializer_no_gas() {
         )
     );
 }
+
+fn bad_many_imports() -> Vec<u8> {
+    let mut imports = String::new();
+    for i in 0..100 {
+        imports.push_str(&format!(
+            r#"
+            (import "env" "wtf{}" (func (;{};) (type 0)))
+         "#,
+            i, i
+        ));
+    }
+    wabt::wat2wasm(format!(
+        r#"
+            (module
+              (type (;0;) (func))
+              {}
+              (export "hello" (func 0))
+            )"#,
+        imports
+    ))
+    .unwrap()
+}
+
+#[test]
+fn test_bad_many_imports() {
+    let result = make_simple_contract_call(&bad_many_imports(), b"hello");
+    assert_eq!(result.0, Some(vm_outcome_with_gas(0)));
+    if let Some(VMError::FunctionCallError(FunctionCallError::LinkError(msg))) = result.1 {
+        eprintln!("{}", msg);
+        assert!(msg.len() < 1000, format!("Huge error message: {}", msg.len()));
+    } else {
+        panic!(result.1);
+    }
+}

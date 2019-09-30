@@ -157,7 +157,10 @@ impl fmt::Display for MethodResolveError {
 
 impl fmt::Display for VMError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        fmt::Debug::fmt(self, f)
+        match self {
+            VMError::FunctionCallError(err) => fmt::Display::fmt(err, f),
+            VMError::StorageError(_err) => write!(f, "StorageError"),
+        }
     }
 }
 
@@ -187,5 +190,29 @@ impl std::fmt::Display for HostError {
             InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
             ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{CompilationError, FunctionCallError, MethodResolveError, PrepareError, VMError};
+
+    #[test]
+    fn test_display() {
+        // TODO: proper printing
+        assert_eq!(
+            VMError::FunctionCallError(FunctionCallError::ResolveError(
+                MethodResolveError::MethodInvalidSignature
+            ))
+            .to_string(),
+            "MethodInvalidSignature"
+        );
+        assert_eq!(
+            VMError::FunctionCallError(FunctionCallError::CompilationError(
+                CompilationError::PrepareError(PrepareError::StackHeightInstrumentation)
+            ))
+            .to_string(),
+            "PrepareError: Stack instrumentation failed."
+        );
     }
 }

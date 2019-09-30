@@ -11,7 +11,7 @@ impl IntoVMError for wasmer_runtime::error::Error {
         match self {
             Error::CompileError(err) => err.into_vm_error(),
             Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError(
-                format!("{}", Error::LinkError(err)),
+                format!("{:.500}", Error::LinkError(err).to_string()),
             )),
             Error::RuntimeError(err) => err.into_vm_error(),
             Error::ResolveError(err) => err.into_vm_error(),
