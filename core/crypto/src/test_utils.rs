@@ -1,5 +1,5 @@
 use crate::signature::{KeyType, PublicKey, SecretKey, SECP256K1};
-use crate::{InMemorySigner, Signature};
+use crate::{BlsSecretKey, InMemoryBlsSigner, InMemorySigner, Signature};
 use rand::rngs::StdRng;
 
 fn ed25519_key_pair_from_seed(
@@ -48,6 +48,18 @@ impl SecretKey {
     }
 }
 
+impl BlsSecretKey {
+    pub fn from_seed(seed: &str) -> BlsSecretKey {
+        let seed_bytes = seed.as_bytes();
+        let len = seed_bytes.len();
+        let mut seed: [u8; 32] = [b' '; 32];
+        seed[..len].copy_from_slice(&seed_bytes[..len]);
+        let mut rng: StdRng = rand::SeedableRng::from_seed(seed);
+        let sk = milagro_bls::SecretKey::random(&mut rng);
+        BlsSecretKey(sk)
+    }
+}
+
 const SIG: [u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES] =
     [0u8; sodiumoxide::crypto::sign::ed25519::SIGNATUREBYTES];
 
@@ -61,6 +73,13 @@ impl Signature {
             KeyType::ED25519 => Signature::ED25519(DEFAULT_ED25519_SIGNATURE),
             _ => unimplemented!(),
         }
+    }
+}
+
+impl InMemoryBlsSigner {
+    pub fn from_random(account_id: String) -> Self {
+        let secret_key = BlsSecretKey::from_random();
+        Self { account_id, public_key: secret_key.public_key(), secret_key }
     }
 }
 

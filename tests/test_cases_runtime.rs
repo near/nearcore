@@ -4,9 +4,8 @@ mod test {
     use near::GenesisConfig;
     use near_primitives::serialize::to_base64;
     use near_primitives::utils::key_for_data;
-    use near_primitives::views::FinalTransactionStatus;
     use node_runtime::StateRecord;
-    use testlib::node::{Node, RuntimeNode};
+    use testlib::node::RuntimeNode;
     use testlib::runtime_utils::{alice_account, bob_account};
     use testlib::standard_test_cases::*;
 
@@ -22,10 +21,10 @@ mod test {
         let mut genesis_config =
             GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
+        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
@@ -47,7 +46,7 @@ mod test {
         genesis_config.runtime_config.storage_cost_byte_per_block = 1;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
@@ -328,19 +327,8 @@ mod test {
     }
 
     #[test]
-    fn test_free_runtime() {
+    fn test_smart_contract_free_runtime() {
         let node = create_free_runtime_node();
-        let node_user = node.user();
-        let root = node_user.get_state_root();
-        let transaction_result =
-            node_user.function_call(alice_account(), bob_account(), "run_test", vec![], 1000000, 0);
-        assert_eq!(transaction_result.status, FinalTransactionStatus::Completed);
-        assert_eq!(transaction_result.transactions.len(), 3);
-        for transaction in transaction_result.transactions {
-            println!("{:?}", transaction);
-            assert_eq!(transaction.result.gas_burnt, 0)
-        }
-        let new_root = node_user.get_state_root();
-        assert_ne!(root, new_root);
+        test_smart_contract_free(node);
     }
 }

@@ -24,7 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::FinalExecutionStatus;
 
 pub mod test_utils;
 
@@ -169,7 +169,7 @@ impl JsonRpcHandler {
                         let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                         if let Ok(Ok(ref tx)) = final_tx {
                             match tx.status {
-                                FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
+                                FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
                                 _ => {
                                     break jsonify(final_tx);
                                 }

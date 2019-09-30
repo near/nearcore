@@ -6,13 +6,13 @@ use actix::Message;
 use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, Signer};
-pub use near_network::types::PeerInfo;
+use near_crypto::{BlsSigner, InMemoryBlsSigner};
+use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::views::{
-    BlockView, ChunkView, FinalTransactionResult, QueryResponse, TransactionResultView,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -98,9 +98,9 @@ pub struct ClientConfig {
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u64,
+    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
-    pub sync_height_threshold: u64,
+    pub sync_height_threshold: BlockIndex,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between fetching data from other parts of the system.
@@ -125,8 +125,6 @@ pub struct ClientConfig {
     pub catchup_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
-    /// Number of blocks for which a transaction is valid
-    pub transaction_validity_period: BlockIndex,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -168,7 +166,6 @@ impl ClientConfig {
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
             block_header_fetch_horizon: 50,
-            transaction_validity_period: 100,
             tracked_accounts: vec![],
             tracked_shards: vec![],
         }
@@ -179,17 +176,17 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<dyn BlsSigner>,
 }
 
-impl From<InMemorySigner> for BlockProducer {
-    fn from(signer: InMemorySigner) -> Self {
+impl From<InMemoryBlsSigner> for BlockProducer {
+    fn from(signer: InMemoryBlsSigner) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
+impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
+    fn from(signer: Arc<InMemoryBlsSigner>) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
@@ -297,7 +294,7 @@ pub struct TxStatus {
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalTransactionResult, String>;
+    type Result = Result<FinalExecutionOutcomeView, String>;
 }
 
 /// Details about given transaction.
@@ -306,5 +303,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResultView, String>;
+    type Result = Result<ExecutionOutcomeView, String>;
 }

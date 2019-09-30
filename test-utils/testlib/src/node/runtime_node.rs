@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use near::GenesisConfig;
-use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
@@ -12,6 +12,7 @@ use crate::user::{RuntimeUser, User};
 pub struct RuntimeNode {
     pub client: Arc<RwLock<MockClient>>,
     pub signer: Arc<InMemorySigner>,
+    pub bls_signer: Arc<InMemoryBlsSigner>,
 }
 
 impl RuntimeNode {
@@ -23,6 +24,7 @@ impl RuntimeNode {
 
     pub fn new_from_genesis(account_id: &AccountId, genesis_config: GenesisConfig) -> Self {
         let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
         let (runtime, trie, root) = get_runtime_and_trie_from_genesis(&genesis_config);
         let client = Arc::new(RwLock::new(MockClient {
             runtime,
@@ -30,7 +32,7 @@ impl RuntimeNode {
             state_root: root,
             epoch_length: genesis_config.epoch_length,
         }));
-        RuntimeNode { signer, client }
+        RuntimeNode { signer, client, bls_signer }
     }
 
     pub fn free(account_id: &AccountId) -> Self {
@@ -51,6 +53,10 @@ impl Node for RuntimeNode {
 
     fn signer(&self) -> Arc<dyn Signer> {
         self.signer.clone()
+    }
+
+    fn block_signer(&self) -> Arc<dyn BlsSigner> {
+        self.bls_signer.clone()
     }
 
     fn is_running(&self) -> bool {
@@ -89,7 +95,7 @@ mod tests {
             node.view_balance(&bob_account()).unwrap(),
         );
         assert_eq!(alice2, alice1 - 1 - transfer_cost);
-        let reward = gas_burnt_to_reward(transaction_result.transactions[1].result.gas_burnt);
+        let reward = gas_burnt_to_reward(transaction_result.receipts[0].outcome.gas_burnt);
         assert_eq!(bob2, bob1 + 1 + reward);
     }
 
