@@ -63,6 +63,8 @@ pub struct ApplyState {
     pub epoch_length: BlockIndex,
     /// Price for the gas.
     pub gas_price: Balance,
+    /// A block timestamp
+    pub block_timestamp: u64,
 }
 
 #[derive(Debug)]

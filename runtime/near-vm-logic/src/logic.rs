@@ -323,6 +323,11 @@ impl<'a> VMLogic<'a> {
         Ok(self.context.block_index)
     }
 
+    /// Returns the current block timestamp.
+    pub fn block_timestamp(&self) -> Result<u64> {
+        Ok(self.context.block_timestamp)
+    }
+
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
     /// invocation. This includes:
     /// * The data written with storage_* functions during current and previous execution;
