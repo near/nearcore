@@ -629,6 +629,7 @@ impl Handler<NetworkRequests> for PeerManagerActor {
             }
             NetworkRequests::Edges(edges) => {
                 // If this is a new edge broadcast it.
+                // TODO(MarX): Don't add edges if it is between us and another peer
                 let edges: Vec<_> = edges
                     .into_iter()
                     .filter(|edge| self.routing_table.process_edge(edge.clone()))
