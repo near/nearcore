@@ -12,7 +12,7 @@ use log::{debug, error};
 use rand::Rng;
 
 use near_chain::{byzantine_assert, collect_receipts, ErrorKind, RuntimeAdapter, ValidTransaction};
-use near_crypto::Signer;
+use near_crypto::BlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_network::NetworkRequests;
 use near_pool::TransactionPool;
@@ -720,7 +720,7 @@ impl ShardsManager {
         receipts: &Vec<Receipt>,
         receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        signer: Arc<dyn Signer>,
+        signer: Arc<dyn BlsSigner>,
     ) -> Result<EncodedShardChunk, Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);

@@ -1,23 +1,21 @@
-use near_chain::test_utils::{setup, setup_with_tx_validity_period};
-use near_chain::{Block, ErrorKind, Provenance};
-use near_crypto::{KeyType, Signature, Signer};
-use near_primitives::hash::hash;
-use near_primitives::test_utils::init_test_logger;
-use near_primitives::transaction::{SignedTransaction, Transaction};
-use near_primitives::types::EpochId;
 use std::collections::HashMap;
+
+use near_chain::test_utils::setup;
+use near_chain::{Block, ErrorKind, Provenance};
+use near_crypto::BlsSigner;
+use near_primitives::test_utils::init_test_logger;
 
 #[test]
 fn empty_chain() {
     init_test_logger();
-    let (chain, _, _) = setup();
+    let (chain, _, _, _) = setup();
     assert_eq!(chain.head().unwrap().height, 0);
 }
 
 #[test]
 fn build_chain() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     for i in 0..4 {
         let prev_hash = chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
@@ -31,7 +29,7 @@ fn build_chain() {
 #[test]
 fn build_chain_with_orhpans() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut blocks = vec![chain.get_block(&chain.genesis().hash()).unwrap().clone()];
     for i in 1..4 {
         let block = Block::empty(&blocks[i - 1], signer.clone());
@@ -43,7 +41,6 @@ fn build_chain_with_orhpans() {
         10,
         last_block.chunks.clone(),
         last_block.header.inner.epoch_id.clone(),
-        vec![],
         HashMap::default(),
         0,
         Some(0),
@@ -82,7 +79,7 @@ fn build_chain_with_orhpans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block(&chain.genesis().hash()).unwrap();
     let b1 = Block::empty(&genesis, signer.clone());
     let b2 = Block::empty_with_height(&genesis, 2, signer.clone());
@@ -98,78 +95,12 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_header_by_height(5).unwrap().inner.height, 5);
 }
 
-#[test]
-fn test_apply_expired_tx() {
-    init_test_logger();
-    let (mut chain, _, signer) = setup_with_tx_validity_period(0);
-    let genesis = chain.get_block_by_height(0).unwrap().clone();
-    let b1 = Block::empty(&genesis, signer.clone());
-    let tx = SignedTransaction::new(
-        Signature::empty(KeyType::ED25519),
-        Transaction {
-            signer_id: "".to_string(),
-            public_key: signer.public_key(),
-            nonce: 0,
-            receiver_id: "".to_string(),
-            block_hash: b1.hash(),
-            actions: vec![],
-        },
-    );
-    let _b2 = Block::produce(
-        &chain.genesis(),
-        2,
-        genesis.chunks.clone(),
-        EpochId::default(),
-        vec![tx],
-        HashMap::default(),
-        0,
-        Some(0),
-        signer.clone(),
-    );
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
-    // TODO: MOO add shard tracking.
-    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_err());
-}
-
-#[test]
-fn test_tx_wrong_fork() {
-    init_test_logger();
-    let (mut chain, _, signer) = setup();
-    let genesis = chain.get_block_by_height(0).unwrap();
-    let b1 = Block::empty(genesis, signer.clone());
-    let tx = SignedTransaction::new(
-        Signature::empty(KeyType::ED25519),
-        Transaction {
-            signer_id: "".to_string(),
-            public_key: signer.public_key(),
-            nonce: 0,
-            receiver_id: "".to_string(),
-            block_hash: hash(&[2]),
-            actions: vec![],
-        },
-    );
-    let _b2 = Block::produce(
-        &genesis.header,
-        2,
-        genesis.chunks.clone(),
-        EpochId::default(),
-        vec![tx],
-        HashMap::default(),
-        0,
-        Some(0),
-        signer.clone(),
-    );
-    assert!(chain.process_block(&None, b1, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
-    // TODO: MOO add shard tracking.
-    //    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_err());
-}
-
 /// Verifies that the block at height are updated correctly when blocks from different forks are
 /// processed, especially when certain heights are skipped
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let genesis = chain.get_block_by_height(0).unwrap();
     let b_1 = Block::empty_with_height(genesis, 1, signer.clone());
     let b_2 = Block::empty_with_height(&b_1, 2, signer.clone());

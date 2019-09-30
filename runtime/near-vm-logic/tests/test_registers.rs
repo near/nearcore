@@ -9,7 +9,7 @@ mod fixtures;
 #[test]
 fn test_one_register() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -25,7 +25,7 @@ fn test_one_register() {
 #[test]
 fn test_non_existent_register() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -42,7 +42,7 @@ fn test_non_existent_register() {
 #[test]
 fn test_many_registers() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -68,7 +68,7 @@ fn test_many_registers() {
 #[test]
 fn test_register_is_not_used() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();

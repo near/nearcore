@@ -265,9 +265,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_id".to_string()));
+        }
         let data = context.signer_account_id.as_bytes();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -278,9 +282,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()));
+        }
         let data = context.signer_account_pk.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -291,10 +299,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()));
+        }
         let data = context.predecessor_account_id.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -340,17 +351,38 @@ impl<'a> VMLogic<'a> {
 
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView``.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("attached_deposit".to_string()));
+        }
         Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()));
+        }
         Ok(self.context.prepaid_gas)
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("used_gas".to_string()));
+        }
         Ok(self.used_gas)
     }
 
@@ -421,9 +453,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
+    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
     /// or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -461,6 +494,7 @@ impl<'a> VMLogic<'a> {
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
     ///   guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -503,6 +537,7 @@ impl<'a> VMLogic<'a> {
     ///   `MemoryAccessViolation`;
     /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -513,6 +548,9 @@ impl<'a> VMLogic<'a> {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_and".to_string()));
+        }
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
 
@@ -540,8 +578,9 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -552,6 +591,9 @@ impl<'a> VMLogic<'a> {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_create".to_string()));
+        }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
@@ -572,6 +614,7 @@ impl<'a> VMLogic<'a> {
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -583,6 +626,9 @@ impl<'a> VMLogic<'a> {
         account_id_len: u64,
         account_id_ptr: u64,
     ) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_then".to_string()));
+        }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         // Update the DAG and return new promise idx.
         let promise =
@@ -677,7 +723,13 @@ impl<'a> VMLogic<'a> {
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
     /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_create_account(&mut self, promise_idx: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_create_account".to_string(),
+            ));
+        }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         self.pay_base_gas_fee(
@@ -699,12 +751,18 @@ impl<'a> VMLogic<'a> {
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_deploy_contract(
         &mut self,
         promise_idx: u64,
         code_len: u64,
         code_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_deploy_contract".to_string(),
+            ));
+        }
         let code = Self::memory_get(self.memory, code_ptr, code_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -735,6 +793,7 @@ impl<'a> VMLogic<'a> {
     /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
     /// `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_function_call(
         &mut self,
         promise_idx: u64,
@@ -745,6 +804,11 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_function_call".to_string(),
+            ));
+        }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
         let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
@@ -783,11 +847,15 @@ impl<'a> VMLogic<'a> {
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `amount_ptr + 16` points outside the memory of the guest or host returns
     /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_transfer(
         &mut self,
         promise_idx: u64,
         amount_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_action_transfer".to_string()));
+        }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -811,6 +879,7 @@ impl<'a> VMLogic<'a> {
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the
     /// guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_stake(
         &mut self,
         promise_idx: u64,
@@ -818,6 +887,9 @@ impl<'a> VMLogic<'a> {
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_action_stake".to_string()));
+        }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
 
@@ -842,6 +914,7 @@ impl<'a> VMLogic<'a> {
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_add_key_with_full_access(
         &mut self,
         promise_idx: u64,
@@ -849,6 +922,11 @@ impl<'a> VMLogic<'a> {
         public_key_ptr: u64,
         nonce: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_add_key_with_full_access".to_string(),
+            ));
+        }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -874,6 +952,7 @@ impl<'a> VMLogic<'a> {
     /// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
     /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
     /// the memory of the guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_add_key_with_function_call(
         &mut self,
         promise_idx: u64,
@@ -886,6 +965,11 @@ impl<'a> VMLogic<'a> {
         method_names_len: u64,
         method_names_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_add_key_with_function_call".to_string(),
+            ));
+        }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
         let allowance = Self::memory_get_u128(self.memory, allowance_ptr)?;
         let allowance = if allowance > 0 { Some(allowance) } else { None };
@@ -938,12 +1022,16 @@ impl<'a> VMLogic<'a> {
     /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
     /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_delete_key(
         &mut self,
         promise_idx: u64,
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_action_delete_key".to_string()));
+        }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
@@ -967,12 +1055,18 @@ impl<'a> VMLogic<'a> {
     /// `promise_and` returns `CannotAppendActionToJointPromise`.
     /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or
     /// host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_batch_action_delete_account(
         &mut self,
         promise_idx: u64,
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64,
     ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_delete_account".to_string(),
+            ));
+        }
         let beneficiary_id =
             self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
 
@@ -998,6 +1092,9 @@ impl<'a> VMLogic<'a> {
     /// * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
     /// * If the function was called not through the callback returns `0`.
     pub fn promise_results_count(&self) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_results_count".to_string()));
+        }
         Ok(self.promise_results.len() as _)
     }
 
@@ -1018,8 +1115,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If `result_idx` does not correspond to an existing result returns `InvalidResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
-        let Self { promise_results, registers, config, .. } = self;
+        let Self { promise_results, registers, config, context, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("promise_result".to_string()));
+        }
         match promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex)?
@@ -1038,8 +1139,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_return".to_string()));
+        }
         match self
             .promises
             .get(promise_idx as usize)
@@ -1205,7 +1310,7 @@ impl<'a> VMLogic<'a> {
             self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
         let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
         if new_burnt_gas <= self.config.max_gas_burnt
-            && (self.context.free_of_charge || new_used_gas <= self.context.prepaid_gas)
+            && (self.context.is_view || new_used_gas <= self.context.prepaid_gas)
         {
             self.burnt_gas = new_burnt_gas;
             self.used_gas = new_used_gas;

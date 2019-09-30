@@ -7,7 +7,7 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{InMemoryBlsSigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
@@ -57,7 +57,7 @@ mod tests {
         nonce: u64,
         block_hash: CryptoHash,
     ) {
-        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemoryBlsSigner::from_seed("test1", KeyType::ED25519, "test1");
         connector.do_send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
             nonce, from, to, &signer, amount, block_hash,
         )));

@@ -19,6 +19,7 @@ pub enum HostError {
     InvalidRegisterId,
     IteratorWasInvalidated,
     MemoryAccessViolation,
+    ProhibitedInView(String),
 }
 
 impl From<ExternalError> for HostError {
@@ -51,6 +52,7 @@ impl std::fmt::Display for HostError {
             InvalidRegisterId => write!(f, "Accessed invalid register id"),
             IteratorWasInvalidated => write!(f, "Iterator was invalidated after its creation by performing a mutable operation on trie"),
             MemoryAccessViolation => write!(f, "Accessed memory outside the bounds."),
+            ProhibitedInView(method_name) => write!(f, "{} is not allowed in view calls", method_name)
         }
     }
 }
