@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::prelude::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
@@ -312,6 +312,12 @@ impl Block {
 
         let total_weight =
             (prev.inner.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
+        let now = Utc::now();
+        let time = if to_timestamp(now) <= prev.inner.timestamp {
+            prev.timestamp() + Duration::microseconds(1)
+        } else {
+            now
+        };
         Block {
             header: BlockHeader::new(
                 height,
@@ -320,7 +326,7 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
-                Utc::now(),
+                time,
                 approval_mask,
                 approval_sigs,
                 total_weight,
