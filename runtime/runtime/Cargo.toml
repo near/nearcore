@@ -24,6 +24,7 @@ near-store = { path = "../../core/store" }
 near-runtime-fees = { path = "../../runtime/near-runtime-fees" }
 near-vm-logic = { path = "../../runtime/near-vm-logic" }
 near-vm-runner = { path = "../../runtime/near-vm-runner" }
+near-vm-errors = { path = "../../runtime/near-vm-errors" }
 cached = "0.9.0"
 borsh = "0.2.2"
 

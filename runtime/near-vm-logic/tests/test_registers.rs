@@ -1,7 +1,7 @@
 use crate::fixtures::get_context;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::mocks::mock_memory::MockedMemory;
-use near_vm_logic::{Config, HostError, VMLogic};
+use near_vm_logic::{Config, HostError, HostErrorOrStorageError, VMLogic};
 use std::mem::size_of;
 
 mod fixtures;
@@ -31,11 +31,11 @@ fn test_non_existent_register() {
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
-    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostError>);
+    assert_eq!(logic.register_len(0), Ok(std::u64::MAX) as Result<u64, HostErrorOrStorageError>);
     let buffer = [0u8; 3];
     assert_eq!(
         logic.read_register(0, buffer.as_ptr() as u64),
-        Err(HostError::InvalidRegisterId) as Result<(), HostError>
+        Err(HostError::InvalidRegisterId.into())
     );
 }
 
@@ -61,7 +61,7 @@ fn test_many_registers() {
     // One more register hits the boundary check.
     assert_eq!(
         logic.write_register(max_registers, &[]),
-        Err(HostError::MemoryAccessViolation) as Result<(), HostError>
+        Err(HostError::MemoryAccessViolation.into())
     )
 }
 
