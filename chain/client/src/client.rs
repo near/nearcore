@@ -483,11 +483,6 @@ impl Client {
             }
         };
 
-        // Process orphaned chunk_one_parts
-        if self.shards_mgr.process_orphaned_one_parts(block_hash) {
-            self.process_blocks_with_missing_chunks(block_hash);
-        }
-
         if provenance != Provenance::SYNC {
             // If we produced the block, then we want to broadcast it.
             // If received the block from another node then broadcast "header first" to minimise network traffic.
@@ -601,6 +596,7 @@ impl Client {
     }
 
     /// Check if any block with missing chunks is ready to be processed
+    #[must_use]
     pub fn process_blocks_with_missing_chunks(
         &mut self,
         last_accepted_block_hash: CryptoHash,
