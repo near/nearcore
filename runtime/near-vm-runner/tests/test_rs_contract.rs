@@ -46,12 +46,13 @@ fn create_context(input: &[u8]) -> VMContext {
         predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
         input: input.to_owned(),
         block_index: 10,
+        block_timestamp: 0,
         account_balance: 2u128,
         storage_usage: 12,
         attached_deposit: 2u128,
         prepaid_gas: 10_u64.pow(9),
         random_seed: vec![0, 1, 2],
-        free_of_charge: false,
+        is_view: false,
         output_data_receivers: vec![],
     }
 }
@@ -128,7 +129,12 @@ fn run_test_ext(method: &[u8], expected: &[u8], input: &[u8]) {
 def_test_ext!(ext_account_id, b"ext_account_id", CURRENT_ACCOUNT_ID.as_bytes());
 
 def_test_ext!(ext_signer_id, b"ext_signer_id", SIGNER_ACCOUNT_ID.as_bytes());
-def_test_ext!(ext_predecessor_account_id, b"ext_predecessor_account_id", PREDECESSOR_ACCOUNT_ID.as_bytes(), &[]);
+def_test_ext!(
+    ext_predecessor_account_id,
+    b"ext_predecessor_account_id",
+    PREDECESSOR_ACCOUNT_ID.as_bytes(),
+    &[]
+);
 def_test_ext!(ext_signer_pk, b"ext_signer_pk", &SIGNER_ACCOUNT_PK);
 def_test_ext!(ext_random_seed, b"ext_random_seed", &[0, 1, 2]);
 
@@ -136,12 +142,13 @@ def_test_ext!(ext_prepaid_gas, b"ext_prepaid_gas", &(10_u64.pow(9)).to_le_bytes(
 def_test_ext!(ext_block_index, b"ext_block_index", &10u64.to_le_bytes());
 def_test_ext!(ext_storage_usage, b"ext_storage_usage", &12u64.to_le_bytes());
 // TODO: mock used_gas
-def_test_ext!(ext_used_gas, b"ext_used_gas", &19u64.to_le_bytes());
-def_test_ext!(ext_sha256,
+def_test_ext!(ext_used_gas, b"ext_used_gas", &18u64.to_le_bytes());
+def_test_ext!(
+    ext_sha256,
     b"ext_sha256",
     &[
-        18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112,
-        92, 255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
+        18, 176, 115, 156, 45, 100, 241, 132, 180, 134, 77, 42, 105, 111, 199, 127, 118, 112, 92,
+        255, 88, 43, 83, 147, 122, 55, 26, 36, 42, 156, 160, 158,
     ],
     b"tesdsst"
 );

@@ -7,7 +7,7 @@ use near::config::{
     create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisConfig,
 };
 use near::NearConfig;
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, Signer};
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, Balance};
@@ -69,6 +69,10 @@ pub trait Node: Send + Sync {
 
     fn signer(&self) -> Arc<dyn Signer>;
 
+    fn block_signer(&self) -> Arc<dyn BlsSigner> {
+        unimplemented!()
+    }
+
     fn is_running(&self) -> bool;
 
     fn user(&self) -> Box<dyn User>;
@@ -116,7 +120,7 @@ impl dyn Node {
 
 fn near_configs_to_node_configs(
     configs: Vec<Config>,
-    signers: Vec<InMemorySigner>,
+    signers: Vec<InMemoryBlsSigner>,
     network_signers: Vec<InMemorySigner>,
     genesis_config: GenesisConfig,
 ) -> Vec<NodeConfig> {

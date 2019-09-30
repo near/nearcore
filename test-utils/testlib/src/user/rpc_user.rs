@@ -13,8 +13,8 @@ use near_primitives::serialize::{to_base, to_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, FinalTransactionResult, QueryResponse,
-    TransactionResultView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ExecutionOutcomeView,
+    FinalExecutionOutcomeView, QueryResponse, ViewStateResult,
 };
 
 use crate::user::User;
@@ -57,7 +57,7 @@ impl User for RpcUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalTransactionResult, String> {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         let bytes = transaction.try_to_vec().unwrap();
         System::new("actix")
             .block_on(self.client.write().unwrap().broadcast_tx_commit(to_base64(&bytes)))
@@ -80,11 +80,11 @@ impl User for RpcUser {
         System::new("actix").block_on(self.client.write().unwrap().block(index)).ok()
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
         System::new("actix").block_on(self.client.write().unwrap().tx_details(hash.into())).unwrap()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         System::new("actix").block_on(self.client.write().unwrap().tx(hash.into())).unwrap()
     }
 

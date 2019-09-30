@@ -12,6 +12,7 @@ use near_primitives::serialize::to_base;
 use near_telemetry::{telemetry, TelemetryActor};
 
 use crate::types::{BlockProducer, ShardSyncStatus, SyncStatus};
+use near_primitives::types::Gas;
 use std::cmp::min;
 
 /// A helper that prints information about current chain and reports to telemetry.
@@ -51,7 +52,7 @@ impl InfoHelper {
         }
     }
 
-    pub fn block_processed(&mut self, gas_used: u64, gas_limit: u64) {
+    pub fn block_processed(&mut self, gas_used: Gas, gas_limit: Gas) {
         self.num_blocks_processed += 1;
         self.gas_used += gas_used;
         self.gas_limit += gas_limit;
@@ -94,6 +95,7 @@ impl InfoHelper {
               Green.bold().paint(format!("{:.2} bps {}", avg_bls, gas_used_per_sec(avg_gas_used))),
               Blue.bold().paint(format!("CPU: {:.0}%, Mem: {}", cpu_usage, pretty_bytes(memory * 1024)))
         );
+
         self.started = Instant::now();
         self.num_blocks_processed = 0;
         self.gas_used = 0;

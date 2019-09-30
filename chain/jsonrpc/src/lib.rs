@@ -16,7 +16,7 @@ use serde_json::Value;
 use async_utils::{delay, timeout};
 use message::{Request, RpcError};
 use message::Message;
-use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor};
+use near_client::{ClientActor, GetBlock, Query, Status, TxDetails, TxStatus, ViewClientActor, GetNetworkInfo};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_client::message as message;
 use near_network::{NetworkClientMessages, NetworkClientResponses};
@@ -24,7 +24,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::BlockIndex;
-use near_primitives::views::FinalTransactionStatus;
+use near_primitives::views::FinalExecutionStatus;
 
 pub mod test_utils;
 
@@ -137,6 +137,7 @@ impl JsonRpcHandler {
             "tx" => self.tx_status(request.params).await,
             "tx_details" => self.tx_details(request.params).await,
             "block" => self.block(request.params).await,
+            "network_info" => self.network_info().await,
             _ => Err(RpcError::method_not_found(request.method)),
         }
     }
@@ -168,7 +169,7 @@ impl JsonRpcHandler {
                         let final_tx = self.view_client_addr.send(TxStatus { tx_hash }).compat().await;
                         if let Ok(Ok(ref tx)) = final_tx {
                             match tx.status {
-                                FinalTransactionStatus::Started | FinalTransactionStatus::Unknown => {}
+                                FinalExecutionStatus::Started | FinalExecutionStatus::NotStarted => {}
                                 _ => {
                                     break jsonify(final_tx);
                                 }
@@ -215,6 +216,10 @@ impl JsonRpcHandler {
         let (height,) = parse_params::<(BlockIndex,)>(params)?;
         jsonify(self.view_client_addr.send(GetBlock::Height(height)).compat().await)
     }
+
+    async fn network_info(&self) -> Result<Value, RpcError> {
+        jsonify(self.client_addr.send(GetNetworkInfo {}).compat().await)
+    }
 }
 
 fn rpc_handler(
@@ -232,7 +237,17 @@ fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = Http
     let response = async move {
         match handler.status().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
-            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()),   
+        }
+    };
+    response.boxed().compat()
+}
+
+fn network_info_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    let response = async move {
+        match handler.network_info().await {
+            Ok(value) => Ok(HttpResponse::Ok().json(value)),
+            Err(_) => Ok(HttpResponse::ServiceUnavailable().finish()), 
         }
     };
     response.boxed().compat()
@@ -269,6 +284,7 @@ pub fn start_http(
             .wrap(middleware::Logger::default())
             .service(web::resource("/").route(web::post().to_async(rpc_handler)))
             .service(web::resource("/status").route(web::get().to_async(status_handler)))
+            .service(web::resource("/network_info").route(web::get().to_async(network_info_handler)))
     })
     .bind(addr)
     .unwrap()

@@ -229,7 +229,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::{Arc, RwLock};
 
-    use near_crypto::{KeyType, PublicKey};
+    use near_crypto::BlsPublicKey;
     use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::types::{BlockIndex, EpochId, ShardId, ValidatorStake};
@@ -265,7 +265,7 @@ mod tests {
                 reward_calculator,
                 vec![ValidatorStake {
                     account_id: "test".to_string(),
-                    public_key: PublicKey::empty(KeyType::ED25519),
+                    public_key: BlsPublicKey::empty(),
                     amount: 100,
                 }],
             )
@@ -291,6 +291,7 @@ mod tests {
                     HashSet::default(),
                     0,
                     DEFAULT_GAS_PRICE,
+                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],

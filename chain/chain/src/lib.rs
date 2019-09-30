@@ -1,4 +1,4 @@
-pub use chain::{Chain, ChainGenesis, MAX_ORPHAN_SIZE};
+pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
 pub use store::{ChainStore, ChainStoreAccess};
 pub use types::{

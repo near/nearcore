@@ -24,7 +24,6 @@ use crate::types::{
     PROTOCOL_VERSION,
 };
 use crate::{NetworkClientResponses, NetworkRequests, PeerManagerActor};
-use futures::Future;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -492,15 +491,12 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
 
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
-                    actix::spawn(
-                        self.peer_manager_addr
-                            .send(NetworkRequests::BanPeer {
-                                peer_id: self.node_info.id.clone(),
-                                ban_reason: ReasonForBan::InvalidSignature,
-                            })
-                            .map_err(|e| error!(target: "client", "{}", e))
-                            .map(|_| ()),
-                    );
+                    if let Some(peer_info) = self.peer_info.as_ref() {
+                        let _ = self.peer_manager_addr.do_send(NetworkRequests::BanPeer {
+                            peer_id: peer_info.id.clone(),
+                            ban_reason: ReasonForBan::InvalidSignature,
+                        });
+                    }
 
                     self.peer_status = PeerStatus::Banned(ReasonForBan::InvalidSignature);
                 } else {

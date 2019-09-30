@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::{BlsSignature, BlsSigner};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::{ChunkOnePart, ShardChunk, ShardChunkHeader};
-use near_primitives::transaction::{SignedTransaction, TransactionLog};
+use near_primitives::sharding::{ReceiptProof, ShardChunkHeader};
+use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
 };
@@ -19,7 +20,13 @@ use crate::error::Error;
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
+
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct RootProof(pub CryptoHash, pub MerklePath);
+
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
     Next,
@@ -41,7 +48,7 @@ impl BlockStatus {
 }
 
 /// Options for block origin.
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Provenance {
     /// No provenance.
     NONE,
@@ -49,6 +56,16 @@ pub enum Provenance {
     SYNC,
     /// Block we produced ourselves.
     PRODUCED,
+}
+
+/// Information about processed block.
+#[derive(Debug, Clone)]
+pub struct AcceptedBlock {
+    pub hash: CryptoHash,
+    pub status: BlockStatus,
+    pub provenance: Provenance,
+    pub gas_used: Gas,
+    pub gas_limit: Gas,
 }
 
 /// Information about valid transaction that was processed by chain + runtime.
@@ -60,15 +77,6 @@ pub struct ValidTransaction {
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
 
-pub enum ShardFullChunkOrOnePart<'a> {
-    // The validator follows the shard, and has the full chunk
-    FullChunk(&'a ShardChunk),
-    // The validator doesn't follow the shard, and only has one part
-    OnePart(&'a ChunkOnePart),
-    // The chunk for particular shard is not present in the block
-    NoChunk,
-}
-
 #[derive(Eq, PartialEq, Debug)]
 pub enum ValidatorSignatureVerificationResult {
     Valid,
@@ -79,7 +87,7 @@ pub enum ValidatorSignatureVerificationResult {
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: MerkleHash,
-    pub transaction_results: Vec<TransactionLog>,
+    pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
     pub total_gas_burnt: Gas,
@@ -106,6 +114,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
@@ -116,6 +125,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn filter_transactions(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transactions: Vec<SignedTransaction>,
@@ -127,7 +137,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &Signature,
+        signature: &BlsSignature,
     ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
@@ -224,6 +234,7 @@ pub trait RuntimeAdapter: Send + Sync {
         validator_mask: Vec<bool>,
         gas_used: Gas,
         gas_price: Balance,
+        rent_paid: Balance,
         total_supply: Balance,
     ) -> Result<(), Error>;
 
@@ -234,6 +245,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -244,6 +256,7 @@ pub trait RuntimeAdapter: Send + Sync {
             shard_id,
             state_root,
             block_index,
+            block_timestamp,
             prev_block_hash,
             block_hash,
             receipts,
@@ -258,6 +271,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -271,6 +285,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
@@ -353,12 +368,12 @@ impl Tip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockApproval {
     pub hash: CryptoHash,
-    pub signature: Signature,
+    pub signature: BlsSignature,
     pub target: AccountId,
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn BlsSigner, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -370,7 +385,7 @@ mod tests {
 
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{BlsSignature, InMemoryBlsSigner};
 
     use super::*;
 
@@ -385,13 +400,12 @@ mod tests {
             100,
             1_000_000_000,
         );
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
+        let signer = Arc::new(InMemoryBlsSigner::from_seed("other", "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
-        let other_signer =
-            Arc::new(InMemorySigner::from_seed("other2", KeyType::ED25519, "other2"));
-        let approvals: HashMap<usize, Signature> =
+        let other_signer = Arc::new(InMemoryBlsSigner::from_seed("other2", "other2"));
+        let approvals: HashMap<usize, BlsSignature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,
