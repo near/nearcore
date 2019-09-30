@@ -271,6 +271,7 @@ impl Client {
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockIndex,
+        prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<(), Error> {
         let block_producer = self
@@ -317,6 +318,7 @@ impl Client {
         let transactions_len = transactions.len();
         let filtered_transactions = self.runtime_adapter.filter_transactions(
             next_height,
+            prev_block_timestamp,
             block_header.inner.gas_price,
             chunk_extra.state_root,
             transactions,
@@ -586,6 +588,7 @@ impl Client {
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
                             block.header.inner.height + 1,
+                            block.header.inner.timestamp,
                             shard_id,
                         ) {
                             error!(target: "client", "Error producing chunk {:?}", err);
@@ -715,6 +718,11 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let tx_header = unwrap_or_return!(self.chain.get_block_header(&tx.transaction.block_hash),
+            NetworkClientResponses::InvalidTx(
+                "Transaction is from a different fork".to_string(),
+            )
+        ).clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
@@ -723,7 +731,7 @@ impl Client {
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
             return NetworkClientResponses::InvalidTx(
-                "Transaction has either expired or from a different fork".to_string(),
+                "Transaction has expired".to_string(),
             );
         }
         let gas_price = unwrap_or_return!(
@@ -739,7 +747,7 @@ impl Client {
         .state_root
         .clone();
 
-        match self.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
+        match self.runtime_adapter.validate_tx(head.height + 1, tx_header.inner.timestamp, gas_price, state_root, tx) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
