@@ -47,7 +47,8 @@ fn cost_per_block(
     account_length_cost_per_block + storage_cost_per_block
 }
 
-/// Returns true if the account has enough balance to pay storage rent for at least required number of blocks.
+/// Returns Ok if the account has enough balance to pay storage rent for at least required number of blocks.
+/// Otherwise returns the amount required.
 /// Validators must have at least enough for `NUM_UNSTAKING_EPOCHS` * epoch_length of blocks,
 /// regular users - `poke_threshold` blocks.
 pub(crate) fn check_rent(
@@ -55,7 +56,7 @@ pub(crate) fn check_rent(
     account: &Account,
     runtime_config: &RuntimeConfig,
     epoch_length: BlockIndex,
-) -> bool {
+) -> Result<(), u128> {
     let buffer_length = if account.staked > 0 {
         epoch_length * (NUM_UNSTAKING_EPOCHS + 1)
     } else {
@@ -63,7 +64,11 @@ pub(crate) fn check_rent(
     };
     let buffer_amount =
         u128::from(buffer_length) * cost_per_block(account_id, account, runtime_config);
-    account.amount >= buffer_amount
+    if account.amount >= buffer_amount {
+        Ok(())
+    } else {
+        Err(buffer_amount)
+    }
 }
 
 /// Subtracts the storage rent from the given account balance.
@@ -375,6 +380,7 @@ pub(crate) fn check_actor_permissions(
                     config,
                     apply_state.epoch_length,
                 )
+                .is_ok()
             {
                 return Err(format!(
                     "Account {:?} has {:?}, which is enough to cover the storage rent.",

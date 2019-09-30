@@ -1298,6 +1298,7 @@ mod test {
 
     #[test]
     fn test_state_sync() {
+        init_test_logger();
         let num_nodes = 2;
         let validators = (0..num_nodes).map(|i| format!("test{}", i + 1)).collect::<Vec<_>>();
         let mut env = TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);

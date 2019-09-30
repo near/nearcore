@@ -31,10 +31,10 @@ use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000;
+pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
 /// One NEAR, divisible by 10^18.
 pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
@@ -395,7 +395,7 @@ fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount;
+            total_supply += account.amount + account.staked;
         }
     }
     total_supply

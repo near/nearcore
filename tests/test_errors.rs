@@ -76,7 +76,7 @@ fn test_deliver_tx_error_log() {
     assert_eq!(
         tx_result,
         format!(
-            "RpcError {{ code: -32000, message: \"Server error\", data: Some(String(\"Sender alice.near does not have enough balance 999999950000000 for operation costing {}\")) }}",
+            "RpcError {{ code: -32000, message: \"Server error\", data: Some(String(\"Sender alice.near does not have enough balance 950000000000000000000000000 for operation costing {}\")) }}",
             TESTING_INIT_BALANCE + 1 + cost
         )
     );
