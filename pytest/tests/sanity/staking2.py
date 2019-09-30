@@ -1,4 +1,6 @@
 # Runs randomized staking transactions and makes some basic checks on the final `staked` values
+# TODO: presently this test fails with a node crash. Once that is fixed, asserts that validate proper stakes need to be introduced
+# TODO: the current expected stakes are not correctly computed
 
 import sys, time, base58, random
 
