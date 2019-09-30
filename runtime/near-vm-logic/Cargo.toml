@@ -37,8 +37,8 @@ path = "tests/test_promises.rs"
 required-features = ["mocks"]
 
 [[test]]
-name = "test_misc"
-path = "tests/test_misc.rs"
+name = "test_iterators"
+path = "tests/test_iterators.rs"
 required-features = ["mocks"]
 
 [features]
