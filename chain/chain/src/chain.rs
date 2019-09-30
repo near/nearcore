@@ -288,24 +288,7 @@ impl Chain {
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        // Before saving the very first block in the epoch,
-        // we ensure that the block contains the correct data.
-        // It is sufficient to check the correctness of tx_root, state_root
-        // of the block matches the stated hash
-        //
-        // NOTE: we don't need to re-compute hash of entire block
-        // because we always call BlockHeader::init() when we received a block
-        //
-        // 1. Checking state_root validity
-        let state_root = Block::compute_state_root(&block.chunks);
-        if block.header.inner.prev_state_root != state_root {
-            return Err(ErrorKind::InvalidStateRoot.into());
-        }
-        // 2. Checking tx_root validity
-        let tx_root = Block::compute_tx_root(&block.transactions);
-        if block.header.inner.tx_root != tx_root {
-            return Err(ErrorKind::InvalidTxRoot.into());
-        }
+        chain_store_update.check_block_validity(block)?;
 
         chain_store_update.save_block(block.clone());
 
@@ -878,6 +861,13 @@ impl Chain {
             let ReceiptProofResponse(block_hash, receipt_proofs) = receipt_response;
             let block_header = self.get_block_header(&block_hash)?.clone();
             let block = self.get_block(&block_hash)?;
+            let (block_receipts_root, block_receipts_proofs) = merklize(
+                &block
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.inner.outgoing_receipts_root)
+                    .collect::<Vec<CryptoHash>>(),
+            );
 
             let mut root_proofs_cur = vec![];
             assert_eq!(receipt_proofs.len(), block_header.inner.chunks_included as usize);
@@ -885,16 +875,8 @@ impl Chain {
                 let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
-                let chunk_header = block.chunks[from_shard_id].clone();
 
-                let root_proof = chunk_header.inner.outgoing_receipts_root;
-                let (block_receipts_root, block_receipts_proofs) = merklize(
-                    &block
-                        .chunks
-                        .iter()
-                        .map(|chunk| chunk.inner.outgoing_receipts_root)
-                        .collect::<Vec<CryptoHash>>(),
-                );
+                let root_proof = block.chunks[from_shard_id].inner.outgoing_receipts_root;
                 root_proofs_cur
                     .push(RootProof(root_proof, block_receipts_proofs[from_shard_id].clone()));
 
@@ -953,14 +935,7 @@ impl Chain {
         } = shard_state;
 
         // 1. Checking that chunk header is at least valid
-        // 1a. Checking chunk.header.hash
-        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: chunk header hash is broken".into(),
-            )
-            .into());
-        }
+        // 1a. Checking chunk.header.hash - don't check here, hash is computed locally
         // 1b. Checking signature
         if !self.runtime_adapter.verify_chunk_header_signature(&chunk.header)? {
             byzantine_assert!(false);
@@ -1831,35 +1806,7 @@ impl<'a> ChainUpdate<'a> {
         // Check the header is valid before we proceed with the full block.
         self.process_header_for_block(&block.header, provenance)?;
 
-        // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(&block.chunks);
-        if block.header.inner.prev_state_root != state_root {
-            return Err(ErrorKind::InvalidStateRoot.into());
-        }
-
-        // Check that tx root stored in the header matches the state root of the block transactions
-        let tx_root = Block::compute_tx_root(&block.transactions);
-        if block.header.inner.tx_root != tx_root {
-            return Err(ErrorKind::InvalidTxRoot.into());
-        }
-
-        // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(&block.chunks);
-        if block.header.inner.chunk_receipts_root != chunk_receipts_root {
-            return Err(ErrorKind::InvalidChunkReceiptsRoot.into());
-        }
-
-        // Check that chunk headers root stored in the header matches the state root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&block.chunks);
-        if block.header.inner.chunk_headers_root != chunk_headers_root {
-            return Err(ErrorKind::InvalidChunkHeadersRoot.into());
-        }
-
-        // Check that chunk headers root stored in the header matches the state root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(&block.chunks);
-        if block.header.inner.chunk_tx_root != chunk_tx_root {
-            return Err(ErrorKind::InvalidChunkTxRoot.into());
-        }
+        self.chain_store_update.check_block_validity(block)?;
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 
