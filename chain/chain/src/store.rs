@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::SizedCache;
+use chrono::Utc;
 use log::debug;
 
 use near_primitives::hash::CryptoHash;
@@ -25,7 +26,6 @@ use near_store::{
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-use chrono::Utc;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";

@@ -18,7 +18,7 @@ use near_chain::{
     Tip,
 };
 use near_chunks::{NetworkAdapter, ShardsManager};
-use near_crypto::Signature;
+use near_crypto::BlsSignature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
@@ -51,9 +51,9 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
     /// Set of approvals for the next block.
-    pub approvals: HashMap<usize, Signature>,
+    pub approvals: HashMap<usize, BlsSignature>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncStatus>)>,
@@ -652,7 +652,7 @@ impl Client {
         &mut self,
         account_id: &AccountId,
         hash: &CryptoHash,
-        signature: &Signature,
+        signature: &BlsSignature,
         peer_id: &PeerId,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.

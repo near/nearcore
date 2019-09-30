@@ -4,9 +4,13 @@ version = "0.1.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
+[features]
+fake_crypto = []
+
 [dependencies]
 sodiumoxide = "0.2.2"
 eth-secp256k1 = { git = "https://github.com/paritytech/rust-secp256k1" }
+milagro_bls = { git = "https://github.com/michaelsproul/milagro_bls", branch = "little-endian-v0.10" }
 
 bs58 = "0.2.4"
 borsh = "0.2.2"
@@ -19,4 +23,8 @@ rand = "0.6"
 libc = "0.2"
 
 [dev-dependencies]
-bencher = "0.1.5"
+criterion = "0.3.0"
+
+[[bench]]
+name = "bls"
+harness = false

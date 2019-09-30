@@ -45,7 +45,6 @@ pub fn proposals_to_epoch_info(
     inflation: Balance,
 ) -> Result<EpochInfo, EpochError> {
     // Combine proposals with rollovers.
-    //println!("validator reward: {:?}", validator_reward);
     let mut ordered_proposals = BTreeMap::new();
     let mut stake_change = BTreeMap::new();
     for p in proposals {

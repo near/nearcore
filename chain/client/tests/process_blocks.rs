@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::System;
 use futures::{future, Future};
@@ -9,7 +10,7 @@ use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
-use near_crypto::{InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -23,7 +24,6 @@ use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
 use near_store::test_utils::create_test_store;
-use std::time::Duration;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -125,7 +125,7 @@ fn receive_network_block() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test1", KeyType::ED25519, "test1"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -174,7 +174,7 @@ fn receive_network_block_header() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -210,7 +210,7 @@ fn produce_block_with_approvals() {
             true,
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg {
-                    if block.header.inner.approval_sigs.len() == validators.len() - 2 {
+                    if block.header.num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
                     }
                 }
@@ -219,7 +219,7 @@ fn produce_block_with_approvals() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer1 = Arc::new(InMemorySigner::from_seed("test2", KeyType::ED25519, "test2"));
+            let signer1 = Arc::new(InMemoryBlsSigner::from_seed("test2", "test2"));
             let block = Block::produce(
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
@@ -232,7 +232,7 @@ fn produce_block_with_approvals() {
             );
             for i in 3..11 {
                 let s = if i > 10 { "test1".to_string() } else { format!("test{}", i) };
-                let signer = Arc::new(InMemorySigner::from_seed(&s, KeyType::ED25519, &s));
+                let signer = Arc::new(InMemoryBlsSigner::from_seed(&s, &s));
                 let block_approval =
                     BlockApproval::new(block.hash(), &*signer, "test2".to_string());
                 client.do_send(NetworkClientMessages::BlockApproval(
@@ -278,7 +278,7 @@ fn invalid_blocks() {
         );
         actix::spawn(view_client.send(GetBlock::Best).then(move |res| {
             let last_block = res.unwrap().unwrap();
-            let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
+            let signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
             // Send invalid state root.
             let mut block = Block::produce(
                 &last_block.header.clone().into(),

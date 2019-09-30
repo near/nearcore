@@ -1597,7 +1597,7 @@ impl<'a> ChainUpdate<'a> {
                         )
                     });
                     if any_transaction_is_invalid {
-                        debug!(target: "chain", "Invalid transactions in the block: {:?}", chunk.transactions);
+                        debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
                         return Err(ErrorKind::InvalidTransactions.into());
                     }
                     let gas_limit = chunk.header.inner.gas_limit;
@@ -1689,7 +1689,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<(Option<Tip>, bool), Error> {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.inner.approval_sigs.len(), me);
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::{BlsSignature, BlsSigner};
 pub use near_primitives::block::{Block, BlockHeader, Weight};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
@@ -135,7 +135,7 @@ pub trait RuntimeAdapter: Send + Sync {
         epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &Signature,
+        signature: &BlsSignature,
     ) -> ValidatorSignatureVerificationResult;
 
     /// Verify chunk header signature.
@@ -362,12 +362,12 @@ impl Tip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockApproval {
     pub hash: CryptoHash,
-    pub signature: Signature,
+    pub signature: BlsSignature,
     pub target: AccountId,
 }
 
 impl BlockApproval {
-    pub fn new(hash: CryptoHash, signer: &dyn Signer, target: AccountId) -> Self {
+    pub fn new(hash: CryptoHash, signer: &dyn BlsSigner, target: AccountId) -> Self {
         let signature = signer.sign(hash.as_ref());
         BlockApproval { hash, signature, target }
     }
@@ -379,7 +379,7 @@ mod tests {
 
     use chrono::Utc;
 
-    use near_crypto::{InMemorySigner, KeyType};
+    use near_crypto::{BlsSignature, InMemoryBlsSigner};
 
     use super::*;
 
@@ -394,13 +394,12 @@ mod tests {
             100,
             1_000_000_000,
         );
-        let signer = Arc::new(InMemorySigner::from_seed("other", KeyType::ED25519, "other"));
+        let signer = Arc::new(InMemoryBlsSigner::from_seed("other", "other"));
         let b1 = Block::empty(&genesis, signer.clone());
         assert!(signer.verify(b1.hash().as_ref(), &b1.header.signature));
         assert_eq!(b1.header.inner.total_weight.to_num(), 1);
-        let other_signer =
-            Arc::new(InMemorySigner::from_seed("other2", KeyType::ED25519, "other2"));
-        let approvals: HashMap<usize, Signature> =
+        let other_signer = Arc::new(InMemoryBlsSigner::from_seed("other2", "other2"));
+        let approvals: HashMap<usize, BlsSignature> =
             vec![(1, other_signer.sign(b1.hash().as_ref()))].into_iter().collect();
         let b2 = Block::empty_with_approvals(
             &b1,

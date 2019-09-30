@@ -61,6 +61,12 @@ codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 lto = true
 codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
 
+[profile.dev.overrides."milagro_bls"]
+opt-level = 3 # BLS library is too slow to use in debug
+
+[profile.dev.overrides."amcl"]
+opt-level = 3 # BLS library is too slow to use in debug
+
 [profile.dev.overrides.bs58]
 opt-level = 3 # bs58 library is too slow to use in debug
 
@@ -68,3 +74,4 @@ opt-level = 3 # bs58 library is too slow to use in debug
 expensive_tests = []
 regression_tests = []
 old_tests = []
+fake_crypto = ["near-crypto/fake_crypto"]
