@@ -44,7 +44,7 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     - cargo check --all --tests --benches
-    - cargo test --all --verbose
+    - cargo test --all --verbose --features fake_crypto
     after_script:
     - *cleanup_obsolete_cache
 
@@ -57,7 +57,7 @@ test_regression:
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_tps_regression test --features regression_tests
+    - cargo test --package nearcore --test test_tps_regression test --features "regression_tests,fake_crypto"
     tags:
         - regression_tests
     after_script:
@@ -74,7 +74,7 @@ test_cases_testnet_rpc:
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_cases_testnet_rpc test --features expensive_tests
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests,fake_crypto"
     tags:
         - expensive_tests
     after_script:

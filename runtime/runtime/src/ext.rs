@@ -4,7 +4,7 @@ use std::iter::Peekable;
 use kvdb::DBValue;
 
 use borsh::BorshDeserialize;
-use near_crypto::PublicKey;
+use near_crypto::{BlsPublicKey, PublicKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, DataReceiver, Receipt, ReceiptEnum};
@@ -262,7 +262,7 @@ impl<'a> External for RuntimeExt<'a> {
             receipt_index,
             Action::Stake(StakeAction {
                 stake,
-                public_key: PublicKey::try_from_slice(&public_key)
+                public_key: BlsPublicKey::try_from_slice(&public_key)
                     .map_err(|_| ExternalError::InvalidPublicKey)?,
             }),
         );

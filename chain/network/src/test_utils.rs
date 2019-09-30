@@ -53,11 +53,16 @@ pub fn convert_boot_nodes(boot_nodes: Vec<(&str, u16)>) -> Vec<PeerInfo> {
     result
 }
 
+impl PeerId {
+    pub fn random() -> Self {
+        SecretKey::from_random(KeyType::ED25519).public_key().into()
+    }
+}
+
 impl PeerInfo {
     /// Creates random peer info.
     pub fn random() -> Self {
-        let id = SecretKey::from_random(KeyType::ED25519).public_key();
-        PeerInfo { id: id.into(), addr: None, account_id: None }
+        PeerInfo { id: PeerId::random(), addr: None, account_id: None }
     }
 }
 

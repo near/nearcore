@@ -7,14 +7,17 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 use log::debug;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, SecretKey, Signature};
+use near_crypto::{
+    BlsSecretKey, BlsSignature, InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey,
+};
 use near_primitives::account::Account;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::serialize::to_base;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::{
-    Action, SignedTransaction, TransactionLog, TransactionResult, TransactionStatus, TransferAction,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, SignedTransaction,
+    TransferAction,
 };
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
@@ -123,8 +126,7 @@ impl KeyValueRuntime {
                         .iter()
                         .map(|account_id| ValidatorStake {
                             account_id: account_id.clone(),
-                            public_key: SecretKey::from_seed(KeyType::ED25519, account_id)
-                                .public_key(),
+                            public_key: BlsSecretKey::from_seed(account_id).public_key(),
                             amount: 1_000_000,
                         })
                         .collect()
@@ -251,7 +253,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         if !header.verify_block_producer(&validator.public_key) {
             return Err(ErrorKind::InvalidBlockProposer.into());
         }
-        Ok(prev_header.inner.total_weight.next(header.inner.approval_sigs.len() as u64))
+        Ok(prev_header.inner.total_weight.next(header.num_approvals() as u128))
     }
 
     fn verify_validator_signature(
@@ -259,7 +261,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _epoch_id: &EpochId,
         account_id: &AccountId,
         data: &[u8],
-        signature: &Signature,
+        signature: &BlsSignature,
     ) -> ValidatorSignatureVerificationResult {
         if let Some(validator) = self
             .validators
@@ -267,7 +269,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             .flatten()
             .find(|&validator_stake| &validator_stake.account_id == account_id)
         {
-            if signature.verify(data, &validator.public_key) {
+            if signature.verify_single(data, &validator.public_key) {
                 ValidatorSignatureVerificationResult::Valid
             } else {
                 ValidatorSignatureVerificationResult::Invalid
@@ -428,6 +430,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _validator_mask: Vec<bool>,
         _gas_used: Gas,
         _gas_price: Balance,
+        _rent_paid: Balance,
         _total_supply: Balance,
     ) -> Result<(), Error> {
         Ok(())
@@ -553,13 +556,12 @@ impl RuntimeAdapter for KeyValueRuntime {
                     vec![receipt_hash]
                 };
 
-                tx_results.push(TransactionLog {
-                    hash,
-                    result: TransactionResult {
-                        status: TransactionStatus::Completed,
+                tx_results.push(ExecutionOutcomeWithId {
+                    id: hash,
+                    outcome: ExecutionOutcome {
+                        status: ExecutionStatus::SuccessValue(vec![]),
                         logs: vec![],
-                        receipts: new_receipt_hashes,
-                        result: None,
+                        receipt_ids: new_receipt_hashes,
                         gas_burnt: 0,
                     },
                 });
@@ -693,13 +695,13 @@ impl RuntimeAdapter for KeyValueRuntime {
     }
 }
 
-pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+pub fn setup() -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>, Arc<InMemoryBlsSigner>) {
     setup_with_tx_validity_period(100)
 }
 
 pub fn setup_with_tx_validity_period(
     validity: BlockIndex,
-) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>) {
+) -> (Chain, Arc<KeyValueRuntime>, Arc<InMemorySigner>, Arc<InMemoryBlsSigner>) {
     let store = create_test_store();
     let runtime = Arc::new(KeyValueRuntime::new(store.clone()));
     let chain = Chain::new(
@@ -709,7 +711,8 @@ pub fn setup_with_tx_validity_period(
     )
     .unwrap();
     let signer = Arc::new(InMemorySigner::from_seed("test", KeyType::ED25519, "test"));
-    (chain, runtime, signer)
+    let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test", "test"));
+    (chain, runtime, signer, bls_signer)
 }
 
 pub fn format_hash(h: CryptoHash) -> String {
@@ -796,6 +799,20 @@ pub fn display_chain(chain: &mut Chain, tail: bool) {
                     }
                 }
             }
+        }
+    }
+}
+
+impl ChainGenesis {
+    pub fn test() -> Self {
+        ChainGenesis {
+            time: Utc::now(),
+            gas_limit: 1_000_000,
+            gas_price: 1,
+            total_supply: 1_000_000_000,
+            max_inflation_rate: 0,
+            gas_price_adjustment_rate: 0,
+            transaction_validity_period: 100,
         }
     }
 }

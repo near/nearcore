@@ -41,6 +41,3 @@ indicatif = {version = "0.12.0", features = ["with_rayon"]}
 rayon = "1.1"
 
 testlib = { path = "../../test-utils/testlib" }
-
-[profile.test]
-opt-level = 3

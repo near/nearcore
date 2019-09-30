@@ -1,9 +1,8 @@
 use std::io::{Error, ErrorKind};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::{BufMut, BytesMut};
 use tokio::codec::{Decoder, Encoder};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::types::PeerMessage;
 
@@ -68,16 +67,16 @@ pub fn bytes_to_peer_message(bytes: &[u8]) -> Result<PeerMessage, std::io::Error
 
 #[cfg(test)]
 mod test {
-    use near_crypto::{KeyType, SecretKey};
+    use near_crypto::{BlsSecretKey, KeyType, SecretKey};
     use near_primitives::hash::CryptoHash;
+    use near_primitives::types::EpochId;
 
+    use crate::routing::EdgeInfo;
     use crate::types::{
         AnnounceAccount, Handshake, PeerChainInfo, PeerInfo, RoutedMessage, RoutedMessageBody,
     };
 
     use super::*;
-    use crate::routing::EdgeInfo;
-    use near_primitives::types::EpochId;
 
     fn test_codec(msg: PeerMessage) {
         let mut codec = Codec::new();
@@ -115,11 +114,12 @@ mod test {
 
     #[test]
     fn test_peer_message_announce_account() {
-        let sk = SecretKey::from_random(KeyType::ED25519);
+        let sk = BlsSecretKey::from_random();
+        let network_sk = SecretKey::from_random(KeyType::ED25519);
         let signature = sk.sign(vec![].as_slice());
         let msg = PeerMessage::AnnounceAccount(AnnounceAccount {
             account_id: "test1".to_string(),
-            peer_id: sk.public_key().into(),
+            peer_id: network_sk.public_key().into(),
             epoch_id: EpochId::default(),
             signature,
         });
@@ -131,6 +131,10 @@ mod test {
         let sk = SecretKey::from_random(KeyType::ED25519);
         let hash = CryptoHash::default();
         let signature = sk.sign(hash.as_ref());
+
+        let bls_sk = BlsSecretKey::from_random();
+        let bls_signature = bls_sk.sign(hash.as_ref());
+
         let msg = PeerMessage::Routed(RoutedMessage {
             target: sk.public_key().into(),
             author: sk.public_key().into(),
@@ -138,7 +142,7 @@ mod test {
             body: RoutedMessageBody::BlockApproval(
                 "test2".to_string(),
                 CryptoHash::default(),
-                signature,
+                bls_signature,
             ),
         });
         test_codec(msg);

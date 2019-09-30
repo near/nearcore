@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_crypto::PublicKey;
+
+use near_crypto::BlsPublicKey;
 
 use crate::hash::CryptoHash;
 
@@ -45,13 +46,13 @@ pub struct ValidatorStake {
     /// Account that stakes money.
     pub account_id: AccountId,
     /// Public key of the proposed validator.
-    pub public_key: PublicKey,
+    pub public_key: BlsPublicKey,
     /// Stake / weight of the validator.
     pub amount: Balance,
 }
 
 impl ValidatorStake {
-    pub fn new(account_id: AccountId, public_key: PublicKey, amount: Balance) -> Self {
+    pub fn new(account_id: AccountId, public_key: BlsPublicKey, amount: Balance) -> Self {
         ValidatorStake { account_id, public_key, amount }
     }
 }
@@ -75,6 +76,8 @@ pub struct ChunkExtra {
     pub gas_used: Gas,
     /// Gas limit, allows to increase or decrease limit based on expected time vs real time for computing the chunk.
     pub gas_limit: Gas,
+    /// Total rent paid after processing the current chunk
+    pub rent_paid: Balance,
 }
 
 impl ChunkExtra {
@@ -83,8 +86,9 @@ impl ChunkExtra {
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,
+        rent_paid: Balance,
     ) -> Self {
-        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit }
+        Self { state_root: *state_root, validator_proposals, gas_used, gas_limit, rent_paid }
     }
 }
 

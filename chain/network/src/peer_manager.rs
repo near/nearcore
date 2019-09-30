@@ -402,7 +402,8 @@ impl PeerManagerActor {
                 .and_then(|_, _, _| actix::fut::ok(()))
                 .spawn(ctx);
         } else {
-            // This should be unreachable!
+            // TODO(MarX): This should be unreachable! Probably it is reaching this point because
+            //  the peer is added to the routing table before being added to the set of active peers.
             error!(target: "network",
                    "Sending message to: {} (which is not an active peer) Active Peers: {:?}\n{:?}",
                    peer_id,
@@ -471,9 +472,9 @@ impl PeerManagerActor {
     }
 
     // TODO(MarX, #1312): Store ping/pong for testing
-    fn handle_ping(&mut self, ping: Ping) {}
+    fn handle_ping(&mut self, _ping: Ping) {}
 
-    fn handle_pong(&mut self, pong: Pong) {}
+    fn handle_pong(&mut self, _pong: Pong) {}
 }
 
 impl Actor for PeerManagerActor {
@@ -508,6 +509,11 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                     self.routing_table.account_peers.keys().cloned().collect::<Vec<_>>();
 
                 NetworkResponses::Info(NetworkInfo {
+                    active_peers: self
+                        .active_peers
+                        .values()
+                        .map(|a| a.full_peer_info.clone())
+                        .collect::<Vec<_>>(),
                     num_active_peers: self.num_active_peers(),
                     peer_max_count: self.config.peer_max_count,
                     most_weight_peers: self.most_weight_peers(),

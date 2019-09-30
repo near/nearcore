@@ -3,7 +3,7 @@ use near_primitives::account::AccessKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
-use near_primitives::transaction::{SignedTransaction, TransactionLog};
+use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{Balance, MerkleHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
@@ -66,7 +66,7 @@ impl StandaloneRuntime {
         &mut self,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> (Vec<Receipt>, Vec<TransactionLog>) {
+    ) -> (Vec<Receipt>, Vec<ExecutionOutcomeWithId>) {
         let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         let apply_result =
             self.runtime.apply(state_update, &self.apply_state, receipts, transactions).unwrap();
@@ -102,7 +102,7 @@ pub struct RuntimeGroup {
     /// Account id of the runtime on which the receipt was executed mapped to the list of the receipts.
     pub executed_receipts: Mutex<HashMap<String, Vec<Receipt>>>,
     /// List of the transaction logs.
-    pub transaction_logs: Mutex<Vec<TransactionLog>>,
+    pub transaction_logs: Mutex<Vec<ExecutionOutcomeWithId>>,
 }
 
 impl RuntimeGroup {
@@ -243,12 +243,12 @@ impl RuntimeGroup {
 
     /// Get transaction log produced by the execution of given transaction/receipt
     /// identified by `producer_hash`.
-    pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> TransactionLog {
+    pub fn get_transaction_log(&self, producer_hash: &CryptoHash) -> ExecutionOutcomeWithId {
         self.transaction_logs
             .lock()
             .unwrap()
             .iter()
-            .find_map(|tl| if &tl.hash == producer_hash { Some(tl.clone()) } else { None })
+            .find_map(|tl| if &tl.id == producer_hash { Some(tl.clone()) } else { None })
             .expect("The execution log of the given receipt is missing")
     }
 
@@ -299,7 +299,7 @@ macro_rules! tuplet {
 macro_rules! assert_receipts {
     ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
         let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.result.receipts, "Incorrect number of produced receipts for transaction");
+        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
     };
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
@@ -326,7 +326,7 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
        let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts, "Incorrect number of produced receipts for a receipt");
+       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
     };
     ($group:ident, $from:expr => $receipt:ident @ $to:expr,
     $receipt_pat:pat,
@@ -342,7 +342,7 @@ macro_rules! assert_receipts {
             _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
         }
        let receipt_log = $group.get_produced_receipt_hashes(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.result.receipts, "Incorrect number of produced receipts for a receipt");
+       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
     };
 }
 

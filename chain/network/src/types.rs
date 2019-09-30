@@ -10,17 +10,18 @@ use actix::dev::{MessageResponse, ResponseChannel};
 use actix::{Actor, Addr, Message};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::{DateTime, Utc};
-use reed_solomon_erasure::Shard;
+use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::ReceiptResponse;
+use near_chain::types::{ReceiptProofResponse, RootProof};
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
-use near_crypto::{PublicKey, ReadablePublicKey, SecretKey, Signature};
+use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart};
+pub use near_primitives::sharding::ChunkPartMsg;
+use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, BlockIndex, ChunkExtra, EpochId, ShardId};
+use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
 
 use crate::peer::Peer;
@@ -30,7 +31,7 @@ use crate::routing::{Edge, EdgeInfo};
 pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Peer id is the public key.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PeerId(PublicKey);
 
 impl PeerId {
@@ -84,7 +85,7 @@ impl fmt::Debug for PeerId {
 }
 
 /// Peer information.
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub id: PeerId,
     pub addr: Option<SocketAddr>,
@@ -196,6 +197,43 @@ struct AnnounceAccountRouteHeader {
     pub epoch_id: EpochId,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub enum AccountOrPeerSignature {
+    PeerSignature(Signature),
+    AccountSignature(BlsSignature),
+}
+
+impl AccountOrPeerSignature {
+    pub fn peer_signature(&self) -> Option<&Signature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => Some(signature),
+            AccountOrPeerSignature::AccountSignature(_) => None,
+        }
+    }
+
+    pub fn account_signature(&self) -> Option<&BlsSignature> {
+        match self {
+            AccountOrPeerSignature::PeerSignature(_) => None,
+            AccountOrPeerSignature::AccountSignature(signature) => Some(signature),
+        }
+    }
+
+    pub fn verify_peer(&self, data: &[u8], public_key: &PublicKey) -> bool {
+        match self {
+            AccountOrPeerSignature::PeerSignature(signature) => signature.verify(data, public_key),
+            AccountOrPeerSignature::AccountSignature(_) => false,
+        }
+    }
+}
+
+/// Account route description
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct AnnounceAccountRoute {
+    pub peer_id: PeerId,
+    pub hash: CryptoHash,
+    pub signature: AccountOrPeerSignature,
+}
+
 /// Account announcement information
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct AnnounceAccount {
@@ -206,7 +244,7 @@ pub struct AnnounceAccount {
     /// This announcement is only valid for this `epoch`.
     pub epoch_id: EpochId,
     /// Signature using AccountId associated secret key.
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 impl AnnounceAccount {
@@ -248,7 +286,7 @@ pub struct Pong {
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum RoutedMessageBody {
-    BlockApproval(AccountId, CryptoHash, Signature),
+    BlockApproval(AccountId, CryptoHash, BlsSignature),
     ForwardTx(SignedTransaction),
     StateRequest(ShardId, CryptoHash),
     ChunkPartRequest(ChunkPartRequestMsg),
@@ -298,12 +336,11 @@ pub struct RoutedMessageNoSignature {
 }
 
 // TODO(MarX, #1367): Add TTL for routed message to avoid infinite loops
-/// RoutedMessage represent a package that will travel the network towards a specific account id.
+/// RoutedMessage represent a package that will travel the network towards a specific peer id.
 /// It contains the peer_id and signature from the original sender. Every intermediate peer in the
 /// route must verify that this signature is valid otherwise previous sender of this package should
 /// be banned. If the final receiver of this package finds that the body is invalid the original
-/// sender of the package should be banned instead. (Notice that this peer might not be connected
-/// to us)
+/// sender of the package should be banned instead.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct RoutedMessage {
     /// Account id which is directed this message
@@ -678,6 +715,7 @@ pub struct FullPeerInfo {
 
 #[derive(Debug)]
 pub struct NetworkInfo {
+    pub active_peers: Vec<FullPeerInfo>,
     pub num_active_peers: usize,
     pub peer_max_count: u32,
     pub most_weight_peers: Vec<FullPeerInfo>,
@@ -714,10 +752,11 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub prev_chunk_extra: ChunkExtra,
-    pub payload: Vec<u8>,
-    pub outgoing_receipts: ReceiptResponse,
-    pub incoming_receipts: Vec<ReceiptResponse>,
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_payload: Vec<u8>,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
 }
 
 #[derive(Debug)]
@@ -735,7 +774,7 @@ pub enum NetworkClientMessages {
     /// Get Chain information from Client.
     GetChainInfo,
     /// Block approval.
-    BlockApproval(AccountId, CryptoHash, Signature, PeerId),
+    BlockApproval(AccountId, CryptoHash, BlsSignature, PeerId),
     /// Request headers.
     BlockHeadersRequest(Vec<CryptoHash>),
     /// Request a block.
@@ -758,6 +797,7 @@ pub enum NetworkClientMessages {
 }
 
 // TODO(#1313): Use Box
+#[derive(Eq, PartialEq, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkClientResponses {
     /// No response.
@@ -845,13 +885,4 @@ pub struct ChunkOnePartRequestMsg {
     pub height: BlockIndex,
     pub part_id: u64,
     pub tracking_shards: HashSet<ShardId>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkPartMsg {
-    pub shard_id: u64,
-    pub chunk_hash: ChunkHash,
-    pub part_id: u64,
-    pub part: Shard,
-    pub merkle_path: MerklePath,
 }

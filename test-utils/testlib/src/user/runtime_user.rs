@@ -8,13 +8,13 @@ use lazy_static::lazy_static;
 use near_crypto::{PublicKey, Signer};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptInfo};
-use near_primitives::transaction::{SignedTransaction, TransactionStatus};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, MerkleHash};
 use near_primitives::views::{
-    AccessKeyView, AccountView, BlockView, CryptoHashView, TransactionLogView,
-    TransactionResultView, ViewStateResult,
+    AccessKeyView, AccountView, BlockView, CryptoHashView, ExecutionOutcomeView,
+    ExecutionOutcomeWithIdView, ExecutionStatusView, ViewStateResult,
 };
-use near_primitives::views::{FinalTransactionResult, FinalTransactionStatus};
+use near_primitives::views::{FinalExecutionOutcomeView, FinalExecutionStatus};
 use near_store::{Trie, TrieUpdate};
 use node_runtime::ethereum::EthashProvider;
 use node_runtime::state_viewer::TrieViewer;
@@ -45,7 +45,7 @@ pub struct RuntimeUser {
     pub trie_viewer: TrieViewer,
     pub client: Arc<RwLock<MockClient>>,
     // Store results of applying transactions/receipts
-    pub transaction_results: RefCell<HashMap<CryptoHash, TransactionResultView>>,
+    pub transaction_results: RefCell<HashMap<CryptoHash, ExecutionOutcomeView>>,
     // store receipts generated when applying transactions
     pub receipts: RefCell<HashMap<CryptoHash, Receipt>>,
 }
@@ -82,10 +82,10 @@ impl RuntimeUser {
             let state_update = TrieUpdate::new(client.trie.clone(), client.state_root);
             let apply_result =
                 client.runtime.apply(state_update, &apply_state, &receipts, &txs).unwrap();
-            for transaction_result in apply_result.tx_result.into_iter() {
+            for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results
                     .borrow_mut()
-                    .insert(transaction_result.hash, transaction_result.result.into());
+                    .insert(outcome_with_id.id, outcome_with_id.outcome.into());
             }
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.root;
@@ -109,10 +109,13 @@ impl RuntimeUser {
         }
     }
 
-    fn get_recursive_transaction_results(&self, hash: &CryptoHash) -> Vec<TransactionLogView> {
-        let result = self.get_transaction_result(hash);
-        let receipt_ids = result.receipts.clone();
-        let mut transactions = vec![TransactionLogView { hash: hash.clone().into(), result }];
+    fn get_recursive_transaction_results(
+        &self,
+        hash: &CryptoHash,
+    ) -> Vec<ExecutionOutcomeWithIdView> {
+        let outcome = self.get_transaction_result(hash);
+        let receipt_ids = outcome.receipt_ids.clone();
+        let mut transactions = vec![ExecutionOutcomeWithIdView { id: (*hash).into(), outcome }];
         for hash in &receipt_ids {
             transactions
                 .extend(self.get_recursive_transaction_results(&hash.clone().into()).into_iter());
@@ -120,27 +123,31 @@ impl RuntimeUser {
         transactions
     }
 
-    fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
-        let transactions = self.get_recursive_transaction_results(hash);
-        let status = if transactions
+    fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
+        let mut outcomes = self.get_recursive_transaction_results(hash);
+        let mut looking_for_id = (*hash).into();
+        let status = outcomes
             .iter()
-            .find(|t| &t.result.status == &TransactionStatus::Failed)
-            .is_some()
-        {
-            FinalTransactionStatus::Failed
-        } else if transactions
-            .iter()
-            .find(|t| &t.result.status == &TransactionStatus::Unknown)
-            .is_some()
-        {
-            FinalTransactionStatus::Started
-        } else {
-            FinalTransactionStatus::Completed
-        };
-        FinalTransactionResult {
-            status,
-            transactions: transactions.into_iter().map(|t| t.into()).collect(),
-        }
+            .find_map(|outcome_with_id| {
+                if outcome_with_id.id == looking_for_id {
+                    match &outcome_with_id.outcome.status {
+                        ExecutionStatusView::Pending => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
+                        ExecutionStatusView::SuccessValue(v) => {
+                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
+                        }
+                        ExecutionStatusView::SuccessReceiptId(id) => {
+                            looking_for_id = id.clone();
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            })
+            .expect("results should resolve to a final outcome");
+        let receipts = outcomes.split_off(1);
+        FinalExecutionOutcomeView { status, transaction: outcomes.pop().unwrap(), receipts }
     }
 }
 
@@ -168,7 +175,7 @@ impl User for RuntimeUser {
     fn commit_transaction(
         &self,
         transaction: SignedTransaction,
-    ) -> Result<FinalTransactionResult, String> {
+    ) -> Result<FinalExecutionOutcomeView, String> {
         self.apply_all(self.apply_state(), vec![], vec![transaction.clone()]);
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
@@ -191,11 +198,11 @@ impl User for RuntimeUser {
         unimplemented!("get_block should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> TransactionResultView {
+    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
         self.transaction_results.borrow().get(hash).cloned().unwrap()
     }
 
-    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalTransactionResult {
+    fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         self.get_final_transaction_result(hash)
     }
 

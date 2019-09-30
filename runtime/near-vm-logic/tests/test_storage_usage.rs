@@ -8,7 +8,7 @@ mod fixtures;
 #[test]
 fn test_storage_write_counter() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -39,13 +39,12 @@ fn test_storage_write_counter() {
 #[test]
 fn test_storage_remove() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
     let mut logic = VMLogic::new(&mut ext, context, &config, &promise_results, &mut memory);
 
-    let data_record_cost = config.runtime_fees.storage_usage_config.data_record_cost;
     let key = b"foo";
     let val = b"bar";
 

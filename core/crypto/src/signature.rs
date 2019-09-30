@@ -16,7 +16,7 @@ lazy_static! {
 
 /// Public key represented as string of format <curve>:<base58 of the key>.
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct ReadablePublicKey(String);
+pub struct ReadablePublicKey(pub String);
 
 impl ReadablePublicKey {
     pub fn new(s: &str) -> Self {
