@@ -288,7 +288,10 @@ impl Chain {
     pub fn save_block(&mut self, block: &Block) -> Result<(), Error> {
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
-        chain_store_update.check_block_validity(block)?;
+        if !block.check_validity() {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Invalid block".into()).into());
+        }
 
         chain_store_update.save_block(block.clone());
 
@@ -887,7 +890,8 @@ impl Chain {
             let mut root_proofs_cur = vec![];
             assert_eq!(receipt_proofs.len(), block_header.inner.chunks_included as usize);
             for receipt_proof in receipt_proofs {
-                let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
+                let ReceiptProof(receipts, shard_proof) = receipt_proof;
+                let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 let receipts_hash = hash(&ReceiptList(shard_id, receipts.to_vec()).try_to_vec()?);
                 let from_shard_id = *from_shard_id as usize;
 
@@ -947,45 +951,8 @@ impl Chain {
             root_proofs,
         } = shard_state;
 
-        // 1. Checking that chunk header is at least valid
-        // 1a. Checking chunk.header.hash - don't check here, hash is computed locally
-        // 1b. Checking signature
-        if !self.runtime_adapter.verify_chunk_header_signature(&chunk.header)? {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: incorrect chunk signature".to_string(),
-            )
-            .into());
-        }
-
-        // 2. Checking that chunk body is at least valid
-        // 2a. Checking chunk hash
-        if chunk.chunk_hash != chunk.header.hash {
-            byzantine_assert!(false);
-            return Err(
-                ErrorKind::Other("set_shard_state failed: chunk hash is broken".into()).into()
-            );
-        }
-        // 2b. Checking that chunk transactions are valid
-        let (tx_root, _) = merklize(&chunk.transactions);
-        if tx_root != chunk.header.inner.tx_root {
-            byzantine_assert!(false);
-            return Err(
-                ErrorKind::Other("set_shard_state failed: chunk tx_root is broken".into()).into()
-            );
-        }
-        // 2c. Checking that chunk receipts are valid
-        let outgoing_receipts_hashes =
-            self.runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != chunk.header.inner.outgoing_receipts_root {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_shard_state failed: chunk receipts_root is broken".into(),
-            )
-            .into());
-        }
-
+        // 1-2. Checking chunk validity
+        self.runtime_adapter.check_chunk_validity(&chunk)?;
         // Consider chunk itself is valid.
 
         // 3. Checking that chunks `chunk` and `prev_chunk` are included in appropriate blocks
@@ -1060,7 +1027,8 @@ impl Chain {
             // to prove that all receipts were received and no receipts were hidden.
             let mut visited_shard_ids = HashSet::<ShardId>::new();
             for (j, receipt_proof) in receipt_proofs.iter().enumerate() {
-                let ReceiptProof(receipts, ShardProof(from_shard_id, _, proof)) = receipt_proof;
+                let ReceiptProof(receipts, shard_proof) = receipt_proof;
+                let ShardProof { from_shard_id, to_shard_id: _, proof } = shard_proof;
                 // 4d. Checking uniqueness for set of `from_shard_id`
                 match visited_shard_ids.get(from_shard_id) {
                     Some(_) => {
@@ -1562,7 +1530,8 @@ impl<'a> ChainUpdate<'a> {
             if chunk_header.height_included == height {
                 let one_part = self.chain_store_update.get_chunk_one_part(chunk_header).unwrap();
                 for receipt_proof in one_part.receipt_proofs.iter() {
-                    let ReceiptProof(_, ShardProof(_, to_shard_id, _)) = receipt_proof;
+                    let ReceiptProof(_, shard_proof) = receipt_proof;
+                    let ShardProof { from_shard_id: _, to_shard_id, proof: _ } = shard_proof;
                     receipt_proofs_by_shard_id
                         .entry(*to_shard_id)
                         .or_insert_with(Vec::new)
@@ -1800,7 +1769,10 @@ impl<'a> ChainUpdate<'a> {
         // Check the header is valid before we proceed with the full block.
         self.process_header_for_block(&block.header, provenance)?;
 
-        self.chain_store_update.check_block_validity(block)?;
+        if !block.check_validity() {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Invalid block".into()).into());
+        }
 
         let prev_block = self.chain_store_update.get_block(&prev_hash)?.clone();
 

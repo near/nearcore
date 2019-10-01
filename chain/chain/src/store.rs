@@ -997,39 +997,4 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         let store_update = self.finalize()?;
         store_update.commit().map_err(|e| e.into())
     }
-
-    pub fn check_block_validity(&mut self, block: &Block) -> Result<(), Error> {
-        // Check that state root stored in the header matches the state root of the chunks
-        let state_root = Block::compute_state_root(&block.chunks);
-        if block.header.inner.prev_state_root != state_root {
-            return Err(ErrorKind::InvalidStateRoot.into());
-        }
-
-        // Check that chunk receipts root stored in the header matches the state root of the chunks
-        let chunk_receipts_root = Block::compute_chunk_receipts_root(&block.chunks);
-        if block.header.inner.chunk_receipts_root != chunk_receipts_root {
-            return Err(ErrorKind::InvalidChunkReceiptsRoot.into());
-        }
-
-        // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&block.chunks);
-        if block.header.inner.chunk_headers_root != chunk_headers_root {
-            return Err(ErrorKind::InvalidChunkHeadersRoot.into());
-        }
-
-        // Check that chunk tx root stored in the header matches the tx root of the chunks
-        let chunk_tx_root = Block::compute_chunk_tx_root(&block.chunks);
-        if block.header.inner.chunk_tx_root != chunk_tx_root {
-            return Err(ErrorKind::InvalidChunkTxRoot.into());
-        }
-
-        // Check that chunk included root stored in the header matches the chunk included root of the chunks
-        let chunks_included_root =
-            Block::compute_chunks_included(&block.chunks, block.header.inner.height);
-        if block.header.inner.chunks_included != chunks_included_root {
-            return Err(ErrorKind::InvalidChunkHeadersRoot.into());
-        }
-
-        Ok(())
-    }
 }

@@ -117,8 +117,11 @@ pub struct ChunkOnePart {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-// from_shard_id -> to_shard_id
-pub struct ShardProof(pub ShardId, pub ShardId, pub MerklePath);
+pub struct ShardProof {
+    pub from_shard_id: ShardId,
+    pub to_shard_id: ShardId,
+    pub proof: MerklePath,
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 // For each Merkle proof there is a subset of receipts which may be proven.
