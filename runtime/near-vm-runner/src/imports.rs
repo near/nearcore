@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
-use near_vm_logic::{HostError, VMLogic};
+use near_vm_logic::{HostErrorOrStorageError, VMLogic};
 use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
-type Result<T> = ::std::result::Result<T, HostError>;
+type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {

@@ -1,3 +1,4 @@
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
 use near_vm_logic::{Config, VMContext, VMOutcome};
@@ -5,6 +6,12 @@ use near_vm_runner::{run, VMError};
 use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
+
+mod utils;
+
+use crate::utils::{
+    CURRENT_ACCOUNT_ID, PREDECESSOR_ACCOUNT_ID, SIGNER_ACCOUNT_ID, SIGNER_ACCOUNT_PK,
+};
 
 fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expected_value: u64) {
     if let Some(_) = err {
@@ -25,11 +32,6 @@ fn assert_run_result((outcome, err): (Option<VMOutcome>, Option<VMError>), expec
     }
 }
 
-const CURRENT_ACCOUNT_ID: &str = "alice";
-const SIGNER_ACCOUNT_ID: &str = "bob";
-const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
-const PREDECESSOR_ACCOUNT_ID: &str = "carol";
-
 fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
     let mut res = vec![];
     for el in value {
@@ -39,22 +41,7 @@ fn arr_u64_to_u8(value: &[u64]) -> Vec<u8> {
 }
 
 fn create_context(input: &[u8]) -> VMContext {
-    VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
-        signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
-        input: input.to_owned(),
-        block_index: 10,
-        block_timestamp: 0,
-        account_balance: 2u128,
-        storage_usage: 12,
-        attached_deposit: 2u128,
-        prepaid_gas: 10_u64.pow(9),
-        random_seed: vec![0, 1, 2],
-        is_view: false,
-        output_data_receivers: vec![],
-    }
+    crate::utils::create_context(input.to_owned())
 }
 
 #[test]
@@ -155,3 +142,29 @@ def_test_ext!(
 // current_account_balance = context.account_balance + context.attached_deposit;
 def_test_ext!(ext_account_balance, b"ext_account_balance", &(2u128 + 2).to_le_bytes());
 def_test_ext!(ext_attached_deposit, b"ext_attached_deposit", &2u128.to_le_bytes());
+
+#[test]
+pub fn test_out_of_memory() {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/res/test_contract_rs.wasm");
+    let code = fs::read(path).unwrap();
+    let mut fake_external = MockedExternal::new();
+
+    let context = create_context(&[]);
+    let config = Config::default();
+
+    let promise_results = vec![];
+    let result = run(
+        vec![],
+        &code,
+        b"out_of_memory",
+        &mut fake_external,
+        context,
+        &config,
+        &promise_results,
+    );
+    assert_eq!(
+        result.1,
+        Some(VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string())))
+    );
+}

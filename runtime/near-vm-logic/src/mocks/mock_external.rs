@@ -1,6 +1,6 @@
-use crate::dependencies::ExternalError;
 use crate::types::{AccountId, Balance, Gas, PublicKey};
 use crate::External;
+use near_vm_errors::HostError;
 use serde::{Deserialize, Serialize};
 use std::collections::btree_map::Range;
 use std::collections::{BTreeMap, HashMap};
@@ -32,24 +32,26 @@ impl MockedExternal {
     }
 }
 
+use crate::dependencies::Result;
+
 impl External for MockedExternal {
-    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
+    fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.fake_trie.insert(key.to_vec(), value.to_vec()))
     }
 
-    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
+    fn storage_get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.fake_trie.get(key).cloned())
     }
 
-    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, ExternalError> {
+    fn storage_remove(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.fake_trie.remove(key))
     }
 
-    fn storage_has_key(&mut self, key: &[u8]) -> Result<bool, ExternalError> {
+    fn storage_has_key(&mut self, key: &[u8]) -> Result<bool> {
         Ok(self.fake_trie.contains_key(key))
     }
 
-    fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64, ExternalError> {
+    fn storage_iter(&mut self, prefix: &[u8]) -> Result<u64> {
         let res = self.next_iterator_index;
         let iterator = self.fake_trie.range(prefix.to_vec()..);
         let iterator = unsafe {
@@ -63,7 +65,7 @@ impl External for MockedExternal {
         Ok(res)
     }
 
-    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<u64, ExternalError> {
+    fn storage_iter_range(&mut self, start: &[u8], end: &[u8]) -> Result<u64> {
         let res = self.next_iterator_index;
         let iterator = self.fake_trie.range(start.to_vec()..end.to_vec());
         let iterator = unsafe {
@@ -74,10 +76,7 @@ impl External for MockedExternal {
         Ok(res)
     }
 
-    fn storage_iter_next(
-        &mut self,
-        iterator_idx: u64,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, ExternalError> {
+    fn storage_iter_next(&mut self, iterator_idx: u64) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
         match self.iterators.get_mut(&iterator_idx) {
             Some(FakeIterator { iterator, prefix }) => match iterator.next() {
                 Some((k, v)) => {
@@ -93,41 +92,33 @@ impl External for MockedExternal {
                 }
                 None => Ok(None),
             },
-            None => Err(ExternalError::InvalidIteratorIndex),
+            None => Err(HostError::InvalidIteratorIndex.into()),
         }
     }
 
-    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<(), ExternalError> {
+    fn storage_iter_drop(&mut self, iterator_idx: u64) -> Result<()> {
         if self.iterators.remove(&iterator_idx).is_none() {
-            Err(ExternalError::InvalidIteratorIndex)
+            Err(HostError::InvalidIteratorIndex.into())
         } else {
             Ok(())
         }
     }
 
-    fn create_receipt(
-        &mut self,
-        receipt_indices: Vec<u64>,
-        receiver_id: String,
-    ) -> Result<u64, ExternalError> {
+    fn create_receipt(&mut self, receipt_indices: Vec<u64>, receiver_id: String) -> Result<u64> {
         if receipt_indices.iter().any(|el| *el >= self.receipts.len() as u64) {
-            return Err(ExternalError::InvalidReceiptIndex);
+            return Err(HostError::InvalidReceiptIndex.into());
         }
         let res = self.receipts.len() as u64;
         self.receipts.push(Receipt { receipt_indices, receiver_id, actions: vec![] });
         Ok(res)
     }
 
-    fn append_action_create_account(&mut self, receipt_index: u64) -> Result<(), ExternalError> {
+    fn append_action_create_account(&mut self, receipt_index: u64) -> Result<()> {
         self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(Action::CreateAccount);
         Ok(())
     }
 
-    fn append_action_deploy_contract(
-        &mut self,
-        receipt_index: u64,
-        code: Vec<u8>,
-    ) -> Result<(), ExternalError> {
+    fn append_action_deploy_contract(&mut self, receipt_index: u64, code: Vec<u8>) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -143,7 +134,7 @@ impl External for MockedExternal {
         arguments: Vec<u8>,
         attached_deposit: u128,
         prepaid_gas: u64,
-    ) -> Result<(), ExternalError> {
+    ) -> Result<()> {
         self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(Action::FunctionCall(
             FunctionCallAction {
                 method_name,
@@ -155,11 +146,7 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn append_action_transfer(
-        &mut self,
-        receipt_index: u64,
-        amount: u128,
-    ) -> Result<(), ExternalError> {
+    fn append_action_transfer(&mut self, receipt_index: u64, amount: u128) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -173,7 +160,7 @@ impl External for MockedExternal {
         receipt_index: u64,
         stake: u128,
         public_key: Vec<u8>,
-    ) -> Result<(), ExternalError> {
+    ) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -187,7 +174,7 @@ impl External for MockedExternal {
         receipt_index: u64,
         public_key: Vec<u8>,
         nonce: u64,
-    ) -> Result<(), ExternalError> {
+    ) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -204,7 +191,7 @@ impl External for MockedExternal {
         allowance: Option<u128>,
         receiver_id: String,
         method_names: Vec<Vec<u8>>,
-    ) -> Result<(), ExternalError> {
+    ) -> Result<()> {
         self.receipts.get_mut(receipt_index as usize).unwrap().actions.push(
             Action::AddKeyWithFunctionCall(AddKeyWithFunctionCallAction {
                 public_key,
@@ -217,11 +204,7 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn append_action_delete_key(
-        &mut self,
-        receipt_index: u64,
-        public_key: Vec<u8>,
-    ) -> Result<(), ExternalError> {
+    fn append_action_delete_key(&mut self, receipt_index: u64, public_key: Vec<u8>) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -234,7 +217,7 @@ impl External for MockedExternal {
         &mut self,
         receipt_index: u64,
         beneficiary_id: String,
-    ) -> Result<(), ExternalError> {
+    ) -> Result<()> {
         self.receipts
             .get_mut(receipt_index as usize)
             .unwrap()
@@ -243,7 +226,7 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>, ExternalError> {
+    fn sha256(&self, data: &[u8]) -> Result<Vec<u8>> {
         let value_hash = sodiumoxide::crypto::hash::sha256::hash(data);
         Ok(value_hash.as_ref().to_vec())
     }
