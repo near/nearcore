@@ -19,6 +19,9 @@ serde = { version = "1.0", features = ["derive"] }
 near-runtime-fees = { path = "../near-runtime-fees", version = "0.3.0" }
 near-vm-errors = { path = "../near-vm-errors" }
 
+[dev-dependencies]
+serde_json = {version= "1.0", features= ["preserve_order"]}
+
 [[test]]
 name = "test_registers"
 path = "tests/test_registers.rs"
@@ -27,6 +30,16 @@ required-features = ["mocks"]
 [[test]]
 name = "test_storage_usage"
 path = "tests/test_storage_usage.rs"
+required-features = ["mocks"]
+
+[[test]]
+name = "test_promises"
+path = "tests/test_promises.rs"
+required-features = ["mocks"]
+
+[[test]]
+name = "test_iterators"
+path = "tests/test_iterators.rs"
 required-features = ["mocks"]
 
 [features]
