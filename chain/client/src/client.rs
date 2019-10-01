@@ -332,7 +332,7 @@ impl Client {
             shard_id
         );
 
-        let ReceiptResponse(_, receipts) = self.chain.get_outgoing_receipts_for_shard(
+        let ReceiptResponse(_, outgoing_receipts) = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
             last_header.height_included,
@@ -350,8 +350,9 @@ impl Client {
         // 2. anyone who just asks for one's incoming receipts
         // will receive a piece of incoming receipts only
         // with merkle receipts proofs which can be checked locally
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts)?;
-        let (receipts_root, _) = merklize(&receipts_hashes);
+        let outgoing_receipts_hashes =
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts)?;
+        let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
 
         let encoded_chunk = self.shards_mgr.create_encoded_shard_chunk(
             prev_block_hash,
@@ -363,8 +364,8 @@ impl Client {
             chunk_extra.rent_paid,
             chunk_extra.validator_proposals.clone(),
             &filtered_transactions,
-            &receipts,
-            receipts_root,
+            &outgoing_receipts,
+            outgoing_receipts_root,
             tx_root,
             block_producer.signer.clone(),
         )?;
@@ -375,12 +376,12 @@ impl Client {
             next_height,
             shard_id,
             filtered_transactions.len(),
-            receipts.len(),
+            outgoing_receipts.len(),
             block_producer.account_id,
             encoded_chunk.chunk_hash().0,
         );
 
-        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, receipts);
+        self.shards_mgr.distribute_encoded_chunk(encoded_chunk, outgoing_receipts);
 
         Ok(())
     }
