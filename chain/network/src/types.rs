@@ -13,14 +13,13 @@ use chrono::{DateTime, Utc};
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 
-use near_chain::types::{ReceiptProofResponse, RootProof};
+use near_chain::types::ShardStateSyncResponse;
 use near_chain::{Block, BlockApproval, BlockHeader, Weight};
 use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey, SecretKey, Signature};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::merkle::MerklePath;
 pub use near_primitives::sharding::ChunkPartMsg;
-use near_primitives::sharding::{ChunkHash, ChunkOnePart, ShardChunk};
+use near_primitives::sharding::{ChunkHash, ChunkOnePart};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::utils::{from_timestamp, to_timestamp};
@@ -718,11 +717,7 @@ impl Message for NetworkRequests {
 pub struct StateResponseInfo {
     pub shard_id: ShardId,
     pub hash: CryptoHash,
-    pub chunk: ShardChunk,
-    pub chunk_proof: MerklePath,
-    pub prev_payload: Vec<u8>,
-    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-    pub root_proofs: Vec<Vec<RootProof>>,
+    pub shard_state: ShardStateSyncResponse,
 }
 
 #[derive(Debug)]

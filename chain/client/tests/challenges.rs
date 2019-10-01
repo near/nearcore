@@ -6,7 +6,7 @@ use borsh::BorshSerialize;
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType};
+use near_crypto::InMemoryBlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
@@ -103,11 +103,11 @@ fn create_invalid_proofs_chunk(
 fn test_verify_chunk_invalid_proofs_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
-    let (chunk, merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+    let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
-            //            block_header: block.header.try_to_vec().unwrap(),
+            block_header: block.header.try_to_vec().unwrap(),
             chunk: chunk.clone(),
             //            merkle_proof: merkle_paths[0].clone(),
         }),

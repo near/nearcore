@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::hash::{hash, CryptoHash};
+use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
 use near_crypto::{BlsSignature, BlsSigner};
 
@@ -22,6 +23,10 @@ pub struct BlockDoubleSign {
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
+    /// Encoded block header.
+    pub block_header: Vec<u8>,
+    /// Merkle proof of inclusion of this chunk.
+    pub merkle_proof: MerklePath,
     /// Invalid chunk in encoded form.
     pub chunk: EncodedShardChunk,
 }

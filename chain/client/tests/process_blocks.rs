@@ -6,10 +6,10 @@ use std::time::Duration;
 use actix::System;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
+use near_chain::{Block, BlockApproval, ChainGenesis};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_mock, TestEnv};
-use near_client::{Client, GetBlock};
+use near_client::GetBlock;
 use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};

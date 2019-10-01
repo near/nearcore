@@ -16,7 +16,8 @@ use near_primitives::types::{
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
-use crate::error::Error;
+use crate::byzantine_assert;
+use crate::error::{Error, ErrorKind};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -324,14 +325,50 @@ pub trait RuntimeAdapter: Send + Sync {
                 .filter(|&receipt| self.account_id_to_shard_id(&receipt.receiver_id) == shard_id)
                 .cloned()
                 .collect();
-            receipts_hashes.push(hash(&ReceiptList(shard_receipts).try_to_vec()?));
+            receipts_hashes.push(hash(&ReceiptList(shard_id, shard_receipts).try_to_vec()?));
         }
         Ok(receipts_hashes)
+    }
+
+    /// Check chunk validity.
+    fn check_chunk_validity(&self, chunk: &ShardChunk) -> Result<(), Error> {
+        // 1. Checking that chunk header is valid
+        // 1a. Checking chunk.header.hash
+        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
+        }
+        // 1b. Checking signature
+        if !self.verify_chunk_header_signature(&chunk.header)? {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk signature".to_string()).into());
+        }
+        // 2. Checking that chunk body is valid
+        // 2a. Checking chunk hash
+        if chunk.chunk_hash != chunk.header.hash {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
+        }
+        // 2b. Checking that chunk transactions are valid
+        let (tx_root, _) = merklize(&chunk.transactions);
+        if tx_root != chunk.header.inner.tx_root {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk tx_root".to_string()).into());
+        }
+        // 2c. Checking that chunk receipts are valid
+        let outgoing_receipts_hashes = self.build_receipts_hashes(&chunk.receipts)?;
+        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+        if receipts_root != chunk.header.inner.outgoing_receipts_root {
+            byzantine_assert!(false);
+            return Err(ErrorKind::Other("Incorrect chunk receipts root".to_string()).into());
+        }
+
+        Ok(())
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
-struct ReceiptList(Vec<Receipt>);
+pub struct ReceiptList(pub ShardId, pub Vec<Receipt>);
 
 /// The last known / checked height and time when we have processed it.
 /// Required to keep track of skipped blocks and not fallback to produce blocks at lower height.
@@ -386,6 +423,68 @@ impl BlockApproval {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponse {
+    pub chunk: ShardChunk,
+    pub chunk_proof: MerklePath,
+    pub prev_chunk_header: ShardChunkHeader,
+    pub prev_chunk_proof: MerklePath,
+    pub prev_payload: Vec<u8>,
+    pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+    pub root_proofs: Vec<Vec<RootProof>>,
+}
+
+impl ShardStateSyncResponse {
+    pub fn new(
+        chunk: ShardChunk,
+        chunk_proof: MerklePath,
+        prev_chunk_header: ShardChunkHeader,
+        prev_chunk_proof: MerklePath,
+        prev_payload: Vec<u8>,
+        incoming_receipts_proofs: Vec<ReceiptProofResponse>,
+        root_proofs: Vec<Vec<RootProof>>,
+    ) -> Self {
+        Self {
+            chunk,
+            chunk_proof,
+            prev_chunk_header,
+            prev_chunk_proof,
+            prev_payload,
+            incoming_receipts_proofs,
+            root_proofs,
+        }
+    }
+}
+
+/// Verifies that chunk's proofs in the header match the body.
+pub fn validate_chunk_proofs(
+    chunk: &ShardChunk,
+    runtime_adapter: &dyn RuntimeAdapter,
+) -> Result<bool, Error> {
+    // 1. Checking chunk.header.hash
+    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        return Ok(false);
+    }
+
+    // 2. Checking that chunk body is valid
+    // 2a. Checking chunk hash
+    if chunk.chunk_hash != chunk.header.hash {
+        return Ok(false);
+    }
+    // 2b. Checking that chunk transactions are valid
+    let (tx_root, _) = merklize(&chunk.transactions);
+    if tx_root != chunk.header.inner.tx_root {
+        return Ok(false);
+    }
+    // 2c. Checking that chunk receipts are valid
+    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
+    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
+    if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
@@ -422,33 +521,4 @@ mod tests {
         assert!(signer.verify(b2.hash().as_ref(), &b2.header.signature));
         assert_eq!(b2.header.inner.total_weight.to_num(), 3);
     }
-}
-
-/// Verifies that chunk's proofs in the header match the body.
-pub fn validate_chunk_proofs(
-    chunk: &ShardChunk,
-    runtime_adapter: &dyn RuntimeAdapter,
-) -> Result<bool, Error> {
-    // 1. Checking chunk.header.hash
-    if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
-        return Ok(false);
-    }
-
-    // 2. Checking that chunk body is valid
-    // 2a. Checking chunk hash
-    if chunk.chunk_hash != chunk.header.hash {
-        return Ok(false);
-    }
-    // 2b. Checking that chunk transactions are valid
-    let (tx_root, _) = merklize(&chunk.transactions);
-    if tx_root != chunk.header.inner.tx_root {
-        return Ok(false);
-    }
-    // 2c. Checking that chunk receipts are valid
-    let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
-    let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-    if receipts_root != chunk.header.inner.outgoing_receipts_root {
-        return Ok(false);
-    }
-    Ok(true)
 }

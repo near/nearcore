@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::collections::{HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
@@ -18,7 +19,7 @@ use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
-use near_primitives::block::Block;
+use near_primitives::block::{Block, Weight};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
@@ -171,6 +172,8 @@ pub fn setup_mock_all_validators(
     let genesis_block = Arc::new(RwLock::new(None));
     let num_shards = validators.iter().map(|x| x.len()).min().unwrap() as ShardId;
 
+    let last_height_weight = Arc::new(RwLock::new(vec![(0, Weight::from(0)); key_pairs.len()]));
+
     for account_id in validators.iter().flatten().cloned() {
         let view_client_addr = Arc::new(RwLock::new(None));
         let view_client_addr1 = view_client_addr.clone();
@@ -181,6 +184,7 @@ pub fn setup_mock_all_validators(
         let connectors1 = connectors.clone();
         let network_mock1 = network_mock.clone();
         let announced_accounts1 = announced_accounts.clone();
+        let last_height_weight1 = last_height_weight.clone();
         let client_addr = ClientActor::create(move |ctx| {
             let _client_addr = ctx.address();
             let pm = NetworkMock::mock(Box::new(move |msg, _ctx| {
@@ -189,27 +193,39 @@ pub fn setup_mock_all_validators(
                     network_mock1.write().unwrap().deref_mut()(account_id.to_string(), msg);
 
                 if perform_default {
+                    let mut last_height_weight1 = last_height_weight1.write().unwrap();
+
                     let mut my_key_pair = None;
+                    let mut my_height_weight = None;
+                    let mut my_ord = None;
                     for (i, name) in validators_clone2.iter().flatten().enumerate() {
                         if *name == account_id {
                             my_key_pair = Some(key_pairs[i].clone());
+                            my_height_weight = Some(&mut last_height_weight1[i]);
+                            my_ord = Some(i);
                         }
                     }
                     let my_key_pair = my_key_pair.unwrap();
+                    let mut my_height_weight = my_height_weight.unwrap();
+                    let my_ord = my_ord.unwrap();
 
                     match msg {
-                        NetworkRequests::FetchInfo{ .. } => {
-                            let peers: Vec<_> = key_pairs.iter()
-                                    .map(|peer_info| FullPeerInfo {
-                                        peer_info: peer_info.clone(),
-                                        chain_info: PeerChainInfo {
-                                            genesis: Default::default(),
-                                            height: 0,
-                                            total_weight: 0.into(),
-                                        },
-                                    }).collect();
+                        NetworkRequests::FetchInfo { .. } => {
+                            let peers: Vec<_> = key_pairs
+                                .iter()
+                                .take(connectors1.read().unwrap().len())
+                                .enumerate()
+                                .map(|(i, peer_info)| FullPeerInfo {
+                                    peer_info: peer_info.clone(),
+                                    chain_info: PeerChainInfo {
+                                        genesis: Default::default(),
+                                        height: last_height_weight1[i].0,
+                                        total_weight: last_height_weight1[i].1,
+                                    },
+                                })
+                                .collect();
                             let peers2 = peers.clone();
-                            resp = NetworkResponses::Info ( NetworkInfo {
+                            resp = NetworkResponses::Info(NetworkInfo {
                                 active_peers: peers,
                                 num_active_peers: key_pairs.len(),
                                 peer_max_count: key_pairs.len() as u32,
@@ -220,6 +236,9 @@ pub fn setup_mock_all_validators(
                             })
                         }
                         NetworkRequests::Block { block } => {
+                            my_height_weight.0 = max(my_height_weight.0, block.header.inner.height);
+                            my_height_weight.1 =
+                                max(my_height_weight.1, block.header.inner.total_weight);
                             for (client, _) in connectors1.write().unwrap().iter() {
                                 client.do_send(NetworkClientMessages::Block(
                                     block.clone(),
@@ -286,52 +305,121 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::StateRequest { shard_id, hash, account_id: target_account_id } => {
+                        NetworkRequests::BlockRequest { hash, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.write().unwrap()[i]
+                                            .0
+                                            .send(NetworkClientMessages::BlockRequest(*hash))
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkClientResponses::Block(block) => {
+                                                        connectors2.write().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(NetworkClientMessages::Block(
+                                                                block, peer_id, true,
+                                                            ));
+                                                    }
+                                                    NetworkClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::result(Ok(()))
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::BlockHeadersRequest { hashes, peer_id } => {
+                            for (i, peer_info) in key_pairs.iter().enumerate() {
+                                let peer_id = peer_id.clone();
+                                if peer_info.id == peer_id {
+                                    let connectors2 = connectors1.clone();
+                                    actix::spawn(
+                                        connectors1.write().unwrap()[i]
+                                            .0
+                                            .send(NetworkClientMessages::BlockHeadersRequest(
+                                                hashes.clone(),
+                                            ))
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkClientResponses::BlockHeaders(
+                                                        headers,
+                                                    ) => {
+                                                        connectors2.write().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(
+                                                                NetworkClientMessages::BlockHeaders(
+                                                                    headers, peer_id,
+                                                                ),
+                                                            );
+                                                    }
+                                                    NetworkClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::result(Ok(()))
+                                            }),
+                                    );
+                                }
+                            }
+                        }
+                        NetworkRequests::StateRequest {
+                            shard_id,
+                            hash,
+                            account_id: target_account_id,
+                        } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == target_account_id {
                                     let connectors2 = connectors1.clone();
-                                    let validators_clone3 = validators_clone2.clone();
                                     actix::spawn(
-                                    connectors1.write().unwrap()[i]
-                                        .0
-                                        .send(NetworkClientMessages::StateRequest(*shard_id, *hash))
-                                        .then(move |response| {
-                                            let response = response.unwrap();
-                                            match response {
-                                                NetworkClientResponses::StateResponse(info) =>
-                                                    {
-                                                        for (i, name) in
-                                                            validators_clone3.iter().flatten().enumerate()
-                                                            {
-                                                                if *name == account_id {
-                                                                    connectors2.write().unwrap()[i].0.do_send(
-                                                                        NetworkClientMessages::StateResponse(info),
-                                                                    );
-                                                                    break;
-                                                                }
-                                                            }
-                                                    },
-                                                NetworkClientResponses::NoResponse => {},
-                                                _ => assert!(false),
-                                            }
-                                            future::result(Ok(()))
-                                        }));
+                                        connectors1.write().unwrap()[i]
+                                            .0
+                                            .send(NetworkClientMessages::StateRequest(
+                                                *shard_id, *hash,
+                                            ))
+                                            .then(move |response| {
+                                                let response = response.unwrap();
+                                                match response {
+                                                    NetworkClientResponses::StateResponse(info) => {
+                                                        connectors2.write().unwrap()[my_ord]
+                                                            .0
+                                                            .do_send(
+                                                            NetworkClientMessages::StateResponse(
+                                                                info,
+                                                            ),
+                                                        );
+                                                    }
+                                                    NetworkClientResponses::NoResponse => {}
+                                                    _ => assert!(false),
+                                                }
+                                                future::result(Ok(()))
+                                            }),
+                                    );
                                 }
                             }
                         }
                         NetworkRequests::AnnounceAccount(announce_account) => {
                             let mut aa = announced_accounts1.write().unwrap();
-                            let key = (announce_account.account_id.clone(), announce_account.epoch_id.clone());
+                            let key = (
+                                announce_account.account_id.clone(),
+                                announce_account.epoch_id.clone(),
+                            );
                             if aa.get(&key).is_none() {
                                 aa.insert(key);
                                 for (client, _) in connectors1.write().unwrap().iter() {
                                     client.do_send(NetworkClientMessages::AnnounceAccount(
-                                        announce_account.clone()
+                                        announce_account.clone(),
                                     ))
                                 }
                             }
                         }
-                        _ => {}
+                        NetworkRequests::BanPeer { .. } => {}
+                        NetworkRequests::BlockHeaderAnnounce { .. } => {}
+                        NetworkRequests::Challenge(_) => {}
                     };
                 }
                 Box::new(Some(resp))
@@ -417,7 +505,7 @@ pub fn setup_client(
         num_shards,
     ));
     let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
-    let mut config = ClientConfig::test(true, 10, num_validators);
+    let config = ClientConfig::test(true, 10, num_validators);
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
 }

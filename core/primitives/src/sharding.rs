@@ -115,7 +115,11 @@ pub struct ChunkOnePart {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
-pub struct ShardProof(pub ShardId, pub MerklePath);
+pub struct ShardProof {
+    pub from_shard_id: ShardId,
+    pub to_shard_id: ShardId,
+    pub proof: MerklePath,
+}
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
 // For each Merkle proof there is a subset of receipts which may be proven.
@@ -193,12 +197,12 @@ impl EncodedShardChunk {
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
-        receipts: &Vec<Receipt>,
-        receipts_root: CryptoHash,
+        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts_root: CryptoHash,
         signer: &dyn BlsSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
-            TransactionReceipt(transactions.to_vec(), receipts.to_vec()).try_to_vec()?;
+            TransactionReceipt(transactions.to_vec(), outgoing_receipts.to_vec()).try_to_vec()?;
         let parity_parts = total_parts - data_parts;
 
         let mut parts = vec![];
@@ -228,7 +232,7 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
-            receipts_root,
+            outgoing_receipts_root,
             tx_root,
             validator_proposals,
             encoded_length as u64,
@@ -248,7 +252,7 @@ impl EncodedShardChunk {
         gas_used: Gas,
         gas_limit: Gas,
         rent_paid: Balance,
-        receipts_root: CryptoHash,
+        outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
 
@@ -273,7 +277,7 @@ impl EncodedShardChunk {
             gas_used,
             gas_limit,
             rent_paid,
-            receipts_root,
+            outgoing_receipts_root,
             tx_root,
             validator_proposals,
             signer,
