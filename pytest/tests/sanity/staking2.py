@@ -35,8 +35,8 @@ def do_moar_stakes(last_block_hash):
     if len(sequence) == 0:
         stakes = [0, 0, 0]
         # have 1-2 validators with stake, and the remaining without
-        stakes[random.randint(0, 2)] = random.randint(70000000, 100000000)
-        stakes[random.randint(0, 2)] = random.randint(70000000, 100000000)
+        stakes[random.randint(0, 2)] = random.randint(70000000000000000000000000, 100000000000000000000000000)
+        stakes[random.randint(0, 2)] = random.randint(70000000000000000000000000, 100000000000000000000000000)
     else:
         stakes = sequence[0]
         sequence = sequence[1:]
@@ -44,7 +44,7 @@ def do_moar_stakes(last_block_hash):
     vals = get_validators()
     val_id = int(list(vals)[0][4:])
     for i in range(3):
-        tx = sign_staking_tx(nodes[i].account, stakes[i], next_nonce, base58.b58decode(last_block_hash.encode('utf8')))
+        tx = sign_staking_tx(nodes[i].signer_key, nodes[i].validator_key, stakes[i], next_nonce, base58.b58decode(last_block_hash.encode('utf8')))
         nodes[val_id].send_tx(tx)
         next_nonce += 1
 

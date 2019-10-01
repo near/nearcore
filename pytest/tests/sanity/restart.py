@@ -61,7 +61,7 @@ for node in nodes:
     node.kill()
 
 nodes[0].start(None, None)
-nodes[1].start(nodes[0].account.pk, nodes[0].addr())
+nodes[1].start(nodes[0].node_key.pk, nodes[0].addr())
 
 while max_height < BLOCKS2:
     assert time.time() - started < TIMEOUT

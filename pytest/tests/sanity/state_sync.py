@@ -31,7 +31,7 @@ near_root, node_dirs = init_cluster(2, 1, 1, config, [["epoch_length", 10], ["va
 started = time.time()
 
 boot_node = spin_up_node(config, near_root, node_dirs[0], 0, None, None)
-node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.account.pk, boot_node.addr())
+node1 = spin_up_node(config, near_root, node_dirs[1], 1, boot_node.node_key.pk, boot_node.addr())
 
 ctx = TxContext([0, 0], [boot_node, node1])
 last_balances = [x for x in ctx.expected_balances]
@@ -63,7 +63,7 @@ while observed_height < START_AT_BLOCK:
 if mode == 'onetx':
     assert ctx.get_balances() == ctx.expected_balances
 
-node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.account.pk, boot_node.addr())
+node2 = spin_up_node(config, near_root, node_dirs[2], 2, boot_node.node_key.pk, boot_node.addr())
 
 catch_up_height = 0
 while catch_up_height < observed_height:

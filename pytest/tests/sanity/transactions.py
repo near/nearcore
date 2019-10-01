@@ -37,7 +37,7 @@ while True:
 
     if step == 0:
         if height >= 1:
-            tx = sign_payment_tx(nodes[0].account, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
+            tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, base58.b58decode(hash_.encode('utf8')))
             nodes[3].send_tx(tx)
             ctx.expected_balances[0] -= 100
             ctx.expected_balances[1] += 100

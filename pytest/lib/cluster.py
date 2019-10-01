@@ -9,27 +9,27 @@ def atexit_cleanup(node):
         print("Cleaning failed!")
         pass
 
-class Account(object):
+class Key(object):
     def __init__(self, account_id, pk, sk):
-        super(Account, self).__init__()
+        super(Key, self).__init__()
         self.account_id = account_id
         self.pk = pk
         self.sk = sk
 
     def decoded_pk(self):
-        return base58.b58decode(self.pk.split(':')[1])
+        return base58.b58decode(self.pk.split(':')[1] if ':' in self.pk else self.pk)
 
     def decoded_sk(self):
-        return base58.b58decode(self.sk.split(':')[1])
+        return base58.b58decode(self.sk.split(':')[1] if ':' in self.sk else self.sk)
 
     @classmethod
     def from_json(self, j):
-        return Account(j['account_id'], j['public_key'], j['secret_key'])
+        return Key(j['account_id'], j['public_key'], j['secret_key'])
 
     @classmethod
     def from_json_file(self, jf):
         with open(jf) as f:
-            return Account.from_json(json.loads(f.read()))
+            return Key.from_json(json.loads(f.read()))
 
 
 class BaseNode(object):
@@ -87,7 +87,9 @@ class LocalNode(BaseNode):
         with open(os.path.join(node_dir, "config.json"), 'w') as f:
             f.write(json.dumps(config_json, indent=2))
 
-        self.account = Account.from_json_file(os.path.join(node_dir, "validator_key.json"))
+        self.validator_key = Key.from_json_file(os.path.join(node_dir, "validator_key.json"))
+        self.node_key = Key.from_json_file(os.path.join(node_dir, "node_key.json"))
+        self.signer_key = Key.from_json_file(os.path.join(node_dir, "signer_key.json"))
 
         self.handle = None
 
@@ -201,7 +203,7 @@ def start_cluster(num_nodes, num_observers, num_shards, config, genesis_config_c
 
     handles = []
     for i in range(1, num_nodes + num_observers):
-        handle = threading.Thread(target = spin_up_node_and_push, args=(i, boot_node.account.pk, boot_node.addr()))
+        handle = threading.Thread(target = spin_up_node_and_push, args=(i, boot_node.node_key.pk, boot_node.addr()))
         handle.start()
         handles.append(handle)
 
