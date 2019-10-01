@@ -5,6 +5,7 @@ use chrono::prelude::{DateTime, Utc};
 
 use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
 
+use crate::challenge::Challenges;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
@@ -212,6 +213,8 @@ impl BlockHeader {
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
+    /// List of challenges.
+    pub challenges: Challenges,
 }
 
 impl Block {
@@ -256,6 +259,7 @@ impl Block {
                 initial_total_supply,
             ),
             chunks,
+            challenges: vec![],
         }
     }
 
@@ -268,6 +272,7 @@ impl Block {
         mut approvals: HashMap<usize, Signature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
+        challenges: Challenges,
         signer: &dyn Signer,
     ) -> Self {
         let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
@@ -335,6 +340,7 @@ impl Block {
                 signer,
             ),
             chunks,
+            challenges,
         }
     }
 

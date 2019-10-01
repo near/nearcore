@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
 
 use borsh::BorshSerialize;
 
 use near_chain::{Block, ChainGenesis, Provenance};
-use near_client::test_utils::{setup_client, MockNetworkAdapter, TestEnv};
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
 use near_primitives::block::BlockHeader;
@@ -15,7 +14,6 @@ use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::MerkleHash;
-use near_store::test_utils::create_test_store;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -32,6 +30,7 @@ fn test_verify_block_double_sign_challenge() {
         HashMap::default(),
         0,
         None,
+        vec![],
         &signer,
     );
     let valid_challenge = Challenge::BlockDoubleSign {
@@ -48,38 +47,6 @@ fn test_verify_block_double_sign_challenge() {
     let invalid_challenge =
         Challenge::BlockDoubleSign { left_block_header: b1.header, right_block_header: b3.header };
     assert!(!env.clients[1].chain.verify_challenge(invalid_challenge).unwrap());
-}
-
-#[test]
-fn test_verify_chunk_double_sign_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    env.produce_block(0, 1);
-    let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
-    let (chunk1, _, _) = env.clients[0]
-        .produce_chunk(
-            last_block.hash(),
-            &last_block.header.inner.epoch_id,
-            last_block.chunks[0].clone(),
-            2,
-            0,
-        )
-        .unwrap()
-        .unwrap();
-    let (chunk2, _, _) = env.clients[0]
-        .produce_chunk(
-            last_block.header.inner.prev_hash,
-            &last_block.header.inner.epoch_id,
-            last_block.chunks[0].clone(),
-            2,
-            0,
-        )
-        .unwrap()
-        .unwrap();
-    let valid_challenge = Challenge::ChunkDoubleSign {
-        left_chunk_header: chunk1.header.clone(),
-        right_chunk_header: chunk2.header.clone(),
-    };
-    assert!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap());
 }
 
 #[test]
@@ -177,6 +144,7 @@ fn create_block_with_invalid_chunk(
         HashMap::default(),
         0,
         None,
+        vec![],
         &signer,
     );
     (block_with_invalid_chunk, invalid_encoded_chunk)
@@ -186,25 +154,15 @@ fn create_block_with_invalid_chunk(
 #[test]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let store = create_test_store();
-    let chain_genesis = ChainGenesis::test();
-    let network_adapter = Arc::new(MockNetworkAdapter::default());
-    let mut client = setup_client(
-        store,
-        vec![vec!["test1", "test2"]],
-        1,
-        1,
-        Some("test2"),
-        network_adapter,
-        chain_genesis,
-    );
-    let prev_block_header = client.chain.get_header_by_height(0).unwrap();
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 2);
+    let prev_block_header = env.clients[0].chain.get_header_by_height(0).unwrap();
     let (block_with_invalid_chunk, _) = create_block_with_invalid_chunk(prev_block_header, "test2");
-    let (_, result) = client.process_block(block_with_invalid_chunk.clone(), Provenance::NONE);
+    let (_, result) =
+        env.clients[0].process_block(block_with_invalid_chunk.clone(), Provenance::NONE);
     // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
     // At this point we should create a challenge and add it.
     assert!(result.is_err());
-    assert_eq!(client.chain.head().unwrap().height, 0);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 0);
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.
@@ -218,3 +176,10 @@ fn test_receive_two_chunks_from_one_producer() {}
 /// Receive two different blocks from the same block producer.
 #[test]
 fn test_receive_two_blocks_from_one_producer() {}
+
+/// Receive challenges in the blocks.
+#[test]
+fn test_block_challenge() {
+    init_test_logger();
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+}

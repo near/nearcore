@@ -1242,24 +1242,15 @@ impl Chain {
                         )
                         .valid())
             }
-            Challenge::ChunkDoubleSign { left_chunk_header, right_chunk_header } => {
-                Ok(left_chunk_header.hash != right_chunk_header.hash
-                    && left_chunk_header.inner.height_created
-                        == right_chunk_header.inner.height_created
-                    && self.runtime_adapter.verify_chunk_header_signature(&left_chunk_header)?
-                    && self.runtime_adapter.verify_chunk_header_signature(&right_chunk_header)?)
-            }
-            Challenge::ChunkProofs { chunk_header } => {
-                // This tries to retrieve the chunk, if it's missing return ChunksMissing error to fetch it.
-                // TODO: ?? should we just get get_chunk() here? which type of error we need
-                let chunk = self.mut_store().get_chunk_clone_from_header(&chunk_header)?;
+            Challenge::ChunkProofs { chunk } => {
                 validate_chunk_proofs(&chunk, &*self.runtime_adapter).map(|valid| !valid)
             }
-            Challenge::ChunkState { chunk_header, block_hash, shard_id, partial_state } => {
+            Challenge::ChunkState { prev_chunk, chunk_header } => {
                 // Retrieve block, if it's missing return error to fetch it.
-                let chunk_header =
-                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
-                let prev_chunk = self.store.get_chunk_clone_from_header(&chunk_header)?;
+                //                let prev_chunk_header =
+                //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
+                //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
+                // chunk_header.inner.
                 Ok(false)
             }
         }

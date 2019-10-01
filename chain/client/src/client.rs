@@ -261,6 +261,7 @@ impl Client {
             self.approvals.drain().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
+            vec![],
             &*block_producer.signer,
         );
 

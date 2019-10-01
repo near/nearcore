@@ -164,6 +164,7 @@ impl Block {
             approvals,
             0,
             Some(0),
+            vec![],
             signer,
         )
     }
