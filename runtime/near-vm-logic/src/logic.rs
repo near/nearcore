@@ -129,7 +129,8 @@ impl<'a> VMLogic<'a> {
 
     fn memory_set(memory: &mut dyn MemoryLike, offset: u64, buf: &[u8]) -> Result<()> {
         Self::try_fit_mem(memory, offset, buf.len() as _)?;
-        Ok(memory.write_memory(offset, buf))
+        memory.write_memory(offset, buf);
+        Ok(())
     }
 
     /// Writes `u128` to Wasm memory.
