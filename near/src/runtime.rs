@@ -37,6 +37,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -417,13 +418,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn validate_tx(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
 
         if let Err(err) = self.runtime.verify_and_charge_transaction(
             &mut state_update,
@@ -439,13 +445,18 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn filter_transactions(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
         transactions
             .into_iter()
             .filter(|transaction| {
@@ -503,6 +514,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -538,8 +550,12 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
         }
 
-        let apply_state =
-            ApplyState { block_index, epoch_length: self.genesis_config.epoch_length, gas_price };
+        let apply_state = ApplyState {
+            block_index,
+            epoch_length: self.genesis_config.epoch_length,
+            gas_price,
+            block_timestamp,
+        };
 
         let apply_result = self
             .runtime
@@ -575,6 +591,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],
@@ -592,6 +609,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 match self.call_function(
                     state_root,
                     height,
+                    block_timestamp,
                     &AccountId::from(path_parts[1]),
                     path_parts[2],
                     &data,
@@ -716,13 +734,14 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         contract_id: &AccountId,
         method_name: &str,
         args: &[u8],
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        self.trie_viewer.call_function(state_update, height, contract_id, method_name, args, logs)
+        self.trie_viewer.call_function(state_update, height, block_timestamp, contract_id, method_name, args, logs)
     }
 
     fn view_access_key(
@@ -821,6 +840,7 @@ mod test {
             state_root: &CryptoHash,
             shard_id: ShardId,
             block_index: BlockIndex,
+            block_timestamp: u64,
             prev_block_hash: &CryptoHash,
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
@@ -832,6 +852,7 @@ mod test {
                     shard_id,
                     &state_root,
                     block_index,
+                    block_timestamp,
                     prev_block_hash,
                     block_hash,
                     receipts,
@@ -924,6 +945,7 @@ mod test {
                     &self.state_roots[i as usize],
                     i,
                     self.head.height + 1,
+                    0,
                     &self.head.last_block_hash,
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
@@ -1431,7 +1453,7 @@ mod test {
             .clone();
         let response = env
             .runtime
-            .query(env.state_roots[0], 2, &env.head.last_block_hash, vec!["validators"], &[])
+            .query(env.state_roots[0], 2, 0, &env.head.last_block_hash, vec!["validators"], &[])
             .unwrap();
         match response {
             QueryResponse::Validators(info) => assert_eq!(
@@ -1460,7 +1482,7 @@ mod test {
         env.step_default(vec![]);
         let response = env
             .runtime
-            .query(env.state_roots[0], 3, &env.head.last_block_hash, vec!["validators"], &[])
+            .query(env.state_roots[0], 3, 0, &env.head.last_block_hash, vec!["validators"], &[])
             .unwrap();
         match response {
             QueryResponse::Validators(info) => {

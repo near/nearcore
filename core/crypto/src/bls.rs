@@ -21,9 +21,7 @@ fn str_to_public_key(s: &str) -> Result<BlsPublicKey, String> {
     if length != BLS_PUBLIC_KEY_LENGTH {
         return Err(format!("Invalid length {} of BLS public key", length));
     }
-    milagro_bls::PublicKey::from_bytes(&array)
-        .map(|pk| BlsPublicKey(pk))
-        .map_err(|err| format!("{:?}", err))
+    milagro_bls::PublicKey::from_bytes(&array).map(BlsPublicKey).map_err(|err| format!("{:?}", err))
 }
 
 impl BlsPublicKey {
@@ -79,9 +77,9 @@ impl BorshSerialize for BlsPublicKey {
 impl BorshDeserialize for BlsPublicKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let mut buf = [0; BLS_PUBLIC_KEY_LENGTH];
-        reader.read(&mut buf)?;
+        reader.read_exact(&mut buf)?;
         milagro_bls::PublicKey::from_bytes(&buf)
-            .map(|pk| BlsPublicKey(pk))
+            .map(BlsPublicKey)
             .map_err(|err| Error::new(ErrorKind::Other, format!("{:?}", err)))
     }
 }
@@ -104,7 +102,7 @@ impl<'de> serde::Deserialize<'de> for BlsPublicKey {
         D: serde::Deserializer<'de>,
     {
         let s = <String as serde::Deserialize>::deserialize(deserializer)?;
-        str_to_public_key(&s).map_err(|err| serde::de::Error::custom(err))
+        str_to_public_key(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -141,9 +139,9 @@ impl BorshSerialize for BlsSecretKey {
 impl BorshDeserialize for BlsSecretKey {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let mut buf = [0; BLS_SECRET_KEY_LENGTH];
-        reader.read(&mut buf)?;
+        reader.read_exact(&mut buf)?;
         milagro_bls::SecretKey::from_bytes(&buf)
-            .map(|sk| BlsSecretKey(sk))
+            .map(BlsSecretKey)
             .map_err(|err| Error::new(ErrorKind::Other, format!("{:?}", err)))
     }
 }
@@ -177,7 +175,7 @@ impl<'de> serde::Deserialize<'de> for BlsSecretKey {
             )));
         }
         milagro_bls::SecretKey::from_bytes(&array)
-            .map(|sig| BlsSecretKey(sig))
+            .map(BlsSecretKey)
             .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
     }
 }
@@ -238,9 +236,9 @@ impl BorshSerialize for BlsSignature {
 impl BorshDeserialize for BlsSignature {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self, Error> {
         let mut buf = [0; BLS_SIGNATURE_LENGTH];
-        reader.read(&mut buf)?;
+        reader.read_exact(&mut buf)?;
         milagro_bls::AggregateSignature::from_bytes(&buf)
-            .map(|sig| BlsSignature(sig))
+            .map(BlsSignature)
             .map_err(|err| Error::new(ErrorKind::Other, format!("{:?}", err)))
     }
 }
@@ -274,7 +272,7 @@ impl<'de> serde::Deserialize<'de> for BlsSignature {
             )));
         }
         milagro_bls::AggregateSignature::from_bytes(&array)
-            .map(|sig| BlsSignature(sig))
+            .map(BlsSignature)
             .map_err(|err| serde::de::Error::custom(format!("{:?}", err)))
     }
 }
