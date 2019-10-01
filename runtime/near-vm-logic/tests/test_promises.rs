@@ -12,7 +12,7 @@ use serde_json;
 #[test]
 fn test_promise_results() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
 
     let mut promise_results = vec![];
@@ -36,7 +36,7 @@ fn test_promise_results() {
 #[test]
 fn test_promise_batch_action_function_call() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -76,7 +76,7 @@ fn test_promise_batch_action_function_call() {
 #[test]
 fn test_promise_batch_action_create_account() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -122,7 +122,7 @@ fn test_promise_batch_action_create_account() {
 #[test]
 fn test_promise_batch_action_deploy_contract() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -177,7 +177,7 @@ fn test_promise_batch_action_deploy_contract() {
 #[test]
 fn test_promise_batch_action_transfer() {
     let mut ext = MockedExternal::default();
-    let mut context = get_context(vec![]);
+    let mut context = get_context(vec![], false);
     context.account_balance = 100;
     context.attached_deposit = 10;
     let config = Config::default();
@@ -234,7 +234,7 @@ fn test_promise_batch_action_transfer() {
 #[test]
 fn test_promise_batch_action_stake() {
     let mut ext = MockedExternal::default();
-    let mut context = get_context(vec![]);
+    let mut context = get_context(vec![], false);
     context.account_balance = 100;
     let config = Config::default();
     let promise_results = vec![];
@@ -311,7 +311,7 @@ fn test_promise_batch_action_stake() {
 #[test]
 fn test_promise_batch_action_add_key_with_function_call() {
     let mut ext = MockedExternal::default();
-    let mut context = get_context(vec![]);
+    let mut context = get_context(vec![], false);
     context.account_balance = 100;
     let config = Config::default();
     let promise_results = vec![];
@@ -397,7 +397,7 @@ fn test_promise_batch_action_add_key_with_function_call() {
 #[test]
 fn test_promise_batch_then() {
     let mut ext = MockedExternal::default();
-    let mut context = get_context(vec![]);
+    let mut context = get_context(vec![], false);
     context.account_balance = 100;
     let config = Config::default();
     let promise_results = vec![];

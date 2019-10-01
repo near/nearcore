@@ -1,7 +1,8 @@
 use near_vm_logic::types::Gas;
-use near_vm_logic::{HostError, VMLogic};
+use near_vm_logic::VMLogic;
+use near_vm_errors::HostErrorOrStorageError;
 
-type Result<T> = ::std::result::Result<T, HostError>;
+type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 pub fn promise_create(
     logic: &mut VMLogic,

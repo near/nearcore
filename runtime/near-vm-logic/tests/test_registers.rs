@@ -68,7 +68,7 @@ fn test_many_registers() {
 #[test]
 fn test_max_register_size() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -76,13 +76,13 @@ fn test_max_register_size() {
 
     let value = vec![0u8; (config.max_register_size +1) as usize];
 
-    assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation));
+    assert_eq!(logic.write_register(0, &value), Err(HostError::MemoryAccessViolation.into()));
 }
 
 #[test]
 fn test_max_register_memory_limit() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -92,10 +92,10 @@ fn test_max_register_memory_limit() {
 
     for i in 0..max_registers {
         let value = vec![1u8; config.max_register_size as usize];
-        logic.write_register(i, &value);
+        logic.write_register(i, &value).expect("should be written successfully");
     }
     let last = vec![1u8; config.max_register_size as usize];
-    assert_eq!(logic.write_register(max_registers, &last), Err(HostError::MemoryAccessViolation));
+    assert_eq!(logic.write_register(max_registers, &last), Err(HostError::MemoryAccessViolation.into()));
 }
 
 #[test]

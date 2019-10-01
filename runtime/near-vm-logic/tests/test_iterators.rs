@@ -67,7 +67,7 @@ fn iter_range_check(logic: &mut VMLogic, start: &[u8], end: &[u8], key_vals: &[K
 #[test]
 fn test_iterator() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -86,7 +86,7 @@ fn test_iterator() {
 #[test]
 fn test_iterator_invalidation() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -100,7 +100,7 @@ fn test_iterator_invalidation() {
 #[test]
 fn test_iterator_from_second() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -119,7 +119,7 @@ fn test_iterator_from_second() {
 #[test]
 fn test_iterator_range() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
@@ -154,7 +154,7 @@ fn test_iterator_range() {
 #[should_panic]
 fn test_iterator_range_intersect() {
     let mut ext = MockedExternal::default();
-    let context = get_context(vec![]);
+    let context = get_context(vec![], false);
     let config = Config::default();
     let promise_results = vec![];
     let mut memory = MockedMemory::default();
