@@ -19,13 +19,9 @@ pub struct BlockDoubleSign {
     pub right_block_header: Vec<u8>,
 }
 
-/// Invalid chunk header (body of the chunk doesn't match proofs or invalid encoding).
+/// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
-    /// Block header that contains invalid chunk.
-    pub block_header: Vec<u8>,
-    /// Merkle proofs that this chunk is included in the block.
-    pub merkle_proof: MerklePath,
     /// Invalid chunk in encoded form.
     pub chunk: EncodedShardChunk,
 }
@@ -44,10 +40,16 @@ pub struct ChunkState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-pub enum Challenge {
+pub enum ChallengeBody {
     BlockDoubleSign(BlockDoubleSign),
     ChunkProofs(ChunkProofs),
     ChunkState(ChunkState),
+}
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+pub struct Challenge {
+    body: ChallengeBody,
+    //    signature: BlsSignature,
 }
 
 pub type Challenges = Vec<Challenge>;

@@ -145,6 +145,7 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     //    println!("{:?}", result);
     assert!(result.is_err());
     assert_eq!(env.clients[0].chain.head().unwrap().height, 1);
+    println!("{:?}", env.network_adapters[0].pop());
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.

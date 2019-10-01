@@ -798,6 +798,14 @@ impl Handler<NetworkRequests> for PeerManagerActor {
                 );
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::Challenge(challenge) => {
+                // TODO: smarter routing?
+                self.broadcast_message(
+                    ctx,
+                    SendMessage { message: PeerMessage::Challenge(challenge) },
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 }

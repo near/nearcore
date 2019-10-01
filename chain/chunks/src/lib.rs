@@ -14,8 +14,9 @@ use rand::Rng;
 use near_chain::{byzantine_assert, collect_receipts, ErrorKind, RuntimeAdapter, ValidTransaction};
 use near_crypto::Signer;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
-use near_network::NetworkRequests;
+use near_network::{NetworkClientMessages, NetworkRequests};
 use near_pool::TransactionPool;
+use near_primitives::challenge::{Challenge, ChunkProofs};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -756,13 +757,18 @@ impl ShardsManager {
 
             return Ok(Some(chunk.header.inner.prev_block_hash));
         } else {
+            // Can't decode chunk or has invalid proofs, ignore it
             error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
-            // Can't decode chunk, ignore it
-            // TODO: CHALLENGE send out challenge.
             for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
                 self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
             }
             self.encoded_chunks.remove(&chunk_hash);
+            // Send out challenge to network participants.
+            let block_header =
+            // TODO: add block header and merkle proofs.
+            self.network_adapter.send(NetworkRequests::Challenge(Challenge::ChunkProofs(
+                ChunkProofs { chunk: chunk.clone() },
+            )));
             return Ok(None);
         }
     }

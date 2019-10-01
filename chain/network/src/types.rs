@@ -25,6 +25,7 @@ use near_primitives::utils::{from_timestamp, to_timestamp};
 use serde_derive::{Deserialize, Serialize};
 
 use crate::peer::Peer;
+use near_primitives::challenge::Challenge;
 
 /// Current latest version of the protocol
 pub const PROTOCOL_VERSION: u32 = 4;
@@ -394,6 +395,8 @@ pub enum PeerMessage {
     ChunkOnePartRequest(ChunkOnePartRequestMsg),
     ChunkPart(ChunkPartMsg),
     ChunkOnePart(ChunkOnePart),
+
+    Challenge(Challenge),
 }
 
 impl fmt::Display for PeerMessage {
@@ -424,6 +427,7 @@ impl fmt::Display for PeerMessage {
             PeerMessage::ChunkOnePartRequest(_) => f.write_str("ChunkOnePartRequest"),
             PeerMessage::ChunkPart(_) => f.write_str("ChunkPart"),
             PeerMessage::ChunkOnePart(_) => f.write_str("ChunkOnePart"),
+            PeerMessage::Challenge(_) => f.write_str("Challenge"),
         }
     }
 }
@@ -626,6 +630,9 @@ pub enum NetworkRequests {
     ChunkOnePartMessage { account_id: AccountId, header_and_part: ChunkOnePart },
     /// A chunk part
     ChunkPart { peer_id: PeerId, part: ChunkPartMsg },
+
+    /// A challenge to invalidate a block.
+    Challenge(Challenge),
 }
 
 /// Combines peer address info and chain information.
@@ -715,6 +722,9 @@ pub enum NetworkClientMessages {
     ChunkPart(ChunkPartMsg),
     /// A chunk header and one part
     ChunkOnePart(ChunkOnePart),
+
+    /// A challenge to invalidate the block.
+    Challenge(Challenge),
 }
 
 // TODO(#1313): Use Box

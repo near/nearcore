@@ -407,6 +407,10 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
             }
+            NetworkClientMessages::Challenge(challenge) => {
+                self.client.process_challenge(challenge);
+                NetworkClientResponses::NoResponse
+            }
         }
     }
 }

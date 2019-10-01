@@ -22,6 +22,7 @@ use near_crypto::Signature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::challenge::{Challenge, Challenges};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -66,6 +67,8 @@ pub struct Client {
     pub state_sync: StateSync,
     /// Block economics, relevant to changes when new block must be produced.
     block_economics_config: BlockEconomicsConfig,
+    /// List of received challenges.
+    challenges: Challenges,
 }
 
 impl Client {
@@ -877,5 +880,10 @@ impl Client {
         }
 
         Ok(vec![])
+    }
+
+    pub fn process_challenge(&mut self, challenge: Challenge) {
+        // TODO: pre-validate challenge?
+        self.challenges.push(challenge);
     }
 }
