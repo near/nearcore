@@ -1,5 +1,4 @@
 #[cfg(test)]
-#[cfg(feature = "expensive_tests")]
 mod tests {
     use actix::{Addr, System};
     use futures::future;
@@ -89,6 +88,9 @@ mod tests {
     }
 
     fn test_catchup_receipts_sync_common(wait_till: u64, send: u64) {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
         let validator_groups = 1;
         init_integration_logger();
         System::run(move || {
@@ -289,6 +291,9 @@ mod tests {
     }
 
     fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, height: u64) {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
         let validator_groups = 2;
         init_integration_logger();
         System::run(move || {
@@ -479,6 +484,9 @@ mod tests {
     /// This ensures that at no point validators get stuck with state sync
     #[test]
     fn test_catchup_sanity_blocks_produced() {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
         let validator_groups = 2;
         init_integration_logger();
         System::run(move || {

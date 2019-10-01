@@ -67,7 +67,6 @@ fn test_keyvalue_runtime_balances() {
 }
 
 #[cfg(test)]
-#[cfg(feature = "expensive_tests")]
 mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -340,6 +339,9 @@ mod tests {
     }
 
     fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool) {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {
