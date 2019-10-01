@@ -111,8 +111,8 @@ test_nearlib:
    before_script:
    - *setup_rust
    - *setup_cache
-   # Install latest Node using n-install
-   - curl -L https://git.io/n-install | bash -s -- -y latest
+   # Install latest Node
+   - npx n latest
    script:
    - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
