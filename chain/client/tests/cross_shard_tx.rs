@@ -80,7 +80,7 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
-    use near_crypto::{InMemoryBlsSigner, KeyType};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
@@ -102,7 +102,7 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
-        let signer = InMemoryBlsSigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
+        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0

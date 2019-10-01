@@ -7,7 +7,7 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
-    use near_crypto::{InMemoryBlsSigner, KeyType};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{NetworkClientMessages, NetworkRequests, NetworkResponses, PeerInfo};
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
@@ -57,7 +57,7 @@ mod tests {
         nonce: u64,
         block_hash: CryptoHash,
     ) {
-        let signer = InMemoryBlsSigner::from_seed("test1", KeyType::ED25519, "test1");
+        let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
         connector.do_send(NetworkClientMessages::Transaction(SignedTransaction::send_money(
             nonce, from, to, &signer, amount, block_hash,
         )));
@@ -74,15 +74,21 @@ mod tests {
     /// Sanity checks that the incoming and outgoing receipts are properly sent and received
     #[test]
     fn test_catchup_receipts_sync_third_epoch() {
-        test_catchup_receipts_sync_common(13)
+        test_catchup_receipts_sync_common(13, 1)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_catchup_receipts_sync_last_block() {
+        test_catchup_receipts_sync_common(13, 5)
     }
 
     #[test]
     fn test_catchup_receipts_sync_distant_epoch() {
-        test_catchup_receipts_sync_common(35)
+        test_catchup_receipts_sync_common(35, 1)
     }
 
-    fn test_catchup_receipts_sync_common(wait_till: u64) {
+    fn test_catchup_receipts_sync_common(wait_till: u64, send: u64) {
         let validator_groups = 1;
         init_integration_logger();
         System::run(move || {
@@ -113,7 +119,7 @@ mod tests {
                     match *phase {
                         ReceiptsSyncPhases::WaitingForFirstBlock => {
                             if let NetworkRequests::Block { block } = msg {
-                                assert_eq!(block.header.inner.height, 1);
+                                assert!(block.header.inner.height <= send);
                                 // This tx is rather fragile, specifically it's important that
                                 //   1. the `from` and `to` account are not in the same shard;
                                 //   2. ideally the producer of the chunk at height 3 for the shard
@@ -123,26 +129,30 @@ mod tests {
                                 //      for height 1, because such block producer will produce
                                 //      the chunk for height 2 right away, before we manage to send
                                 //      the transaction.
-                                println!(
-                                    "From shard: {}, to shard: {}",
-                                    source_shard_id, destination_shard_id,
-                                );
-                                send_tx(
-                                    &connectors1.write().unwrap()[0].0,
-                                    account_from,
-                                    account_to,
-                                    111,
-                                    1,
-                                    block.header.inner.prev_hash,
-                                );
-                                *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
+                                if block.header.inner.height == send {
+                                    println!(
+                                        "From shard: {}, to shard: {}",
+                                        source_shard_id, destination_shard_id,
+                                    );
+                                    for i in 0..16 {
+                                        send_tx(
+                                            &connectors1.write().unwrap()[i].0,
+                                            account_from.clone(),
+                                            account_to.clone(),
+                                            111,
+                                            1,
+                                            block.header.inner.prev_hash,
+                                        );
+                                    }
+                                    *phase = ReceiptsSyncPhases::WaitingForSecondBlock;
+                                }
                             }
                         }
                         ReceiptsSyncPhases::WaitingForSecondBlock => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height <= 2);
-                                if block.header.inner.height == 2 {
+                                assert!(block.header.inner.height <= send + 1);
+                                if block.header.inner.height == send + 1 {
                                     *phase = ReceiptsSyncPhases::WaitingForDistantEpoch;
                                 }
                             }
@@ -150,7 +160,7 @@ mod tests {
                         ReceiptsSyncPhases::WaitingForDistantEpoch => {
                             // This block now contains a chunk with the transaction sent above.
                             if let NetworkRequests::Block { block } = msg {
-                                assert!(block.header.inner.height >= 2);
+                                assert!(block.header.inner.height >= send + 1);
                                 assert!(block.header.inner.height <= wait_till);
                                 if block.header.inner.height == wait_till {
                                     *phase = ReceiptsSyncPhases::VerifyingOutgoingReceipts;
@@ -182,7 +192,7 @@ mod tests {
                             }
                         }
                         ReceiptsSyncPhases::VerifyingOutgoingReceipts => {
-                            for height in 3..=wait_till {
+                            for height in send + 2..=wait_till {
                                 assert!(seen_heights_with_receipts.contains(&height));
                             }
                             *phase = ReceiptsSyncPhases::WaitingForValidate;
@@ -258,6 +268,12 @@ mod tests {
     #[ignore]
     fn test_catchup_random_single_part_sync_skip_15() {
         test_catchup_random_single_part_sync_common(true, false, 13)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_catchup_random_single_part_sync_send_15() {
+        test_catchup_random_single_part_sync_common(false, false, 15)
     }
 
     // Make sure that transactions are at least applied.
