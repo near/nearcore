@@ -379,7 +379,11 @@ impl ShardsManager {
                         })
                         .cloned()
                         .collect(),
-                    ShardProof(from_shard_id, proofs[to_shard_id as usize].clone()),
+                    ShardProof {
+                        from_shard_id,
+                        to_shard_id,
+                        proof: proofs[to_shard_id as usize].clone(),
+                    },
                 ))
             }
         }
@@ -600,9 +604,10 @@ impl ShardsManager {
                 true,
             ) {
                 if proof_index == one_part.receipt_proofs.len()
+                    || shard_id != (one_part.receipt_proofs[proof_index].1).to_shard_id
                     || !verify_path(
                         one_part.header.inner.outgoing_receipts_root,
-                        &(one_part.receipt_proofs[proof_index].1).1,
+                        &(one_part.receipt_proofs[proof_index].1).proof,
                         &receipts_hashes[shard_id as usize],
                     )
                 {
@@ -717,8 +722,8 @@ impl ShardsManager {
         rent_paid: Balance,
         validator_proposals: Vec<ValidatorStake>,
         transactions: &Vec<SignedTransaction>,
-        receipts: &Vec<Receipt>,
-        receipts_root: CryptoHash,
+        outgoing_receipts: &Vec<Receipt>,
+        outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         signer: Arc<dyn BlsSigner>,
     ) -> Result<EncodedShardChunk, Error> {
@@ -737,8 +742,8 @@ impl ShardsManager {
             tx_root,
             validator_proposals,
             transactions,
-            receipts,
-            receipts_root,
+            outgoing_receipts,
+            outgoing_receipts_root,
             signer,
         )?;
 
@@ -753,16 +758,18 @@ impl ShardsManager {
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,
-        receipts: Vec<Receipt>,
+        outgoing_receipts: Vec<Receipt>,
     ) {
         // TODO: if the number of validators exceeds the number of parts, this logic must be changed
         let prev_block_hash = encoded_chunk.header.inner.prev_block_hash;
         let mut processed_one_part = false;
         let chunk_hash = encoded_chunk.chunk_hash();
         let shard_id = encoded_chunk.header.inner.shard_id;
-        let receipts_hashes = self.runtime_adapter.build_receipts_hashes(&receipts).unwrap();
-        let (receipts_root, receipts_proofs) = merklize(&receipts_hashes);
-        assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, receipts_root);
+        let outgoing_receipts_hashes =
+            self.runtime_adapter.build_receipts_hashes(&outgoing_receipts).unwrap();
+        let (outgoing_receipts_root, outgoing_receipts_proofs) =
+            merklize(&outgoing_receipts_hashes);
+        assert_eq!(encoded_chunk.header.inner.outgoing_receipts_root, outgoing_receipts_root);
         for part_ord in 0..self.runtime_adapter.num_total_parts(&prev_block_hash) {
             let part_ord = part_ord as u64;
             let to_whom = self.runtime_adapter.get_part_owner(&prev_block_hash, part_ord).unwrap();
@@ -780,8 +787,8 @@ impl ShardsManager {
             let one_part_receipt_proofs = self.receipts_recipient_filter(
                 shard_id,
                 &tracking_shards,
-                &receipts,
-                &receipts_proofs,
+                &outgoing_receipts,
+                &outgoing_receipts_proofs,
             );
             let one_part = encoded_chunk.create_chunk_one_part(
                 part_ord,
