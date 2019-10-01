@@ -100,8 +100,6 @@ test_nearlib:
    before_script:
    - *setup_rust
    - *setup_cache
-   dependencies:
-   - release_build
    script:
    - ./scripts/test_nearlib.sh
 
