@@ -445,7 +445,7 @@ impl Signature {
 
 impl Default for Signature {
     fn default() -> Self {
-        Signature::empty(KeyType::SECP256K1)
+        Signature::empty(KeyType::ED25519)
     }
 }
 
