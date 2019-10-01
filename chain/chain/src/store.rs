@@ -24,6 +24,7 @@ use near_store::{
     COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
+use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
 
@@ -84,7 +85,7 @@ pub trait ChainStoreAccess {
                 return Err(ErrorKind::ChunksMissing(vec![header.clone()]).into());
             }
             Ok(shard_chunk) => {
-                assert_ne!(header.height_included, 0);
+                byzantine_assert!(header.height_included > 0);
                 if header.height_included == 0 {
                     return Err(ErrorKind::Other(format!(
                         "Invalid header: {:?} for chunk {:?}",
@@ -494,7 +495,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         loop {
             let header = self.get_block_header(&block_hash)?;
 
-            // TODO >= <= ?
+            if header.inner.height < last_chunk_height_included {
+                panic!("get_incoming_receipts_for_shard failed");
+            }
+
             if header.inner.height == last_chunk_height_included {
                 break;
             }
@@ -503,6 +507,8 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
 
             if let Ok(receipt_proofs) = self.get_incoming_receipts(&block_hash, shard_id) {
                 ret.push(ReceiptProofResponse(block_hash, receipt_proofs.clone()));
+            } else {
+                ret.push(ReceiptProofResponse(block_hash, vec![]));
             }
 
             block_hash = prev_hash;
