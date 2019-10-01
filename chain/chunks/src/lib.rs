@@ -30,6 +30,7 @@ use near_primitives::types::{
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
 pub use crate::types::Error;
+use near_chain::types::validate_chunk_proofs;
 
 mod types;
 
@@ -449,6 +450,7 @@ impl ShardsManager {
         }
     }
 
+    /// Add a part to current encoded chunk stored in memory. It's present only if One Part was present and signed correctly.  
     fn add_part_to_encoded_chunk(&mut self, part: ChunkPartMsg) -> Result<ChunkStatus, Error> {
         if let Some(chunk) = self.encoded_chunks.get_mut(&part.chunk_hash) {
             let prev_block_hash = chunk.header.inner.prev_block_hash;
@@ -549,7 +551,6 @@ impl ShardsManager {
             &one_part.merkle_path,
             &one_part.part,
         ) {
-            // TODO: CHALLENGE this is a slashable behavior
             byzantine_assert!(false);
             return Err(Error::InvalidMerkleProof);
         }
@@ -727,8 +728,16 @@ impl ShardsManager {
         let mut store_update = self.store.store_update();
         if let Ok(shard_chunk) = chunk
             .decode_chunk(self.runtime_adapter.num_data_parts(&chunk.header.inner.prev_block_hash))
+            .map_err(|err| Error::from(err))
+            .and_then(|shard_chunk| {
+                if !validate_chunk_proofs(&shard_chunk, &*self.runtime_adapter)? {
+                    return Err(Error::InvalidChunk);
+                }
+                Ok(shard_chunk)
+            })
         {
             debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, chunk.header.inner.encoded_length, shard_chunk.transactions.len(), self.me);
+
             // Decoded a valid chunk, store it in the permanent store ...
             store_update.set_ser(COL_CHUNKS, chunk_hash.as_ref(), &shard_chunk)?;
             store_update.commit()?;
@@ -758,7 +767,7 @@ impl ShardsManager {
         }
     }
 
-    /// Distributes encoded chunk that was just produced.
+    /// Distributes encoded chunk that was just produced. Does not do any checks.
     pub fn distribute_encoded_chunk(
         &mut self,
         encoded_chunk: EncodedShardChunk,

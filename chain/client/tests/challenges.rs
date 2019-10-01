@@ -5,15 +5,16 @@ use borsh::BorshSerialize;
 
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::TestEnv;
+use near_client::Client;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
-use near_primitives::block::BlockHeader;
-use near_primitives::challenge::Challenge;
+use near_primitives::challenge::{BlockDoubleSign, Challenge, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::merkle::MerklePath;
+use near_primitives::receipt::Receipt;
 use near_primitives::serialize::BaseDecode;
 use near_primitives::sharding::{ChunkHash, EncodedShardChunk};
 use near_primitives::test_utils::init_test_logger;
-use near_primitives::types::MerkleHash;
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
@@ -33,28 +34,32 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         &signer,
     );
-    let valid_challenge = Challenge::BlockDoubleSign {
-        left_block_header: b1.header.clone(),
-        right_block_header: b2.header.clone(),
-    };
-    assert!(env.clients[1].chain.verify_challenge(valid_challenge).unwrap());
-    let invalid_challenge = Challenge::BlockDoubleSign {
-        left_block_header: b1.header.clone(),
-        right_block_header: b1.header.clone(),
-    };
-    assert!(!env.clients[1].chain.verify_challenge(invalid_challenge).unwrap());
+    let valid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
+        left_block_header: b1.header.try_to_vec().unwrap(),
+        right_block_header: b2.header.try_to_vec().unwrap(),
+    });
+    assert_eq!(
+        env.clients[1].chain.verify_challenge(valid_challenge).unwrap(),
+        if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
+    );
+    let invalid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
+        left_block_header: b1.header.try_to_vec().unwrap(),
+        right_block_header: b1.header.try_to_vec().unwrap(),
+    });
+    assert!(env.clients[1].chain.verify_challenge(invalid_challenge).is_err());
     let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
-    let invalid_challenge =
-        Challenge::BlockDoubleSign { left_block_header: b1.header, right_block_header: b3.header };
-    assert!(!env.clients[1].chain.verify_challenge(invalid_challenge).unwrap());
+    let invalid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
+        left_block_header: b1.header.try_to_vec().unwrap(),
+        right_block_header: b3.header.try_to_vec().unwrap(),
+    });
+    assert!(env.clients[1].chain.verify_challenge(invalid_challenge).is_err());
 }
 
-#[test]
-fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
-    env.produce_block(0, 1);
-    let last_block = env.clients[0].chain.get_block_by_height(1).unwrap().clone();
-    let (mut chunk, merkle_paths, receipts) = env.clients[0]
+fn create_invalid_proofs_chunk(
+    client: &mut Client,
+) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+    let last_block = client.chain.get_block_by_height(1).unwrap().clone();
+    let (mut chunk, merkle_paths, receipts) = client
         .produce_chunk(
             last_block.hash(),
             &last_block.header.inner.epoch_id,
@@ -69,16 +74,33 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     chunk.header.height_included = 2;
     chunk.header.hash = ChunkHash(hash(&chunk.header.inner.try_to_vec().unwrap()));
     chunk.header.signature =
-        env.clients[0].block_producer.as_ref().unwrap().signer.sign(chunk.header.hash.as_ref());
-
-    let valid_challenge = Challenge::ChunkProofs { chunk_header: chunk.header.clone() };
-    assert_eq!(
-        env.clients[0].chain.verify_challenge(valid_challenge.clone()).err().unwrap().kind(),
-        near_chain::ErrorKind::ChunksMissing(vec![chunk.header.clone()])
+        client.block_producer.as_ref().unwrap().signer.sign(chunk.header.hash.as_ref());
+    let block = Block::produce(
+        &last_block.header,
+        2,
+        vec![chunk.header.clone()],
+        last_block.header.inner.epoch_id.clone(),
+        HashMap::default(),
+        0,
+        None,
+        vec![],
+        &*client.block_producer.as_ref().unwrap().signer,
     );
+    (chunk, merkle_paths, receipts, block)
+}
 
-    env.clients[0].shards_mgr.distribute_encoded_chunk(chunk, merkle_paths, receipts);
-    assert!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap());
+#[test]
+fn test_verify_chunk_invalid_proofs_challenge() {
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    env.produce_block(0, 1);
+    let (chunk, merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+
+    let valid_challenge = Challenge::ChunkProofs(ChunkProofs {
+        block_header: block.header.try_to_vec().unwrap(),
+        chunk: chunk.clone(),
+        merkle_proof: merkle_paths[0].clone(),
+    });
+    assert_eq!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap(), block.hash());
 }
 
 #[test]
@@ -109,60 +131,20 @@ fn test_request_chunk_restart() {
     assert!(env.network_adapters[0].pop().is_none());
 }
 
-/// Validator signed on block X on fork A, and then signs on block X + 1 on fork B which doesn't have X.
-#[test]
-fn test_sign_on_competing_fork() {}
-
-fn create_block_with_invalid_chunk(
-    prev_block_header: &BlockHeader,
-    account_id: &str,
-) -> (Block, EncodedShardChunk) {
-    let signer = InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id);
-    let (invalid_encoded_chunk, _merkle_paths) = EncodedShardChunk::new(
-        prev_block_header.hash,
-        CryptoHash::from_base("F5SvmQcKqekuKPJgLUNFgjB4ZgVmmiHsbDhTBSQbiywf").unwrap(),
-        1,
-        0,
-        20,
-        12,
-        0,
-        0,
-        0,
-        MerkleHash::default(),
-        vec![],
-        &vec![],
-        &vec![],
-        MerkleHash::default(),
-        &signer,
-    )
-    .unwrap();
-    let block_with_invalid_chunk = Block::produce(
-        &prev_block_header,
-        1,
-        vec![invalid_encoded_chunk.header.clone()],
-        prev_block_header.inner.epoch_id.clone(),
-        HashMap::default(),
-        0,
-        None,
-        vec![],
-        &signer,
-    );
-    (block_with_invalid_chunk, invalid_encoded_chunk)
-}
-
 /// Receive invalid state transition in chunk as next chunk producer.
 #[test]
 fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
-    let mut env = TestEnv::new(ChainGenesis::test(), 1, 2);
-    let prev_block_header = env.clients[0].chain.get_header_by_height(0).unwrap();
-    let (block_with_invalid_chunk, _) = create_block_with_invalid_chunk(prev_block_header, "test2");
-    let (_, result) =
-        env.clients[0].process_block(block_with_invalid_chunk.clone(), Provenance::NONE);
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    env.produce_block(0, 1);
+    let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+    env.clients[0].shards_mgr.distribute_encoded_chunk(chunk, merkle_paths, receipts);
+    let (_, result) = env.clients[0].process_block(block.clone(), Provenance::NONE);
     // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
     // At this point we should create a challenge and add it.
+    //    println!("{:?}", result);
     assert!(result.is_err());
-    assert_eq!(env.clients[0].chain.head().unwrap().height, 0);
+    assert_eq!(env.clients[0].chain.head().unwrap().height, 1);
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.

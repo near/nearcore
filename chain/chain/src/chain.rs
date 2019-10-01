@@ -671,7 +671,7 @@ impl Chain {
                     );
                     Err(ErrorKind::Unfit(msg.clone()).into())
                 }
-                e => Err(e.into()),
+                _ => Err(e),
             },
         }
     }
@@ -1213,15 +1213,19 @@ impl Chain {
         Ok(())
     }
 
-    /// Returns true if challenge is correct.
-    pub fn verify_challenge(&mut self, challenge: Challenge) -> Result<bool, Error> {
+    /// Returns Some(block hash) of invalid block if challenge is correct and None if incorrect.
+    pub fn verify_challenge(&mut self, challenge: Challenge) -> Result<CryptoHash, Error> {
         match challenge {
-            Challenge::BlockDoubleSign { left_block_header, right_block_header } => {
+            Challenge::BlockDoubleSign(block_double_sign) => {
+                let left_block_header =
+                    BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
+                let right_block_header =
+                    BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
                 let block_producer = self.runtime_adapter.get_block_producer(
                     &left_block_header.inner.epoch_id,
                     left_block_header.inner.height,
                 )?;
-                Ok(left_block_header.hash() != right_block_header.hash()
+                if left_block_header.hash() != right_block_header.hash()
                     && left_block_header.inner.height == right_block_header.inner.height
                     && self
                         .runtime_adapter
@@ -1240,18 +1244,41 @@ impl Chain {
                             right_block_header.hash().as_ref(),
                             &right_block_header.signature,
                         )
-                        .valid())
+                        .valid()
+                {
+                    // Deterministically return header with higher hash.
+                    Ok(if left_block_header.hash() > right_block_header.hash() {
+                        left_block_header.hash()
+                    } else {
+                        right_block_header.hash()
+                    })
+                } else {
+                    Err(ErrorKind::InvalidChallenge.into())
+                }
             }
-            Challenge::ChunkProofs { chunk } => {
-                validate_chunk_proofs(&chunk, &*self.runtime_adapter).map(|valid| !valid)
+            Challenge::ChunkProofs(chunk_proofs) => {
+                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+                // TODO: validate chunk inclusion and signature.
+                match chunk_proofs
+                    .chunk
+                    .decode_chunk(
+                        self.runtime_adapter
+                            .num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
+                    )
+                    .map_err(|err| err.into())
+                    .and_then(|chunk| validate_chunk_proofs(&chunk, &*self.runtime_adapter))
+                {
+                    Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
+                    Ok(false) | Err(_) => Ok(block_header.hash()),
+                }
             }
-            Challenge::ChunkState { prev_chunk, chunk_header } => {
+            Challenge::ChunkState(chunk_state) => {
                 // Retrieve block, if it's missing return error to fetch it.
                 //                let prev_chunk_header =
                 //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
                 //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
                 // chunk_header.inner.
-                Ok(false)
+                Err(ErrorKind::InvalidChallenge.into())
             }
         }
     }
