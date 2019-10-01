@@ -510,6 +510,17 @@ impl<'a> VMLogic<'a> {
         Self::internal_write_register(registers, config, register_id, &value_hash)
     }
 
+    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    ///
+    /// # Errors
+    ///
+    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
+    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
+    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
+    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
+    }
+
     // ################
     // # Promises API #
     // ################
