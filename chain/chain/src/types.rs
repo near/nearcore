@@ -16,6 +16,7 @@ use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -118,7 +119,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>>;
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
 
     /// Filter transactions by verifying each one by one in the given order. Every successful
     /// verification stores the updated account balances to be used by next transactions.
