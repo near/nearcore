@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
-use near_vm_logic::{HostError, VMLogic};
+use near_vm_logic::{HostErrorOrStorageError, VMLogic};
 use wasmer_runtime::memory::Memory;
 use wasmer_runtime::{func, imports, Ctx, ImportObject};
 
-type Result<T> = ::std::result::Result<T, HostError>;
+type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 macro_rules! wrapped_imports {
         ( $( $func:ident < [ $( $arg_name:ident : $arg_type:ident ),* ] -> [ $( $returns:ident ),* ] >, )* ) => {
@@ -45,6 +45,7 @@ wrapped_imports! {
     predecessor_account_id<[register_id: u64] -> []>,
     input<[register_id: u64] -> []>,
     block_index<[] -> [u64]>,
+    block_timestamp<[] -> [u64]>,
     storage_usage<[] -> [u64]>,
     // #################
     // # Economics API #

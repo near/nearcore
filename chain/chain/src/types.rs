@@ -16,6 +16,7 @@ use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::error::Error;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -114,16 +115,18 @@ pub trait RuntimeAdapter: Send + Sync {
     fn validate_tx(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>>;
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
 
     /// Filter transactions by verifying each one by one in the given order. Every successful
     /// verification stores the updated account balances to be used by next transactions.
     fn filter_transactions(
         &self,
         block_index: BlockIndex,
+        block_timestamp: u64,
         gas_price: Balance,
         state_root: CryptoHash,
         transactions: Vec<SignedTransaction>,
@@ -243,6 +246,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -253,6 +257,7 @@ pub trait RuntimeAdapter: Send + Sync {
             shard_id,
             state_root,
             block_index,
+            block_timestamp,
             prev_block_hash,
             block_hash,
             receipts,
@@ -267,6 +272,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         state_root: &MerkleHash,
         block_index: BlockIndex,
+        block_timestamp: u64,
         prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -280,6 +286,7 @@ pub trait RuntimeAdapter: Send + Sync {
         &self,
         state_root: MerkleHash,
         height: BlockIndex,
+        block_timestamp: u64,
         block_hash: &CryptoHash,
         path_parts: Vec<&str>,
         data: &[u8],

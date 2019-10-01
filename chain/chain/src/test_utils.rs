@@ -33,6 +33,7 @@ use crate::types::{
     Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::merkle::merklize;
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Ord, PartialOrd, Clone, Debug)]
@@ -403,6 +404,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn filter_transactions(
         &self,
         _block_index: u64,
+        _block_timestamp: u64,
         _gas_price: u128,
         _state_root: CryptoHash,
         transactions: Vec<SignedTransaction>,
@@ -413,10 +415,11 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn validate_tx(
         &self,
         _block_index: BlockIndex,
+        _block_timestamp: u64,
         _gas_price: Balance,
         _state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         Ok(ValidTransaction { transaction })
     }
 
@@ -441,6 +444,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         shard_id: ShardId,
         state_root: &MerkleHash,
         _block_index: BlockIndex,
+        _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
@@ -614,6 +618,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         state_root: MerkleHash,
         _height: BlockIndex,
+        _block_timestamp: u64,
         _block_hash: &CryptoHash,
         path: Vec<&str>,
         _data: &[u8],

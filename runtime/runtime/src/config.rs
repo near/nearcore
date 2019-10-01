@@ -1,5 +1,6 @@
 //! Settings of the parameters of the runtime.
 use near_primitives::account::AccessKeyPermission;
+use near_primitives::errors::{BalanceOverflowError, GasOverflowError};
 use near_primitives::serialize::u128_dec_format;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction,
@@ -41,19 +42,16 @@ impl RuntimeConfig {
     }
 }
 
-pub fn safe_gas_to_balance(
-    gas_price: Balance,
-    gas: Gas,
-) -> Result<Balance, Box<dyn std::error::Error>> {
-    gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| "gas to balance overflow".into())
+pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, GasOverflowError> {
+    gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| GasOverflowError {})
 }
 
-pub fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, Box<dyn std::error::Error>> {
-    val.checked_add(rhs).ok_or_else(|| "gas add overflow".into())
+pub fn safe_add_gas(val: Gas, rhs: Gas) -> Result<Gas, GasOverflowError> {
+    val.checked_add(rhs).ok_or_else(|| GasOverflowError {})
 }
 
-pub fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, Box<dyn std::error::Error>> {
-    val.checked_add(rhs).ok_or_else(|| "balance add overflow".into())
+pub fn safe_add_balance(val: Balance, rhs: Balance) -> Result<Balance, BalanceOverflowError> {
+    val.checked_add(rhs).ok_or_else(|| BalanceOverflowError {})
 }
 
 /// Total sum of gas that needs to be burnt to send these actions.
@@ -61,7 +59,7 @@ pub fn total_send_fees(
     config: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     actions: &[Action],
-) -> Result<Gas, Box<dyn std::error::Error>> {
+) -> Result<Gas, GasOverflowError> {
     let cfg = &config.action_creation_config;
     let mut result = 0;
     for action in actions {
@@ -146,7 +144,7 @@ pub fn exec_fee(config: &RuntimeFeesConfig, action: &Action) -> Gas {
 pub fn total_exec_fees(
     config: &RuntimeFeesConfig,
     actions: &[Action],
-) -> Result<Gas, Box<dyn std::error::Error>> {
+) -> Result<Gas, GasOverflowError> {
     let mut result = 0;
     for action in actions {
         let delta = exec_fee(&config, action);
@@ -155,7 +153,7 @@ pub fn total_exec_fees(
     Ok(result)
 }
 /// Get the total sum of deposits for given actions.
-pub fn total_deposit(actions: &[Action]) -> Result<Balance, Box<dyn std::error::Error>> {
+pub fn total_deposit(actions: &[Action]) -> Result<Balance, BalanceOverflowError> {
     let mut total_balance: Balance = 0;
     for action in actions {
         total_balance = safe_add_balance(total_balance, action.get_deposit_balance())?;
@@ -164,7 +162,7 @@ pub fn total_deposit(actions: &[Action]) -> Result<Balance, Box<dyn std::error::
 }
 
 /// Get the total sum of prepaid gas for given actions.
-pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, Box<dyn std::error::Error>> {
+pub fn total_prepaid_gas(actions: &[Action]) -> Result<Gas, GasOverflowError> {
     let mut total_gas: Gas = 0;
     for action in actions {
         total_gas = safe_add_gas(total_gas, action.get_prepaid_gas())?;
