@@ -23,6 +23,7 @@ pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
+pub use near_primitives::errors::StorageError;
 
 pub mod test_utils;
 mod trie;
@@ -194,28 +195,6 @@ pub fn create_store(path: &str) -> Arc<Store> {
     Arc::new(Store::new(db))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StorageError {
-    /// Key-value db internal failure
-    StorageInternalError,
-    /// Storage is PartialStorage and requested a missing trie node
-    TrieNodeMissing,
-    /// Either invalid state or key-value db is corrupted.
-    /// For PartialStorage it cannot be corrupted.
-    /// Error message is unreliable and for debugging purposes only. It's also probably ok to
-    /// panic in every place that produces this error.
-    /// We can check if db is corrupted by verifying everything in the state trie.
-    StorageInconsistentState(String),
-}
-
-impl std::fmt::Display for StorageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_str(&format!("{:?}", self))
-    }
-}
-
-impl std::error::Error for StorageError {}
-
 /// Reads an object from Trie.
 /// # Errors
 /// see StorageError
@@ -333,7 +312,7 @@ pub fn get_code(
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), StorageError> {
     state_update.remove(&key_for_account(account_id));
     state_update.remove(&key_for_code(account_id));
     state_update.remove_starts_with(&prefix_for_access_key(account_id))?;

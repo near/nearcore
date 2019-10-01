@@ -1,5 +1,5 @@
 [package]
-name = "near-runtime-fees"
+name = "near-vm-errors"
 version = "0.3.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
@@ -8,9 +8,5 @@ readme = "README.md"
 categories = ["wasm"]
 repository = "https://github.com/nearprotocol/nearcore"
 homepage = "https://github.com/nearprotocol/nearcore"
-description = """
-An engine that run smart contracts compiled to Wasm by exposing them `near-vm-logic` through the host functions.
-"""
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }

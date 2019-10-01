@@ -1,17 +1,17 @@
 use crate::config::Config;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
-use crate::errors::HostError;
 use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::{HostError, HostErrorOrStorageError};
 use near_runtime_fees::Fee;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
-type Result<T> = ::std::result::Result<T, HostError>;
+type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -110,7 +110,7 @@ impl<'a> VMLogic<'a> {
         if memory.fits_memory(offset, len) {
             Ok(())
         } else {
-            Err(HostError::MemoryAccessViolation)
+            Err(HostError::MemoryAccessViolation.into())
         }
     }
 
@@ -129,7 +129,8 @@ impl<'a> VMLogic<'a> {
 
     fn memory_set(memory: &mut dyn MemoryLike, offset: u64, buf: &[u8]) -> Result<()> {
         Self::try_fit_mem(memory, offset, buf.len() as _)?;
-        Ok(memory.write_memory(offset, buf))
+        memory.write_memory(offset, buf);
+        Ok(())
     }
 
     /// Writes `u128` to Wasm memory.
@@ -226,7 +227,7 @@ impl<'a> VMLogic<'a> {
         if data.len() as u64 > config.max_register_size
             || registers.len() as u64 == config.max_number_registers
         {
-            return Err(HostError::MemoryAccessViolation);
+            return Err(HostError::MemoryAccessViolation.into());
         }
         let register = registers.entry(register_id).or_insert_with(Vec::new);
         register.clear();
@@ -237,7 +238,7 @@ impl<'a> VMLogic<'a> {
         let usage: usize =
             registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
         if usage as u64 > config.registers_memory_limit {
-            Err(HostError::MemoryAccessViolation)
+            Err(HostError::MemoryAccessViolation.into())
         } else {
             Ok(())
         }
@@ -270,7 +271,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
-            return Err(HostError::ProhibitedInView("signer_account_id".to_string()));
+            return Err(HostError::ProhibitedInView("signer_account_id".to_string()).into());
         }
         let data = context.signer_account_id.as_bytes();
         Self::internal_write_register(registers, config, register_id, data)
@@ -287,7 +288,7 @@ impl<'a> VMLogic<'a> {
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
-            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()));
+            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()).into());
         }
         let data = context.signer_account_pk.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
@@ -304,7 +305,7 @@ impl<'a> VMLogic<'a> {
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
         if context.is_view {
-            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()));
+            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()).into());
         }
         let data = context.predecessor_account_id.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
@@ -357,7 +358,7 @@ impl<'a> VMLogic<'a> {
     /// If called as view function returns `ProhibitedInView``.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("attached_deposit".to_string()));
+            return Err(HostError::ProhibitedInView("attached_deposit".to_string()).into());
         }
         Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
@@ -369,7 +370,7 @@ impl<'a> VMLogic<'a> {
     /// If called as view function returns `ProhibitedInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()));
+            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()).into());
         }
         Ok(self.context.prepaid_gas)
     }
@@ -381,7 +382,7 @@ impl<'a> VMLogic<'a> {
     /// If called as view function returns `ProhibitedInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("used_gas".to_string()));
+            return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
         }
         Ok(self.used_gas)
     }
@@ -549,7 +550,7 @@ impl<'a> VMLogic<'a> {
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_and".to_string()));
+            return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
         }
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
@@ -592,7 +593,7 @@ impl<'a> VMLogic<'a> {
         account_id_ptr: u64,
     ) -> Result<u64> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_create".to_string()));
+            return Err(HostError::ProhibitedInView("promise_batch_create".to_string()).into());
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
@@ -627,7 +628,7 @@ impl<'a> VMLogic<'a> {
         account_id_ptr: u64,
     ) -> Result<u64> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_then".to_string()));
+            return Err(HostError::ProhibitedInView("promise_batch_then".to_string()).into());
         }
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         // Update the DAG and return new promise idx.
@@ -728,7 +729,8 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_create_account".to_string(),
-            ));
+            )
+            .into());
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -761,7 +763,8 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_deploy_contract".to_string(),
-            ));
+            )
+            .into());
         }
         let code = Self::memory_get(self.memory, code_ptr, code_len)?;
 
@@ -807,12 +810,13 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_function_call".to_string(),
-            ));
+            )
+            .into());
         }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
         let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
         if method_name.is_empty() {
-            return Err(HostError::EmptyMethodName);
+            return Err(HostError::EmptyMethodName.into());
         }
         let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
 
@@ -854,7 +858,9 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
     ) -> Result<()> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_action_transfer".to_string()));
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_transfer".to_string()).into()
+            );
         }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
 
@@ -888,7 +894,9 @@ impl<'a> VMLogic<'a> {
         public_key_ptr: u64,
     ) -> Result<()> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_action_stake".to_string()));
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_stake".to_string()).into()
+            );
         }
         let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
@@ -925,7 +933,8 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_add_key_with_full_access".to_string(),
-            ));
+            )
+            .into());
         }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
 
@@ -968,7 +977,8 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_add_key_with_function_call".to_string(),
-            ));
+            )
+            .into());
         }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
         let allowance = Self::memory_get_u128(self.memory, allowance_ptr)?;
@@ -976,10 +986,17 @@ impl<'a> VMLogic<'a> {
         let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
         let method_names = Self::memory_get(self.memory, method_names_ptr, method_names_len)?;
         // Use `,` separator to split `method_names` into a vector of method names.
-        let method_names = method_names
-            .split(|c| *c == b',')
-            .map(|v| if v.is_empty() { Err(HostError::EmptyMethodName) } else { Ok(v.to_vec()) })
-            .collect::<Result<Vec<_>>>()?;
+        let method_names =
+            method_names
+                .split(|c| *c == b',')
+                .map(|v| {
+                    if v.is_empty() {
+                        Err(HostError::EmptyMethodName.into())
+                    } else {
+                        Ok(v.to_vec())
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
@@ -1030,7 +1047,9 @@ impl<'a> VMLogic<'a> {
         public_key_ptr: u64,
     ) -> Result<()> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_batch_action_delete_key".to_string()));
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_delete_key".to_string()).into()
+            );
         }
         let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
 
@@ -1065,7 +1084,8 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView(
                 "promise_batch_action_delete_account".to_string(),
-            ));
+            )
+            .into());
         }
         let beneficiary_id =
             self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
@@ -1093,7 +1113,7 @@ impl<'a> VMLogic<'a> {
     /// * If the function was called not through the callback returns `0`.
     pub fn promise_results_count(&self) -> Result<u64> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_results_count".to_string()));
+            return Err(HostError::ProhibitedInView("promise_results_count".to_string()).into());
         }
         Ok(self.promise_results.len() as _)
     }
@@ -1119,7 +1139,7 @@ impl<'a> VMLogic<'a> {
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
         let Self { promise_results, registers, config, context, .. } = self;
         if context.is_view {
-            return Err(HostError::ProhibitedInView("promise_result".to_string()));
+            return Err(HostError::ProhibitedInView("promise_result".to_string()).into());
         }
         match promise_results
             .get(result_idx as usize)
@@ -1143,7 +1163,7 @@ impl<'a> VMLogic<'a> {
     /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
         if self.context.is_view {
-            return Err(HostError::ProhibitedInView("promise_return".to_string()));
+            return Err(HostError::ProhibitedInView("promise_return".to_string()).into());
         }
         match self
             .promises
@@ -1155,7 +1175,7 @@ impl<'a> VMLogic<'a> {
                 self.return_data = ReturnData::ReceiptIndex(receipt_idx);
                 Ok(())
             }
-            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise),
+            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise.into()),
         }
     }
 
@@ -1200,7 +1220,7 @@ impl<'a> VMLogic<'a> {
 
     /// Terminates the execution of the program with panic `GuestPanic`.
     pub fn panic(&self) -> Result<()> {
-        Err(HostError::GuestPanic)
+        Err(HostError::GuestPanic.into())
     }
 
     /// Logs the UTF-8 encoded string.
@@ -1214,14 +1234,14 @@ impl<'a> VMLogic<'a> {
         let mut buf;
         if len != std::u64::MAX {
             if len > self.config.max_log_len {
-                return Err(HostError::BadUTF8);
+                return Err(HostError::BadUTF8.into());
             }
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=self.config.max_log_len {
                 if i == self.config.max_log_len {
-                    return Err(HostError::BadUTF8);
+                    return Err(HostError::BadUTF8.into());
                 }
                 Self::try_fit_mem(self.memory, ptr, i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
@@ -1244,7 +1264,7 @@ impl<'a> VMLogic<'a> {
         slice.copy_from_slice(&buf);
         let len: u32 = u32::from_le_bytes(slice);
         if len % 2 != 0 {
-            return Err(HostError::BadUTF16);
+            return Err(HostError::BadUTF16.into());
         }
         let buffer = Self::memory_get(self.memory, ptr, u64::from(len))?;
         let mut u16_buffer = Vec::new();
@@ -1252,7 +1272,7 @@ impl<'a> VMLogic<'a> {
             let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
             u16_buffer.push(c);
         }
-        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16)
+        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
 
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
@@ -1279,7 +1299,7 @@ impl<'a> VMLogic<'a> {
             format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
         self.logs.push(message);
 
-        Err(HostError::GuestPanic)
+        Err(HostError::GuestPanic.into())
     }
 
     /// Reads account id from the given location in memory.
@@ -1318,9 +1338,9 @@ impl<'a> VMLogic<'a> {
         } else {
             use std::cmp::min;
             let res = if new_burnt_gas > self.config.max_gas_burnt {
-                Err(HostError::GasLimitExceeded)
+                Err(HostError::GasLimitExceeded.into())
             } else if new_used_gas > self.context.prepaid_gas {
-                Err(HostError::GasExceeded)
+                Err(HostError::GasExceeded.into())
             } else {
                 unreachable!()
             };
@@ -1519,9 +1539,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         let Self { ext, registers, config, valid_iterators, invalid_iterators, .. } = self;
         if invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated);
+            return Err(HostError::IteratorWasInvalidated.into());
         } else if !valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex);
+            return Err(HostError::InvalidIteratorIndex.into());
         }
 
         let value = ext.storage_iter_next(iterator_id)?;
