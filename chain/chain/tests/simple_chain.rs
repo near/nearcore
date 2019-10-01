@@ -182,19 +182,3 @@ fn blocks_at_height() {
     assert!(chain.get_header_by_height(4).is_err());
     assert!(chain.get_header_by_height(5).is_err());
 }
-
-/// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
-#[test]
-fn test_time_attack() {
-    init_test_logger();
-    let (mut chain, _, _, signer) = setup();
-    let genesis = chain.get_block_by_height(0).unwrap();
-    let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
-    b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + Duration::seconds(60));
-    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
-    b1.header.hash = hash;
-    b1.header.signature = signer.sign(hash.as_ref());
-    assert!(chain.process_block(&None, b1.clone(), Provenance::NONE, |_| {}, |_| {}).is_ok());
-    let b2 = Block::empty_with_height(&b1, 2, signer.clone());;
-    assert!(chain.process_block(&None, b2, Provenance::PRODUCED, |_| {}, |_| {}).is_ok());
-}

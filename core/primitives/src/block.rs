@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 
 use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
@@ -62,7 +62,7 @@ impl BlockHeaderInner {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        time: DateTime<Utc>,
+        timestamp: u64,
         approval_mask: Vec<bool>,
         approval_sigs: BlsSignature,
         total_weight: Weight,
@@ -82,7 +82,7 @@ impl BlockHeaderInner {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            timestamp: to_timestamp(time),
+            timestamp,
             approval_mask,
             approval_sigs,
             total_weight,
@@ -123,7 +123,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
-        timestamp: DateTime<Utc>,
+        timestamp: u64,
         approval_mask: Vec<bool>,
         approval_sig: BlsSignature,
         total_weight: Weight,
@@ -179,7 +179,7 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            timestamp,
+            to_timestamp(timestamp),
             vec![],
             BlsSignature::empty(),
             0.into(),
@@ -316,12 +316,8 @@ impl Block {
         let num_approvals: u128 =
             approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
         let total_weight = prev.inner.total_weight.next(num_approvals);
-        let now = Utc::now();
-        let time = if to_timestamp(now) <= prev.inner.timestamp {
-            prev.timestamp() + Duration::microseconds(1)
-        } else {
-            now
-        };
+        let now = to_timestamp(Utc::now());
+        let time = if now <= prev.inner.timestamp { prev.inner.timestamp + 1 } else { now };
         Block {
             header: BlockHeader::new(
                 height,
