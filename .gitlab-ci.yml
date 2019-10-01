@@ -105,14 +105,12 @@ release_build:
 #    - *code_coverage
 #
 test_nearlib:
-   stage: libs
+   stage: rust 
    tags:
    - gcloud
    before_script:
    - *setup_rust
    - *setup_cache
-   dependencies:
-   - release_build
    script:
    - ./scripts/test_nearlib.sh
 
