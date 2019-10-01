@@ -108,7 +108,7 @@ fn peers_connect_all() {
                 }
             }),
             100,
-            1000,
+            10000,
         )
         .start();
     })
