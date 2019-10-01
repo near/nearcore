@@ -30,6 +30,8 @@ core/wasm/**/Cargo.lock
 **/node_modules/
 
 # Integration tests
+nearlib/
+test-keys/
 tmp/
 
 # OS X
