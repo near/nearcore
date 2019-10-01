@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use reed_solomon_erasure::{option_shards_into_shards, ReedSolomon, Shard};
 
-use near_crypto::{Signature, Signer};
+use near_crypto::{BlsSignature, BlsSigner};
 
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{merklize, MerklePath};
@@ -50,7 +50,7 @@ pub struct ShardChunkHeader {
     pub height_included: BlockIndex,
 
     /// Signature of the chunk producer.
-    pub signature: Signature,
+    pub signature: BlsSignature,
 
     #[borsh_skip]
     pub hash: ChunkHash,
@@ -81,7 +81,7 @@ impl ShardChunkHeader {
         outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
         validator_proposals: Vec<ValidatorStake>,
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner {
             prev_block_hash,
@@ -195,7 +195,7 @@ impl EncodedShardChunk {
         transactions: &Vec<SignedTransaction>,
         receipts: &Vec<Receipt>,
         receipts_root: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), std::io::Error> {
         let mut bytes =
             TransactionReceipt(transactions.to_vec(), receipts.to_vec()).try_to_vec()?;
@@ -258,7 +258,7 @@ impl EncodedShardChunk {
         data_shards: usize,
         parity_shards: usize,
 
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> (Self, Vec<MerklePath>) {
         let mut content = EncodedShardChunkBody { parts };
         content.reconstruct(data_shards, parity_shards);

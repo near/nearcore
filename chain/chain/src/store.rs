@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use cached::SizedCache;
+use chrono::Utc;
 use log::debug;
 
 use near_primitives::hash::CryptoHash;
@@ -19,13 +20,12 @@ use near_primitives::utils::{index_to_bytes, to_timestamp};
 use near_store::{
     read_with_cache, Store, StoreUpdate, WrappedTrieChanges, COL_BLOCK, COL_BLOCKS_TO_CATCHUP,
     COL_BLOCK_HEADER, COL_BLOCK_INDEX, COL_BLOCK_MISC, COL_CHALLENGED_BLOCKS, COL_CHUNKS,
-    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_OUTGOING_RECEIPTS,
-    COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
+    COL_CHUNK_EXTRA, COL_CHUNK_ONE_PARTS, COL_INCOMING_RECEIPTS, COL_INVALID_CHUNKS,
+    COL_OUTGOING_RECEIPTS, COL_STATE_DL_INFOS, COL_TRANSACTION_RESULT,
 };
 
 use crate::error::{Error, ErrorKind};
 use crate::types::{Block, BlockHeader, LatestKnown, ReceiptProofResponse, ReceiptResponse, Tip};
-use chrono::Utc;
 
 const HEAD_KEY: &[u8; 4] = b"HEAD";
 const TAIL_KEY: &[u8; 4] = b"TAIL";
@@ -59,20 +59,28 @@ pub struct StateSyncInfo {
 pub trait ChainStoreAccess {
     /// Returns underlaying store.
     fn store(&self) -> &Store;
+
     /// The chain head.
     fn head(&self) -> Result<Tip, Error>;
+
     /// The chain tail (as far as chain goes).
     fn tail(&self) -> Result<Tip, Error>;
+
     /// Head of the header chain (not the same thing as head_header).
     fn header_head(&self) -> Result<Tip, Error>;
+
     /// The "sync" head: last header we received from syncing.
     fn sync_head(&self) -> Result<Tip, Error>;
+
     /// Header of the block at the head of the block chain (not the same thing as header_head).
     fn head_header(&mut self) -> Result<&BlockHeader, Error>;
+
     /// Get full block.
     fn get_block(&mut self, h: &CryptoHash) -> Result<&Block, Error>;
+
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error>;
+
     /// Get full chunk from header, with possible error that contains the header for further retreival.
     fn get_chunk_clone_from_header(
         &mut self,
@@ -98,35 +106,45 @@ pub trait ChainStoreAccess {
             }
         }
     }
+
     /// Get chunk one part.
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error>;
+
     /// Does this full block exist?
     fn block_exists(&self, h: &CryptoHash) -> Result<bool, Error>;
+
     /// Get previous header.
     fn get_previous_header(&mut self, header: &BlockHeader) -> Result<&BlockHeader, Error>;
+
     /// Get chunk extra info for given chunk hash.
     fn get_chunk_extra(
         &mut self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&ChunkExtra, Error>;
+
     /// Get block header.
     fn get_block_header(&mut self, h: &CryptoHash) -> Result<&BlockHeader, Error>;
+
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
+
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<Receipt>, Error>;
+
     fn get_incoming_receipts(
         &mut self,
         hash: &CryptoHash,
         shard_id: ShardId,
     ) -> Result<&Vec<ReceiptProof>, Error>;
+
     /// Returns transaction result for given tx hash.
     fn get_transaction_result(&mut self, hash: &CryptoHash) -> Result<&ExecutionOutcome, Error>;
+
     /// Returns whether the block with the given hash was challenged
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error>;
 
@@ -137,6 +155,9 @@ pub trait ChainStoreAccess {
 
     /// Save the latest known.
     fn save_latest_known(&mut self, latest_known: LatestKnown) -> Result<(), Error>;
+
+    /// Check if chunk is invalid.
+    fn is_invalid_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<bool, Error>;
 }
 
 /// All chain-related database operations.
@@ -162,6 +183,8 @@ pub struct ChainStore {
     incoming_receipts: SizedCache<Vec<u8>, Vec<ReceiptProof>>,
     /// Cache transaction statuses.
     transaction_results: SizedCache<Vec<u8>, ExecutionOutcome>,
+    /// Invalid chunks.
+    invalid_chunks: SizedCache<Vec<u8>, bool>,
 }
 
 pub fn option_to_not_found<T>(res: io::Result<Option<T>>, field_name: &str) -> Result<T, Error> {
@@ -186,6 +209,7 @@ impl ChainStore {
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
             incoming_receipts: SizedCache::with_size(CACHE_SIZE),
             transaction_results: SizedCache::with_size(CACHE_SIZE),
+            invalid_chunks: SizedCache::with_size(CACHE_SIZE),
         }
     }
 
@@ -424,10 +448,18 @@ impl ChainStoreAccess for ChainStore {
     }
 
     fn is_block_challenged(&mut self, hash: &CryptoHash) -> Result<bool, Error> {
-        return Ok(self
-            .store
-            .get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?
-            .unwrap_or_else(|| false));
+        Ok(self.store.get_ser(COL_CHALLENGED_BLOCKS, hash.as_ref())?.unwrap_or_else(|| false))
+    }
+
+    fn is_invalid_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<bool, Error> {
+        Ok(read_with_cache(
+            &*self.store,
+            COL_INVALID_CHUNKS,
+            &mut self.invalid_chunks,
+            chunk_hash.as_ref(),
+        )?
+        .map(std::clone::Clone::clone)
+        .unwrap_or_else(|| false))
     }
 }
 
@@ -455,6 +487,7 @@ pub struct ChainStoreUpdate<'a, T> {
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
+    invalid_chunks: HashSet<ChunkHash>,
 }
 
 impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
@@ -480,6 +513,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
+            invalid_chunks: HashSet::default(),
         }
     }
 
@@ -677,7 +711,14 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         if self.challenged_blocks.contains(&hash) {
             return Ok(true);
         }
-        return self.chain_store.is_block_challenged(hash);
+        self.chain_store.is_block_challenged(hash)
+    }
+
+    fn is_invalid_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<bool, Error> {
+        if self.invalid_chunks.contains(&chunk_hash) {
+            return Ok(true);
+        }
+        self.chain_store.is_invalid_chunk(chunk_hash)
     }
 }
 
@@ -867,6 +908,10 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.challenged_blocks.insert(hash);
     }
 
+    pub fn save_invalid_chunk(&mut self, chunk_hash: ChunkHash) {
+        self.invalid_chunks.insert(chunk_hash);
+    }
+
     /// Merge another StoreUpdate into this one
     pub fn merge(&mut self, store_update: StoreUpdate) {
         self.store_updates.push(store_update);
@@ -980,6 +1025,9 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         }
         for hash in self.challenged_blocks {
             store_update.set_ser(COL_CHALLENGED_BLOCKS, hash.as_ref(), &true)?;
+        }
+        for chunk_hash in self.invalid_chunks {
+            store_update.set_ser(COL_INVALID_CHUNKS, chunk_hash.as_ref(), &true)?;
         }
         for other in self.store_updates {
             store_update.merge(other);

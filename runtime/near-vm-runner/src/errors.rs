@@ -1,100 +1,87 @@
-use near_vm_logic::HostError;
-use wasmer_runtime::error::{CallError, CompileError, CreationError, RuntimeError};
+use near_vm_errors::{CompilationError, FunctionCallError, MethodResolveError, VMError};
+use near_vm_logic::HostErrorOrStorageError;
 
-#[derive(Debug, Clone)]
-/// Error that can occur while preparing or executing Wasm smart-contract.
-pub enum PrepareError {
-    /// Error happened while serializing the module.
-    Serialization,
-
-    /// Error happened while deserializing the module.
-    Deserialization,
-
-    /// Internal memory declaration has been found in the module.
-    InternalMemoryDeclared,
-
-    /// Gas instrumentation failed.
-    ///
-    /// This most likely indicates the module isn't valid.
-    GasInstrumentation,
-
-    /// Stack instrumentation failed.
-    ///
-    /// This  most likely indicates the module isn't valid.
-    StackHeightInstrumentation,
-
-    /// Error happened during instantiation.
-    ///
-    /// This might indicate that `start` function trapped, or module isn't
-    /// instantiable and/or unlinkable.
-    Instantiate,
-
-    /// Error creating memory.
-    Memory,
+pub trait IntoVMError {
+    fn into_vm_error(self) -> VMError;
 }
 
-impl std::fmt::Display for PrepareError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        use PrepareError::*;
+impl IntoVMError for wasmer_runtime::error::Error {
+    fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::error::Error;
         match self {
-            Serialization => write!(f, "Error happened while serializing the module."),
-            Deserialization => write!(f, "Error happened while deserializing the module."),
-            InternalMemoryDeclared => {
-                write!(f, "Internal memory declaration has been found in the module.")
-            }
-            GasInstrumentation => write!(f, "Gas instrumentation failed."),
-            StackHeightInstrumentation => write!(f, "Stack instrumentation failed."),
-            Instantiate => write!(f, "Error happened during instantiation."),
-            Memory => write!(f, "Error creating memory"),
+            Error::CompileError(err) => err.into_vm_error(),
+            Error::LinkError(err) => VMError::FunctionCallError(FunctionCallError::LinkError(
+                format!("{:.500}", Error::LinkError(err).to_string()),
+            )),
+            Error::RuntimeError(err) => err.into_vm_error(),
+            Error::ResolveError(err) => err.into_vm_error(),
+            Error::CallError(err) => err.into_vm_error(),
+            Error::CreationError(err) => panic!(err),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-/// Error that occurs when trying to run a method from a smart contract.
-/// TODO handling for StorageError
-pub enum VMError {
-    /// Error occurs during the preparation of smart contract.
-    PrepareError(String),
-    /// Error that occurs when creating memory for Wasmer to run.
-    WasmerMemoryCreation(String),
-    /// Error that occurs when compiling prepared Wasm with Wasmer.
-    WasmerCompileError(String),
-    /// Instantiates a Wasm module can raise an error, if `start` function is specified.
-    WasmerInstantiateError(String),
-    /// Error when calling a method using Wasmer, includes errors raised by the host functions.
-    WasmerCallError(String),
-    /// Tried to invoke method using empty name.
-    MethodEmptyName,
-    /// Tried to invoke a method name that was not UTF-8 encoded.
-    MethodUTF8Error,
-}
-
-impl From<PrepareError> for VMError {
-    fn from(err: PrepareError) -> Self {
-        VMError::PrepareError(format!("{}", err))
+impl IntoVMError for wasmer_runtime::error::CallError {
+    fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::error::CallError;
+        match self {
+            CallError::Resolve(err) => err.into_vm_error(),
+            CallError::Runtime(err) => err.into_vm_error(),
+        }
     }
 }
 
-impl From<CompileError> for VMError {
-    fn from(err: CompileError) -> Self {
-        VMError::WasmerCompileError(format!("{}", err))
+impl IntoVMError for wasmer_runtime::error::CompileError {
+    fn into_vm_error(self) -> VMError {
+        VMError::FunctionCallError(FunctionCallError::CompilationError(
+            CompilationError::WasmerCompileError(self.to_string()),
+        ))
     }
 }
 
-impl From<CreationError> for VMError {
-    fn from(err: CreationError) -> Self {
-        VMError::WasmerMemoryCreation(format!("{}", err))
+impl IntoVMError for wasmer_runtime::error::ResolveError {
+    fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::error::ResolveError as WasmerResolveError;
+        match self {
+            WasmerResolveError::Signature { .. } => VMError::FunctionCallError(
+                FunctionCallError::ResolveError(MethodResolveError::MethodInvalidSignature),
+            ),
+            WasmerResolveError::ExportNotFound { .. } => VMError::FunctionCallError(
+                FunctionCallError::ResolveError(MethodResolveError::MethodNotFound),
+            ),
+            WasmerResolveError::ExportWrongType { .. } => VMError::FunctionCallError(
+                FunctionCallError::ResolveError(MethodResolveError::MethodNotFound),
+            ),
+        }
     }
 }
 
-impl From<CallError> for VMError {
-    fn from(err: CallError) -> Self {
-        if let CallError::Runtime(RuntimeError::Error { data }) = &err {
-            if let Some(err) = data.downcast_ref::<HostError>() {
-                return VMError::WasmerCallError(format!("{}", err));
+impl IntoVMError for wasmer_runtime::error::RuntimeError {
+    fn into_vm_error(self) -> VMError {
+        use wasmer_runtime::error::RuntimeError;
+        match &self {
+            RuntimeError::Trap { msg } => {
+                VMError::FunctionCallError(FunctionCallError::WasmTrap(msg.to_string()))
+            }
+            RuntimeError::Error { data } => {
+                if let Some(err) = data.downcast_ref::<HostErrorOrStorageError>() {
+                    match err {
+                        HostErrorOrStorageError::StorageError(s) => {
+                            VMError::StorageError(s.clone())
+                        }
+                        HostErrorOrStorageError::HostError(h) => {
+                            VMError::FunctionCallError(FunctionCallError::HostError(h.clone()))
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "Bad error case! Output is non-deterministic {:?} {:?}",
+                        data.type_id(),
+                        self.to_string()
+                    );
+                    VMError::FunctionCallError(FunctionCallError::WasmTrap("unknown".to_string()))
+                }
             }
         }
-        VMError::WasmerCallError(format!("{}", err))
     }
 }

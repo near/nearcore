@@ -5,7 +5,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use near_crypto::{PublicKey, Signature};
+use near_crypto::{BlsPublicKey, BlsSignature, PublicKey, Signature};
 
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
 use crate::block::{Block, BlockHeader, BlockHeaderInner};
@@ -283,8 +283,9 @@ pub struct BlockHeaderView {
     pub chunk_tx_root: CryptoHashView,
     pub timestamp: u64,
     pub approval_mask: Vec<bool>,
-    pub approval_sigs: Vec<Signature>,
-    pub total_weight: u64,
+    pub approval_sigs: BlsSignature,
+    #[serde(with = "u128_dec_format")]
+    pub total_weight: u128,
     pub validator_proposals: Vec<ValidatorStakeView>,
     pub chunk_mask: Vec<bool>,
     pub gas_used: Gas,
@@ -295,7 +296,7 @@ pub struct BlockHeaderView {
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 impl From<BlockHeader> for BlockHeaderView {
@@ -381,7 +382,7 @@ pub struct ChunkHeaderView {
     pub outgoing_receipts_root: CryptoHashView,
     pub tx_root: CryptoHashView,
     pub validator_proposals: Vec<ValidatorStakeView>,
-    pub signature: Signature,
+    pub signature: BlsSignature,
 }
 
 impl From<ShardChunkHeader> for ChunkHeaderView {
@@ -490,7 +491,7 @@ pub enum ActionView {
     Stake {
         #[serde(with = "u128_dec_format")]
         stake: Balance,
-        public_key: PublicKey,
+        public_key: BlsPublicKey,
     },
     AddKey {
         public_key: PublicKey,
@@ -757,7 +758,7 @@ impl fmt::Debug for FinalExecutionOutcomeView {
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct ValidatorStakeView {
     pub account_id: AccountId,
-    pub public_key: PublicKey,
+    pub public_key: BlsPublicKey,
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
 }

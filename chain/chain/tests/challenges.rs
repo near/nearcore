@@ -5,7 +5,7 @@ use near_primitives::test_utils::init_test_logger;
 #[test]
 fn challenges_new_head_prev() {
     init_test_logger();
-    let (mut chain, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup();
     let mut hashes = vec![];
     for i in 0..5 {
         let prev_hash = chain.head_header().unwrap().hash();

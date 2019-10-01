@@ -6,9 +6,9 @@ use borsh::BorshSerialize;
 use near_chain::{Block, ChainGenesis, Provenance};
 use near_client::test_utils::TestEnv;
 use near_client::Client;
-use near_crypto::{InMemorySigner, KeyType};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType};
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
-use near_primitives::challenge::{BlockDoubleSign, Challenge, ChunkProofs};
+use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
@@ -22,7 +22,7 @@ fn test_verify_block_double_sign_challenge() {
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
     let b1 = env.clients[0].produce_block(2, Duration::from_millis(10)).unwrap().unwrap();
-    let signer = InMemorySigner::from_seed("test0", KeyType::ED25519, "test0");
+    let signer = InMemoryBlsSigner::from_seed("test0", "test0");
     let b2 = Block::produce(
         &genesis.header,
         2,
@@ -34,24 +34,33 @@ fn test_verify_block_double_sign_challenge() {
         vec![],
         &signer,
     );
-    let valid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
-        left_block_header: b1.header.try_to_vec().unwrap(),
-        right_block_header: b2.header.try_to_vec().unwrap(),
-    });
+    let valid_challenge = Challenge::produce(
+        ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: b1.header.try_to_vec().unwrap(),
+            right_block_header: b2.header.try_to_vec().unwrap(),
+        }),
+        &signer,
+    );
     assert_eq!(
         env.clients[1].chain.verify_challenge(valid_challenge).unwrap(),
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
-    let invalid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
-        left_block_header: b1.header.try_to_vec().unwrap(),
-        right_block_header: b1.header.try_to_vec().unwrap(),
-    });
+    let invalid_challenge = Challenge::produce(
+        ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: b1.header.try_to_vec().unwrap(),
+            right_block_header: b1.header.try_to_vec().unwrap(),
+        }),
+        &signer,
+    );
     assert!(env.clients[1].chain.verify_challenge(invalid_challenge).is_err());
     let b3 = env.clients[0].produce_block(3, Duration::from_millis(10)).unwrap().unwrap();
-    let invalid_challenge = Challenge::BlockDoubleSign(BlockDoubleSign {
-        left_block_header: b1.header.try_to_vec().unwrap(),
-        right_block_header: b3.header.try_to_vec().unwrap(),
-    });
+    let invalid_challenge = Challenge::produce(
+        ChallengeBody::BlockDoubleSign(BlockDoubleSign {
+            left_block_header: b1.header.try_to_vec().unwrap(),
+            right_block_header: b3.header.try_to_vec().unwrap(),
+        }),
+        &signer,
+    );
     assert!(env.clients[1].chain.verify_challenge(invalid_challenge).is_err());
 }
 
@@ -65,6 +74,7 @@ fn create_invalid_proofs_chunk(
             &last_block.header.inner.epoch_id,
             last_block.chunks[0].clone(),
             2,
+            0,
             0,
         )
         .unwrap()
@@ -95,11 +105,14 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     env.produce_block(0, 1);
     let (chunk, merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
-    let valid_challenge = Challenge::ChunkProofs(ChunkProofs {
-        block_header: block.header.try_to_vec().unwrap(),
-        chunk: chunk.clone(),
-        merkle_proof: merkle_paths[0].clone(),
-    });
+    let valid_challenge = Challenge::produce(
+        ChallengeBody::ChunkProofs(ChunkProofs {
+            //            block_header: block.header.try_to_vec().unwrap(),
+            chunk: chunk.clone(),
+            //            merkle_proof: merkle_paths[0].clone(),
+        }),
+        &*env.clients[0].block_producer.as_ref().unwrap().signer,
+    );
     assert_eq!(env.clients[0].chain.verify_challenge(valid_challenge).unwrap(), block.hash());
 }
 

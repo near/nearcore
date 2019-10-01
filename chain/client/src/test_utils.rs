@@ -1,6 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use actix::actors::mocker::Mocker;
 use actix::{Actor, Addr, AsyncContext, Context, Recipient};
@@ -11,21 +12,20 @@ use futures::future::Future;
 use near_chain::test_utils::KeyValueRuntime;
 use near_chain::{Chain, ChainGenesis, Provenance};
 use near_chunks::NetworkAdapter;
-use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, PublicKey};
 use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
     PeerInfo, PeerManagerActor,
 };
 use near_primitives::block::Block;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, ShardId};
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
-use near_primitives::transaction::SignedTransaction;
-use std::time::Duration;
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -72,11 +72,10 @@ pub fn setup(
     let mut chain = Chain::new(store.clone(), runtime.clone(), &chain_genesis).unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash()).unwrap().clone();
 
-    let signer = Arc::new(InMemorySigner::from_seed(account_id, KeyType::ED25519, account_id));
+    let signer = Arc::new(InMemoryBlsSigner::from_seed(account_id, account_id));
     let telemetry = TelemetryActor::default().start();
     let view_client = ViewClientActor::new(store.clone(), &chain_genesis, runtime.clone()).unwrap();
-    let mut config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
-    config.transaction_validity_period = tx_validity_period;
+    let config = ClientConfig::test(skip_sync_wait, block_prod_time, num_validators);
     let client = ClientActor::new(
         config,
         store,
@@ -397,7 +396,7 @@ pub fn setup_no_network_with_validity_period(
 
 impl BlockProducer {
     pub fn test(seed: &str) -> Self {
-        Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed)).into()
+        Arc::new(InMemoryBlsSigner::from_seed(seed, seed)).into()
     }
 }
 
@@ -417,10 +416,8 @@ pub fn setup_client(
         validator_groups,
         num_shards,
     ));
-    let block_producer =
-        account_id.map(|x| Arc::new(InMemorySigner::from_seed(x, KeyType::ED25519, x)).into());
+    let block_producer = account_id.map(|x| Arc::new(InMemoryBlsSigner::from_seed(x, x)).into());
     let mut config = ClientConfig::test(true, 10, num_validators);
-    config.transaction_validity_period = chain_genesis.transaction_validity_period;
     Client::new(config, store, chain_genesis, runtime_adapter, network_adapter, block_producer)
         .unwrap()
 }

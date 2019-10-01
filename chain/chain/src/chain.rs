@@ -7,6 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
+use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -25,7 +26,6 @@ use crate::types::{
     ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter, Tip,
     ValidatorSignatureVerificationResult,
 };
-use near_primitives::challenge::Challenge;
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -172,7 +172,7 @@ pub struct Chain {
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
-    transaction_validity_period: BlockIndex,
+    pub transaction_validity_period: BlockIndex,
 }
 
 impl Chain {
@@ -1031,6 +1031,7 @@ impl Chain {
                 shard_id,
                 &chunk.header.inner.prev_state_root,
                 chunk.header.height_included,
+                block_header.inner.timestamp,
                 &chunk.header.inner.prev_block_hash,
                 &block_header.hash,
                 &receipts,
@@ -1101,6 +1102,7 @@ impl Chain {
                     shard_id,
                     &chunk_extra.state_root,
                     block_header.inner.height,
+                    block_header.inner.timestamp,
                     &prev_block_header.hash(),
                     &block_header.hash(),
                     &vec![],
@@ -1215,8 +1217,8 @@ impl Chain {
 
     /// Returns Some(block hash) of invalid block if challenge is correct and None if incorrect.
     pub fn verify_challenge(&mut self, challenge: Challenge) -> Result<CryptoHash, Error> {
-        match challenge {
-            Challenge::BlockDoubleSign(block_double_sign) => {
+        match challenge.body {
+            ChallengeBody::BlockDoubleSign(block_double_sign) => {
                 let left_block_header =
                     BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
                 let right_block_header =
@@ -1256,8 +1258,8 @@ impl Chain {
                     Err(ErrorKind::InvalidChallenge.into())
                 }
             }
-            Challenge::ChunkProofs(chunk_proofs) => {
-                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+            ChallengeBody::ChunkProofs(chunk_proofs) => {
+                //                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
                 // TODO: validate chunk inclusion and signature.
                 match chunk_proofs
                     .chunk
@@ -1269,10 +1271,12 @@ impl Chain {
                     .and_then(|chunk| validate_chunk_proofs(&chunk, &*self.runtime_adapter))
                 {
                     Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
-                    Ok(false) | Err(_) => Ok(block_header.hash()),
+                    // TODO
+                    // Ok(false) | Err(_) => Ok(block_header.hash()),
+                    _ => Err(ErrorKind::InvalidChallenge.into()),
                 }
             }
-            Challenge::ChunkState(chunk_state) => {
+            ChallengeBody::ChunkState(chunk_state) => {
                 // Retrieve block, if it's missing return error to fetch it.
                 //                let prev_chunk_header =
                 //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
@@ -1641,7 +1645,7 @@ impl<'a> ChainUpdate<'a> {
                         )
                     });
                     if any_transaction_is_invalid {
-                        debug!(target: "chain", "Invalid transactions in the block: {:?}", chunk.transactions);
+                        debug!(target: "chain", "Invalid transactions in the chunk: {:?}", chunk.transactions);
                         return Err(ErrorKind::InvalidTransactions.into());
                     }
                     let gas_limit = chunk.header.inner.gas_limit;
@@ -1653,6 +1657,7 @@ impl<'a> ChainUpdate<'a> {
                             shard_id,
                             &chunk.header.inner.prev_state_root,
                             chunk_header.height_included,
+                            block.header.inner.timestamp,
                             &chunk_header.inner.prev_block_hash,
                             &block.hash(),
                             &receipts,
@@ -1705,6 +1710,7 @@ impl<'a> ChainUpdate<'a> {
                             shard_id,
                             &new_extra.state_root,
                             block.header.inner.height,
+                            block.header.inner.timestamp,
                             &prev_block.hash(),
                             &block.hash(),
                             &vec![],
@@ -1733,7 +1739,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         provenance: &Provenance,
     ) -> Result<(Option<Tip>, bool), Error> {
-        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.inner.approval_sigs.len(), me);
+        debug!(target: "chain", "Process block {} at {}, approvals: {}, me: {:?}", block.hash(), block.header.inner.height, block.header.num_approvals(), me);
 
         // Check if we have already processed this block previously.
         self.check_known(&block)?;

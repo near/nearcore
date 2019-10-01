@@ -16,7 +16,10 @@ use serde_derive::{Deserialize, Serialize};
 use near_chain::ChainGenesis;
 use near_client::BlockProducer;
 use near_client::ClientConfig;
-use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey, Signer};
+use near_crypto::{
+    BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyFile, KeyType, PublicKey, ReadablePublicKey,
+    Signer,
+};
 use near_jsonrpc::RpcConfig;
 use near_network::test_utils::open_port;
 use near_network::types::PROTOCOL_VERSION;
@@ -31,10 +34,10 @@ use node_runtime::config::RuntimeConfig;
 use node_runtime::StateRecord;
 
 /// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000_000_000;
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000;
+pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
 /// One NEAR, divisible by 10^18.
 pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000;
@@ -104,6 +107,7 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+pub const SIGNER_KEY_FILE: &str = "signer_key.json";
 
 const DEFAULT_TELEMETRY_URL: &str = "https://explorer.nearprotocol.com/api/nodes";
 
@@ -272,7 +276,6 @@ impl NearConfig {
                 state_fetch_horizon: 5,
                 block_header_fetch_horizon: 50,
                 catchup_step_period: Duration::from_millis(100),
-                transaction_validity_period: genesis_config.transaction_validity_period,
                 tracked_accounts: config.tracked_accounts,
                 tracked_shards: config.tracked_shards,
             },
@@ -396,7 +399,7 @@ fn get_initial_supply(records: &[StateRecord]) -> Balance {
     let mut total_supply = 0;
     for record in records {
         if let StateRecord::Account { account, .. } = record {
-            total_supply += account.amount;
+            total_supply += account.amount + account.staked;
         }
     }
     total_supply
@@ -445,11 +448,12 @@ impl GenesisConfig {
         let encoded_test_contract = to_base64(&default_test_contract);
         let code_hash = hash(&default_test_contract);
         for (i, account) in seeds.iter().enumerate() {
+            let bls_signer = InMemoryBlsSigner::from_seed(account, account);
             let signer = InMemorySigner::from_seed(account, KeyType::ED25519, account);
             if i < num_validators {
                 validators.push(AccountInfo {
                     account_id: account.to_string(),
-                    public_key: (&signer.public_key).into(),
+                    public_key: bls_signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 });
             }
@@ -623,7 +627,7 @@ pub fn init_configs(
             if let Some(account_id) =
                 account_id.and_then(|x| if x.is_empty() { None } else { Some(x.to_string()) })
             {
-                let signer = InMemorySigner::from_random(account_id.clone(), KeyType::ED25519);
+                let signer = InMemoryBlsSigner::from_random(account_id.clone());
                 info!(target: "near", "Use key {} for {} to stake.", signer.public_key, account_id);
                 signer.write_to_file(&dir.join(config.validator_key_file));
             }
@@ -651,12 +655,19 @@ pub fn init_configs(
                 .unwrap_or("test.near")
                 .to_string();
 
+            let bls_signer = if let Some(test_seed) = test_seed {
+                InMemoryBlsSigner::from_seed(&account_id, test_seed)
+            } else {
+                InMemoryBlsSigner::from_random(account_id.clone())
+            };
+            bls_signer.write_to_file(&dir.join(config.validator_key_file));
+
             let signer = if let Some(test_seed) = test_seed {
                 InMemorySigner::from_seed(&account_id, KeyType::ED25519, test_seed)
             } else {
                 InMemorySigner::from_random(account_id.clone(), KeyType::ED25519)
             };
-            signer.write_to_file(&dir.join(config.validator_key_file));
+            signer.write_to_file(&dir.join(SIGNER_KEY_FILE));
 
             let network_signer = InMemorySigner::from_random("".to_string(), KeyType::ED25519);
             network_signer.write_to_file(&dir.join(config.node_key_file));
@@ -686,7 +697,7 @@ pub fn init_configs(
                 runtime_config: Default::default(),
                 validators: vec![AccountInfo {
                     account_id: account_id.clone(),
-                    public_key: (&signer.public_key).into(),
+                    public_key: bls_signer.public_key.into(),
                     amount: TESTING_INIT_STAKE,
                 }],
                 transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
@@ -709,12 +720,15 @@ pub fn create_testnet_configs_from_seeds(
     num_shards: usize,
     num_non_validators: usize,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig)
+{
     let num_validators = seeds.len() - num_non_validators;
     let signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
         .collect::<Vec<_>>();
+    let bls_signers =
+        seeds.iter().map(|seed| InMemoryBlsSigner::from_seed(seed, seed)).collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
         .map(|seed| InMemorySigner::from_seed("", KeyType::ED25519, seed))
@@ -743,7 +757,7 @@ pub fn create_testnet_configs_from_seeds(
             cmp::min(num_validators - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, signers, network_signers, genesis_config)
+    (configs, signers, bls_signers, network_signers, genesis_config)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -754,7 +768,8 @@ pub fn create_testnet_configs(
     num_non_validators: usize,
     prefix: &str,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig)
+{
     create_testnet_configs_from_seeds(
         (0..(num_validators + num_non_validators))
             .map(|i| format!("{}{}", prefix, i))
@@ -772,13 +787,14 @@ pub fn init_testnet_configs(
     num_non_validators: usize,
     prefix: &str,
 ) {
-    let (configs, signers, network_signers, genesis_config) =
+    let (configs, signers, bls_signers, network_signers, genesis_config) =
         create_testnet_configs(num_shards, num_validators, num_non_validators, prefix, false);
     for i in 0..(num_validators + num_non_validators) {
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
+        signers[i].write_to_file(&node_dir.join(SIGNER_KEY_FILE));
+        bls_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
         network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
 
         genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));
@@ -792,7 +808,7 @@ pub fn load_config(dir: &Path) -> NearConfig {
     let genesis_config = GenesisConfig::from_file(&dir.join(config.genesis_file.clone()));
     let block_producer = if dir.join(config.validator_key_file.clone()).exists() {
         let signer =
-            Arc::new(InMemorySigner::from_file(&dir.join(config.validator_key_file.clone())));
+            Arc::new(InMemoryBlsSigner::from_file(&dir.join(config.validator_key_file.clone())));
         Some(BlockProducer::from(signer))
     } else {
         None
@@ -814,7 +830,8 @@ pub fn load_test_config(seed: &str, port: u16, genesis_config: &GenesisConfig) -
         (signer, None)
     } else {
         let signer = Arc::new(InMemorySigner::from_seed(seed, KeyType::ED25519, seed));
-        (signer.clone(), Some(BlockProducer::from(signer)))
+        let bls_signer = Arc::new(InMemoryBlsSigner::from_seed(seed, seed));
+        (signer, Some(BlockProducer::from(bls_signer)))
     };
     NearConfig::new(config, &genesis_config, signer.into(), block_producer)
 }

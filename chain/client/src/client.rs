@@ -18,11 +18,12 @@ use near_chain::{
     Tip,
 };
 use near_chunks::{NetworkAdapter, ShardsManager};
-use near_crypto::Signature;
+use near_crypto::BlsSignature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::{Challenge, Challenges};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -53,9 +54,9 @@ pub struct Client {
     /// Signer for block producer (if present).
     pub block_producer: Option<BlockProducer>,
     /// Set of approvals for the next block.
-    pub approvals: HashMap<usize, Signature>,
+    pub approvals: HashMap<usize, BlsSignature>,
     /// Approvals for which we do not have the block yet
-    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (Signature, PeerId)>>,
+    pending_approvals: SizedCache<CryptoHash, HashMap<AccountId, (BlsSignature, PeerId)>>,
     /// A mapping from a block for which a state sync is underway for the next epoch, and the object
     /// storing the current status of the state sync
     pub catchup_state_syncs: HashMap<CryptoHash, (StateSync, HashMap<u64, ShardSyncStatus>)>,
@@ -80,9 +81,6 @@ impl Client {
         network_adapter: Arc<dyn NetworkAdapter>,
         block_producer: Option<BlockProducer>,
     ) -> Result<Self, Error> {
-        // TODO(1364): dedup ClientConfig and ChainGenesis transaction_validity_period field.
-        // Check consistency of two configs that have the same field.
-        assert_eq!(config.transaction_validity_period, chain_genesis.transaction_validity_period);
         let chain = Chain::new(store.clone(), runtime_adapter.clone(), &chain_genesis)?;
         let shards_mgr = ShardsManager::new(
             block_producer.as_ref().map(|x| x.account_id.clone()),
@@ -112,6 +110,7 @@ impl Client {
             block_economics_config: BlockEconomicsConfig {
                 gas_price_adjustment_rate: chain_genesis.gas_price_adjustment_rate,
             },
+            challenges: vec![],
         })
     }
 
@@ -283,6 +282,7 @@ impl Client {
         epoch_id: &EpochId,
         last_header: ShardChunkHeader,
         next_height: BlockIndex,
+        prev_block_timestamp: u64,
         shard_id: ShardId,
     ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
         let block_producer = self
@@ -312,6 +312,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
+        let transaction_validity_period = self.chain.transaction_validity_period;
         let transactions: Vec<_> = self
             .shards_mgr
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
@@ -320,7 +321,7 @@ impl Client {
                 check_tx_history(
                     self.chain.get_block_header(&t.transaction.block_hash).ok(),
                     next_height,
-                    self.config.transaction_validity_period,
+                    transaction_validity_period,
                 )
             })
             .collect();
@@ -328,6 +329,7 @@ impl Client {
         let transactions_len = transactions.len();
         let filtered_transactions = self.runtime_adapter.filter_transactions(
             next_height,
+            prev_block_timestamp,
             block_header.inner.gas_price,
             chunk_extra.state_root,
             transactions,
@@ -595,6 +597,7 @@ impl Client {
                             &epoch_id,
                             block.chunks[shard_id as usize].clone(),
                             block.header.inner.height + 1,
+                            block.header.inner.timestamp,
                             shard_id,
                         ) {
                             Ok(Some((encoded_chunk, merkle_paths, receipts))) => self
@@ -667,7 +670,7 @@ impl Client {
         &mut self,
         account_id: &AccountId,
         hash: &CryptoHash,
-        signature: &Signature,
+        signature: &BlsSignature,
         peer_id: &PeerId,
     ) -> bool {
         // TODO: figure out how to validate better before hitting the disk? For example validator and account cache to validate signature first.
@@ -730,15 +733,19 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
+        let tx_header = unwrap_or_return!(
+            self.chain.get_block_header(&tx.transaction.block_hash),
+            NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string(),)
+        )
+        .clone();
+        let transaction_validity_period = self.chain.transaction_validity_period;
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
             head.height,
-            self.config.transaction_validity_period,
+            transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(
-                "Transaction has either expired or from a different fork".to_string(),
-            );
+            return NetworkClientResponses::InvalidTx("Transaction has expired".to_string());
         }
         let gas_price = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
@@ -753,7 +760,13 @@ impl Client {
         .state_root
         .clone();
 
-        match self.runtime_adapter.validate_tx(head.height + 1, gas_price, state_root, tx) {
+        match self.runtime_adapter.validate_tx(
+            head.height + 1,
+            tx_header.inner.timestamp,
+            gas_price,
+            state_root,
+            tx,
+        ) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
@@ -795,10 +808,11 @@ impl Client {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => {
+            Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
                 debug!(target: "client", "Invalid tx: {:?}", err);
                 NetworkClientResponses::InvalidTx(err.to_string())
             }
+            Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
         }
     }
 

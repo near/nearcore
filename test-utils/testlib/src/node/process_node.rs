@@ -8,7 +8,7 @@ use log::error;
 use rand::Rng;
 
 use near::config::NearConfig;
-use near_crypto::Signer;
+use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_primitives::types::AccountId;
 
 use crate::node::Node;
@@ -24,6 +24,7 @@ pub struct ProcessNode {
     pub work_dir: String,
     pub config: NearConfig,
     pub state: ProcessNodeState,
+    pub signer: Arc<InMemorySigner>,
 }
 
 impl Node for ProcessNode {
@@ -58,7 +59,7 @@ impl Node for ProcessNode {
     }
 
     fn signer(&self) -> Arc<dyn Signer> {
-        self.config.block_producer.clone().unwrap().signer.clone()
+        self.signer.clone()
     }
 
     fn is_running(&self) -> bool {
@@ -69,10 +70,7 @@ impl Node for ProcessNode {
     }
 
     fn user(&self) -> Box<dyn User> {
-        Box::new(RpcUser::new(
-            &self.config.rpc_config.addr,
-            self.config.block_producer.clone().unwrap().signer.clone(),
-        ))
+        Box::new(RpcUser::new(&self.config.rpc_config.addr, self.signer.clone()))
     }
 
     fn as_process_ref(&self) -> &ProcessNode {
@@ -93,7 +91,12 @@ impl ProcessNode {
             env::temp_dir().as_path().to_str().unwrap(),
             rng.gen::<u64>()
         );
-        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped };
+        let signer = Arc::new(InMemorySigner::from_seed(
+            &config.block_producer.clone().unwrap().account_id,
+            KeyType::ED25519,
+            &config.block_producer.clone().unwrap().account_id,
+        ));
+        let result = ProcessNode { config, work_dir, state: ProcessNodeState::Stopped, signer };
         result.reset_storage();
         result
     }

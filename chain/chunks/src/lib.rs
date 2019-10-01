@@ -11,12 +11,13 @@ use cached::SizedCache;
 use log::{debug, error};
 use rand::Rng;
 
+use near_chain::types::validate_chunk_proofs;
 use near_chain::{byzantine_assert, collect_receipts, ErrorKind, RuntimeAdapter, ValidTransaction};
-use near_crypto::Signer;
+use near_crypto::BlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_network::{NetworkClientMessages, NetworkRequests};
 use near_pool::TransactionPool;
-use near_primitives::challenge::{Challenge, ChunkProofs};
+use near_primitives::challenge::{Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -31,7 +32,6 @@ use near_primitives::types::{
 use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
 
 pub use crate::types::Error;
-use near_chain::types::validate_chunk_proofs;
 
 mod types;
 
@@ -688,7 +688,7 @@ impl ShardsManager {
         receipts: &Vec<Receipt>,
         receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> Result<(EncodedShardChunk, Vec<MerklePath>), Error> {
         let total_parts = self.runtime_adapter.num_total_parts(&prev_block_hash);
         let data_parts = self.runtime_adapter.num_data_parts(&prev_block_hash);
@@ -766,9 +766,9 @@ impl ShardsManager {
             // Send out challenge to network participants.
             let block_header =
             // TODO: add block header and merkle proofs.
-            self.network_adapter.send(NetworkRequests::Challenge(Challenge::ChunkProofs(
-                ChunkProofs { chunk: chunk.clone() },
-            )));
+//            self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(ChallengeBody::ChunkProofs(
+//                ChunkProofs { chunk: chunk.clone() },
+//            ))));
             return Ok(None);
         }
     }

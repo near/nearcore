@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::prelude::{DateTime, Utc};
 
-use near_crypto::{EmptySigner, KeyType, PublicKey, Signature, Signer};
+use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
 use crate::challenge::Challenges;
 use crate::hash::{hash, CryptoHash};
@@ -34,7 +34,7 @@ pub struct BlockHeaderInner {
     /// Approval mask, given current block producers.
     pub approval_mask: Vec<bool>,
     /// Approval signatures for previous block.
-    pub approval_sigs: Vec<Signature>,
+    pub approval_sigs: BlsSignature,
     /// Total weight.
     pub total_weight: Weight,
     /// Validator proposals.
@@ -64,7 +64,7 @@ impl BlockHeaderInner {
         chunk_tx_root: MerkleHash,
         time: DateTime<Utc>,
         approval_mask: Vec<bool>,
-        approval_sigs: Vec<Signature>,
+        approval_sigs: BlsSignature,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -104,7 +104,7 @@ pub struct BlockHeader {
     pub inner: BlockHeaderInner,
 
     /// Signature of the block producer.
-    pub signature: Signature,
+    pub signature: BlsSignature,
 
     /// Cached value of hash for this block.
     #[borsh_skip]
@@ -125,7 +125,7 @@ impl BlockHeader {
         chunk_tx_root: MerkleHash,
         timestamp: DateTime<Utc>,
         approval_mask: Vec<bool>,
-        approval_sigs: Vec<Signature>,
+        approval_sig: BlsSignature,
         total_weight: Weight,
         validator_proposals: Vec<ValidatorStake>,
         chunk_mask: Vec<bool>,
@@ -135,7 +135,7 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> Self {
         let inner = BlockHeaderInner::new(
             height,
@@ -147,7 +147,7 @@ impl BlockHeader {
             chunk_tx_root,
             timestamp,
             approval_mask,
-            approval_sigs,
+            approval_sig,
             total_weight,
             validator_proposals,
             chunk_mask,
@@ -181,7 +181,7 @@ impl BlockHeader {
             chunk_tx_root,
             timestamp,
             vec![],
-            vec![],
+            BlsSignature::empty(),
             0.into(),
             vec![],
             vec![],
@@ -192,7 +192,7 @@ impl BlockHeader {
             initial_total_supply,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
-        Self { inner, signature: Signature::empty(KeyType::ED25519), hash }
+        Self { inner, signature: BlsSignature::empty(), hash }
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -200,12 +200,16 @@ impl BlockHeader {
     }
 
     /// Verifies that given public key produced the block.
-    pub fn verify_block_producer(&self, public_key: &PublicKey) -> bool {
-        self.signature.verify(self.hash.as_ref(), public_key)
+    pub fn verify_block_producer(&self, public_key: &BlsPublicKey) -> bool {
+        self.signature.verify_single(self.hash.as_ref(), public_key)
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {
         from_timestamp(self.inner.timestamp)
+    }
+
+    pub fn num_approvals(&self) -> u64 {
+        self.inner.approval_mask.iter().map(|x| if *x { 1u64 } else { 0u64 }).sum()
     }
 }
 
@@ -243,7 +247,7 @@ impl Block {
                     CryptoHash::default(),
                     CryptoHash::default(),
                     vec![],
-                    &EmptySigner {},
+                    &EmptyBlsSigner {},
                 )
             })
             .collect();
@@ -269,20 +273,19 @@ impl Block {
         height: BlockIndex,
         chunks: Vec<ShardChunkHeader>,
         epoch_id: EpochId,
-        mut approvals: HashMap<usize, Signature>,
+        approvals: HashMap<usize, BlsSignature>,
         gas_price_adjustment_rate: u8,
         inflation: Option<Balance>,
         challenges: Challenges,
-        signer: &dyn Signer,
+        signer: &dyn BlsSigner,
     ) -> Self {
-        let (approval_mask, approval_sigs) = if let Some(max_approver) = approvals.keys().max() {
-            (
-                (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect(),
-                (0..=*max_approver).filter_map(|i| approvals.remove(&i)).collect(),
-            )
-        } else {
-            (vec![], vec![])
-        };
+        let mut approval_sig = BlsSignature::empty();
+        let max_approver = approvals.keys().max().unwrap_or(&0);
+        let approval_mask =
+            (0..=*max_approver).map(|i| approvals.contains_key(&i)).collect::<Vec<bool>>();
+        for (_, sig) in approvals.iter() {
+            approval_sig.add(sig);
+        }
 
         // Collect aggregate of validators and gas usage/limits from chunks.
         let mut validator_proposals = vec![];
@@ -314,8 +317,9 @@ impl Block {
         };
         let new_total_supply = prev.inner.total_supply + inflation.unwrap_or(0);
 
-        let total_weight =
-            (prev.inner.total_weight.to_num() + (approval_sigs.len() as u64) + 1).into();
+        let num_approvals: u128 =
+            approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
+        let total_weight = prev.inner.total_weight.next(num_approvals);
         Block {
             header: BlockHeader::new(
                 height,
@@ -326,7 +330,7 @@ impl Block {
                 Block::compute_chunk_tx_root(&chunks),
                 Utc::now(),
                 approval_mask,
-                approval_sigs,
+                approval_sig,
                 total_weight,
                 validator_proposals,
                 chunk_mask,
@@ -385,21 +389,21 @@ impl Block {
     BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default,
 )]
 pub struct Weight {
-    num: u64,
+    num: u128,
 }
 
 impl Weight {
-    pub fn to_num(self) -> u64 {
+    pub fn to_num(self) -> u128 {
         self.num
     }
 
-    pub fn next(self, num: u64) -> Self {
+    pub fn next(self, num: u128) -> Self {
         Weight { num: self.num + num + 1 }
     }
 }
 
-impl From<u64> for Weight {
-    fn from(num: u64) -> Self {
+impl From<u128> for Weight {
+    fn from(num: u128) -> Self {
         Weight { num }
     }
 }
