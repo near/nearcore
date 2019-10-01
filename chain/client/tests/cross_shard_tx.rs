@@ -384,7 +384,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 50 },
+                if rotate_validators { 150 } else { 75 },
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -439,7 +439,7 @@ mod tests {
             }
 
             // On X1 it takes ~1m 15s
-            near_network::test_utils::wait_or_panic(600000);
+            near_network::test_utils::wait_or_panic(120000);
         })
         .unwrap();
     }
