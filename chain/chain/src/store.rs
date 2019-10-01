@@ -1011,16 +1011,23 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             return Err(ErrorKind::InvalidChunkReceiptsRoot.into());
         }
 
-        // Check that chunk headers root stored in the header matches the state root of the chunks
+        // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
         let chunk_headers_root = Block::compute_chunk_headers_root(&block.chunks);
         if block.header.inner.chunk_headers_root != chunk_headers_root {
             return Err(ErrorKind::InvalidChunkHeadersRoot.into());
         }
 
-        // Check that chunk headers root stored in the header matches the state root of the chunks
+        // Check that chunk tx root stored in the header matches the tx root of the chunks
         let chunk_tx_root = Block::compute_chunk_tx_root(&block.chunks);
         if block.header.inner.chunk_tx_root != chunk_tx_root {
             return Err(ErrorKind::InvalidChunkTxRoot.into());
+        }
+
+        // Check that chunk included root stored in the header matches the chunk included root of the chunks
+        let chunks_included_root =
+            Block::compute_chunks_included(&block.chunks, block.header.inner.height);
+        if block.header.inner.chunks_included != chunks_included_root {
+            return Err(ErrorKind::InvalidChunkHeadersRoot.into());
         }
 
         Ok(())
