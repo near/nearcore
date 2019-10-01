@@ -17,7 +17,7 @@ variables:
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +60 -delete
+    find "${CACHE_ROOT}/target" -mmin +1440 -exec rm -rf {} \;
 
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
