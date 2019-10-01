@@ -1,32 +1,16 @@
+use near_vm_errors::FunctionCallError;
 use near_vm_logic::mocks::mock_external::MockedExternal;
 use near_vm_logic::types::ReturnData;
-use near_vm_logic::{Config, External, VMContext};
+use near_vm_logic::{Config, External, HostError, VMContext};
 use near_vm_runner::{run, VMError};
 use std::fs;
 use std::path::PathBuf;
 
-const CURRENT_ACCOUNT_ID: &str = "alice";
-const SIGNER_ACCOUNT_ID: &str = "bob";
-const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
-const PREDECESSOR_ACCOUNT_ID: &str = "carol";
+mod utils;
 
 fn create_context(input: &[u8]) -> VMContext {
-    VMContext {
-        current_account_id: CURRENT_ACCOUNT_ID.to_owned(),
-        signer_account_id: SIGNER_ACCOUNT_ID.to_owned(),
-        signer_account_pk: Vec::from(&SIGNER_ACCOUNT_PK[..]),
-        predecessor_account_id: PREDECESSOR_ACCOUNT_ID.to_owned(),
-        input: Vec::from(input),
-        block_index: 0,
-        block_timestamp: 0,
-        account_balance: 0,
-        storage_usage: 0, // it's not actually 0 and storage_remove will overflow but we don't use it
-        attached_deposit: 0,
-        prepaid_gas: 10u64.pow(9),
-        random_seed: vec![0, 1, 2],
-        is_view: false,
-        output_data_receivers: vec![],
-    }
+    let input = input.to_vec();
+    crate::utils::create_context(input)
 }
 
 #[test]
@@ -45,9 +29,7 @@ pub fn test_ts_contract() {
         run(vec![], &code, b"try_panic", &mut fake_external, context, &config, &promise_results);
     assert_eq!(
         result.1,
-        Some(VMError::WasmerCallError(
-            "Smart contract has explicitly invoked `panic`.".to_string()
-        ))
+        Some(VMError::FunctionCallError(FunctionCallError::HostError(HostError::GuestPanic)))
     );
 
     // Call method that writes something into storage.

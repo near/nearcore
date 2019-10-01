@@ -1,6 +1,7 @@
 //! External dependencies of the near-vm-logic.
 
 use crate::types::{AccountId, Balance, Gas, IteratorIndex, PublicKey, ReceiptIndex};
+use near_vm_errors::HostErrorOrStorageError;
 
 /// An abstraction over the memory of the smart contract.
 pub trait MemoryLike {
@@ -29,17 +30,7 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]);
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExternalError {
-    InvalidReceiptIndex,
-    InvalidIteratorIndex,
-    InvalidAccountId,
-    InvalidMethodName,
-    InvalidPublicKey,
-    StorageError,
-}
-
-pub type Result<T> = ::std::result::Result<T, ExternalError>;
+pub type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
 pub trait External {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>>;
@@ -127,18 +118,4 @@ pub trait External {
     ) -> Result<()>;
 
     fn sha256(&self, data: &[u8]) -> Result<Vec<u8>>;
-}
-
-impl std::fmt::Display for ExternalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::result::Result<(), std::fmt::Error> {
-        use ExternalError::*;
-        match &self {
-            InvalidReceiptIndex => write!(f, "VM Logic returned an invalid receipt index"),
-            InvalidIteratorIndex => write!(f, "VM Logic returned an invalid iterator index"),
-            InvalidAccountId => write!(f, "VM Logic returned an invalid account id"),
-            InvalidMethodName => write!(f, "VM Logic returned an invalid method name"),
-            InvalidPublicKey => write!(f, "VM Logic provided an invalid public key"),
-            StorageError => write!(f, "Storage error"),
-        }
-    }
 }

@@ -720,9 +720,14 @@ pub fn create_testnet_configs_from_seeds(
     num_shards: usize,
     num_non_validators: usize,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig)
+{
     let num_validators = seeds.len() - num_non_validators;
-    let signers =
+    let signers = seeds
+        .iter()
+        .map(|seed| InMemorySigner::from_seed(seed, KeyType::ED25519, seed))
+        .collect::<Vec<_>>();
+    let bls_signers =
         seeds.iter().map(|seed| InMemoryBlsSigner::from_seed(seed, seed)).collect::<Vec<_>>();
     let network_signers = seeds
         .iter()
@@ -752,7 +757,7 @@ pub fn create_testnet_configs_from_seeds(
             cmp::min(num_validators - 1, config.consensus.min_num_peers);
         configs.push(config);
     }
-    (configs, signers, network_signers, genesis_config)
+    (configs, signers, bls_signers, network_signers, genesis_config)
 }
 
 /// Create testnet configuration. If `local_ports` is true,
@@ -763,7 +768,8 @@ pub fn create_testnet_configs(
     num_non_validators: usize,
     prefix: &str,
     local_ports: bool,
-) -> (Vec<Config>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig) {
+) -> (Vec<Config>, Vec<InMemorySigner>, Vec<InMemoryBlsSigner>, Vec<InMemorySigner>, GenesisConfig)
+{
     create_testnet_configs_from_seeds(
         (0..(num_validators + num_non_validators))
             .map(|i| format!("{}{}", prefix, i))
@@ -781,13 +787,14 @@ pub fn init_testnet_configs(
     num_non_validators: usize,
     prefix: &str,
 ) {
-    let (configs, signers, network_signers, genesis_config) =
+    let (configs, signers, bls_signers, network_signers, genesis_config) =
         create_testnet_configs(num_shards, num_validators, num_non_validators, prefix, false);
     for i in 0..(num_validators + num_non_validators) {
         let node_dir = dir.join(format!("{}{}", prefix, i));
         fs::create_dir_all(node_dir.clone()).expect("Failed to create directory");
 
-        signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
+        signers[i].write_to_file(&node_dir.join(SIGNER_KEY_FILE));
+        bls_signers[i].write_to_file(&node_dir.join(configs[i].validator_key_file.clone()));
         network_signers[i].write_to_file(&node_dir.join(configs[i].node_key_file.clone()));
 
         genesis_config.write_to_file(&node_dir.join(configs[i].genesis_file.clone()));

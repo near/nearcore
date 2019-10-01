@@ -43,6 +43,9 @@ use crate::config::{
 };
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
+use near_primitives::errors::{
+    ActionError, InvalidAccessKeyError, InvalidTxError, InvalidTxErrorOrStorageError,
+};
 
 mod actions;
 pub mod adapter;
@@ -87,7 +90,7 @@ pub struct ApplyResult {
 pub struct ActionResult {
     pub gas_burnt: Gas,
     pub gas_used: Gas,
-    pub result: Result<ReturnData, Box<dyn std::error::Error>>,
+    pub result: Result<ReturnData, ActionError>,
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
@@ -158,54 +161,42 @@ impl Runtime {
         state_update: &mut TrieUpdate,
         apply_state: &ApplyState,
         signed_transaction: &SignedTransaction,
-    ) -> Result<VerificationResult, Box<dyn std::error::Error>> {
+    ) -> Result<VerificationResult, InvalidTxErrorOrStorageError> {
         let transaction = &signed_transaction.transaction;
         let signer_id = &transaction.signer_id;
         if !is_valid_account_id(&signer_id) {
-            return Err(format!(
-                "Invalid signer account ID {:?} according to requirements",
-                signer_id
-            )
-            .into());
+            return Err(InvalidTxError::InvalidSigner(signer_id.clone()).into());
         }
         if !is_valid_account_id(&transaction.receiver_id) {
-            return Err(format!(
-                "Invalid receiver account ID {:?} according to requirements",
-                transaction.receiver_id
-            )
-            .into());
+            return Err(InvalidTxError::InvalidReceiver(transaction.receiver_id.clone()).into());
         }
 
         if !signed_transaction
             .signature
             .verify(signed_transaction.get_hash().as_ref(), &transaction.public_key)
         {
-            return Err("Transaction is not signed with a given public key".into());
+            return Err(InvalidTxError::InvalidSignature.into());
         }
         let mut signer = match get_account(state_update, signer_id)? {
             Some(signer) => signer,
             None => {
-                return Err(format!("Signer {:?} does not exist", signer_id).into());
+                return Err(InvalidTxError::SignerDoesNotExist(signer_id.clone()).into());
             }
         };
         let mut access_key =
             match get_access_key(state_update, &signer_id, &transaction.public_key)? {
                 Some(access_key) => access_key,
                 None => {
-                    return Err(format!(
-                        "Signer {:?} doesn't have access key with the given public_key {}",
-                        signer_id, &transaction.public_key,
+                    return Err(InvalidAccessKeyError::AccessKeyNotFound(
+                        signer_id.clone(),
+                        transaction.public_key.clone(),
                     )
                     .into());
                 }
             };
 
         if transaction.nonce <= access_key.nonce {
-            return Err(format!(
-                "Transaction nonce {} must be larger than nonce of the used access key {}",
-                transaction.nonce, access_key.nonce,
-            )
-            .into());
+            return Err(InvalidTxError::InvalidNonce(transaction.nonce, access_key.nonce).into());
         }
 
         let sender_is_receiver = &transaction.receiver_id == signer_id;
@@ -237,10 +228,7 @@ impl Runtime {
         let mut total_cost = safe_gas_to_balance(apply_state.gas_price, gas_used)?;
         total_cost = safe_add_balance(total_cost, total_deposit(&transaction.actions)?)?;
         signer.amount = signer.amount.checked_sub(total_cost).ok_or_else(|| {
-            format!(
-                "Sender {} does not have enough balance {} for operation costing {}",
-                signer_id, signer.amount, total_cost
-            )
+            InvalidTxError::NotEnoughBalance(signer_id.clone(), signer.amount, total_cost)
         })?;
 
         if let AccessKeyPermission::FunctionCall(ref mut function_call_permission) =
@@ -248,9 +236,11 @@ impl Runtime {
         {
             if let Some(ref mut allowance) = function_call_permission.allowance {
                 *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
-                    format!(
-                        "Access Key {}:{} does not have enough balance {} for transaction costing {}",
-                        signer_id, transaction.public_key, allowance, total_cost
+                    InvalidAccessKeyError::NotEnoughAllowance(
+                        signer_id.clone(),
+                        transaction.public_key.clone(),
+                        *allowance,
+                        total_cost,
                     )
                 })?;
             }
@@ -258,25 +248,22 @@ impl Runtime {
 
         if let Err(amount) = check_rent(&signer_id, &signer, &self.config, apply_state.epoch_length)
         {
-            return Err(format!("Failed to execute, because the account {} wouldn't have enough to pay required rent {}", signer_id, amount).into());
+            return Err(InvalidTxError::RentUnpaid(signer_id.clone(), amount).into());
         }
 
         if let AccessKeyPermission::FunctionCall(ref function_call_permission) =
             access_key.permission
         {
             if transaction.actions.len() != 1 {
-                return Err(
-                    "Transaction has more than 1 actions and is using function call access key"
-                        .into(),
-                );
+                return Err(InvalidAccessKeyError::ActionError.into());
             }
             if let Some(Action::FunctionCall(ref function_call)) = transaction.actions.get(0) {
                 if transaction.receiver_id != function_call_permission.receiver_id {
-                    return Err(format!(
-                        "Transaction receiver_id {:?} doesn't match the access key receiver_id {:?}",
-                        &transaction.receiver_id,
-                        &function_call_permission.receiver_id,
-                    ).into());
+                    return Err(InvalidAccessKeyError::ReceiverMismatch(
+                        transaction.receiver_id.clone(),
+                        function_call_permission.receiver_id.clone(),
+                    )
+                    .into());
                 }
                 if !function_call_permission.method_names.is_empty()
                     && function_call_permission
@@ -284,14 +271,13 @@ impl Runtime {
                         .iter()
                         .all(|method_name| &function_call.method_name != method_name)
                 {
-                    return Err(format!(
-                        "Transaction method name {:?} isn't allowed by the access key",
-                        &function_call.method_name
+                    return Err(InvalidAccessKeyError::MethodNameMismatch(
+                        function_call.method_name.clone(),
                     )
                     .into());
                 }
             } else {
-                return Err("The used access key requires exactly one FunctionCall action".into());
+                return Err(InvalidAccessKeyError::ActionError.into());
             }
         };
 
@@ -352,15 +338,15 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                     }
                 }
-                Err(s) => {
+                Err(InvalidTxErrorOrStorageError::StorageError(e)) => {
                     state_update.rollback();
-                    if let Some(e) = s.downcast_ref::<StorageError>() {
-                        // TODO fix error type in apply_signed_transaction
-                        return Err(e.clone());
-                    }
+                    return Err(e);
+                }
+                Err(InvalidTxErrorOrStorageError::InvalidTxError(e)) => {
+                    state_update.rollback();
                     ExecutionOutcome {
                         status: ExecutionStatus::Failure,
-                        logs: vec![format!("Runtime error: {}", s)],
+                        logs: vec![format!("Runtime error: {}", e)],
                         receipt_ids: vec![],
                         gas_burnt: 0,
                     }
@@ -449,7 +435,7 @@ impl Runtime {
                     &mut result,
                     account_id,
                     delete_account,
-                );
+                )?;
             }
         };
         Ok(result)
@@ -533,11 +519,7 @@ impl Runtime {
                     check_rent(account_id, account, &self.config, apply_state.epoch_length)
                 {
                     result.merge(ActionResult {
-                        result: Err(format!(
-                            "The account {} wouldn't have enough to pay required rent {}",
-                            account_id, amount
-                        )
-                        .into()),
+                        result: Err(ActionError::RentUnpaid(account_id.clone(), amount)),
                         ..Default::default()
                     });
                 } else {
