@@ -232,14 +232,14 @@ impl External for MockedExternal {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Receipt {
     receipt_indices: Vec<u64>,
     receiver_id: String,
     actions: Vec<Action>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Action {
     CreateAccount,
     DeployContract(DeployContractAction),
@@ -252,12 +252,12 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DeployContractAction {
     pub code: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_str")]
     method_name: Vec<u8>,
@@ -267,26 +267,26 @@ pub struct FunctionCallAction {
     deposit: Balance,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransferAction {
     deposit: Balance,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StakeAction {
     stake: Balance,
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     public_key: PublicKey,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddKeyWithFullAccessAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     public_key: PublicKey,
     nonce: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddKeyWithFunctionCallAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     public_key: PublicKey,
@@ -297,13 +297,13 @@ pub struct AddKeyWithFunctionCallAction {
     method_names: Vec<Vec<u8>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DeleteKeyAction {
     #[serde(with = "crate::serde_with::bytes_as_base58")]
     public_key: PublicKey,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DeleteAccountAction {
     beneficiary_id: AccountId,
 }
