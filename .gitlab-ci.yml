@@ -111,7 +111,9 @@ test_nearlib:
    before_script:
    - *setup_rust
    - *setup_cache
+   - curl -L https://git.io/n-install | bash -s -- latest -y
    script:
+   - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
    after_script:
    - *cleanup_obsolete_cache
