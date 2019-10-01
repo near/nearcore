@@ -14,7 +14,7 @@ fn check_method(module: &Module, method_name: &str) -> Result<(), VMError> {
     if let Some(Func(index)) = info.exports.get(method_name) {
         let func = info.func_assoc.get(index.clone()).unwrap();
         let sig = info.signatures.get(func.clone()).unwrap();
-        if sig.params().len() == 0 && sig.returns().len() == 0 {
+        if sig.params().is_empty() && sig.returns().is_empty() {
             Ok(())
         } else {
             Err(VMError::FunctionCallError(FunctionCallError::ResolveError(
