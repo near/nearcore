@@ -633,8 +633,8 @@ impl Default for FinalExecutionStatus {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatusView {
-    /// The execution is pending.
-    Pending,
+    /// The execution is pending or unknown.
+    Unknown,
     /// The execution has failed.
     Failure,
     /// The final action succeeded and returned some value or an empty vec encoded in base64.
@@ -647,7 +647,7 @@ pub enum ExecutionStatusView {
 impl fmt::Debug for ExecutionStatusView {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ExecutionStatusView::Pending => f.write_str("Pending"),
+            ExecutionStatusView::Unknown => f.write_str("Unknown"),
             ExecutionStatusView::Failure => f.write_str("Failure"),
             ExecutionStatusView::SuccessValue(v) => f.write_fmt(format_args!(
                 "SuccessValue({})",
@@ -663,7 +663,7 @@ impl fmt::Debug for ExecutionStatusView {
 impl From<ExecutionStatus> for ExecutionStatusView {
     fn from(outcome: ExecutionStatus) -> Self {
         match outcome {
-            ExecutionStatus::Pending => ExecutionStatusView::Pending,
+            ExecutionStatus::Unknown => ExecutionStatusView::Unknown,
             ExecutionStatus::Failure => ExecutionStatusView::Failure,
             ExecutionStatus::SuccessValue(v) => ExecutionStatusView::SuccessValue(to_base64(&v)),
             ExecutionStatus::SuccessReceiptId(receipt_id) => {
@@ -676,7 +676,7 @@ impl From<ExecutionStatus> for ExecutionStatusView {
 impl From<ExecutionStatusView> for ExecutionStatus {
     fn from(view: ExecutionStatusView) -> Self {
         match view {
-            ExecutionStatusView::Pending => ExecutionStatus::Pending,
+            ExecutionStatusView::Unknown => ExecutionStatus::Unknown,
             ExecutionStatusView::Failure => ExecutionStatus::Failure,
             ExecutionStatusView::SuccessValue(v) => {
                 ExecutionStatus::SuccessValue(from_base64(&v).unwrap())
