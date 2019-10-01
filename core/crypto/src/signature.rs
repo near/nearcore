@@ -445,8 +445,7 @@ impl Signature {
 
 impl Default for Signature {
     fn default() -> Self {
-        let signature_str = "\"secp256k1:Ng9nnxbC1BBWJ8NZ8XyExB7kUMtWNn8xCdxRtVC1m7ghH8EpwcupZU3BAxk6ehamaB89aSzhC6UeME4QgZtfkhtwi\"";
-        serde_json::from_str(signature_str).unwrap()
+        Signature::empty(KeyType::SECP256K1)
     }
 }
 

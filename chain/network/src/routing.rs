@@ -9,7 +9,7 @@ use log::debug;
 use near_crypto::{SecretKey, Signature};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::AccountId;
-use near_primitives::unwrap_obj_or_return;
+use near_primitives::unwrap_option_or_return;
 
 use crate::types::PeerId;
 
@@ -107,8 +107,8 @@ impl Edge {
 
         match self.edge_type {
             EdgeType::Added => {
-                let signature0 = unwrap_obj_or_return!(&self.signature0, false);
-                let signature1 = unwrap_obj_or_return!(&self.signature1, false);
+                let signature0 = unwrap_option_or_return!(&self.signature0, false);
+                let signature1 = unwrap_option_or_return!(&self.signature1, false);
 
                 signature0.verify(data.as_ref(), &self.peer0.public_key())
                     && signature1.verify(data.as_ref(), &self.peer1.public_key())
