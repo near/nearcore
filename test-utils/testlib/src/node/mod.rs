@@ -137,21 +137,21 @@ fn near_configs_to_node_configs(
 }
 
 pub fn create_nodes(num_nodes: usize, prefix: &str) -> Vec<NodeConfig> {
-    let (configs, signers, network_signers, genesis_config) =
+    let (configs, _signers, bls_signers, network_signers, genesis_config) =
         create_testnet_configs(1, num_nodes, 0, prefix, true);
-    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
+    near_configs_to_node_configs(configs, bls_signers, network_signers, genesis_config)
 }
 
 pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("../../runtime/near-vm-runner/tests/res/test_contract_rs.wasm");
     let code = to_base64(&fs::read(path).unwrap());
-    let (configs, signers, network_signers, mut genesis_config) =
+    let (configs, _signers, bls_signers, network_signers, mut genesis_config) =
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true);
     for seed in seeds {
         genesis_config.records.push(StateRecord::Contract { account_id: seed, code: code.clone() });
     }
-    near_configs_to_node_configs(configs, signers, network_signers, genesis_config)
+    near_configs_to_node_configs(configs, bls_signers, network_signers, genesis_config)
 }
 
 pub fn sample_two_nodes(num_nodes: usize) -> (usize, usize) {
