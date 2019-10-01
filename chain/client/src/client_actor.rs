@@ -643,6 +643,14 @@ impl ClientActor {
                 accepted_block.status,
                 accepted_block.provenance,
             );
+
+            // Process orphaned chunk_one_parts
+            if self.client.shards_mgr.process_orphaned_one_parts(accepted_block.hash) {
+                let accepted_blocks =
+                    self.client.process_blocks_with_missing_chunks(accepted_block.hash);
+                self.process_accepted_blocks(accepted_blocks);
+            }
+
             self.info_helper.block_processed(accepted_block.gas_used, accepted_block.gas_limit);
             self.check_send_announce_account(accepted_block.hash);
         }
