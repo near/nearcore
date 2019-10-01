@@ -34,6 +34,7 @@ use near_store::Store;
 use crate::sync::{BlockSync, HeaderSync, StateSync, StateSyncResult};
 use crate::types::{Error, ShardSyncStatus};
 use crate::{BlockProducer, ClientConfig, SyncStatus};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 /// Block economics config taken from genesis config
 struct BlockEconomicsConfig {
@@ -718,11 +719,11 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let tx_header = unwrap_or_return!(self.chain.get_block_header(&tx.transaction.block_hash),
-            NetworkClientResponses::InvalidTx(
-                "Transaction is from a different fork".to_string(),
-            )
-        ).clone();
+        let tx_header = unwrap_or_return!(
+            self.chain.get_block_header(&tx.transaction.block_hash),
+            NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string(),)
+        )
+        .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         if !check_tx_history(
             self.chain.get_block_header(&tx.transaction.block_hash).ok(),
@@ -730,9 +731,7 @@ impl Client {
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx(
-                "Transaction has expired".to_string(),
-            );
+            return NetworkClientResponses::InvalidTx("Transaction has expired".to_string());
         }
         let gas_price = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
@@ -747,7 +746,13 @@ impl Client {
         .state_root
         .clone();
 
-        match self.runtime_adapter.validate_tx(head.height + 1, tx_header.inner.timestamp, gas_price, state_root, tx) {
+        match self.runtime_adapter.validate_tx(
+            head.height + 1,
+            tx_header.inner.timestamp,
+            gas_price,
+            state_root,
+            tx,
+        ) {
             Ok(valid_transaction) => {
                 let active_validator = unwrap_or_return!(self.active_validator(), {
                     warn!(target: "client", "Me: {:?} Dropping tx: {:?}", me, valid_transaction);
@@ -789,10 +794,11 @@ impl Client {
                     NetworkClientResponses::ForwardTx(validator, valid_transaction.transaction)
                 }
             }
-            Err(err) => {
+            Err(InvalidTxErrorOrStorageError::InvalidTxError(err)) => {
                 debug!(target: "client", "Invalid tx: {:?}", err);
                 NetworkClientResponses::InvalidTx(err.to_string())
             }
+            Err(InvalidTxErrorOrStorageError::StorageError(err)) => panic!(err),
         }
     }
 

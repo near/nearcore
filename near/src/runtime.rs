@@ -37,6 +37,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -421,7 +422,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_price: Balance,
         state_root: CryptoHash,
         transaction: SignedTransaction,
-    ) -> Result<ValidTransaction, Box<dyn std::error::Error>> {
+    ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
         let apply_state = ApplyState {
             block_index,
