@@ -6,11 +6,12 @@ use std::time::Duration;
 use actix::System;
 use futures::{future, Future};
 
+use borsh::BorshSerialize;
 use near_chain::{Block, BlockApproval, ChainGenesis, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_client, setup_mock, MockNetworkAdapter};
 use near_client::{Client, GetBlock};
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
 use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
 use near_network::{
@@ -23,6 +24,7 @@ use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
+use near_primitives::utils::to_timestamp;
 use near_store::test_utils::create_test_store;
 
 /// Runs block producing client and stops after network mock received two blocks.
@@ -443,9 +445,7 @@ fn test_process_invalid_tx() {
     produce_blocks(&mut client, 12);
     assert_eq!(
         client.process_tx(tx),
-        NetworkClientResponses::InvalidTx(
-            "Transaction has expired".to_string()
-        )
+        NetworkClientResponses::InvalidTx("Transaction has expired".to_string())
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -460,8 +460,28 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         client.process_tx(tx2),
-        NetworkClientResponses::InvalidTx(
-            "Transaction is from a different fork".to_string()
-        )
+        NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string())
     );
+}
+
+/// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
+#[test]
+fn test_time_attack() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let chain_genesis = ChainGenesis::test();
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+    let genesis = client.chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, signer.clone());
+    b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+    client.process_block(b1, Provenance::NONE);
+
+    let b2 = client.produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
+    assert!(client.process_block(b2, Provenance::PRODUCED).1.is_ok());
 }
