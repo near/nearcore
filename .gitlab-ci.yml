@@ -17,7 +17,7 @@ variables:
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
-    find "${CACHE_ROOT}/target" -atime +60 -delete
+    find "${CACHE_ROOT}/target" -mmin +43200 -exec rm -rf {} \;
 
 .code_coverage: &code_coverage
     mkdir -pv $APT_CACHE_DIR && apt-get -qq update &&
@@ -25,8 +25,7 @@ variables:
     ./scripts/coverage.sh
 
 stages:
-    - rust
-    - libs
+    - test
 
 cache:
     paths:
@@ -34,7 +33,7 @@ cache:
 
 # Test all but expensive integration tests.
 test_cargo:
-    stage: rust
+    stage: test
     tags:
     - gcloud
     before_script:
@@ -44,20 +43,20 @@ test_cargo:
     script:
     - rustc --version && cargo --version
     - cargo check --all --tests --benches
-    - cargo test --all --verbose --features fake_crypto
+    - cargo test --all --verbose
     after_script:
     - *cleanup_obsolete_cache
 
 # Regression tests.
 test_regression:
-    stage: rust
+    stage: test
     before_script:
     - *setup_rust
     - *setup_cache
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_tps_regression test --features "regression_tests,fake_crypto"
+    - cargo test --package nearcore --test test_tps_regression test --features "regression_tests"
     tags:
         - regression_tests
     after_script:
@@ -67,14 +66,14 @@ test_regression:
 
 # A set of expensive tests.
 test_cases_testnet_rpc:
-    stage: rust
+    stage: test
     before_script:
     - *setup_rust
     - *setup_cache
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
-    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests,fake_crypto"
+    - cargo test --package nearcore --test test_cases_testnet_rpc test --features "expensive_tests"
     tags:
         - expensive_tests
     after_script:
@@ -82,20 +81,9 @@ test_cases_testnet_rpc:
     only:
         - schedules
 
-release_build:
-   stage: rust
-   tags:
-   - gcloud
-   before_script:
-   - *setup_rust
-   - *setup_cache
-   script:
-   - rustc --version && cargo --version
-   after_script:
-   - *cleanup_obsolete_cache
 #
 #coverage:
-#    stage: libs
+#    stage: test
 #    before_script:
 #    - *setup_rust
 #    - *setup_cache
@@ -105,14 +93,17 @@ release_build:
 #    - *code_coverage
 #
 test_nearlib:
-   stage: libs
+   stage: test
    tags:
    - gcloud
    before_script:
    - *setup_rust
    - *setup_cache
-   dependencies:
-   - release_build
+   # Install latest Node
+   - npx n latest
    script:
+   - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
 
+   after_script:
+   - *cleanup_obsolete_cache
