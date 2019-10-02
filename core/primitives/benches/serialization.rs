@@ -8,7 +8,7 @@ use bencher::Bencher;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
 
-use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature};
+use near_crypto::{InMemoryBlsSigner, KeyType, PublicKey, Signature};
 use near_primitives::account::Account;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
@@ -34,18 +34,16 @@ fn create_transaction() -> SignedTransaction {
 }
 
 fn create_block() -> Block {
-    let transactions = (0..1000).map(|_| create_transaction()).collect::<Vec<_>>();
     let genesis = Block::genesis(vec![MerkleHash::default()], Utc::now(), 1, 1_000, 1_000, 1_000);
-    let signer = Arc::new(InMemorySigner::from_random("".to_string(), KeyType::ED25519));
+    let signer = Arc::new(InMemoryBlsSigner::from_random("".to_string()));
     Block::produce(
         &genesis.header,
         10,
         vec![genesis.chunks[0].clone()],
         EpochId::default(),
-        transactions,
         HashMap::default(),
         0,
-        0,
+        Some(0),
         signer.clone(),
     )
 }

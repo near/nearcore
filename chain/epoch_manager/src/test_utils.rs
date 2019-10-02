@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use near_crypto::{KeyType, SecretKey};
+use near_crypto::BlsSecretKey;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, BlockIndex, Gas, ShardId, ValidatorStake};
 use near_store::test_utils::create_test_store;
@@ -15,7 +15,7 @@ pub const DEFAULT_TOTAL_SUPPLY: u128 = 1_000_000_000_000;
 pub fn hash_range(num: usize) -> Vec<CryptoHash> {
     let mut result = vec![];
     for i in 0..num {
-        result.push(hash(&vec![i as u8]));
+        result.push(hash(&[i as u8]));
     }
     result
 }
@@ -32,6 +32,7 @@ pub fn epoch_info(
     stake_change: BTreeMap<AccountId, Balance>,
     total_gas_used: Gas,
     validator_reward: HashMap<AccountId, Balance>,
+    inflation: u128,
 ) -> EpochInfo {
     accounts.sort();
     let validator_to_index = accounts.iter().enumerate().fold(HashMap::new(), |mut acc, (i, x)| {
@@ -43,7 +44,7 @@ pub fn epoch_info(
             .into_iter()
             .map(|(account_id, amount)| ValidatorStake {
                 account_id: account_id.to_string(),
-                public_key: SecretKey::from_seed(KeyType::ED25519, account_id).public_key(),
+                public_key: BlsSecretKey::from_seed(account_id).public_key(),
                 amount,
             })
             .collect(),
@@ -54,6 +55,7 @@ pub fn epoch_info(
         stake_change,
         total_gas_used,
         validator_reward,
+        inflation,
     }
 }
 
@@ -75,7 +77,7 @@ pub fn epoch_config(
 }
 
 pub fn stake(account_id: &str, amount: Balance) -> ValidatorStake {
-    let public_key = SecretKey::from_seed(KeyType::ED25519, account_id).public_key();
+    let public_key = BlsSecretKey::from_seed(account_id).public_key();
     ValidatorStake::new(account_id.to_string(), public_key, amount)
 }
 
@@ -171,6 +173,7 @@ pub fn record_block(
                 HashSet::default(),
                 0,
                 DEFAULT_GAS_PRICE,
+                0,
                 DEFAULT_TOTAL_SUPPLY,
             ),
             [0; 32],

@@ -1,16 +1,116 @@
 use crate::config::Config;
 use crate::context::VMContext;
 use crate::dependencies::{External, MemoryLike};
-use crate::errors::HostError;
 use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::{HostError, HostErrorOrStorageError};
+use near_runtime_fees::Fee;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
-type Result<T> = ::std::result::Result<T, HostError>;
+type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
+
+pub struct GasCounter<'a> {
+    /// The amount of gas that was irreversibly used for contract execution.
+    burnt_gas: Gas,
+    /// `burnt_gas` + gas that was attached to the promises.
+    used_gas: Gas,
+    config: &'a Config,
+    prepaid_gas: Gas,
+    is_view: bool,
+}
+
+impl<'a> GasCounter<'a> {
+    pub fn new(config: &'a Config, prepaid_gas: Gas, is_view: bool) -> Self {
+        Self { burnt_gas: 0, used_gas: 0, config: config, prepaid_gas, is_view }
+    }
+    pub fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        assert!(burn_gas <= use_gas);
+        let new_burnt_gas =
+            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
+        if new_burnt_gas <= self.config.max_gas_burnt
+            && (self.is_view || new_used_gas <= self.prepaid_gas)
+        {
+            self.burnt_gas = new_burnt_gas;
+            self.used_gas = new_used_gas;
+            Ok(())
+        } else {
+            use std::cmp::min;
+            let res = if new_burnt_gas > self.config.max_gas_burnt {
+                Err(HostError::GasLimitExceeded.into())
+            } else if new_used_gas > self.prepaid_gas {
+                Err(HostError::GasExceeded.into())
+            } else {
+                unreachable!()
+            };
+
+            let max_burnt_gas = min(self.config.max_gas_burnt, self.prepaid_gas);
+            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
+            self.used_gas = min(new_used_gas, self.prepaid_gas);
+
+            res
+        }
+    }
+    /// A helper function to pay per byte gas
+    pub fn pay_per_byte(&mut self, per_byte: Gas, num_bytes: u64) -> Result<()> {
+        let use_gas = num_bytes
+            .checked_mul(per_byte.checked_add(per_byte).ok_or(HostError::IntegerOverflow)?)
+            .ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay base cost gas
+    pub fn pay_base(&mut self, base_fee: Gas) -> Result<()> {
+        let use_gas = base_fee.checked_add(base_fee).ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay per byte gas fee for batching an action.
+    /// # Args:
+    /// * `per_byte_fee`: the fee per byte;
+    /// * `num_bytes`: the number of bytes;
+    /// * `sir`: whether contract call is addressed to itself;
+    pub fn pay_per_byte_gas_fee(
+        &mut self,
+        per_byte_fee: &Fee,
+        num_bytes: u64,
+        sir: bool,
+    ) -> Result<()> {
+        let use_gas = num_bytes
+            .checked_mul(
+                per_byte_fee
+                    .send_fee(sir)
+                    .checked_add(per_byte_fee.exec_fee())
+                    .ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?;
+
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay base cost gas fee for batching an action.
+    /// # Args:
+    /// * `base_fee`: base fee for the action;
+    /// * `sir`: whether contract call is addressed to itself;
+    pub fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
+        let use_gas = base_fee
+            .send_fee(sir)
+            .checked_add(base_fee.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    pub fn burnt_gas(&self) -> Gas {
+        self.burnt_gas
+    }
+    pub fn used_gas(&self) -> Gas {
+        self.used_gas
+    }
+}
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -31,10 +131,7 @@ pub struct VMLogic<'a> {
     current_account_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
-    /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: Gas,
-    /// `burnt_gas` + gas that was attached to the promises.
-    used_gas: Gas,
+    gas_counter: GasCounter<'a>,
     /// What method returns.
     return_data: ReturnData,
     /// Logs written by the runtime.
@@ -81,6 +178,7 @@ impl<'a> VMLogic<'a> {
     ) -> Self {
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
+        let gas_counter = GasCounter::new(&config, context.prepaid_gas, context.is_view);
         Self {
             ext,
             context,
@@ -89,8 +187,7 @@ impl<'a> VMLogic<'a> {
             memory,
             current_account_balance,
             current_storage_usage,
-            burnt_gas: 0,
-            used_gas: 0,
+            gas_counter: gas_counter,
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
@@ -109,7 +206,7 @@ impl<'a> VMLogic<'a> {
         if memory.fits_memory(offset, len) {
             Ok(())
         } else {
-            Err(HostError::MemoryAccessViolation)
+            Err(HostError::MemoryAccessViolation.into())
         }
     }
 
@@ -128,7 +225,8 @@ impl<'a> VMLogic<'a> {
 
     fn memory_set(memory: &mut dyn MemoryLike, offset: u64, buf: &[u8]) -> Result<()> {
         Self::try_fit_mem(memory, offset, buf.len() as _)?;
-        Ok(memory.write_memory(offset, buf))
+        memory.write_memory(offset, buf);
+        Ok(())
     }
 
     /// Writes `u128` to Wasm memory.
@@ -225,7 +323,7 @@ impl<'a> VMLogic<'a> {
         if data.len() as u64 > config.max_register_size
             || registers.len() as u64 == config.max_number_registers
         {
-            return Err(HostError::MemoryAccessViolation);
+            return Err(HostError::MemoryAccessViolation.into());
         }
         let register = registers.entry(register_id).or_insert_with(Vec::new);
         register.clear();
@@ -235,8 +333,8 @@ impl<'a> VMLogic<'a> {
         // Calculate the new memory usage.
         let usage: usize =
             registers.values().map(|v| size_of::<u64>() + v.len() * size_of::<u8>()).sum();
-        if usage > config.registers_memory_limit as _ {
-            Err(HostError::MemoryAccessViolation)
+        if usage as u64 > config.registers_memory_limit {
+            Err(HostError::MemoryAccessViolation.into())
         } else {
             Ok(())
         }
@@ -264,9 +362,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_id".to_string()).into());
+        }
         let data = context.signer_account_id.as_bytes();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -277,9 +379,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn signer_account_pk(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("signer_account_pk".to_string()).into());
+        }
         let data = context.signer_account_pk.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -290,10 +396,13 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If the registers exceed the memory limit returns `MemoryAccessViolation`.
-    /// TODO: Implement once https://github.com/nearprotocol/NEPs/pull/8 is complete.
+    /// * If the registers exceed the memory limit returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn predecessor_account_id(&mut self, register_id: u64) -> Result<()> {
         let Self { context, registers, config, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("predecessor_account_id".to_string()).into());
+        }
         let data = context.predecessor_account_id.as_ref();
         Self::internal_write_register(registers, config, register_id, data)
     }
@@ -309,6 +418,11 @@ impl<'a> VMLogic<'a> {
     /// Returns the current block index.
     pub fn block_index(&self) -> Result<u64> {
         Ok(self.context.block_index)
+    }
+
+    /// Returns the current block timestamp.
+    pub fn block_timestamp(&self) -> Result<u64> {
+        Ok(self.context.block_timestamp)
     }
 
     /// Returns the number of bytes used by the contract if it was saved to the trie as of the
@@ -334,18 +448,39 @@ impl<'a> VMLogic<'a> {
 
     /// The balance that was attached to the call that will be immediately deposited before the
     /// contract execution starts.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView``.
     pub fn attached_deposit(&mut self, balance_ptr: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("attached_deposit".to_string()).into());
+        }
         Self::memory_set(self.memory, balance_ptr, &self.context.attached_deposit.to_le_bytes())
     }
 
     /// The amount of gas attached to the call that can be used to pay for the gas fees.
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView`.
     pub fn prepaid_gas(&mut self) -> Result<Gas> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("prepaid_gas".to_string()).into());
+        }
         Ok(self.context.prepaid_gas)
     }
 
     /// The gas that was already burnt during the contract execution (cannot exceed `prepaid_gas`)
+    ///
+    /// # Errors
+    ///
+    /// If called as view function returns `ProhibitedInView`.
     pub fn used_gas(&mut self) -> Result<Gas> {
-        Ok(self.used_gas)
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
+        }
+        Ok(self.gas_counter.used_gas)
     }
 
     // ############
@@ -375,48 +510,32 @@ impl<'a> VMLogic<'a> {
         Self::internal_write_register(registers, config, register_id, &value_hash)
     }
 
+    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    ///
+    /// # Errors
+    ///
+    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
+    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
+    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
+    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
+    }
+
     // ################
     // # Promises API #
     // ################
 
-    /// A helper function to pay gas fee for creating a contract call.
+    /// A helper function to pay gas fee for creating a new receipt without actions.
     /// # Args:
     /// * `sir`: whether contract call is addressed to itself;
-    /// * `prepay_gas`: how much prepaid gas should be attached;
-    /// * `num_bytes`: the number of bytes of method name and arguments used for this call;
     /// * `data_dependencies`: other contracts that this execution will be waiting on (or rather
     ///   their data receipts), where bool indicates whether this is sender=receiver communication.
-    fn pay_gas_for_contract_call(
-        &mut self,
-        sir: bool,
-        prepay_gas: Gas,
-        num_bytes: u64,
-        data_dependencies: &[bool],
-    ) -> Result<()> {
+    fn pay_gas_for_new_receipt(&mut self, sir: bool, data_dependencies: &[bool]) -> Result<()> {
         let runtime_fees_cfg = &self.config.runtime_fees;
-        let function_call_cost = &runtime_fees_cfg.action_creation_config.function_call_cost;
         let mut use_gas = runtime_fees_cfg
             .action_receipt_creation_config
             .send_fee(sir)
             .checked_add(runtime_fees_cfg.action_receipt_creation_config.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(function_call_cost.send_fee(sir))
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(function_call_cost.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(
-                num_bytes
-                    .checked_mul(function_call_cost.send_fee(sir))
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(
-                num_bytes
-                    .checked_mul(function_call_cost.exec_fee())
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?
-            .checked_add(prepay_gas)
             .ok_or(HostError::IntegerOverflow)?;
         for dep in data_dependencies {
             use_gas = use_gas
@@ -425,7 +544,7 @@ impl<'a> VMLogic<'a> {
                 .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.deduct_gas(0, use_gas)
+        self.gas_counter.deduct_gas(0, use_gas)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -442,9 +561,10 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
+    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
-    /// or host, with `MemoryAccessViolation`.
+    /// or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -461,31 +581,17 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: Gas,
     ) -> Result<u64> {
-        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
-        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
-        if method_name.is_empty() {
-            return Err(HostError::EmptyMethodName);
-        }
-        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-        let sir = account_id == self.context.current_account_id;
-        let num_bytes = method_name_len + arguments_len;
-        self.pay_gas_for_contract_call(sir, gas, num_bytes, &[])?;
-        self.deduct_balance(amount)?;
-        let new_receipt_idx = self.ext.receipt_create(
-            vec![],
-            account_id.clone(),
-            method_name,
-            arguments,
-            amount,
+        let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
+        self.promise_batch_action_function_call(
+            new_promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
             gas,
         )?;
-        self.receipt_to_account.insert(new_receipt_idx, account_id);
-
-        let promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
-        Ok(promise_idx)
+        Ok(new_promise_idx)
     }
 
     /// Attaches the callback that is executed after promise pointed by `promise_idx` is complete.
@@ -495,7 +601,8 @@ impl<'a> VMLogic<'a> {
     /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
     /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
     ///   `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the
-    ///   guest or host, with `MemoryAccessViolation`.
+    ///   guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -513,48 +620,17 @@ impl<'a> VMLogic<'a> {
         amount_ptr: u64,
         gas: u64,
     ) -> Result<u64> {
-        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
-        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
-        if method_name.is_empty() {
-            return Err(HostError::EmptyMethodName);
-        }
-        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
-
-        // Update the DAG and return new promise idx.
-        let promise =
-            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
-        let receipt_dependencies = match &promise.promise_to_receipt {
-            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
-            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
-        };
-
-        let sir = account_id == self.context.current_account_id;
-        let num_bytes = method_name_len + arguments_len;
-        let deps: Vec<_> = receipt_dependencies
-            .iter()
-            .map(|receipt_idx| {
-                self.receipt_to_account
-                    .get(receipt_idx)
-                    .expect("promises and receipt_to_account should be consistent.")
-                    == &account_id
-            })
-            .collect();
-        self.pay_gas_for_contract_call(sir, gas, num_bytes, &deps)?;
-        self.deduct_balance(amount)?;
-
-        let new_receipt_idx = self.ext.receipt_create(
-            receipt_dependencies,
-            account_id.clone(),
-            method_name,
-            arguments,
-            amount,
+        let new_promise_idx =
+            self.promise_batch_then(promise_idx, account_id_len, account_id_ptr)?;
+        self.promise_batch_action_function_call(
+            new_promise_idx,
+            method_name_len,
+            method_name_ptr,
+            arguments_len,
+            arguments_ptr,
+            amount_ptr,
             gas,
         )?;
-        self.receipt_to_account.insert(new_receipt_idx, account_id);
-        let new_promise_idx = self.promises.len() as PromiseIndex;
-        self.promises
-            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
         Ok(new_promise_idx)
     }
 
@@ -565,10 +641,11 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory with
+    /// * If `promise_ids_ptr + 8 * promise_idx_count` extend outside the guest memory returns
     ///   `MemoryAccessViolation`;
     /// * If any of the promises in the array do not correspond to existing promises returns
     ///   `InvalidPromiseIndex`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
@@ -579,6 +656,9 @@ impl<'a> VMLogic<'a> {
         promise_idx_ptr: u64,
         promise_idx_count: u64,
     ) -> Result<PromiseIndex> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_and".to_string()).into());
+        }
         let promise_indices =
             Self::memory_get_array_u64(self.memory, promise_idx_ptr, promise_idx_count)?;
 
@@ -602,6 +682,501 @@ impl<'a> VMLogic<'a> {
         Ok(new_promise_idx)
     }
 
+    /// Creates a new promise towards given `account_id` without any actions attached to it.
+    ///
+    /// # Errors
+    ///
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    pub fn promise_batch_create(
+        &mut self,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_create".to_string()).into());
+        }
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let sir = account_id == self.context.current_account_id;
+        self.pay_gas_for_new_receipt(sir, &[])?;
+        let new_receipt_idx = self.ext.create_receipt(vec![], account_id.clone())?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
+
+        let promise_idx = self.promises.len() as PromiseIndex;
+        self.promises
+            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        Ok(promise_idx)
+    }
+
+    /// Creates a new promise towards given `account_id` without any actions attached, that is
+    /// executed after promise pointed by `promise_idx` is complete.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`;
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    pub fn promise_batch_then(
+        &mut self,
+        promise_idx: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
+    ) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_batch_then".to_string()).into());
+        }
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        // Update the DAG and return new promise idx.
+        let promise =
+            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let receipt_dependencies = match &promise.promise_to_receipt {
+            PromiseToReceipts::Receipt(receipt_idx) => vec![*receipt_idx],
+            PromiseToReceipts::NotReceipt(receipt_indices) => receipt_indices.clone(),
+        };
+
+        let sir = account_id == self.context.current_account_id;
+        let deps: Vec<_> = receipt_dependencies
+            .iter()
+            .map(|receipt_idx| {
+                self.receipt_to_account
+                    .get(receipt_idx)
+                    .expect("promises and receipt_to_account should be consistent.")
+                    == &account_id
+            })
+            .collect();
+        self.pay_gas_for_new_receipt(sir, &deps)?;
+
+        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id.clone())?;
+        self.receipt_to_account.insert(new_receipt_idx, account_id);
+        let new_promise_idx = self.promises.len() as PromiseIndex;
+        self.promises
+            .push(Promise { promise_to_receipt: PromiseToReceipts::Receipt(new_receipt_idx) });
+        Ok(new_promise_idx)
+    }
+
+    /// Helper function to return the receipt index corresponding to the given promise index.
+    /// It also pulls account ID for the given receipt and compares it with the current account ID
+    /// to return whether the receipt's account ID is the same.
+    fn promise_idx_to_receipt_idx_with_sir(
+        &self,
+        promise_idx: u64,
+    ) -> Result<(ReceiptIndex, bool)> {
+        let promise =
+            self.promises.get(promise_idx as usize).ok_or(HostError::InvalidPromiseIndex)?;
+        let receipt_idx = match &promise.promise_to_receipt {
+            PromiseToReceipts::Receipt(receipt_idx) => Ok(*receipt_idx),
+            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
+        }?;
+
+        let account_id = self
+            .receipt_to_account
+            .get(&receipt_idx)
+            .expect("promises and receipt_to_account should be consistent.");
+        let sir = account_id == &self.context.current_account_id;
+        Ok((receipt_idx, sir))
+    }
+
+    /// Appends `CreateAccount` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_create_account(&mut self, promise_idx: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_create_account".to_string(),
+            )
+            .into());
+        }
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.create_account_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_create_account(receipt_idx)?;
+        Ok(())
+    }
+
+    /// Appends `DeployContract` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `code_len + code_ptr` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_deploy_contract(
+        &mut self,
+        promise_idx: u64,
+        code_len: u64,
+        code_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_deploy_contract".to_string(),
+            )
+            .into());
+        }
+        let code = Self::memory_get(self.memory, code_ptr, code_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        let num_bytes = code.len() as u64;
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
+            sir,
+        )?;
+        self.gas_counter.pay_per_byte_gas_fee(
+            &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+
+        self.ext.append_action_deploy_contract(receipt_idx, code)?;
+        Ok(())
+    }
+
+    /// Appends `FunctionCall` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` or
+    /// `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_function_call(
+        &mut self,
+        promise_idx: u64,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        amount_ptr: u64,
+        gas: Gas,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_function_call".to_string(),
+            )
+            .into());
+        }
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let method_name = Self::memory_get(self.memory, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = Self::memory_get(self.memory, arguments_ptr, arguments_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        let num_bytes = (method_name.len() + arguments.len()) as u64;
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.function_call_cost,
+            sir,
+        )?;
+        self.gas_counter.pay_per_byte_gas_fee(
+            &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+        // Prepaid gas
+        self.gas_counter.deduct_gas(0, gas)?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_function_call(receipt_idx, method_name, arguments, amount, gas)?;
+        Ok(())
+    }
+
+    /// Appends `Transfer` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `amount_ptr + 16` points outside the memory of the guest or host returns
+    /// `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_transfer(
+        &mut self,
+        promise_idx: u64,
+        amount_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_transfer".to_string()).into()
+            );
+        }
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.transfer_cost,
+            sir,
+        )?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_transfer(receipt_idx, amount)?;
+        Ok(())
+    }
+
+    /// Appends `Stake` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `amount_ptr + 16` or `public_key_len + public_key_ptr` points outside the memory of the
+    /// guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_stake(
+        &mut self,
+        promise_idx: u64,
+        amount_ptr: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_stake".to_string()).into()
+            );
+        }
+        let amount = Self::memory_get_u128(self.memory, amount_ptr)?;
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter
+            .pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
+
+        self.deduct_balance(amount)?;
+
+        self.ext.append_action_stake(receipt_idx, amount, public_key)?;
+        Ok(())
+    }
+
+    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. The access key will have `FullAccess` permission.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_add_key_with_full_access(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        nonce: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_add_key_with_full_access".to_string(),
+            )
+            .into());
+        }
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_add_key_with_full_access(receipt_idx, public_key, nonce)?;
+        Ok(())
+    }
+
+    /// Appends `AddKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`. The access key will have `FunctionCall` permission.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr`, `allowance_ptr + 16`,
+    /// `receiver_id_len + receiver_id_ptr` or `method_names_len + method_names_ptr` points outside
+    /// the memory of the guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_add_key_with_function_call(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+        nonce: u64,
+        allowance_ptr: u64,
+        receiver_id_len: u64,
+        receiver_id_ptr: u64,
+        method_names_len: u64,
+        method_names_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_add_key_with_function_call".to_string(),
+            )
+            .into());
+        }
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+        let allowance = Self::memory_get_u128(self.memory, allowance_ptr)?;
+        let allowance = if allowance > 0 { Some(allowance) } else { None };
+        let receiver_id = self.read_and_parse_account_id(receiver_id_ptr, receiver_id_len)?;
+        let method_names = Self::memory_get(self.memory, method_names_ptr, method_names_len)?;
+        // Use `,` separator to split `method_names` into a vector of method names.
+        let method_names =
+            method_names
+                .split(|c| *c == b',')
+                .map(|v| {
+                    if v.is_empty() {
+                        Err(HostError::EmptyMethodName.into())
+                    } else {
+                        Ok(v.to_vec())
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        // +1 is to account for null-terminating characters.
+        let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
+            sir,
+        )?;
+        self.gas_counter.pay_per_byte_gas_fee(
+            &self
+                .config
+                .runtime_fees
+                .action_creation_config
+                .add_key_cost
+                .function_call_cost_per_byte,
+            num_bytes,
+            sir,
+        )?;
+
+        self.ext.append_action_add_key_with_function_call(
+            receipt_idx,
+            public_key,
+            nonce,
+            allowance,
+            receiver_id,
+            method_names,
+        )?;
+        Ok(())
+    }
+
+    /// Appends `DeleteKey` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If the given public key is not a valid (e.g. wrong length) returns `InvalidPublicKey`.
+    /// * If `public_key_len + public_key_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_delete_key(
+        &mut self,
+        promise_idx: u64,
+        public_key_len: u64,
+        public_key_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(
+                HostError::ProhibitedInView("promise_batch_action_delete_key".to_string()).into()
+            );
+        }
+        let public_key = Self::memory_get(self.memory, public_key_ptr, public_key_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.delete_key_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_delete_key(receipt_idx, public_key)?;
+        Ok(())
+    }
+
+    /// Appends `DeleteAccount` action to the batch of actions for the given promise pointed by
+    /// `promise_idx`.
+    ///
+    /// # Errors
+    ///
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If the promise pointed by the `promise_idx` is an ephemeral promise created by
+    /// `promise_and` returns `CannotAppendActionToJointPromise`.
+    /// * If `beneficiary_id_len + beneficiary_id_ptr` points outside the memory of the guest or
+    /// host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    pub fn promise_batch_action_delete_account(
+        &mut self,
+        promise_idx: u64,
+        beneficiary_id_len: u64,
+        beneficiary_id_ptr: u64,
+    ) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView(
+                "promise_batch_action_delete_account".to_string(),
+            )
+            .into());
+        }
+        let beneficiary_id =
+            self.read_and_parse_account_id(beneficiary_id_ptr, beneficiary_id_len)?;
+
+        let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
+
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.delete_account_cost,
+            sir,
+        )?;
+
+        self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        Ok(())
+    }
+
     /// If the current function is invoked by a callback we can access the execution results of the
     /// promises that caused the callback. This function returns the number of complete and
     /// incomplete callbacks.
@@ -613,6 +1188,9 @@ impl<'a> VMLogic<'a> {
     /// * If there are multiple callbacks (e.g. created through `promise_and`) returns their number;
     /// * If the function was called not through the callback returns `0`.
     pub fn promise_results_count(&self) -> Result<u64> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_results_count".to_string()).into());
+        }
         Ok(self.promise_results.len() as _)
     }
 
@@ -633,8 +1211,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// * If `result_idx` does not correspond to an existing result returns `InvalidResultIndex`;
     /// * If copying the blob exhausts the memory limit it returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_result(&mut self, result_idx: u64, register_id: u64) -> Result<u64> {
-        let Self { promise_results, registers, config, .. } = self;
+        let Self { promise_results, registers, config, context, .. } = self;
+        if context.is_view {
+            return Err(HostError::ProhibitedInView("promise_result".to_string()).into());
+        }
         match promise_results
             .get(result_idx as usize)
             .ok_or(HostError::InvalidPromiseResultIndex)?
@@ -653,8 +1235,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If `promise_idx` does not correspond to an existing promise returns `InvalidPromiseIndex`.
+    /// * If called as view function returns `ProhibitedInView`.
     pub fn promise_return(&mut self, promise_idx: u64) -> Result<()> {
+        if self.context.is_view {
+            return Err(HostError::ProhibitedInView("promise_return".to_string()).into());
+        }
         match self
             .promises
             .get(promise_idx as usize)
@@ -665,7 +1251,7 @@ impl<'a> VMLogic<'a> {
                 self.return_data = ReturnData::ReceiptIndex(receipt_idx);
                 Ok(())
             }
-            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise),
+            PromiseToReceipts::NotReceipt(_) => Err(HostError::CannotReturnJointPromise.into()),
         }
     }
 
@@ -703,14 +1289,14 @@ impl<'a> VMLogic<'a> {
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.deduct_gas(0, gas_use)?;
+        self.gas_counter.deduct_gas(0, gas_use)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
 
     /// Terminates the execution of the program with panic `GuestPanic`.
     pub fn panic(&self) -> Result<()> {
-        Err(HostError::GuestPanic)
+        Err(HostError::GuestPanic.into())
     }
 
     /// Logs the UTF-8 encoded string.
@@ -724,14 +1310,14 @@ impl<'a> VMLogic<'a> {
         let mut buf;
         if len != std::u64::MAX {
             if len > self.config.max_log_len {
-                return Err(HostError::BadUTF8);
+                return Err(HostError::BadUTF8.into());
             }
             buf = Self::memory_get(self.memory, ptr, len)?;
         } else {
             buf = vec![];
             for i in 0..=self.config.max_log_len {
                 if i == self.config.max_log_len {
-                    return Err(HostError::BadUTF8);
+                    return Err(HostError::BadUTF8.into());
                 }
                 Self::try_fit_mem(self.memory, ptr, i)?;
                 let el = self.memory.read_memory_u8(ptr + i);
@@ -754,15 +1340,15 @@ impl<'a> VMLogic<'a> {
         slice.copy_from_slice(&buf);
         let len: u32 = u32::from_le_bytes(slice);
         if len % 2 != 0 {
-            return Err(HostError::BadUTF16);
+            return Err(HostError::BadUTF16.into());
         }
-        let buffer = Self::memory_get(self.memory, ptr, len as _)?;
+        let buffer = Self::memory_get(self.memory, ptr, u64::from(len))?;
         let mut u16_buffer = Vec::new();
         for i in 0..((len / 2) as usize) {
             let c = u16::from(buffer[i * 2]) + u16::from(buffer[i * 2 + 1]) * 0x100;
             u16_buffer.push(c);
         }
-        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16)
+        String::from_utf16(&u16_buffer).map_err(|_| HostError::BadUTF16.into())
     }
 
     /// Logs the UTF-16 encoded string. If `len == u64::MAX` then treats the string as
@@ -782,14 +1368,14 @@ impl<'a> VMLogic<'a> {
     /// Special import kept for compatibility with AssemblyScript contracts. Not called by smart
     /// contracts directly, but instead called by the code generated by AssemblyScript.
     pub fn abort(&mut self, msg_ptr: u32, filename_ptr: u32, line: u32, col: u32) -> Result<()> {
-        let msg = self.get_utf16(std::u64::MAX, msg_ptr as _)?;
-        let filename = self.get_utf16(std::u64::MAX, filename_ptr as _)?;
+        let msg = self.get_utf16(std::u64::MAX, u64::from(msg_ptr))?;
+        let filename = self.get_utf16(std::u64::MAX, u64::from(filename_ptr))?;
 
         let message =
             format!("ABORT: {:?} filename: {:?} line: {:?} col: {:?}", msg, filename, line, col);
         self.logs.push(message);
 
-        Err(HostError::GuestPanic)
+        Err(HostError::GuestPanic.into())
     }
 
     /// Reads account id from the given location in memory.
@@ -801,48 +1387,6 @@ impl<'a> VMLogic<'a> {
         let buf = Self::memory_get(self.memory, ptr, len)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
-    }
-
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
-    ///
-    /// # Errors
-    ///
-    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
-    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        self.deduct_gas(gas_amount as _, gas_amount as _)
-    }
-
-    fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
-        assert!(burn_gas <= use_gas);
-        let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas as _).ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas =
-            self.used_gas.checked_add(use_gas as _).ok_or(HostError::IntegerOverflow)?;
-        if self.context.free_of_charge
-            || (new_burnt_gas < self.config.max_gas_burnt
-                && new_used_gas < self.context.prepaid_gas)
-        {
-            self.burnt_gas = new_burnt_gas;
-            self.used_gas = new_used_gas;
-            Ok(())
-        } else {
-            use std::cmp::min;
-            let res = if new_burnt_gas >= self.config.max_gas_burnt {
-                Err(HostError::GasLimitExceeded)
-            } else if new_used_gas >= self.context.prepaid_gas {
-                Err(HostError::GasExceeded)
-            } else {
-                unreachable!()
-            };
-
-            self.burnt_gas =
-                min(self.context.prepaid_gas, min(new_burnt_gas, self.config.max_gas_burnt));
-            self.used_gas = min(new_used_gas, self.context.prepaid_gas);
-
-            res
-        }
     }
 
     /// Writes key-value into storage.
@@ -1031,9 +1575,9 @@ impl<'a> VMLogic<'a> {
     ) -> Result<u64> {
         let Self { ext, registers, config, valid_iterators, invalid_iterators, .. } = self;
         if invalid_iterators.contains(&iterator_id) {
-            return Err(HostError::IteratorWasInvalidated);
+            return Err(HostError::IteratorWasInvalidated.into());
         } else if !valid_iterators.contains(&iterator_id) {
-            return Err(HostError::InvalidIteratorIndex);
+            return Err(HostError::InvalidIteratorIndex.into());
         }
 
         let value = ext.storage_iter_next(iterator_id)?;
@@ -1053,8 +1597,8 @@ impl<'a> VMLogic<'a> {
             balance: self.current_account_balance,
             storage_usage: self.storage_usage().unwrap(),
             return_data: self.return_data,
-            burnt_gas: self.burnt_gas,
-            used_gas: self.used_gas,
+            burnt_gas: self.gas_counter.burnt_gas(),
+            used_gas: self.gas_counter.used_gas(),
             logs: self.logs,
         }
     }

@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use actix::Message;
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
 
-use near_crypto::{InMemorySigner, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner};
+use near_network::PeerInfo;
 use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::types::{AccountId, BlockIndex, ShardId, ValidatorId, Version};
 use near_primitives::views::{
-    BlockView, FinalTransactionResult, QueryResponse, TransactionResultView,
+    BlockView, ChunkView, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryResponse,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 
@@ -18,6 +21,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 pub enum Error {
     Chain(near_chain::Error),
     Pool(near_pool::Error),
+    Chunk(near_chunks::Error),
     BlockProducer(String),
     ChunkProducer(String),
     Other(String),
@@ -28,6 +32,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::Chain(err) => write!(f, "Chain: {}", err),
             Error::Pool(err) => write!(f, "Pool: {}", err),
+            Error::Chunk(err) => write!(f, "Chunk: {}", err),
             Error::BlockProducer(err) => write!(f, "Block Producer: {}", err),
             Error::ChunkProducer(err) => write!(f, "Chunk Producer: {}", err),
             Error::Other(err) => write!(f, "Other: {}", err),
@@ -53,6 +58,12 @@ impl From<near_chain::ErrorKind> for Error {
 impl From<near_pool::Error> for Error {
     fn from(e: near_pool::Error) -> Self {
         Error::Pool(e)
+    }
+}
+
+impl From<near_chunks::Error> for Error {
+    fn from(err: near_chunks::Error) -> Self {
+        Error::Chunk(err)
     }
 }
 
@@ -87,9 +98,9 @@ pub struct ClientConfig {
     /// While syncing, how long to check for each step.
     pub sync_step_period: Duration,
     /// Sync weight threshold: below this difference in weight don't start syncing.
-    pub sync_weight_threshold: u64,
+    pub sync_weight_threshold: u128,
     /// Sync height threshold: below this difference in height don't start syncing.
-    pub sync_height_threshold: u64,
+    pub sync_height_threshold: BlockIndex,
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Period between fetching data from other parts of the system.
@@ -114,8 +125,6 @@ pub struct ClientConfig {
     pub catchup_step_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
-    /// Number of blocks for which a transaction is valid
-    pub transaction_validity_period: BlockIndex,
     /// Accounts that this client tracks
     pub tracked_accounts: Vec<AccountId>,
     /// Shards that this client tracks
@@ -157,7 +166,6 @@ impl ClientConfig {
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
             block_header_fetch_horizon: 50,
-            transaction_validity_period: 100,
             tracked_accounts: vec![],
             tracked_shards: vec![],
         }
@@ -168,17 +176,17 @@ impl ClientConfig {
 #[derive(Clone)]
 pub struct BlockProducer {
     pub account_id: AccountId,
-    pub signer: Arc<dyn Signer>,
+    pub signer: Arc<dyn BlsSigner>,
 }
 
-impl From<InMemorySigner> for BlockProducer {
-    fn from(signer: InMemorySigner) -> Self {
+impl From<InMemoryBlsSigner> for BlockProducer {
+    fn from(signer: InMemoryBlsSigner) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer: Arc::new(signer) }
     }
 }
 
-impl From<Arc<InMemorySigner>> for BlockProducer {
-    fn from(signer: Arc<InMemorySigner>) -> Self {
+impl From<Arc<InMemoryBlsSigner>> for BlockProducer {
+    fn from(signer: Arc<InMemoryBlsSigner>) -> Self {
         BlockProducer { account_id: signer.account_id.clone(), signer }
     }
 }
@@ -237,6 +245,16 @@ impl Message for GetBlock {
     type Result = Result<BlockView, String>;
 }
 
+/// Actor message requesting a chunk by chunk hash and block hash + shard id.
+pub enum GetChunk {
+    BlockHash(CryptoHash, ShardId),
+    ChunkHash(ChunkHash),
+}
+
+impl Message for GetChunk {
+    type Result = Result<ChunkView, String>;
+}
+
 /// Queries client for given path / data.
 pub struct Query {
     pub path: String,
@@ -253,13 +271,30 @@ impl Message for Status {
     type Result = Result<StatusResponse, String>;
 }
 
+pub struct GetNetworkInfo {}
+
+impl Message for GetNetworkInfo {
+    type Result = Result<NetworkInfoResponse, String>;
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NetworkInfoResponse {
+    pub active_peers: Vec<PeerInfo>,
+    pub num_active_peers: usize,
+    pub peer_max_count: u32,
+    pub sent_bytes_per_sec: u64,
+    pub received_bytes_per_sec: u64,
+    /// Accounts of known block and chunk producers from routing table.
+    pub known_producers: Vec<AccountId>,
+}
+
 /// Status of given transaction including all the subsequent receipts.
 pub struct TxStatus {
     pub tx_hash: CryptoHash,
 }
 
 impl Message for TxStatus {
-    type Result = Result<FinalTransactionResult, String>;
+    type Result = Result<FinalExecutionOutcomeView, String>;
 }
 
 /// Details about given transaction.
@@ -268,5 +303,5 @@ pub struct TxDetails {
 }
 
 impl Message for TxDetails {
-    type Result = Result<TransactionResultView, String>;
+    type Result = Result<ExecutionOutcomeView, String>;
 }

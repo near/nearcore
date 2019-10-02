@@ -10,6 +10,8 @@ use kvdb_rocksdb::{Database, DatabaseConfig};
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::contract::ContractCode;
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 use near_primitives::types::{AccountId, StorageUsage};
 use near_primitives::utils::{
@@ -21,8 +23,7 @@ pub use crate::trie::{
     update::TrieUpdate, update::TrieUpdateIterator, PartialStorage, Trie, TrieChanges,
     TrieIterator, WrappedTrieChanges,
 };
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{Receipt, ReceivedData};
+pub use near_primitives::errors::StorageError;
 
 pub mod test_utils;
 mod trie;
@@ -45,7 +46,8 @@ pub const COL_CHUNK_ONE_PARTS: Option<u32> = Some(13);
 pub const COL_BLOCKS_TO_CATCHUP: Option<u32> = Some(14);
 /// Blocks for which the state is being downloaded
 pub const COL_STATE_DL_INFOS: Option<u32> = Some(15);
-const NUM_COLS: u32 = 16;
+pub const COL_CHALLENGED_BLOCKS: Option<u32> = Some(16);
+const NUM_COLS: u32 = 17;
 
 pub struct Store {
     storage: Arc<dyn KeyValueDB>,
@@ -159,16 +161,14 @@ impl StoreUpdate {
 
 impl fmt::Debug for StoreUpdate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Store Update {{\n")?;
+        writeln!(f, "Store Update {{")?;
         for op in self.transaction.ops.iter() {
             match op {
-                DBOp::Insert { col, key, value: _ } => {
-                    write!(f, "  + {:?} {}\n", col, to_base(key))?
-                }
-                DBOp::Delete { col, key } => write!(f, "  - {:?} {}\n", col, to_base(key))?,
+                DBOp::Insert { col, key, .. } => writeln!(f, "  + {:?} {}", col, to_base(key))?,
+                DBOp::Delete { col, key } => writeln!(f, "  - {:?} {}", col, to_base(key))?,
             }
         }
-        write!(f, "}}\n")
+        writeln!(f, "}}")
     }
 }
 
@@ -194,28 +194,6 @@ pub fn create_store(path: &str) -> Arc<Store> {
     let db = Arc::new(Database::open(&db_config, path).expect("Failed to open the database"));
     Arc::new(Store::new(db))
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StorageError {
-    /// Key-value db internal failure
-    StorageInternalError,
-    /// Storage is PartialStorage and requested a missing trie node
-    TrieNodeMissing,
-    /// Either invalid state or key-value db is corrupted.
-    /// For PartialStorage it cannot be corrupted.
-    /// Error message is unreliable and for debugging purposes only. It's also probably ok to
-    /// panic in every place that produces this error.
-    /// We can check if db is corrupted by verifying everything in the state trie.
-    StorageInconsistentState(String),
-}
-
-impl std::fmt::Display for StorageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        f.write_str(&format!("{:?}", self))
-    }
-}
-
-impl std::error::Error for StorageError {}
 
 /// Reads an object from Trie.
 /// # Errors
@@ -334,7 +312,7 @@ pub fn get_code(
 pub fn remove_account(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), StorageError> {
     state_update.remove(&key_for_account(account_id));
     state_update.remove(&key_for_code(account_id));
     state_update.remove_starts_with(&prefix_for_access_key(account_id))?;

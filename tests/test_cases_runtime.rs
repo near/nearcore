@@ -13,17 +13,18 @@ mod test {
         RuntimeNode::new(&alice_account())
     }
 
+    fn create_free_runtime_node() -> RuntimeNode {
+        RuntimeNode::free(&alice_account())
+    }
+
     fn create_runtime_with_expensive_storage() -> RuntimeNode {
-        let mut genesis_config = GenesisConfig::legacy_test(
-            vec![&alice_account(), &bob_account(), "carol.near"],
-            1,
-            vec![1],
-        );
+        let mut genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive state rent and add alice more money.
-        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 10;
+        genesis_config.runtime_config.storage_cost_byte_per_block = TESTING_INIT_BALANCE / 100000;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 10000,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
@@ -34,11 +35,8 @@ mod test {
     }
 
     fn create_runtime_with_expensive_account_length() -> RuntimeNode {
-        let mut genesis_config = GenesisConfig::legacy_test(
-            vec![&alice_account(), &bob_account(), "carol.near"],
-            1,
-            vec![1],
-        );
+        let mut genesis_config =
+            GenesisConfig::test(vec![&alice_account(), &bob_account(), "carol.near"], 1);
         // Set expensive account length rent and add alice more money.
         // `bob.near` has 8 characters. Cost per block is `base / (3^6)`.
         // Need to have balance as least `10 * base / (3^6)`, so if we put `base` at least 73
@@ -48,7 +46,7 @@ mod test {
         genesis_config.runtime_config.storage_cost_byte_per_block = 1;
         genesis_config.runtime_config.poke_threshold = 10;
         match &mut genesis_config.records[0] {
-            StateRecord::Account { account, .. } => account.amount = 10_000_000_000_000_000_000,
+            StateRecord::Account { account, .. } => account.amount = TESTING_INIT_BALANCE * 100,
             _ => {}
         }
         genesis_config.records.push(StateRecord::Data {
@@ -128,6 +126,12 @@ mod test {
     fn test_send_money_runtime() {
         let node = create_runtime_node();
         test_send_money(node);
+    }
+
+    #[test]
+    fn test_smart_contract_reward_runtime() {
+        let node = create_runtime_node();
+        test_smart_contract_reward(node);
     }
 
     #[test]
@@ -320,5 +324,11 @@ mod test {
     fn test_delete_account_while_staking_runtime() {
         let node = create_runtime_node();
         test_delete_account_while_staking(node);
+    }
+
+    #[test]
+    fn test_smart_contract_free_runtime() {
+        let node = create_free_runtime_node();
+        test_smart_contract_free(node);
     }
 }

@@ -1,6 +1,7 @@
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use crate::hash::hash;
 use crate::types::MerkleHash;
-use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct MerklePathItem {
@@ -33,7 +34,7 @@ pub fn merklize<T: BorshSerialize>(arr: &[T]) -> (MerkleHash, Vec<MerklePath>) {
             if i < arr.len() as u32 {
                 hash(&arr[i as usize].try_to_vec().expect("Failed to serialize"))
             } else {
-                hash(&vec![0])
+                hash(&[0])
             }
         })
         .collect();
@@ -98,9 +99,10 @@ pub fn verify_path<T: BorshSerialize>(root: MerkleHash, path: &MerklePath, item:
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
+
+    use super::*;
 
     fn test_with_len(n: u32, rng: &mut StdRng) {
         let mut arr: Vec<u32> = vec![];

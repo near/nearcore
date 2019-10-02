@@ -1,6 +1,6 @@
 [package]
 name = "near"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
@@ -21,7 +21,7 @@ serde_derive = "1.0"
 serde_json = "1.0"
 dirs = "1.0.5"
 
-borsh = { git = "https://github.com/nearprotocol/borsh.git" }
+borsh = "0.2.2"
 
 near-crypto = { path = "../core/crypto" }
 near-primitives = { path = "../core/primitives" }
@@ -32,7 +32,6 @@ near-client = { path = "../chain/client" }
 near-pool = { path = "../chain/pool" }
 near-network = { path = "../chain/network" }
 near-jsonrpc = { path = "../chain/jsonrpc" }
-near-verifier = { path = "../runtime/verifier" }
 near-telemetry = { path = "../chain/telemetry" }
 near-epoch-manager = { path = "../chain/epoch_manager" }
 

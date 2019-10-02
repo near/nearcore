@@ -42,6 +42,9 @@ impl EpochManager {
         reward_calculator: RewardCalculator,
         validators: Vec<ValidatorStake>,
     ) -> Result<Self, EpochError> {
+        let validator_reward = vec![(reward_calculator.protocol_treasury_account.clone(), 0u128)]
+            .into_iter()
+            .collect();
         let mut epoch_manager = EpochManager {
             store,
             config,
@@ -58,7 +61,8 @@ impl EpochManager {
                 &EpochInfo::default(),
                 validators,
                 HashSet::default(),
-                HashMap::default(),
+                validator_reward,
+                0,
                 0,
             )?;
             let block_info = BlockInfo::default();
@@ -91,10 +95,10 @@ impl EpochManager {
             if slashed.contains(&account_id) {
                 continue;
             }
-            let num_blocks = block_validator_tracker.get(&i).unwrap_or(&0).clone();
+            let num_blocks = *block_validator_tracker.get(&i).unwrap_or(&0);
             // Note, validator_kickout_threshold is 0..100, so we use * 100 to keep this in integer space.
             let expected_blocks = *num_expected_blocks.get(&i).unwrap_or(&0);
-            if num_blocks * 100 < (validator_kickout_threshold as u64) * expected_blocks {
+            if num_blocks * 100 < u64::from(validator_kickout_threshold) * expected_blocks {
                 validator_kickout.insert(account_id);
                 continue;
             }
@@ -112,7 +116,7 @@ impl EpochManager {
                 }
             }
             if total_chunks_produced * 100
-                < validator_kickout_threshold as u64 * total_chunks_expected
+                < u64::from(validator_kickout_threshold) * total_chunks_expected
             {
                 validator_kickout.insert(account_id.clone());
                 continue;
@@ -152,6 +156,7 @@ impl EpochManager {
         let mut block_validator_tracker = HashMap::new();
         let mut chunk_validator_tracker = HashMap::new();
         let mut total_gas_used = 0;
+        let mut total_storage_rent = 0;
 
         let epoch_info = self.get_epoch_info(epoch_id)?.clone();
 
@@ -162,10 +167,8 @@ impl EpochManager {
         }
 
         let mut hash = *last_block_hash;
-        //        println!("Epoch {:?}, kickout: {:?}", epoch_id, validator_kickout);
         loop {
             let info = self.get_block_info(&hash)?.clone();
-            //            println!("Info: {:?}", info);
             if &info.epoch_id != epoch_id || info.prev_hash == CryptoHash::default() {
                 break;
             }
@@ -187,13 +190,14 @@ impl EpochManager {
                 let chunk_validator_id =
                     self.chunk_producer_from_info(&epoch_info, info.index, i as ShardId);
                 let tracker =
-                    chunk_validator_tracker.entry(i as ShardId).or_insert_with(|| HashMap::new());
+                    chunk_validator_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
                 if *mask {
                     tracker.entry(chunk_validator_id).and_modify(|e| *e += 1).or_insert(1);
                 }
             }
 
             total_gas_used += info.gas_used;
+            total_storage_rent += info.rent_paid;
 
             hash = info.prev_hash;
         }
@@ -226,6 +230,7 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         })
     }
 
@@ -243,17 +248,15 @@ impl EpochManager {
             validator_kickout,
             validator_online_ratio,
             total_gas_used,
+            total_storage_rent,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
-        //        println!(
-        //            "EpochId: {:?}, LBH: {:?}, proposals: {:?}, kickout: {:?}, current: {:?}",
-        //            epoch_id, last_block_hash, proposals, validator_kickout, current_epoch_info
-        //        );
-        let validator_reward = self.reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = self.reward_calculator.calculate_reward(
             validator_online_ratio,
             total_gas_used,
             block_info.gas_price,
+            total_storage_rent,
             block_info.total_supply,
         );
         let next_next_epoch_info = match proposals_to_epoch_info(
@@ -264,6 +267,7 @@ impl EpochManager {
             validator_kickout,
             validator_reward,
             total_gas_used,
+            inflation,
         ) {
             Ok(next_next_epoch_info) => next_next_epoch_info,
             Err(EpochError::ThresholdError(amount, num_seats)) => {
@@ -290,7 +294,6 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(current_hash)? {
-            //            println!("Record block info: {:?}", block_info);
             if block_info.prev_hash == CryptoHash::default() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals.len(), 0);
@@ -304,25 +307,20 @@ impl EpochManager {
                 )?;
             } else {
                 let prev_block_info = self.get_block_info(&block_info.prev_hash)?.clone();
-                //                println!(
-                //                    "Prev block info: {:?}: {}",
-                //                    prev_block_info,
-                //                    self.is_next_block_in_next_epoch(&prev_block_info).unwrap()
-                //                );
                 for item in prev_block_info.slashed.iter() {
                     block_info.slashed.insert(item.clone());
                 }
                 if prev_block_info.prev_hash == CryptoHash::default() {
                     // This is first real block, starts the new epoch.
                     block_info.epoch_id = EpochId::default();
-                    block_info.epoch_first_block = current_hash.clone();
+                    block_info.epoch_first_block = *current_hash;
                 } else if self.is_next_block_in_next_epoch(&prev_block_info)? {
                     // Current block is in the new epoch, finalize the one in prev_block.
                     block_info.epoch_id = self.get_next_epoch_id_from_info(&prev_block_info)?;
-                    block_info.epoch_first_block = current_hash.clone();
+                    block_info.epoch_first_block = *current_hash;
                 } else {
                     // Same epoch as parent, copy epoch_id and epoch_start_index.
-                    block_info.epoch_id = prev_block_info.epoch_id.clone();
+                    block_info.epoch_id = prev_block_info.epoch_id;
                     block_info.epoch_first_block = prev_block_info.epoch_first_block;
                 }
                 self.save_block_info(&mut store_update, current_hash, block_info.clone())?;
@@ -443,6 +441,7 @@ impl EpochManager {
     }
 
     /// Returns true if next block after given block hash is in the new epoch.
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_next_block_epoch_start(
         &mut self,
         parent_hash: &CryptoHash,
@@ -478,7 +477,7 @@ impl EpochManager {
         &mut self,
         block_hash: &CryptoHash,
     ) -> Result<BlockIndex, EpochError> {
-        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block.clone();
+        let epoch_first_block = self.get_block_info(block_hash)?.epoch_first_block;
         Ok(self.get_block_info(&epoch_first_block)?.index)
     }
 
@@ -542,6 +541,10 @@ impl EpochManager {
             current_proposals: epoch_summary.all_proposals.into_iter().map(Into::into).collect(),
         })
     }
+
+    pub fn get_epoch_inflation(&mut self, epoch_id: &EpochId) -> Result<Balance, EpochError> {
+        Ok(self.get_epoch_info(epoch_id)?.inflation)
+    }
 }
 
 /// Private utilities for EpochManager.
@@ -582,7 +585,7 @@ impl EpochManager {
             for i in 0..num_shards {
                 num_expected_chunks
                     .entry(i)
-                    .or_insert_with(|| HashMap::new())
+                    .or_insert_with(HashMap::new)
                     .entry(self.chunk_producer_from_info(epoch_info, index, i as ShardId))
                     .and_modify(|e| *e += 1)
                     .or_insert(1);
@@ -607,6 +610,7 @@ impl EpochManager {
     }
 
     /// Returns true, if given current block info, next block suppose to be in the next epoch.
+    #[allow(clippy::wrong_self_convention)]
     fn is_next_block_in_next_epoch(&mut self, block_info: &BlockInfo) -> Result<bool, EpochError> {
         Ok(block_info.index + 1
             >= self.get_block_info(&block_info.epoch_first_block)?.index + self.config.epoch_length)
@@ -647,10 +651,9 @@ impl EpochManager {
         epoch_id: &EpochId,
         epoch_info: EpochInfo,
     ) -> Result<(), EpochError> {
-        /*println!("Save epoch: {:?} {:?}", epoch_id, epoch_info);*/
         store_update
             .set_ser(COL_EPOCH_INFO, epoch_id.as_ref(), &epoch_info)
-            .map_err(|err| EpochError::from(err))?;
+            .map_err(EpochError::from)?;
         self.epochs_info.insert(epoch_id.clone(), epoch_info);
         Ok(())
     }
@@ -668,11 +671,10 @@ impl EpochManager {
             let block_info = self
                 .store
                 .get_ser(COL_BLOCK_INFO, hash.as_ref())
-                .map_err(|err| EpochError::from(err))
+                .map_err(EpochError::from)
                 .and_then(|value| value.ok_or_else(|| EpochError::MissingBlock(*hash)))?;
             self.blocks_info.insert(*hash, block_info);
         }
-        // println!("Block info {:?}, {:?}", hash, self.blocks_info.get(hash).unwrap());
         self.blocks_info.get(hash).ok_or(EpochError::MissingBlock(*hash))
     }
 
@@ -684,7 +686,7 @@ impl EpochManager {
     ) -> Result<(), EpochError> {
         store_update
             .set_ser(COL_BLOCK_INFO, block_hash.as_ref(), &block_info)
-            .map_err(|err| EpochError::from(err))?;
+            .map_err(EpochError::from)?;
         self.blocks_info.insert(*block_hash, block_info);
         Ok(())
     }
@@ -718,7 +720,8 @@ mod tests {
             vec![],
             change_stake(vec![("test1", amount_staked)]),
             0,
-            HashMap::default(),
+            reward(vec![("near", 0)]),
+            0,
         );
         let epoch0 = epoch_manager.get_epoch_id(&h[0]).unwrap();
         assert_eq!(epoch_manager.get_epoch_info(&epoch0).unwrap(), &expected0);
@@ -744,6 +747,7 @@ mod tests {
             0,
             // only the validator who produced the block in this epoch gets the reward since epoch length is 1
             reward(vec![("test1", 0), ("near", 0)]),
+            0,
         );
         // no validator change in the last epoch
         let epoch3 = epoch_manager.get_epoch_id(&h[3]).unwrap();
@@ -782,7 +786,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -883,7 +888,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -918,7 +924,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[3], h[4], 4, vec![]);
@@ -933,7 +940,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 0,
-                reward(vec![("test1", 0), ("test2", 0), ("near", 0)])
+                reward(vec![("test1", 0), ("test2", 0), ("near", 0)]),
+                0
             )
         );
         record_block(&mut epoch_manager, h[5], h[6], 6, vec![]);
@@ -948,7 +956,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test2", amount_staked)]),
                 0,
-                reward(vec![("test2", 0), ("near", 0)])
+                reward(vec![("test2", 0), ("near", 0)]),
+                0
             )
         );
     }
@@ -984,6 +993,7 @@ mod tests {
                     slashed,
                     0,
                     DEFAULT_GAS_PRICE,
+                    0,
                     DEFAULT_TOTAL_SUPPLY,
                 ),
                 [0; 32],
@@ -1015,7 +1025,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", amount_staked)]),
                 0,
-                reward(vec![("test2", 0), ("near", 0)])
+                reward(vec![("test2", 0), ("near", 0)]),
+                0
             )
         );
 
@@ -1064,7 +1075,7 @@ mod tests {
         let total_supply = stake_amount * validators.len() as u128;
         let reward_calculator = RewardCalculator {
             max_inflation_rate: 5,
-            num_blocks_per_year: 1_000_000,
+            num_blocks_per_year: 50,
             epoch_length,
             validator_reward_percentage: 60,
             protocol_reward_percentage: 10,
@@ -1087,6 +1098,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1105,6 +1117,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1123,6 +1136,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1131,10 +1145,11 @@ mod tests {
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test1".to_string(), (0, 0));
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let validator_reward = reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1149,7 +1164,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
                 20,
-                reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)])
+                reward(vec![("test1", 0), ("test2", test2_reward), ("near", protocol_reward)]),
+                inflation,
             )
         );
     }
@@ -1185,6 +1201,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 0,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 0,
                     total_supply,
                 },
                 rng_seed,
@@ -1203,6 +1220,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1221,6 +1239,7 @@ mod tests {
                     slashed: Default::default(),
                     gas_used: 10,
                     gas_price: DEFAULT_GAS_PRICE,
+                    rent_paid: 10,
                     total_supply,
                 },
                 rng_seed,
@@ -1228,10 +1247,11 @@ mod tests {
             .unwrap();
         let mut validator_online_ratio = HashMap::new();
         validator_online_ratio.insert("test2".to_string(), (1, 1));
-        let validator_reward = reward_calculator.calculate_reward(
+        let (validator_reward, inflation) = reward_calculator.calculate_reward(
             validator_online_ratio,
             20,
             DEFAULT_GAS_PRICE,
+            20,
             total_supply,
         );
         let test2_reward = *validator_reward.get("test2").unwrap();
@@ -1245,7 +1265,8 @@ mod tests {
                 vec![],
                 change_stake(vec![("test1", 0), ("test2", stake_amount + test2_reward)]),
                 20,
-                reward(vec![("test2", test2_reward), ("near", protocol_reward)])
+                reward(vec![("test2", test2_reward), ("near", protocol_reward)]),
+                inflation
             )
         );
     }
