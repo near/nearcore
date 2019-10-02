@@ -8,7 +8,6 @@ variables:
     BUILD_ARCH: amd64
     CARGO_TARGET: x86_64-unknown-linux-gnu
     APT_CACHE_DIR: apt-cache
-    NEAR_PROTOS_DIR: ../core/protos/protos
 
 .setup_rust: &setup_rust
     rustup default nightly
@@ -16,16 +15,6 @@ variables:
 .setup_cache: &setup_cache
     mkdir -p "${CACHE_ROOT}/target" &&
     ln -s "${CACHE_ROOT}/target" "${CI_PROJECT_DIR}/target"
-
-.install_protos: &install_protos
-    sudo apt-get install -y unzip &&
-    curl -Lo /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.6.1/protoc-3.6.1-linux-x86_64.zip &&
-    sudo unzip /tmp/protoc.zip -d protoc &&
-    sudo mv protoc/bin/* /usr/local/bin/ &&
-    sudo chmod 755 /usr/local/bin/protoc
-
-.setup_python: &setup_python
-    sudo apt-get install -y python-dev
 
 .cleanup_obsolete_cache: &cleanup_obsolete_cache
     find "${CACHE_ROOT}/target" -mmin +1440 -exec rm -rf {} \;
@@ -52,7 +41,6 @@ test_cargo:
     - *setup_rust
     #- rustup component add clippy
     - *setup_cache
-    - *install_protos
     script:
     - rustc --version && cargo --version
     # - ./scripts/run_clippy.sh
@@ -68,7 +56,6 @@ test_regression:
     before_script:
     - *setup_rust
     - *setup_cache
-    - *install_protos
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
@@ -86,7 +73,6 @@ test_cases_testnet_rpc:
     before_script:
     - *setup_rust
     - *setup_cache
-    - *install_protos
     script:
     - rustc --version && cargo --version
     - ./scripts/build_wasm.sh
@@ -105,7 +91,6 @@ release_build:
    before_script:
    - *setup_rust
    - *setup_cache
-   - *install_protos
    script:
    - rustc --version && cargo --version
    after_script:
@@ -116,34 +101,22 @@ release_build:
 #    before_script:
 #    - *setup_rust
 #    - *setup_cache
-#    - *install_protos
 #    script:
 #    - ./scripts/build_wasm.sh
 #    - cargo test --all --no-run
 #    - *code_coverage
 #
 test_nearlib:
-   stage: libs
+   stage: rust 
    tags:
    - gcloud
    before_script:
    - *setup_rust
    - *setup_cache
-   - *install_protos
-   dependencies:
-   - release_build
+   # Install latest Node
+   - npx n latest
    script:
+   - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
    after_script:
    - *cleanup_obsolete_cache
-
-#test_pynear:
-#    stage: libs
-#    before_script:
-#        - *install_protos
-#        - *setup_python
-#    dependencies:
-#        - release_build
-#    script:
-#    - export NEAR_DEVNET_EXE=../devnet
-#    - cd pynear && python setup.py test
