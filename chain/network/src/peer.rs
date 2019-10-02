@@ -14,6 +14,7 @@ use tokio::net::TcpStream;
 
 use near_primitives::hash::CryptoHash;
 use near_primitives::utils::DisplayOption;
+use near_metrics;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -23,6 +24,7 @@ use crate::types::{
     ReasonForBan, SendMessage, Unregister, HandshakeFailureReason, PROTOCOL_VERSION
 };
 use crate::{NetworkClientResponses, PeerManagerActor};
+use crate::metrics;
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -211,6 +213,7 @@ impl Peer {
 
     /// Process non handshake/peer related messages.
     fn receive_client_message(&mut self, ctx: &mut Context<Peer>, msg: PeerMessage) {
+        near_metrics::inc_counter(&metrics::PEER_MESSAGE_RECEIVED);
         let peer_id = match self.peer_info.as_ref() {
             Some(peer_info) => peer_info.id.clone(),
             None => {
@@ -221,6 +224,7 @@ impl Peer {
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
+                near_metrics::inc_counter(&metrics::PEER_BLOCK_RECEIVED);
                 let block_hash = block.hash();
                 self.tracker.push_received(block_hash);
                 self.chain_info.height = max(self.chain_info.height, block.header.inner.height);
@@ -237,6 +241,7 @@ impl Peer {
                 NetworkClientMessages::BlockHeader(header, peer_id)
             }
             PeerMessage::Transaction(transaction) => {
+                near_metrics::inc_counter(&metrics::PEER_TRANSACTION_RECEIVED);
                 NetworkClientMessages::Transaction(transaction)
             }
             PeerMessage::BlockApproval(account_id, hash, signature) => {
@@ -350,6 +355,8 @@ impl WriteHandler<io::Error> for Peer {}
 
 impl StreamHandler<Vec<u8>, io::Error> for Peer {
     fn handle(&mut self, msg: Vec<u8>, ctx: &mut Self::Context) {
+        near_metrics::inc_counter_by(&metrics::PEER_CONNECTION_DATA, msg.len() as i64);
+
         self.tracker.increment_received(msg.len() as u64);
         let peer_msg = match bytes_to_peer_message(&msg) {
             Ok(peer_msg) => peer_msg,

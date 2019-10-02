@@ -28,19 +28,13 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::views::{FinalTransactionStatus};
 use near_primitives::serialize::{BaseEncode, from_base, from_base64};
 use near_primitives::transaction::SignedTransaction;
-use near_metrics::{IntCounter, TextEncoder, Encoder};
+use near_metrics::{TextEncoder, Encoder};
 
+mod metrics;
 pub mod test_utils;
 
 /// Maximum byte size of the json payload.
 const JSON_PAYLOAD_MAX_SIZE: usize = 2 * 1024 * 1024;
-
-lazy_static! {
-    pub static ref REQUEST_COUNT: near_metrics::Result<IntCounter> = near_metrics::try_create_int_counter(
-        "http_server_request_total",
-        "Total count of HTTP requests received"
-    );
-}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RpcPollingConfig {
@@ -231,9 +225,6 @@ impl JsonRpcHandler {
     }
 
     pub async fn metrics(&self) -> Result<String, FromUtf8Error> {
-        // Increment Request Counter
-        near_metrics::inc_counter(&*REQUEST_COUNT);
-
         // Gather metrics and return them as a String
         let mut buffer = vec![];
         let encoder = TextEncoder::new();
@@ -249,6 +240,8 @@ fn rpc_handler(
     message: web::Json<Message>,
     handler: web::Data<JsonRpcHandler>,
 ) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::HTTP_RPC_REQUEST_COUNT);
+
     let response = async move {
         let message = handler.process(message.0).await?;
         Ok(HttpResponse::Ok().json(message))
@@ -257,6 +250,8 @@ fn rpc_handler(
 }
 
 fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::HTTP_STATUS_REQUEST_COUNT);
+
     let response = async move {
         match handler.status().await {
             Ok(value) => Ok(HttpResponse::Ok().json(value)),
@@ -269,6 +264,8 @@ fn status_handler(handler: web::Data<JsonRpcHandler>) -> impl Future<Item = Http
 fn prometheus_handler(
         handler: web::Data<JsonRpcHandler>,
     ) -> impl Future<Item = HttpResponse, Error = HttpError> {
+    near_metrics::inc_counter(&metrics::PROMETHEUS_REQUEST_COUNT);
+
     let response = async move {
         match handler.metrics().await {
             Ok(value) => Ok(HttpResponse::Ok().body(value)),

@@ -13,8 +13,10 @@ use near_primitives::types::{BlockIndex, MerkleHash, ShardId, ValidatorStake};
 use near_store::Store;
 
 use crate::error::{Error, ErrorKind};
+use crate::metrics::{self, hash_to_i64};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use crate::types::{Block, BlockHeader, BlockStatus, Provenance, RuntimeAdapter, Tip};
+
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -247,8 +249,12 @@ impl Chain {
         F: Copy + FnMut(&Block, BlockStatus, Provenance) -> (),
     {
         let hash = block.hash();
+        let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
         let res = self.process_block_single(block, provenance, block_accepted);
+        near_metrics::stop_timer(timer);
         if res.is_ok() {
+            near_metrics::inc_counter(&metrics::BLOCKS_PROCESSED_SUCCESSFULLY);
+
             if let Some(new_res) = self.check_orphans(hash, block_accepted) {
                 return Ok(Some(new_res));
             }
@@ -353,6 +359,8 @@ impl Chain {
     where
         F: FnMut(&Block, BlockStatus, Provenance) -> (),
     {
+        near_metrics::inc_counter(&metrics::BLOCKS_PROCESSED);
+
         let prev_head = self.store.head()?;
         let mut chain_update = ChainUpdate::new(
             &mut self.store,
@@ -427,10 +435,13 @@ impl Chain {
                 debug!(target: "chain", "Check orphans: found {} orphans", orphans.len());
                 for orphan in orphans.into_iter() {
                     let block_hash = orphan.block.hash();
+                    let timer = near_metrics::start_timer(&metrics::BLOCK_PROCESSING_TIME);
                     let res =
                         self.process_block_single(orphan.block, orphan.provenance, block_accepted);
+                    near_metrics::stop_timer(timer);
                     match res {
                         Ok(maybe_tip) => {
+                            near_metrics::inc_counter(&metrics::BLOCKS_PROCESSED_SUCCESSFULLY);
                             maybe_new_head = maybe_tip;
                             queue.push(block_hash);
                         }
@@ -904,6 +915,8 @@ impl<'a> ChainUpdate<'a> {
             let tip = Tip::from_header(&block.header);
 
             self.chain_store_update.save_body_head(&tip);
+            near_metrics::set_gauge(&metrics::HEAD_BLOCK_HEIGHT, tip.height as i64);
+            near_metrics::set_gauge(&metrics::HEAD_BLOCK_HASH, hash_to_i64(&tip.last_block_hash));
             debug!(target: "chain", "Head updated to {} at {}", tip.last_block_hash, tip.height);
             Ok(Some(tip))
         } else {
