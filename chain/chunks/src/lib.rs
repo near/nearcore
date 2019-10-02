@@ -15,7 +15,7 @@ use near_chain::types::validate_chunk_proofs;
 use near_chain::{byzantine_assert, collect_receipts, ErrorKind, RuntimeAdapter, ValidTransaction};
 use near_crypto::BlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
-use near_network::{NetworkClientMessages, NetworkRequests};
+use near_network::NetworkRequests;
 use near_pool::TransactionPool;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};

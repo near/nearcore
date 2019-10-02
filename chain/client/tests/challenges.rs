@@ -104,7 +104,7 @@ fn create_invalid_proofs_chunk(
 fn test_verify_chunk_invalid_proofs_challenge() {
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
-    let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
     let valid_challenge = Challenge::produce(
