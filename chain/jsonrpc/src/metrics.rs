@@ -7,12 +7,12 @@ lazy_static! {
     );
 
     pub static ref HTTP_RPC_REQUEST_COUNT: near_metrics::Result<IntCounter> = near_metrics::try_create_int_counter(
-        "http_rpc_request_total",
+        "http_rpc_requests_total",
         "Total count of HTTP RPC requests received"
     );
 
     pub static ref HTTP_STATUS_REQUEST_COUNT: near_metrics::Result<IntCounter> = near_metrics::try_create_int_counter(
-        "http_status_request_total",
+        "http_status_requests_total",
         "Total count of HTTP Status requests received"
     );
 }
