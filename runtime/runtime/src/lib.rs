@@ -303,7 +303,7 @@ impl Runtime {
         new_local_receipts: &mut Vec<Receipt>,
         new_receipts: &mut Vec<Receipt>,
         total_rent_paid: &mut Balance,
-    ) -> Result<ExecutionOutcomeWithId, StorageError> {
+    ) -> Result<ExecutionOutcomeWithId, InvalidTxErrorOrStorageError> {
         let outcome =
             match self.verify_and_charge_transaction(state_update, apply_state, signed_transaction)
             {
@@ -338,18 +338,9 @@ impl Runtime {
                         gas_burnt: verification_result.gas_burnt,
                     }
                 }
-                Err(InvalidTxErrorOrStorageError::StorageError(e)) => {
+                Err(e) => {
                     state_update.rollback();
                     return Err(e);
-                }
-                Err(InvalidTxErrorOrStorageError::InvalidTxError(e)) => {
-                    state_update.rollback();
-                    ExecutionOutcome {
-                        status: ExecutionStatus::Failure,
-                        logs: vec![format!("Runtime error: {}", e)],
-                        receipt_ids: vec![],
-                        gas_burnt: 0,
-                    }
                 }
             };
         Self::print_log(&outcome.logs);
@@ -811,7 +802,7 @@ impl Runtime {
         apply_state: &ApplyState,
         prev_receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyResult, StorageError> {
+    ) -> Result<ApplyResult, InvalidTxErrorOrStorageError> {
         let mut new_receipts = Vec::new();
         let mut validator_proposals = vec![];
         let mut local_receipts = vec![];
