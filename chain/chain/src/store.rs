@@ -452,7 +452,10 @@ pub struct ChainStoreUpdate<'a, T> {
     sync_head: Option<Tip>,
     trie_changes: Vec<WrappedTrieChanges>,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
-    remove_blocks_to_catchup: Vec<CryptoHash>,
+    // A pair (prev_hash, hash) to be removed from blocks to catchup
+    remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
+    // A prev_hash to be removed with all the hashes associated with it
+    remove_prev_blocks_to_catchup: Vec<CryptoHash>,
     add_state_dl_infos: Vec<StateSyncInfo>,
     remove_state_dl_infos: Vec<CryptoHash>,
     challenged_blocks: HashSet<CryptoHash>,
@@ -478,6 +481,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             trie_changes: vec![],
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
+            remove_prev_blocks_to_catchup: vec![],
             add_state_dl_infos: vec![],
             remove_state_dl_infos: vec![],
             challenged_blocks: HashSet::default(),
@@ -667,6 +671,7 @@ impl<'a, T: ChainStoreAccess> ChainStoreAccess for ChainStoreUpdate<'a, T> {
         // Make sure we never request a block to catchup after altering the data structure
         assert_eq!(self.add_blocks_to_catchup.len(), 0);
         assert_eq!(self.remove_blocks_to_catchup.len(), 0);
+        assert_eq!(self.remove_prev_blocks_to_catchup.len(), 0);
 
         self.chain_store.get_blocks_to_catchup(prev_hash)
     }
@@ -857,8 +862,12 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
         self.add_blocks_to_catchup.push((prev_hash, block_hash));
     }
 
-    pub fn remove_block_to_catchup(&mut self, prev_hash: CryptoHash) {
-        self.remove_blocks_to_catchup.push(prev_hash);
+    pub fn remove_block_to_catchup(&mut self, prev_hash: CryptoHash, hash: CryptoHash) {
+        self.remove_blocks_to_catchup.push((prev_hash, hash));
+    }
+
+    pub fn remove_prev_block_to_catchup(&mut self, hash: CryptoHash) {
+        self.remove_prev_blocks_to_catchup.push(hash);
     }
 
     pub fn add_state_dl_info(&mut self, info: StateSyncInfo) {
@@ -947,17 +956,46 @@ impl<'a, T: ChainStoreAccess> ChainStoreUpdate<'a, T> {
             // TODO: save deletions separately for garbage collection.
         }
         let mut affected_catchup_blocks = HashSet::new();
-        for hash in self.remove_blocks_to_catchup {
-            assert!(!affected_catchup_blocks.contains(&hash));
-            if affected_catchup_blocks.contains(&hash) {
+        for (prev_hash, hash) in self.remove_blocks_to_catchup {
+            assert!(!affected_catchup_blocks.contains(&prev_hash));
+            if affected_catchup_blocks.contains(&prev_hash) {
                 return Err(ErrorKind::Other(
                     "Multiple changes to the store affect the same catchup block".to_string(),
                 )
                 .into());
             }
-            affected_catchup_blocks.insert(hash);
+            affected_catchup_blocks.insert(prev_hash);
 
-            store_update.delete(COL_BLOCKS_TO_CATCHUP, hash.as_ref());
+            let mut prev_table =
+                self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
+
+            let mut remove_idx = prev_table.len();
+            for (i, val) in prev_table.iter().enumerate() {
+                if *val == hash {
+                    remove_idx = i;
+                }
+            }
+
+            assert_ne!(remove_idx, prev_table.len());
+            prev_table.swap_remove(remove_idx);
+
+            if prev_table.len() > 0 {
+                store_update.set_ser(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref(), &prev_table)?;
+            } else {
+                store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
+            }
+        }
+        for prev_hash in self.remove_prev_blocks_to_catchup {
+            assert!(!affected_catchup_blocks.contains(&prev_hash));
+            if affected_catchup_blocks.contains(&prev_hash) {
+                return Err(ErrorKind::Other(
+                    "Multiple changes to the store affect the same catchup block".to_string(),
+                )
+                .into());
+            }
+            affected_catchup_blocks.insert(prev_hash);
+
+            store_update.delete(COL_BLOCKS_TO_CATCHUP, prev_hash.as_ref());
         }
         for (prev_hash, new_hash) in self.add_blocks_to_catchup {
             assert!(!affected_catchup_blocks.contains(&prev_hash));
