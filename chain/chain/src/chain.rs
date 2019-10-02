@@ -1218,11 +1218,8 @@ impl Chain {
 
         let first_epoch = block.header.inner.epoch_id.clone();
 
-        // Skip processing the prev of epoch_start (thus cur=1), but keep it in the queue so that
-        //    we later properly remove epoch_start itself from the permanent storage, since it is
-        //    indexed by the prev block.
-        let mut queue = vec![block.header.inner.prev_hash, *epoch_first_block];
-        let mut cur = 1;
+        let mut queue = vec![*epoch_first_block];
+        let mut cur = 0;
 
         while cur < queue.len() {
             let block_hash = queue[cur];
@@ -1263,9 +1260,16 @@ impl Chain {
 
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
+        // `blocks_to_catchup` consists of pairs (`prev_hash`, `hash`). For the block that precedes
+        // `epoch_first_block` we should only remove the pair with hash = epoch_first_block, while
+        // for all the blocks in the queue we can remove all the pairs that have them as `prev_hash`
+        // since we processed all the blocks built on top of them above during the BFS
+        chain_store_update
+            .remove_block_to_catchup(block.header.inner.prev_hash, *epoch_first_block);
+
         for block_hash in queue {
             debug!(target: "chain", "Catching up: removing prev={:?} from the queue. I'm {:?}", block_hash, me);
-            chain_store_update.remove_block_to_catchup(block_hash);
+            chain_store_update.remove_prev_block_to_catchup(block_hash);
         }
         chain_store_update.remove_state_dl_info(*epoch_first_block);
 
@@ -1754,7 +1758,7 @@ impl<'a> ChainUpdate<'a> {
                 }
 
                 // For the first block of the epoch we never apply state for the next epoch, so it's
-                // always caught up. State download also doesn't happen until the next block.
+                // always caught up.
                 (false, true)
             } else {
                 (self.prev_block_is_caught_up(&prev_prev_hash, &prev_hash)?, false)
