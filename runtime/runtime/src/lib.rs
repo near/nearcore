@@ -294,7 +294,15 @@ impl Runtime {
         Ok(VerificationResult { gas_burnt, gas_used, rent_paid })
     }
 
-    /// Processes signed transaction, charges fees and generates the receipt
+    /// Takes one signed transaction, verifies it and converts it to a receipt. Add this receipt
+    /// either to the new local receipts if the signer is the same as receiver or to the new
+    /// outgoing receipts.
+    /// When transaction is converted to a receipt, the account is charged for the full value of
+    /// the generated receipt. Also accounts for the account rent.
+    /// In case of successful verification (expected for valid chunks), returns
+    /// `ExecutionOutcomeWithId` for the transaction.
+    /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
+    /// or a `StorageError`.
     fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
@@ -795,7 +803,14 @@ impl Runtime {
         Ok(None)
     }
 
-    /// apply transactions from this block and receipts from previous block
+    /// Applies new singed transactions and incoming receipts for some chunk/shard on top of
+    /// given root of the state.
+    /// All new signed transactions should be valid and already verified by the chunk producer.
+    /// If any transaction is invalid, it would return an `InvalidTxError`.
+    /// Returns an `ApplyResult` that contains the new state root, trie changes,
+    /// new outgoing receipts, total rent paid by all the affected accounts, execution outcomes for
+    /// all transactions, local action receipts (generated from transactions with signer ==
+    /// receivers) and incoming action receipts.
     pub fn apply(
         &self,
         mut state_update: TrieUpdate,
