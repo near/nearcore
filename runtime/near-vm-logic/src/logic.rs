@@ -13,6 +13,105 @@ use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
 
+pub struct GasCounter<'a> {
+    /// The amount of gas that was irreversibly used for contract execution.
+    burnt_gas: Gas,
+    /// `burnt_gas` + gas that was attached to the promises.
+    used_gas: Gas,
+    config: &'a Config,
+    prepaid_gas: Gas,
+    is_view: bool,
+}
+
+impl<'a> GasCounter<'a> {
+    pub fn new(config: &'a Config, prepaid_gas: Gas, is_view: bool) -> Self {
+        Self { burnt_gas: 0, used_gas: 0, config: config, prepaid_gas, is_view }
+    }
+    pub fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
+        assert!(burn_gas <= use_gas);
+        let new_burnt_gas =
+            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
+        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
+        if new_burnt_gas <= self.config.max_gas_burnt
+            && (self.is_view || new_used_gas <= self.prepaid_gas)
+        {
+            self.burnt_gas = new_burnt_gas;
+            self.used_gas = new_used_gas;
+            Ok(())
+        } else {
+            use std::cmp::min;
+            let res = if new_burnt_gas > self.config.max_gas_burnt {
+                Err(HostError::GasLimitExceeded.into())
+            } else if new_used_gas > self.prepaid_gas {
+                Err(HostError::GasExceeded.into())
+            } else {
+                unreachable!()
+            };
+
+            let max_burnt_gas = min(self.config.max_gas_burnt, self.prepaid_gas);
+            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
+            self.used_gas = min(new_used_gas, self.prepaid_gas);
+
+            res
+        }
+    }
+    /// A helper function to pay per byte gas
+    pub fn pay_per_byte(&mut self, per_byte: Gas, num_bytes: u64) -> Result<()> {
+        let use_gas = num_bytes
+            .checked_mul(per_byte.checked_add(per_byte).ok_or(HostError::IntegerOverflow)?)
+            .ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay base cost gas
+    pub fn pay_base(&mut self, base_fee: Gas) -> Result<()> {
+        let use_gas = base_fee.checked_add(base_fee).ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay per byte gas fee for batching an action.
+    /// # Args:
+    /// * `per_byte_fee`: the fee per byte;
+    /// * `num_bytes`: the number of bytes;
+    /// * `sir`: whether contract call is addressed to itself;
+    pub fn pay_per_byte_gas_fee(
+        &mut self,
+        per_byte_fee: &Fee,
+        num_bytes: u64,
+        sir: bool,
+    ) -> Result<()> {
+        let use_gas = num_bytes
+            .checked_mul(
+                per_byte_fee
+                    .send_fee(sir)
+                    .checked_add(per_byte_fee.exec_fee())
+                    .ok_or(HostError::IntegerOverflow)?,
+            )
+            .ok_or(HostError::IntegerOverflow)?;
+
+        self.deduct_gas(0, use_gas)
+    }
+
+    /// A helper function to pay base cost gas fee for batching an action.
+    /// # Args:
+    /// * `base_fee`: base fee for the action;
+    /// * `sir`: whether contract call is addressed to itself;
+    pub fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
+        let use_gas = base_fee
+            .send_fee(sir)
+            .checked_add(base_fee.exec_fee())
+            .ok_or(HostError::IntegerOverflow)?;
+        self.deduct_gas(0, use_gas)
+    }
+
+    pub fn burnt_gas(&self) -> Gas {
+        self.burnt_gas
+    }
+    pub fn used_gas(&self) -> Gas {
+        self.used_gas
+    }
+}
+
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
     /// receipts creation.
@@ -32,10 +131,7 @@ pub struct VMLogic<'a> {
     current_account_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
-    /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: Gas,
-    /// `burnt_gas` + gas that was attached to the promises.
-    used_gas: Gas,
+    gas_counter: GasCounter<'a>,
     /// What method returns.
     return_data: ReturnData,
     /// Logs written by the runtime.
@@ -82,6 +178,7 @@ impl<'a> VMLogic<'a> {
     ) -> Self {
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
+        let gas_counter = GasCounter::new(&config, context.prepaid_gas, context.is_view);
         Self {
             ext,
             context,
@@ -90,8 +187,7 @@ impl<'a> VMLogic<'a> {
             memory,
             current_account_balance,
             current_storage_usage,
-            burnt_gas: 0,
-            used_gas: 0,
+            gas_counter: gas_counter,
             return_data: ReturnData::None,
             logs: vec![],
             registers: HashMap::new(),
@@ -384,7 +480,7 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
         }
-        Ok(self.used_gas)
+        Ok(self.gas_counter.used_gas)
     }
 
     // ############
@@ -414,6 +510,17 @@ impl<'a> VMLogic<'a> {
         Self::internal_write_register(registers, config, register_id, &value_hash)
     }
 
+    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
+    ///
+    /// # Errors
+    ///
+    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
+    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
+    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
+    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
+        self.gas_counter.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
+    }
+
     // ################
     // # Promises API #
     // ################
@@ -437,7 +544,7 @@ impl<'a> VMLogic<'a> {
                 .checked_add(runtime_fees_cfg.data_receipt_creation_config.base_cost.exec_fee())
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.deduct_gas(0, use_gas)
+        self.gas_counter.deduct_gas(0, use_gas)
     }
 
     /// A helper function to subtract balance on transfer or attached deposit for promises.
@@ -681,41 +788,6 @@ impl<'a> VMLogic<'a> {
         Ok((receipt_idx, sir))
     }
 
-    /// A helper function to pay base cost gas fee for batching an action.
-    /// # Args:
-    /// * `base_fee`: base fee for the action;
-    /// * `sir`: whether contract call is addressed to itself;
-    fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
-        let use_gas = base_fee
-            .send_fee(sir)
-            .checked_add(base_fee.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?;
-        self.deduct_gas(0, use_gas)
-    }
-
-    /// A helper function to pay per byte gas fee for batching an action.
-    /// # Args:
-    /// * `per_byte_fee`: the fee per byte;
-    /// * `num_bytes`: the number of bytes;
-    /// * `sir`: whether contract call is addressed to itself;
-    fn pay_per_byte_gas_fee(
-        &mut self,
-        per_byte_fee: &Fee,
-        num_bytes: u64,
-        sir: bool,
-    ) -> Result<()> {
-        let use_gas = num_bytes
-            .checked_mul(
-                per_byte_fee
-                    .send_fee(sir)
-                    .checked_add(per_byte_fee.exec_fee())
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?;
-
-        self.deduct_gas(0, use_gas)
-    }
-
     /// Appends `CreateAccount` action to the batch of actions for the given promise pointed by
     /// `promise_idx`.
     ///
@@ -734,7 +806,7 @@ impl<'a> VMLogic<'a> {
         }
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.create_account_cost,
             sir,
         )?;
@@ -771,11 +843,11 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = code.len() as u64;
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost,
             sir,
         )?;
-        self.pay_per_byte_gas_fee(
+        self.gas_counter.pay_per_byte_gas_fee(
             &self.config.runtime_fees.action_creation_config.deploy_contract_cost_per_byte,
             num_bytes,
             sir,
@@ -823,17 +895,17 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
         let num_bytes = (method_name.len() + arguments.len()) as u64;
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.function_call_cost,
             sir,
         )?;
-        self.pay_per_byte_gas_fee(
+        self.gas_counter.pay_per_byte_gas_fee(
             &self.config.runtime_fees.action_creation_config.function_call_cost_per_byte,
             num_bytes,
             sir,
         )?;
         // Prepaid gas
-        self.deduct_gas(0, gas)?;
+        self.gas_counter.deduct_gas(0, gas)?;
 
         self.deduct_balance(amount)?;
 
@@ -866,7 +938,10 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.transfer_cost, sir)?;
+        self.gas_counter.pay_base_gas_fee(
+            &self.config.runtime_fees.action_creation_config.transfer_cost,
+            sir,
+        )?;
 
         self.deduct_balance(amount)?;
 
@@ -903,7 +978,8 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
+        self.gas_counter
+            .pay_base_gas_fee(&self.config.runtime_fees.action_creation_config.stake_cost, sir)?;
 
         self.deduct_balance(amount)?;
 
@@ -940,7 +1016,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.add_key_cost.full_access_cost,
             sir,
         )?;
@@ -1002,11 +1078,11 @@ impl<'a> VMLogic<'a> {
 
         // +1 is to account for null-terminating characters.
         let num_bytes = method_names.iter().map(|v| v.len() as u64 + 1).sum::<u64>();
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.add_key_cost.function_call_cost,
             sir,
         )?;
-        self.pay_per_byte_gas_fee(
+        self.gas_counter.pay_per_byte_gas_fee(
             &self
                 .config
                 .runtime_fees
@@ -1055,7 +1131,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.delete_key_cost,
             sir,
         )?;
@@ -1092,7 +1168,7 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
 
-        self.pay_base_gas_fee(
+        self.gas_counter.pay_base_gas_fee(
             &self.config.runtime_fees.action_creation_config.delete_account_cost,
             sir,
         )?;
@@ -1213,7 +1289,7 @@ impl<'a> VMLogic<'a> {
                 )
                 .ok_or(HostError::IntegerOverflow)?;
         }
-        self.deduct_gas(0, gas_use)?;
+        self.gas_counter.deduct_gas(0, gas_use)?;
         self.return_data = ReturnData::Value(return_val);
         Ok(())
     }
@@ -1311,46 +1387,6 @@ impl<'a> VMLogic<'a> {
         let buf = Self::memory_get(self.memory, ptr, len)?;
         let account_id = AccountId::from_utf8(buf).map_err(|_| HostError::BadUTF8)?;
         Ok(account_id)
-    }
-
-    /// Called by gas metering injected into Wasm. Counts both towards `burnt_gas` and `used_gas`.
-    ///
-    /// # Errors
-    ///
-    /// * If passed gas amount somehow overflows internal gas counters returns `IntegerOverflow`;
-    /// * If we exceed usage limit imposed on burnt gas returns `UsageLimit`;
-    /// * If we exceed the `prepaid_gas` then returns `BalanceExceeded`.
-    pub fn gas(&mut self, gas_amount: u32) -> Result<()> {
-        self.deduct_gas(Gas::from(gas_amount), Gas::from(gas_amount))
-    }
-
-    fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
-        assert!(burn_gas <= use_gas);
-        let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.config.max_gas_burnt
-            && (self.context.is_view || new_used_gas <= self.context.prepaid_gas)
-        {
-            self.burnt_gas = new_burnt_gas;
-            self.used_gas = new_used_gas;
-            Ok(())
-        } else {
-            use std::cmp::min;
-            let res = if new_burnt_gas > self.config.max_gas_burnt {
-                Err(HostError::GasLimitExceeded.into())
-            } else if new_used_gas > self.context.prepaid_gas {
-                Err(HostError::GasExceeded.into())
-            } else {
-                unreachable!()
-            };
-
-            let max_burnt_gas = min(self.config.max_gas_burnt, self.context.prepaid_gas);
-            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
-            self.used_gas = min(new_used_gas, self.context.prepaid_gas);
-
-            res
-        }
     }
 
     /// Writes key-value into storage.
@@ -1561,8 +1597,8 @@ impl<'a> VMLogic<'a> {
             balance: self.current_account_balance,
             storage_usage: self.storage_usage().unwrap(),
             return_data: self.return_data,
-            burnt_gas: self.burnt_gas,
-            used_gas: self.used_gas,
+            burnt_gas: self.gas_counter.burnt_gas(),
+            used_gas: self.gas_counter.used_gas(),
             logs: self.logs,
         }
     }

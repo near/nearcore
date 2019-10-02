@@ -1,4 +1,4 @@
-# Spins up four nodes, and waits until they produce 100 blocks.
+# Spins up four nodes, and waits until they produce 50 blocks.
 # Ensures that the nodes remained in sync throughout the process
 # Sets epoch length to 10
 
@@ -12,7 +12,7 @@ from cluster import start_cluster
 TIMEOUT = 150
 BLOCKS = 50
 
-nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10]])
+nodes = start_cluster(4, 0, 4, {'local': True, 'near_root': '../target/debug/'}, [["epoch_length", 10], ["validator_kickout_threshold", 80]], {})
 
 started = time.time()
 

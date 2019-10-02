@@ -415,10 +415,8 @@ pub fn setup_mock_all_validators(
                                 }
                             }
                         }
-                        NetworkRequests::BanPeer { .. } => println!("MSG BanPeer"),
-                        NetworkRequests::BlockHeaderAnnounce { .. } => {
-                            println!("MSG BlockHeaderAnnounce")
-                        }
+                        NetworkRequests::BanPeer { .. } => {}
+                        NetworkRequests::BlockHeaderAnnounce { .. } => {}
                     };
                 }
                 Box::new(Some(resp))
