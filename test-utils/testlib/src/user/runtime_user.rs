@@ -22,6 +22,7 @@ use node_runtime::{ApplyState, Runtime};
 
 use crate::user::{User, POISONED_LOCK_ERR};
 use near::config::INITIAL_GAS_PRICE;
+use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -74,14 +75,19 @@ impl RuntimeUser {
         apply_state: ApplyState,
         prev_receipts: Vec<Receipt>,
         transactions: Vec<SignedTransaction>,
-    ) {
+    ) -> Result<(), String> {
         let mut receipts = prev_receipts;
         let mut txs = transactions;
         loop {
             let mut client = self.client.write().expect(POISONED_LOCK_ERR);
             let state_update = TrieUpdate::new(client.trie.clone(), client.state_root);
-            let apply_result =
-                client.runtime.apply(state_update, &apply_state, &receipts, &txs).unwrap();
+            let apply_result = client
+                .runtime
+                .apply(state_update, &apply_state, &receipts, &txs)
+                .map_err(|e| match e {
+                    InvalidTxErrorOrStorageError::InvalidTxError(e) => format!("{}", e),
+                    InvalidTxErrorOrStorageError::StorageError(_) => panic!("Storage error"),
+                })?;
             for outcome_with_id in apply_result.tx_result.into_iter() {
                 self.transaction_results
                     .borrow_mut()
@@ -90,7 +96,7 @@ impl RuntimeUser {
             apply_result.trie_changes.into(client.trie.clone()).unwrap().0.commit().unwrap();
             client.state_root = apply_result.root;
             if apply_result.new_receipts.is_empty() {
-                return;
+                return Ok(());
             }
             for receipt in apply_result.new_receipts.iter() {
                 self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
@@ -171,7 +177,7 @@ impl User for RuntimeUser {
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), String> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction])?;
         Ok(())
     }
 
@@ -179,12 +185,12 @@ impl User for RuntimeUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, String> {
-        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()]);
+        self.apply_all(self.apply_state(), vec![], vec![transaction.clone()])?;
         Ok(self.get_transaction_final_result(&transaction.get_hash()))
     }
 
     fn add_receipt(&self, receipt: Receipt) -> Result<(), String> {
-        self.apply_all(self.apply_state(), vec![receipt], vec![]);
+        self.apply_all(self.apply_state(), vec![receipt], vec![])?;
         Ok(())
     }
 
