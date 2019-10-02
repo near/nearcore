@@ -60,7 +60,7 @@ pub struct Challenge {
     pub signature: BlsSignature,
 
     #[borsh_skip]
-    hash: CryptoHash,
+    pub hash: CryptoHash,
 }
 
 impl Challenge {

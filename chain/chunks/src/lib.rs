@@ -28,7 +28,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, ValidatorStake,
 };
-use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS};
+use near_store::{Store, COL_CHUNKS, COL_CHUNK_ONE_PARTS, COL_INVALID_CHUNKS};
 
 pub use crate::types::Error;
 
@@ -764,16 +764,12 @@ impl ShardsManager {
         } else {
             // Can't decode chunk or has invalid proofs, ignore it
             error!(target: "chunks", "Reconstructed but failed to decoded chunk {}", chunk_hash.0);
+            store_update.set_ser(COL_INVALID_CHUNKS, chunk_hash.as_ref(), chunk)?;
+            store_update.commit()?;
             for i in 0..self.runtime_adapter.num_total_parts(&chunk.header.inner.prev_block_hash) {
                 self.merkle_paths.remove(&(chunk_hash.clone(), i as u64));
             }
             self.encoded_chunks.remove(&chunk_hash);
-            // Send out challenge to network participants.
-            let block_header =
-            // TODO: add block header and merkle proofs.
-//            self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(ChallengeBody::ChunkProofs(
-//                ChunkProofs { chunk: chunk.clone() },
-//            ))));
             return Ok(None);
         }
     }

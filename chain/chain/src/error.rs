@@ -4,6 +4,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 use failure::{Backtrace, Context, Fail};
 
+use near_primitives::challenge::ChunkProofs;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 
 #[derive(Debug)]
@@ -75,9 +76,12 @@ pub enum ErrorKind {
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
-    /// One of the chunks is invalid
+    /// Invalid chunk.
     #[fail(display = "Invalid Chunk")]
     InvalidChunk,
+    /// One of the chunks has invalid proofs
+    #[fail(display = "Invalid Chunk Proofs")]
+    InvalidChunkProofs(ChunkProofs),
     /// Invalid epoch hash
     #[fail(display = "Invalid Epoch Hash")]
     InvalidEpochHash,
@@ -156,6 +160,7 @@ impl Error {
             | ErrorKind::InvalidBlockConfirmation
             | ErrorKind::InvalidBlockWeight
             | ErrorKind::InvalidChunk
+            | ErrorKind::InvalidChunkProofs(_)
             | ErrorKind::InvalidStateRoot
             | ErrorKind::InvalidTxRoot
             | ErrorKind::InvalidChunkReceiptsRoot

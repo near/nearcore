@@ -7,7 +7,7 @@ use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
-use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::challenge::{Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -1340,6 +1340,7 @@ impl Chain {
             }
             ChallengeBody::ChunkProofs(chunk_proofs) => {
                 let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+                // TODO: this requires actually having the block parent present in the chain.
                 match self.runtime_adapter.verify_chunk_header_signature(&chunk_proofs.chunk.header)
                 {
                     Ok(true) => {}
@@ -1366,6 +1367,13 @@ impl Chain {
                 }
             }
             ChallengeBody::ChunkState(chunk_state) => {
+                let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
+                // TODO: this requires actually having the block parent present in the chain.
+                match self.runtime_adapter.verify_chunk_header_signature(&chunk_state.chunk_header)
+                {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
+                };
                 // Retrieve block, if it's missing return error to fetch it.
                 //                let prev_chunk_header =
                 //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
@@ -1594,6 +1602,17 @@ impl<'a> ChainUpdate<'a> {
         let mut missing = vec![];
         let height = block.header.inner.height;
         for (shard_id, chunk_header) in block.chunks.iter().enumerate() {
+            if let Some(encoded_chunk) =
+                self.chain_store_update.is_invalid_chunk(&chunk_header.hash)?
+            {
+                let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
+                let chunk_proof = ChunkProofs {
+                    block_header: block.header.try_to_vec().expect("Failed to serialize"),
+                    merkle_proof: merkle_paths[shard_id].clone(),
+                    chunk: encoded_chunk.clone(),
+                };
+                return Err(ErrorKind::InvalidChunkProofs(chunk_proof).into());
+            }
             let shard_id = shard_id as ShardId;
             if chunk_header.height_included == height {
                 let chunk_hash = chunk_header.chunk_hash();

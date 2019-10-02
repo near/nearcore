@@ -22,7 +22,7 @@ use near_crypto::BlsSignature;
 use near_network::types::{ChunkPartMsg, PeerId, ReasonForBan};
 use near_network::{NetworkClientResponses, NetworkRequests};
 use near_primitives::block::{Block, BlockHeader};
-use near_primitives::challenge::{Challenge, Challenges};
+use near_primitives::challenge::{Challenge, ChallengeBody, Challenges};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
@@ -417,6 +417,21 @@ impl Client {
                 |missing_chunks| blocks_missing_chunks.write().unwrap().push(missing_chunks),
             )
         };
+        // Send out challenge if the block was found to be invalid.
+        if let Some(block_producer) = self.block_producer.as_ref() {
+            match &result {
+                Err(e) => match e.kind() {
+                    near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
+                        self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
+                            ChallengeBody::ChunkProofs(chunk_proofs),
+                            &*block_producer.signer,
+                        )));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
         for missing_chunks in blocks_missing_chunks.write().unwrap().drain(..) {
             self.shards_mgr.request_chunks(missing_chunks).unwrap();
         }

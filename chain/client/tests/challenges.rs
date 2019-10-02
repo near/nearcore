@@ -8,6 +8,7 @@ use near_client::test_utils::TestEnv;
 use near_client::Client;
 use near_crypto::InMemoryBlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, PeerId};
+use near_network::NetworkRequests;
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::MerklePath;
@@ -151,15 +152,26 @@ fn test_receive_invalid_chunk_as_chunk_producer() {
     init_test_logger();
     let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
     env.produce_block(0, 1);
+    env.network_adapters[0].pop();
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
-    env.clients[0].shards_mgr.distribute_encoded_chunk(chunk, merkle_paths, receipts);
+    env.clients[0].shards_mgr.distribute_encoded_chunk(chunk.clone(), merkle_paths, receipts);
     let (_, result) = env.clients[0].process_block(block.clone(), Provenance::NONE);
     // We have declined block with invalid chunk, but everyone who doesn't track this shard have accepted.
     // At this point we should create a challenge and add it.
     //    println!("{:?}", result);
     assert!(result.is_err());
     assert_eq!(env.clients[0].chain.head().unwrap().height, 1);
-    println!("{:?}", env.network_adapters[0].pop());
+    if let NetworkRequests::Challenge(Challenge { body, signature: _, hash: _ }) =
+        env.network_adapters[0].pop().unwrap()
+    {
+        if let ChallengeBody::ChunkProofs(chunk_proofs) = body {
+            assert_eq!(chunk_proofs.chunk, chunk);
+        } else {
+            assert!(false);
+        }
+    } else {
+        assert!(false);
+    }
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.

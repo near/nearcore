@@ -542,8 +542,9 @@ impl TestEnv {
 
     pub fn produce_block(&mut self, id: usize, height: BlockIndex) {
         let block = self.clients[id].produce_block(height, Duration::from_millis(10)).unwrap();
-        let (mut accepted_blocks, _) =
+        let (mut accepted_blocks, result) =
             self.clients[id].process_block(block.clone().unwrap(), Provenance::PRODUCED);
+        assert!(result.is_ok(), format!("{:?}", result));
         let more_accepted_blocks = self.clients[id].run_catchup().unwrap();
         accepted_blocks.extend(more_accepted_blocks);
         for accepted_block in accepted_blocks.into_iter() {
