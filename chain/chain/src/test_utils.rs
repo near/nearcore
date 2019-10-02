@@ -725,11 +725,17 @@ pub fn format_hash(h: CryptoHash) -> String {
 }
 
 /// Displays chain from given store.
-pub fn display_chain(chain: &mut Chain, tail: bool) {
+pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let runtime_adapter = chain.runtime_adapter();
     let chain_store = chain.mut_store();
     let head = chain_store.head().unwrap();
-    debug!("Chain head: {} / {}", head.height, head.last_block_hash);
+    debug!(
+        "{:?} Chain head ({}): {} / {}",
+        me,
+        if tail { "tail" } else { "full" },
+        head.height,
+        head.last_block_hash
+    );
     let mut headers = vec![];
     for (key, _) in chain_store.store().iter(COL_BLOCK_HEADER) {
         let header = chain_store

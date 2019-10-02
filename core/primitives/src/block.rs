@@ -29,6 +29,8 @@ pub struct BlockHeaderInner {
     pub chunk_headers_root: MerkleHash,
     /// Root hash of the chunk transactions in the given block.
     pub chunk_tx_root: MerkleHash,
+    /// Number of chunks included into the block.
+    pub chunks_included: u64,
     /// Timestamp at which the block was built.
     pub timestamp: u64,
     /// Approval mask, given current block producers.
@@ -63,6 +65,7 @@ impl BlockHeaderInner {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         timestamp: u64,
+        chunks_included: u64,
         approval_mask: Vec<bool>,
         approval_sigs: BlsSignature,
         total_weight: Weight,
@@ -83,6 +86,7 @@ impl BlockHeaderInner {
             chunk_headers_root,
             chunk_tx_root,
             timestamp,
+            chunks_included,
             approval_mask,
             approval_sigs,
             total_weight,
@@ -124,6 +128,7 @@ impl BlockHeader {
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
         timestamp: u64,
+        chunks_included: u64,
         approval_mask: Vec<bool>,
         approval_sig: BlsSignature,
         total_weight: Weight,
@@ -146,6 +151,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             timestamp,
+            chunks_included,
             approval_mask,
             approval_sig,
             total_weight,
@@ -166,6 +172,7 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        chunks_included: u64,
         timestamp: DateTime<Utc>,
         initial_gas_limit: Gas,
         initial_gas_price: Balance,
@@ -180,6 +187,7 @@ impl BlockHeader {
             chunk_headers_root,
             chunk_tx_root,
             to_timestamp(timestamp),
+            chunks_included,
             vec![],
             BlsSignature::empty(),
             0.into(),
@@ -255,6 +263,7 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
+                Block::compute_chunks_included(&chunks, 0),
                 timestamp,
                 initial_gas_limit,
                 initial_gas_price,
@@ -327,6 +336,7 @@ impl Block {
                 Block::compute_chunk_headers_root(&chunks),
                 Block::compute_chunk_tx_root(&chunks),
                 time,
+                Block::compute_chunks_included(&chunks, height),
                 approval_mask,
                 approval_sig,
                 total_weight,
@@ -376,8 +386,47 @@ impl Block {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 
+    pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
+        chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    }
+
     pub fn hash(&self) -> CryptoHash {
         self.header.hash()
+    }
+
+    pub fn check_validity(&self) -> bool {
+        // Check that state root stored in the header matches the state root of the chunks
+        let state_root = Block::compute_state_root(&self.chunks);
+        if self.header.inner.prev_state_root != state_root {
+            return false;
+        }
+
+        // Check that chunk receipts root stored in the header matches the state root of the chunks
+        let chunk_receipts_root = Block::compute_chunk_receipts_root(&self.chunks);
+        if self.header.inner.chunk_receipts_root != chunk_receipts_root {
+            return false;
+        }
+
+        // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
+        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks);
+        if self.header.inner.chunk_headers_root != chunk_headers_root {
+            return false;
+        }
+
+        // Check that chunk tx root stored in the header matches the tx root of the chunks
+        let chunk_tx_root = Block::compute_chunk_tx_root(&self.chunks);
+        if self.header.inner.chunk_tx_root != chunk_tx_root {
+            return false;
+        }
+
+        // Check that chunk included root stored in the header matches the chunk included root of the chunks
+        let chunks_included_root =
+            Block::compute_chunks_included(&self.chunks, self.header.inner.height);
+        if self.header.inner.chunks_included != chunks_included_root {
+            return false;
+        }
+
+        true
     }
 }
 
