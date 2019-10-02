@@ -7,7 +7,7 @@ use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
 use crate::challenge::Challenges;
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::merklize;
+use crate::merkle::{merklize, verify_path, MerklePath};
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
 use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
 use crate::utils::{from_timestamp, to_timestamp};
@@ -263,7 +263,7 @@ impl Block {
             header: BlockHeader::genesis(
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, 0),
                 timestamp,
@@ -335,7 +335,7 @@ impl Block {
                 prev.hash(),
                 Block::compute_state_root(&chunks),
                 Block::compute_chunk_receipts_root(&chunks),
-                Block::compute_chunk_headers_root(&chunks),
+                Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
                 Block::compute_chunks_included(&chunks, height),
                 Utc::now(),
@@ -375,14 +375,15 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_headers_root(
+        chunks: &Vec<ShardChunkHeader>,
+    ) -> (CryptoHash, Vec<MerklePath>) {
         merklize(
             &chunks
                 .iter()
                 .map(|chunk| ChunkHashHeight(chunk.hash.clone(), chunk.height_included))
                 .collect::<Vec<ChunkHashHeight>>(),
         )
-        .0
     }
 
     pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
@@ -391,6 +392,18 @@ impl Block {
 
     pub fn compute_chunks_included(chunks: &Vec<ShardChunkHeader>, height: BlockIndex) -> u64 {
         chunks.iter().filter(|chunk| chunk.height_included == height).count() as u64
+    }
+
+    pub fn validate_chunk_header_proof(
+        chunk: &ShardChunkHeader,
+        chunk_root: &CryptoHash,
+        merkle_path: &MerklePath,
+    ) -> bool {
+        verify_path(
+            *chunk_root,
+            merkle_path,
+            &ChunkHashHeight(chunk.hash.clone(), chunk.height_included),
+        )
     }
 
     pub fn hash(&self) -> CryptoHash {
@@ -411,7 +424,7 @@ impl Block {
         }
 
         // Check that chunk headers root stored in the header matches the chunk headers root of the chunks
-        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks);
+        let chunk_headers_root = Block::compute_chunk_headers_root(&self.chunks).0;
         if self.header.inner.chunk_headers_root != chunk_headers_root {
             return false;
         }

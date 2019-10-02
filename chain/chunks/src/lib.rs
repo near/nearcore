@@ -17,7 +17,6 @@ use near_crypto::BlsSigner;
 use near_network::types::{ChunkOnePartRequestMsg, ChunkPartMsg, ChunkPartRequestMsg, PeerId};
 use near_network::{NetworkClientMessages, NetworkRequests};
 use near_pool::TransactionPool;
-use near_primitives::challenge::{Challenge, ChallengeBody, ChunkProofs};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, verify_path, MerklePath};
 use near_primitives::receipt::Receipt;

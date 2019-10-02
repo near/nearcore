@@ -1339,8 +1339,19 @@ impl Chain {
                 }
             }
             ChallengeBody::ChunkProofs(chunk_proofs) => {
-                //                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-                // TODO: validate chunk inclusion and signature.
+                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+                match self.runtime_adapter.verify_chunk_header_signature(&chunk_proofs.chunk.header)
+                {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
+                };
+                if !Block::validate_chunk_header_proof(
+                    &chunk_proofs.chunk.header,
+                    &block_header.inner.chunk_headers_root,
+                    &chunk_proofs.merkle_proof,
+                ) {
+                    return Err(ErrorKind::InvalidChallenge.into());
+                }
                 match chunk_proofs
                     .chunk
                     .decode_chunk(
@@ -1351,9 +1362,7 @@ impl Chain {
                     .and_then(|chunk| validate_chunk_proofs(&chunk, &*self.runtime_adapter))
                 {
                     Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
-                    // TODO
-                    // Ok(false) | Err(_) => Ok(block_header.hash()),
-                    _ => Err(ErrorKind::InvalidChallenge.into()),
+                    Ok(false) | Err(_) => Ok(block_header.hash()),
                 }
             }
             ChallengeBody::ChunkState(chunk_state) => {
@@ -1724,20 +1733,17 @@ impl<'a> ChainUpdate<'a> {
                     let gas_limit = chunk.header.inner.gas_limit;
 
                     // Apply transactions and receipts
-                    let mut apply_result = self
-                        .runtime_adapter
-                        .apply_transactions(
-                            shard_id,
-                            &chunk.header.inner.prev_state_root,
-                            chunk_header.height_included,
-                            block.header.inner.timestamp,
-                            &chunk_header.inner.prev_block_hash,
-                            &block.hash(),
-                            &receipts,
-                            &chunk.transactions,
-                            block.header.inner.gas_price,
-                        )
-                        .map_err(|e| ErrorKind::Other(e.to_string()))?;
+                    let mut apply_result = self.runtime_adapter.apply_transactions(
+                        shard_id,
+                        &chunk.header.inner.prev_state_root,
+                        chunk_header.height_included,
+                        block.header.inner.timestamp,
+                        &chunk_header.inner.prev_block_hash,
+                        &block.hash(),
+                        &receipts,
+                        &chunk.transactions,
+                        block.header.inner.gas_price,
+                    )?;
 
                     self.chain_store_update.save_trie_changes(apply_result.trie_changes);
                     // Save state root after applying transactions.

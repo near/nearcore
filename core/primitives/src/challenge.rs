@@ -36,6 +36,8 @@ pub struct ChunkProofs {
 pub struct ChunkState {
     /// Block header that contains invalid chunk.
     pub block_header: Vec<u8>,
+    /// Merkle proof of inclusion of this chunk.
+    pub merkle_proof: MerklePath,
     /// Previous chunk that contains transactions.
     pub prev_chunk: ShardChunk,
     /// Invalid chunk header.

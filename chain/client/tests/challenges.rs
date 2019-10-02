@@ -105,11 +105,12 @@ fn test_verify_chunk_invalid_proofs_challenge() {
     env.produce_block(0, 1);
     let (chunk, merkle_paths, receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
 
+    let merkle_paths = Block::compute_chunk_headers_root(&block.chunks).1;
     let valid_challenge = Challenge::produce(
         ChallengeBody::ChunkProofs(ChunkProofs {
             block_header: block.header.try_to_vec().unwrap(),
             chunk: chunk.clone(),
-            //            merkle_proof: merkle_paths[0].clone(),
+            merkle_proof: merkle_paths[chunk.header.inner.shard_id as usize].clone(),
         }),
         &*env.clients[0].block_producer.as_ref().unwrap().signer,
     );
