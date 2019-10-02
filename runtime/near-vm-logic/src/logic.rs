@@ -5,112 +5,13 @@ use crate::types::{
     AccountId, Balance, Gas, IteratorIndex, PromiseIndex, PromiseResult, ReceiptIndex, ReturnData,
     StorageUsage,
 };
+use crate::gas_counter::GasCounter;
 use crate::{HostError, HostErrorOrStorageError};
-use near_runtime_fees::Fee;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
 type Result<T> = ::std::result::Result<T, HostErrorOrStorageError>;
-
-pub struct GasCounter<'a> {
-    /// The amount of gas that was irreversibly used for contract execution.
-    burnt_gas: Gas,
-    /// `burnt_gas` + gas that was attached to the promises.
-    used_gas: Gas,
-    config: &'a Config,
-    prepaid_gas: Gas,
-    is_view: bool,
-}
-
-impl<'a> GasCounter<'a> {
-    pub fn new(config: &'a Config, prepaid_gas: Gas, is_view: bool) -> Self {
-        Self { burnt_gas: 0, used_gas: 0, config: config, prepaid_gas, is_view }
-    }
-    pub fn deduct_gas(&mut self, burn_gas: Gas, use_gas: Gas) -> Result<()> {
-        assert!(burn_gas <= use_gas);
-        let new_burnt_gas =
-            self.burnt_gas.checked_add(burn_gas).ok_or(HostError::IntegerOverflow)?;
-        let new_used_gas = self.used_gas.checked_add(use_gas).ok_or(HostError::IntegerOverflow)?;
-        if new_burnt_gas <= self.config.max_gas_burnt
-            && (self.is_view || new_used_gas <= self.prepaid_gas)
-        {
-            self.burnt_gas = new_burnt_gas;
-            self.used_gas = new_used_gas;
-            Ok(())
-        } else {
-            use std::cmp::min;
-            let res = if new_burnt_gas > self.config.max_gas_burnt {
-                Err(HostError::GasLimitExceeded.into())
-            } else if new_used_gas > self.prepaid_gas {
-                Err(HostError::GasExceeded.into())
-            } else {
-                unreachable!()
-            };
-
-            let max_burnt_gas = min(self.config.max_gas_burnt, self.prepaid_gas);
-            self.burnt_gas = min(new_burnt_gas, max_burnt_gas);
-            self.used_gas = min(new_used_gas, self.prepaid_gas);
-
-            res
-        }
-    }
-    /// A helper function to pay per byte gas
-    pub fn pay_per_byte(&mut self, per_byte: Gas, num_bytes: u64) -> Result<()> {
-        let use_gas = num_bytes
-            .checked_mul(per_byte.checked_add(per_byte).ok_or(HostError::IntegerOverflow)?)
-            .ok_or(HostError::IntegerOverflow)?;
-        self.deduct_gas(0, use_gas)
-    }
-
-    /// A helper function to pay base cost gas
-    pub fn pay_base(&mut self, base_fee: Gas) -> Result<()> {
-        let use_gas = base_fee.checked_add(base_fee).ok_or(HostError::IntegerOverflow)?;
-        self.deduct_gas(0, use_gas)
-    }
-
-    /// A helper function to pay per byte gas fee for batching an action.
-    /// # Args:
-    /// * `per_byte_fee`: the fee per byte;
-    /// * `num_bytes`: the number of bytes;
-    /// * `sir`: whether contract call is addressed to itself;
-    pub fn pay_per_byte_gas_fee(
-        &mut self,
-        per_byte_fee: &Fee,
-        num_bytes: u64,
-        sir: bool,
-    ) -> Result<()> {
-        let use_gas = num_bytes
-            .checked_mul(
-                per_byte_fee
-                    .send_fee(sir)
-                    .checked_add(per_byte_fee.exec_fee())
-                    .ok_or(HostError::IntegerOverflow)?,
-            )
-            .ok_or(HostError::IntegerOverflow)?;
-
-        self.deduct_gas(0, use_gas)
-    }
-
-    /// A helper function to pay base cost gas fee for batching an action.
-    /// # Args:
-    /// * `base_fee`: base fee for the action;
-    /// * `sir`: whether contract call is addressed to itself;
-    pub fn pay_base_gas_fee(&mut self, base_fee: &Fee, sir: bool) -> Result<()> {
-        let use_gas = base_fee
-            .send_fee(sir)
-            .checked_add(base_fee.exec_fee())
-            .ok_or(HostError::IntegerOverflow)?;
-        self.deduct_gas(0, use_gas)
-    }
-
-    pub fn burnt_gas(&self) -> Gas {
-        self.burnt_gas
-    }
-    pub fn used_gas(&self) -> Gas {
-        self.used_gas
-    }
-}
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -131,7 +32,7 @@ pub struct VMLogic<'a> {
     current_account_balance: Balance,
     /// Storage usage of the current account at the moment
     current_storage_usage: StorageUsage,
-    gas_counter: GasCounter<'a>,
+    gas_counter: GasCounter,
     /// What method returns.
     return_data: ReturnData,
     /// Logs written by the runtime.
@@ -178,7 +79,7 @@ impl<'a> VMLogic<'a> {
     ) -> Self {
         let current_account_balance = context.account_balance + context.attached_deposit;
         let current_storage_usage = context.storage_usage;
-        let gas_counter = GasCounter::new(&config, context.prepaid_gas, context.is_view);
+        let gas_counter = GasCounter::new(config.max_gas_burnt, context.prepaid_gas, context.is_view);
         Self {
             ext,
             context,
@@ -480,7 +381,7 @@ impl<'a> VMLogic<'a> {
         if self.context.is_view {
             return Err(HostError::ProhibitedInView("used_gas".to_string()).into());
         }
-        Ok(self.gas_counter.used_gas)
+        Ok(self.gas_counter.used_gas())
     }
 
     // ############
