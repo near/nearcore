@@ -125,7 +125,14 @@ impl Handler<Query> for ViewClientActor {
         };
 
         self.runtime_adapter
-            .query(state_root, header.inner.height, header.inner.timestamp, &header.hash, path_parts, &msg.data)
+            .query(
+                state_root,
+                header.inner.height,
+                header.inner.timestamp,
+                &header.hash,
+                path_parts,
+                &msg.data,
+            )
             .map_err(|err| err.to_string())
     }
 }

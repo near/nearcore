@@ -7,7 +7,7 @@ use tempdir::TempDir;
 use near_client::{GetBlock, GetChunk};
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::hash::CryptoHash;
-use near_primitives::test_utils::{heavy_test, init_integration_logger};
+use near_primitives::test_utils::{heavy_test, init_integration_logger, init_test_logger};
 use testlib::start_nodes;
 
 #[test]
@@ -53,7 +53,7 @@ fn track_shards() {
                 }
             }),
             100,
-            5000,
+            10000,
         )
         .start();
 

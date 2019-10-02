@@ -441,10 +441,11 @@ fn test_process_invalid_tx() {
         },
     );
     produce_blocks(&mut client, 12);
+
     assert_eq!(
         client.process_tx(tx),
         NetworkClientResponses::InvalidTx(
-            "Transaction has expired".to_string()
+            "Transaction has expired or from a different fork".to_string()
         )
     );
     let tx2 = SignedTransaction::new(
@@ -461,7 +462,50 @@ fn test_process_invalid_tx() {
     assert_eq!(
         client.process_tx(tx2),
         NetworkClientResponses::InvalidTx(
-            "Transaction is from a different fork".to_string()
+            "Transaction has expired or from a different fork".to_string()
+        )
+    );
+}
+
+#[test]
+fn test_invalid_tx_wrong_fork() {
+    init_test_logger();
+    let store = create_test_store();
+    let network_adapter = Arc::new(MockNetworkAdapter::default());
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.transaction_validity_period = 10;
+    let mut client =
+        setup_client(store, vec![vec!["test1"]], 1, 1, "test1", network_adapter, chain_genesis);
+    let genesis = client.chain.get_block_by_height(0).unwrap().clone();
+    let signer = InMemorySigner::from_seed("test1", KeyType::ED25519, "test1");
+    let bls_signer = Arc::new(InMemoryBlsSigner::from_seed("test1", "test1"));
+
+    produce_blocks(&mut client, 1);
+    let b1 = client.produce_block(1, Duration::from_millis(100)).unwrap().unwrap();
+    let hash1 = b1.hash();
+    client.process_block(b1, Provenance::PRODUCED);
+
+    let b = Block::empty_with_height(&genesis, 1, bls_signer.clone());
+    let hash1_fork = b.hash();
+    client.process_block(b, Provenance::NONE);
+    assert!(client.chain.get_block_header(&hash1).is_ok());
+    assert!(client.chain.get_block_header(&hash1_fork).is_ok());
+
+    let tx = SignedTransaction::new(
+        Signature::empty(KeyType::ED25519),
+        Transaction {
+            signer_id: "".to_string(),
+            public_key: signer.public_key(),
+            nonce: 0,
+            receiver_id: "".to_string(),
+            block_hash: hash1_fork,
+            actions: vec![],
+        },
+    );
+    assert_eq!(
+        client.process_tx(tx),
+        NetworkClientResponses::InvalidTx(
+            "Transaction has expired or from a different fork".to_string()
         )
     );
 }

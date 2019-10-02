@@ -1,5 +1,4 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
@@ -34,7 +33,8 @@ const HEADER_HEAD_KEY: &[u8; 11] = b"HEADER_HEAD";
 const LATEST_KNOWN_KEY: &[u8; 12] = b"LATEST_KNOWN";
 
 /// lru cache size
-const CACHE_SIZE: usize = 20;
+const CACHE_SIZE: usize = 100;
+const CHUNK_CACHE_SIZE: usize = 1024;
 
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize)]
 pub struct ShardInfo(pub ShardId, pub ChunkHash);
@@ -53,6 +53,22 @@ pub struct StateSyncInfo {
     pub epoch_tail_hash: CryptoHash,
     /// Shards to fetch state
     pub shards: Vec<ShardInfo>,
+}
+
+/// header cache used for transaction history validation
+pub struct HeaderList {
+    queue: VecDeque<CryptoHash>,
+    headers: HashMap<CryptoHash, BlockHeader>,
+}
+
+impl HeaderList {
+    pub fn new() -> Self {
+        HeaderList { queue: VecDeque::default(), headers: HashMap::default() }
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -146,12 +162,14 @@ pub struct ChainStore {
     latest_known: Option<LatestKnown>,
     /// Cache with headers.
     headers: SizedCache<Vec<u8>, BlockHeader>,
+    /// Cache with headers for transaction validation.
+    header_history: HeaderList,
     /// Cache with blocks.
     blocks: SizedCache<Vec<u8>, Block>,
     /// Cache with chunks
-    chunks: HashMap<ChunkHash, ShardChunk>,
+    chunks: SizedCache<Vec<u8>, ShardChunk>,
     /// Cache with chunk one parts
-    chunk_one_parts: HashMap<ChunkHash, ChunkOnePart>,
+    chunk_one_parts: SizedCache<Vec<u8>, ChunkOnePart>,
     /// Cache with chunk extra.
     chunk_extras: SizedCache<Vec<u8>, ChunkExtra>,
     // Cache with index to hash on the main chain.
@@ -179,8 +197,9 @@ impl ChainStore {
             latest_known: None,
             blocks: SizedCache::with_size(CACHE_SIZE),
             headers: SizedCache::with_size(CACHE_SIZE),
-            chunks: HashMap::new(),
-            chunk_one_parts: HashMap::new(),
+            header_history: HeaderList::new(),
+            chunks: SizedCache::with_size(CHUNK_CACHE_SIZE),
+            chunk_one_parts: SizedCache::with_size(CHUNK_CACHE_SIZE),
             chunk_extras: SizedCache::with_size(CACHE_SIZE),
             // block_index: SizedCache::with_size(CACHE_SIZE),
             outgoing_receipts: SizedCache::with_size(CACHE_SIZE),
@@ -233,6 +252,62 @@ impl ChainStore {
             }
         }
     }
+
+    pub fn check_blocks_on_same_chain(
+        &mut self,
+        cur_header: &BlockHeader,
+        base_block_hash: &CryptoHash,
+        max_difference_in_height: u64,
+    ) -> bool {
+        let cur_block_header = cur_header.clone();
+        let mut found_base_block_hash = false;
+        for _ in 0..max_difference_in_height {
+            let front = if let Some(elem) = self.header_history.queue.front() {
+                elem.clone()
+            } else {
+                break;
+            };
+            if front == cur_block_header.hash {
+                found_base_block_hash = true;
+                break;
+            } else {
+                self.header_history.queue.pop_front();
+                self.header_history.headers.remove(&front);
+            }
+        }
+        if found_base_block_hash && self.header_history.headers.contains_key(base_block_hash) {
+            return true;
+        }
+        if !found_base_block_hash {
+            self.header_history.headers.insert(cur_block_header.hash, cur_block_header.clone());
+            self.header_history.queue.push_front(cur_block_header.hash);
+            if &cur_block_header.hash == base_block_hash {
+                return true;
+            }
+        }
+        let cur_len = self.header_history.len();
+        if max_difference_in_height <= cur_len as u64 {
+            return false;
+        }
+        let num_headers_to_fetch = max_difference_in_height - cur_len as u64;
+        // queue cannot be empty at this point
+        let back = self.header_history.queue.back().unwrap();
+        let mut cur_fetch_header = self.header_history.headers.get(back).unwrap().clone();
+        for _ in 0..num_headers_to_fetch {
+            let header = if let Ok(h) = self.get_block_header(&cur_fetch_header.inner.prev_hash) {
+                h.clone()
+            } else {
+                return false;
+            };
+            let is_base_hash = &header.hash == base_block_hash;
+            self.header_history.headers.insert(header.hash, header.clone());
+            if is_base_hash {
+                return true;
+            }
+            cur_fetch_header = header;
+        }
+        false
+    }
 }
 
 impl ChainStoreAccess for ChainStore {
@@ -274,34 +349,22 @@ impl ChainStoreAccess for ChainStore {
 
     /// Get full chunk.
     fn get_chunk(&mut self, chunk_hash: &ChunkHash) -> Result<&ShardChunk, Error> {
-        let entry = self.chunks.entry(chunk_hash.clone());
-        match entry {
-            Entry::Occupied(s) => Ok(s.into_mut()),
-            Entry::Vacant(s) => {
-                if let Ok(Some(chunk)) = self.store.get_ser(COL_CHUNKS, chunk_hash.as_ref()) {
-                    Ok(s.insert(chunk))
-                } else {
-                    Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into())
-                }
-            }
+        match read_with_cache(&*self.store, COL_CHUNKS, &mut self.chunks, chunk_hash.as_ref()) {
+            Ok(Some(shard_chunk)) => Ok(shard_chunk),
+            _ => Err(ErrorKind::ChunkMissing(chunk_hash.clone()).into()),
         }
     }
 
     /// Get Chunk one part.
     fn get_chunk_one_part(&mut self, header: &ShardChunkHeader) -> Result<&ChunkOnePart, Error> {
-        let chunk_hash = header.chunk_hash();
-        let entry = self.chunk_one_parts.entry(chunk_hash.clone());
-        match entry {
-            Entry::Occupied(s) => Ok(s.into_mut()),
-            Entry::Vacant(s) => {
-                if let Ok(Some(chunk_one_part)) =
-                    self.store.get_ser(COL_CHUNK_ONE_PARTS, chunk_hash.as_ref())
-                {
-                    Ok(s.insert(chunk_one_part))
-                } else {
-                    Err(ErrorKind::ChunksMissing(vec![header.clone()]).into())
-                }
-            }
+        match read_with_cache(
+            &*self.store,
+            COL_CHUNK_ONE_PARTS,
+            &mut self.chunk_one_parts,
+            header.chunk_hash().as_ref(),
+        ) {
+            Ok(Some(chunk_one_part)) => Ok(chunk_one_part),
+            _ => Err(ErrorKind::ChunksMissing(vec![header.clone()]).into()),
         }
     }
 

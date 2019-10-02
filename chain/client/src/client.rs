@@ -25,7 +25,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::{ChunkOnePart, ShardChunkHeader};
-use near_primitives::transaction::{check_tx_history, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockIndex, EpochId, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::to_timestamp;
@@ -302,15 +302,16 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?
             .clone();
 
+        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?.clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
         let transactions: Vec<_> = self
             .shards_mgr
             .prepare_transactions(shard_id, self.config.block_expected_weight)?
             .into_iter()
             .filter(|t| {
-                check_tx_history(
-                    self.chain.get_block_header(&t.transaction.block_hash).ok(),
-                    next_height,
+                self.chain.mut_store().check_blocks_on_same_chain(
+                    &prev_block_header,
+                    &t.transaction.block_hash,
                     transaction_validity_period,
                 )
             })
@@ -715,19 +716,21 @@ impl Client {
         let head = unwrap_or_return!(self.chain.head(), NetworkClientResponses::NoResponse);
         let me = self.block_producer.as_ref().map(|bp| &bp.account_id);
         let shard_id = self.runtime_adapter.account_id_to_shard_id(&tx.transaction.signer_id);
-        let tx_header = unwrap_or_return!(
-            self.chain.get_block_header(&tx.transaction.block_hash),
-            NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string(),)
+        let cur_block_header = unwrap_or_return!(
+            self.chain.get_block_header(&head.last_block_hash),
+            NetworkClientResponses::NoResponse
         )
         .clone();
         let transaction_validity_period = self.chain.transaction_validity_period;
-        if !check_tx_history(
-            self.chain.get_block_header(&tx.transaction.block_hash).ok(),
-            head.height,
+        if !self.chain.mut_store().check_blocks_on_same_chain(
+            &cur_block_header,
+            &tx.transaction.block_hash,
             transaction_validity_period,
         ) {
             debug!(target: "client", "Invalid tx: expired or from a different fork -- {:?}", tx);
-            return NetworkClientResponses::InvalidTx("Transaction has expired".to_string());
+            return NetworkClientResponses::InvalidTx(
+                "Transaction has expired or from a different fork".to_string(),
+            );
         }
         let gas_price = unwrap_or_return!(
             self.chain.get_block_header(&head.last_block_hash),
@@ -744,7 +747,7 @@ impl Client {
 
         match self.runtime_adapter.validate_tx(
             head.height + 1,
-            tx_header.inner.timestamp,
+            cur_block_header.inner.timestamp,
             gas_price,
             state_root,
             tx,
