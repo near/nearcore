@@ -56,7 +56,8 @@ pub struct StateSyncInfo {
     pub shards: Vec<ShardInfo>,
 }
 
-/// header cache used for transaction history validation
+/// Header cache used for transaction history validation.
+/// The headers stored here should be all on the same fork.
 pub struct HeaderList {
     queue: VecDeque<CryptoHash>,
     headers: HashMap<CryptoHash, BlockHeader>,
