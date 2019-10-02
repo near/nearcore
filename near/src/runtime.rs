@@ -49,7 +49,7 @@ pub struct NightshadeRuntime {
     store: Arc<Store>,
     pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
-    runtime: Runtime,
+    pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
     shard_tracker: ShardTracker,
 }
@@ -741,7 +741,15 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        self.trie_viewer.call_function(state_update, height, block_timestamp, contract_id, method_name, args, logs)
+        self.trie_viewer.call_function(
+            state_update,
+            height,
+            block_timestamp,
+            contract_id,
+            method_name,
+            args,
+            logs,
+        )
     }
 
     fn view_access_key(

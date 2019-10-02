@@ -8,6 +8,7 @@ use log::{info, LevelFilter};
 
 use git_version::git_version;
 use near::config::init_testnet_configs;
+use near::genesis_block::create_genesis_block_with_additional_accounts;
 use near::{get_default_home, get_store_path, init_configs, load_config, start_with_config};
 use near_primitives::types::Version;
 
@@ -49,6 +50,10 @@ fn main() {
             .arg(Arg::with_name("num-shards").long("num-shards").takes_value(true).help("Number of shards to initialize the chain with"))
             .arg(Arg::with_name("fast").long("fast").takes_value(false).help("Makes block production fast (TESTING ONLY)"))
         )
+        .subcommand(SubCommand::with_name("create_genesis_block").about("Create genesis block from configs and additional parameters")
+            .arg(Arg::with_name("additional-accounts-num").long("additional-accounts-num").takes_value(true).help("Number of additional accounts per shard to add directly to the trie (TESTING ONLY)"))
+            // TODO: Add argument to generate token holders accounts and contracts.
+        )
         .subcommand(SubCommand::with_name("testnet").about("Setups testnet configuration with all necessary files (validator key, node key, genesis and config)")
             .arg(Arg::with_name("v").long("v").takes_value(true).help("Number of validators to initialize the testnet with (default 4)"))
             .arg(Arg::with_name("n").long("n").takes_value(true).help("Number of non-validators to initialize the testnet with (default 0)"))
@@ -83,6 +88,18 @@ fn main() {
                 .unwrap_or(1);
             let fast = args.is_present("fast");
             init_configs(home_dir, chain_id, account_id, test_seed, num_shards, fast);
+        }
+        ("create_genesis_block", Some(args)) => {
+            let additional_accounts_num = args
+                .value_of("additional-accounts-num")
+                .map(|x| x.parse::<u64>().expect("Failed to parse number of additional accounts."))
+                .unwrap_or_default();
+            let near_config = load_config(home_dir);
+            create_genesis_block_with_additional_accounts(
+                home_dir,
+                near_config.genesis_config.clone(),
+                additional_accounts_num,
+            );
         }
         ("testnet", Some(args)) => {
             let num_validators = args

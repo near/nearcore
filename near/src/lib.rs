@@ -18,6 +18,7 @@ pub use crate::runtime::NightshadeRuntime;
 use near_chain::ChainGenesis;
 
 pub mod config;
+pub mod genesis_block;
 mod runtime;
 mod shard_tracker;
 
