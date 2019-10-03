@@ -22,8 +22,8 @@ use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
     AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList, ReceiptProofResponse,
-    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, Tip,
-    ValidatorSignatureVerificationResult,
+    ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponseHeader,
+    ShardStateSyncResponsePart, Tip, ValidatorSignatureVerificationResult,
 };
 
 /// Maximum number of orphans chain can store.
@@ -803,11 +803,11 @@ impl Chain {
         self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
     }
 
-    pub fn get_state_for_shard(
+    pub fn get_state_header(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-    ) -> Result<ShardStateSyncResponse, Error> {
+    ) -> Result<ShardStateSyncResponseHeader, Error> {
         // Consistency rules:
         // 1. Everything prefixed with `sync_` indicates new epoch, for which we are syncing.
         // 1a. `sync_prev` means the last of the prev epoch.
@@ -863,10 +863,6 @@ impl Chain {
 
         let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
         let prev_chunk_height_included = prev_chunk_header.height_included;
-        let prev_payload = self
-            .runtime_adapter
-            .dump_state(shard_id, chunk.header.inner.prev_state_root)
-            .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         // Getting all existing incoming_receipts from prev_chunk height to the new epoch.
         let incoming_receipts_proofs = ChainStoreUpdate::new(&mut self.store)
@@ -911,23 +907,74 @@ impl Chain {
             root_proofs.push(root_proofs_cur);
         }
 
-        Ok(ShardStateSyncResponse::new(
+        Ok(ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
             prev_chunk_proof,
-            prev_payload,
             incoming_receipts_proofs,
             root_proofs,
-        ))
+        })
     }
 
-    pub fn set_shard_state(
+    pub fn get_state_part(
+        &mut self,
+        shard_id: ShardId,
+        part_id: u64,
+        sync_hash: CryptoHash,
+    ) -> Result<ShardStateSyncResponsePart, Error> {
+        let sync_block = self.get_block(&sync_hash)?;
+        let sync_block_header = sync_block.header.clone();
+        if shard_id as usize >= sync_block.chunks.len() {
+            return Err(ErrorKind::Other(
+                "get_state_part_for_shard fail: shard_id out of bounds".into(),
+            )
+            .into());
+        }
+        let sync_prev_block = self.get_block(&sync_block_header.inner.prev_hash)?;
+        if shard_id as usize >= sync_prev_block.chunks.len() {
+            return Err(ErrorKind::Other(
+                "get_state_part_for_shard fail: shard_id out of bounds".into(),
+            )
+            .into());
+        }
+
+        let chunk_header = sync_prev_block.chunks[shard_id as usize].clone();
+        if part_id as usize
+            >= self.runtime_adapter.num_state_parts(&chunk_header.inner.prev_state_root)
+        {
+            return Err(ErrorKind::Other(
+                "get_state_part_for_shard fail: part_id out of bound".to_string(),
+            )
+            .into());
+        }
+        let (state_part, proof) = self
+            .runtime_adapter
+            .obtain_state_part(shard_id, part_id, chunk_header.inner.prev_state_root)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
+
+        Ok(ShardStateSyncResponsePart { state_part, proof })
+    }
+
+    pub fn set_state_parts(
+        &mut self,
+        root: CryptoHash,
+        shard_state_parts: Vec<ShardStateSyncResponsePart>,
+    ) -> Result<(), Error> {
+        for part in shard_state_parts {
+            self.runtime_adapter
+                .accept_state_part(root, &part.state_part, &part.proof)
+                .map_err(|_| ErrorKind::InvalidStatePayload)?;
+        }
+        Ok(())
+    }
+
+    pub fn set_state_header(
         &mut self,
         _me: &Option<AccountId>,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        shard_state: ShardStateSyncResponse,
+        shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
         // Ensure that sync_hash block is included into the canonical chain
         let sync_block_header = self.get_block_header(&sync_hash)?.clone();
@@ -941,15 +988,14 @@ impl Chain {
             .into());
         }
 
-        let ShardStateSyncResponse {
+        let ShardStateSyncResponseHeader {
             chunk,
             chunk_proof,
             prev_chunk_header,
             prev_chunk_proof,
-            prev_payload,
             incoming_receipts_proofs,
             root_proofs,
-        } = shard_state;
+        } = shard_state_header;
 
         // 1-2. Checking chunk validity
         self.runtime_adapter.check_chunk_validity(&chunk)?;
@@ -1068,11 +1114,7 @@ impl Chain {
             .into());
         }
 
-        // 5. Proving prev_payload validity and setting it
-        // Its hash should be equal to chunk prev_state_root. It is checked in set_state.
-        self.runtime_adapter
-            .set_state(shard_id, chunk.header.inner.prev_state_root, prev_payload)
-            .map_err(|_| ErrorKind::InvalidStatePayload)?;
+        self.runtime_adapter.confirm_state(&chunk.header.inner.prev_state_root)?;
 
         // Applying chunk is started here.
 

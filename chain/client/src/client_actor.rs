@@ -13,7 +13,9 @@ use borsh::BorshSerialize;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 
-use near_chain::types::{AcceptedBlock, ValidatorSignatureVerificationResult};
+use near_chain::types::{
+    AcceptedBlock, ShardStateSyncResponse, ValidatorSignatureVerificationResult,
+};
 use near_chain::{
     byzantine_assert, Block, BlockHeader, ChainGenesis, ChainStoreAccess, Provenance,
     RuntimeAdapter,
@@ -28,7 +30,7 @@ use near_network::{
     NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{BlockIndex, EpochId};
+use near_primitives::types::{BlockIndex, EpochId, Range};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, to_timestamp};
 use near_primitives::views::ValidatorInfo;
@@ -282,15 +284,48 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     // NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlockApproval }
                 }
             }
-            NetworkClientMessages::StateRequest(shard_id, hash) => {
-                if let Ok(shard_state) = self.client.chain.get_state_for_shard(shard_id, hash) {
+            NetworkClientMessages::StateRequest(
+                shard_id,
+                hash,
+                need_header,
+                parts_range,
+                parts_particular,
+            ) => {
+                let mut parts = vec![];
+                for Range(from, to) in parts_range {
+                    for part_id in from..to {
+                        if let Ok(part) = self.client.chain.get_state_part(shard_id, part_id, hash)
+                        {
+                            parts.push(part);
+                        } else {
+                            return NetworkClientResponses::NoResponse;
+                        }
+                    }
+                }
+                for part_id in parts_particular {
+                    if let Ok(part) = self.client.chain.get_state_part(shard_id, part_id, hash) {
+                        parts.push(part);
+                    } else {
+                        return NetworkClientResponses::NoResponse;
+                    }
+                }
+                if need_header {
+                    if let Ok(header) = self.client.chain.get_state_header(shard_id, hash) {
+                        return NetworkClientResponses::StateResponse(StateResponseInfo {
+                            shard_id,
+                            hash,
+                            shard_state: ShardStateSyncResponse { header: Some(header), parts },
+                        });
+                    } else {
+                        return NetworkClientResponses::NoResponse;
+                    }
+                } else {
                     return NetworkClientResponses::StateResponse(StateResponseInfo {
                         shard_id,
                         hash,
-                        shard_state,
+                        shard_state: ShardStateSyncResponse { header: None, parts },
                     });
                 }
-                NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::StateResponse(StateResponseInfo {
                 shard_id,
@@ -327,15 +362,38 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 }
 
                 if !shard_statuseses.is_empty() {
-                    match self.client.chain.set_shard_state(
-                        &self.client.block_producer.as_ref().map(|bp| bp.account_id.clone()),
-                        shard_id,
-                        hash,
-                        shard_state,
+                    let shard_state_header = shard_state.header.unwrap();
+                    match self.client.chain.set_state_parts(
+                        shard_state_header.chunk.header.inner.prev_state_root,
+                        shard_state.parts,
                     ) {
                         Ok(()) => {
-                            for shard_statuses in shard_statuseses {
-                                shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
+                            match self.client.chain.set_state_header(
+                                &self
+                                    .client
+                                    .block_producer
+                                    .as_ref()
+                                    .map(|bp| bp.account_id.clone()),
+                                shard_id,
+                                hash,
+                                shard_state_header,
+                            ) {
+                                Ok(()) => {
+                                    for shard_statuses in shard_statuseses {
+                                        shard_statuses.insert(shard_id, ShardSyncStatus::StateDone);
+                                    }
+                                }
+                                Err(err) => {
+                                    for shard_statuses in shard_statuseses {
+                                        shard_statuses.insert(
+                                            shard_id,
+                                            ShardSyncStatus::Error(format!(
+                                                "Failed to set state header for {} @ {}: {}",
+                                                shard_id, hash, err
+                                            )),
+                                        );
+                                    }
+                                }
                             }
                         }
                         Err(err) => {
@@ -343,7 +401,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                                 shard_statuses.insert(
                                     shard_id,
                                     ShardSyncStatus::Error(format!(
-                                        "Failed to set state for {} @ {}: {}",
+                                        "Failed to set state parts for {} @ {}: {}",
                                         shard_id, hash, err
                                     )),
                                 );

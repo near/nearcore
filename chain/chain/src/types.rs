@@ -28,6 +28,13 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
 
+#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
+pub struct StatePart {
+    pub shard_id: ShardId,
+    pub part_id: u64,
+    pub data: Vec<u8>,
+}
+
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
     /// Block is the "next" block, updating the chain head.
@@ -293,21 +300,34 @@ pub trait RuntimeAdapter: Send + Sync {
         data: &[u8],
     ) -> Result<QueryResponse, Box<dyn std::error::Error>>;
 
-    /// Read state as byte array from given state root.
-    fn dump_state(
+    /// Returns the number of the parts of the state.
+    /// All logic about handling, managing and proving parts
+    /// is responsibility of the current Runtime implementation.
+    fn num_state_parts(&self, root: &MerkleHash) -> usize;
+
+    /// Get the part of the state from given state root + proof.
+    fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        state_root: MerkleHash,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+        part_id: u64,
+        root: MerkleHash,
+    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
 
-    /// Set state that expected to be given state root with provided payload.
-    /// Returns error if failed to parse or if the resulting tree doesn't match the expected root.
-    fn set_state(
+    /// Set state part that expected to be given state root with provided data.
+    /// Returns error if:
+    /// 1. Failed to parse, or
+    /// 2. The proof is invalid, or
+    /// 3. The resulting part doesn't match the expected one.
+    fn accept_state_part(
         &self,
-        _shard_id: ShardId,
-        state_root: MerkleHash,
-        payload: Vec<u8>,
+        root: MerkleHash,
+        part: &StatePart,
+        proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Should be executed after accepting all the parts.
+    /// Returns `true` if state is set successfully.
+    fn confirm_state(&self, root: &MerkleHash) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
@@ -418,36 +438,25 @@ impl BlockApproval {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ShardStateSyncResponse {
+pub struct ShardStateSyncResponseHeader {
     pub chunk: ShardChunk,
     pub chunk_proof: MerklePath,
     pub prev_chunk_header: ShardChunkHeader,
     pub prev_chunk_proof: MerklePath,
-    pub prev_payload: Vec<u8>,
     pub incoming_receipts_proofs: Vec<ReceiptProofResponse>,
     pub root_proofs: Vec<Vec<RootProof>>,
 }
 
-impl ShardStateSyncResponse {
-    pub fn new(
-        chunk: ShardChunk,
-        chunk_proof: MerklePath,
-        prev_chunk_header: ShardChunkHeader,
-        prev_chunk_proof: MerklePath,
-        prev_payload: Vec<u8>,
-        incoming_receipts_proofs: Vec<ReceiptProofResponse>,
-        root_proofs: Vec<Vec<RootProof>>,
-    ) -> Self {
-        Self {
-            chunk,
-            chunk_proof,
-            prev_chunk_header,
-            prev_chunk_proof,
-            prev_payload,
-            incoming_receipts_proofs,
-            root_proofs,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponsePart {
+    pub state_part: StatePart,
+    pub proof: MerklePath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ShardStateSyncResponse {
+    pub header: Option<ShardStateSyncResponseHeader>,
+    pub parts: Vec<ShardStateSyncResponsePart>,
 }
 
 #[cfg(test)]

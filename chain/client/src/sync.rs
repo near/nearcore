@@ -11,7 +11,7 @@ use near_chunks::NetworkAdapter;
 use near_network::types::ReasonForBan;
 use near_network::{FullPeerInfo, NetworkRequests};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{BlockIndex, ShardId};
+use near_primitives::types::{BlockIndex, Range, ShardId};
 use near_primitives::unwrap_or_return;
 
 use crate::types::{ShardSyncStatus, SyncStatus};
@@ -574,6 +574,9 @@ impl StateSync {
             shard_id,
             hash,
             account_id: shard_bps[thread_rng().gen_range(0, shard_bps.len())].clone(),
+            need_header: true,
+            parts_range: vec![Range(0, runtime_adapter.num_state_parts(&hash) as u64)],
+            parts_particular: vec![],
         });
         Some(())
     }

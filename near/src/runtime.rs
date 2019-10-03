@@ -9,12 +9,13 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use kvdb::DBValue;
 use log::debug;
 
-use near_chain::types::{ApplyTransactionResult, ValidatorSignatureVerificationResult};
+use near_chain::types::{ApplyTransactionResult, StatePart, ValidatorSignatureVerificationResult};
 use near_chain::{BlockHeader, Error, ErrorKind, RuntimeAdapter, ValidTransaction, Weight};
 use near_crypto::{BlsSignature, PublicKey, ReadablePublicKey};
 use near_epoch_manager::{BlockInfo, EpochConfig, EpochManager, RewardCalculator};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
+use near_primitives::merkle::MerklePath;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
@@ -717,16 +718,22 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn dump_state(
+    fn num_state_parts(&self, _root: &MerkleHash) -> usize {
+        // TODO divide state on parts in Nightshade Runtime
+        return 1;
+    }
+
+    fn obtain_state_part(
         &self,
         shard_id: ShardId,
-        state_root: MerkleHash,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        part_id: u64,
+        root: MerkleHash,
+    ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
         let mut result = vec![];
         let mut cursor = Cursor::new(&mut result);
-        for item in self.trie.iter(&state_root)? {
+        for item in self.trie.iter(&root)? {
             let (key, value) = item?;
             cursor.write_u32::<LittleEndian>(key.len() as u32)?;
             cursor.write_all(&key)?;
@@ -734,21 +741,23 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_all(value.as_ref())?;
         }
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        debug!(target: "runtime", "Dumped state for shard #{} @ {}, size = {}", shard_id, state_root, result.len());
-        Ok(result)
+        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, root, result.len());
+        // TODO add proof in Nightshade Runtime
+        Ok((StatePart { shard_id, part_id, data: result }, MerklePath::new()))
     }
 
-    fn set_state(
+    fn accept_state_part(
         &self,
-        shard_id: ShardId,
-        state_root: MerkleHash,
-        payload: Vec<u8>,
+        root: MerkleHash,
+        part: &StatePart,
+        _proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        debug!(target: "runtime", "Setting state for shard #{} @ {}, size = {}", shard_id, state_root, payload.len());
+        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, root, part.data.len());
+        // TODO prove that the part is valid
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
-        let payload_len = payload.len();
-        let mut cursor = Cursor::new(payload);
-        while cursor.position() < payload_len as u64 {
+        let state_part_len = part.data.len();
+        let mut cursor = Cursor::new(part.data.clone());
+        while cursor.position() < state_part_len as u64 {
             let key_len = cursor.read_u32::<LittleEndian>()? as usize;
             let mut key = vec![0; key_len];
             cursor.read_exact(&mut key)?;
@@ -757,12 +766,17 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.read_exact(&mut value)?;
             state_update.set(key, DBValue::from_slice(&value));
         }
-        let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
+        let (store_update, state_root) = state_update.finalize()?.into(self.trie.clone())?;
         if root != state_root {
             return Err("Invalid state root".into());
         }
         store_update.commit()?;
         Ok(())
+    }
+
+    fn confirm_state(&self, _root: &MerkleHash) -> Result<bool, Error> {
+        // TODO approve that all parts are here
+        Ok(true)
     }
 }
 
@@ -1389,7 +1403,7 @@ mod test {
         let staking_transaction = stake(1, &signer, &block_producers[0], TESTING_INIT_STAKE + 1);
         env.step_default(vec![staking_transaction]);
         env.step_default(vec![]);
-        let state_dump = env.runtime.dump_state(0, env.state_roots[0]).unwrap();
+        let (state_dump, proof) = env.runtime.obtain_state_part(0, 0, env.state_roots[0]).unwrap();
         let mut new_env =
             TestEnv::new("test_state_sync", vec![validators.clone()], 2, vec![], vec![]);
         for i in 1..=2 {
@@ -1423,7 +1437,7 @@ mod test {
             new_env.head.last_block_hash = cur_hash;
             new_env.head.prev_block_hash = prev_hash;
         }
-        new_env.runtime.set_state(0, env.state_roots[0], state_dump).unwrap();
+        new_env.runtime.accept_state_part(env.state_roots[0], &state_dump, &proof).unwrap();
         new_env.state_roots[0] = env.state_roots[0];
         for _ in 3..=5 {
             new_env.step_default(vec![]);
