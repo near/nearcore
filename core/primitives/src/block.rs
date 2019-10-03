@@ -53,6 +53,8 @@ pub struct BlockHeaderInner {
     pub rent_paid: Balance,
     /// Total supply of tokens in the system
     pub total_supply: Balance,
+    /// List of challenges.
+    pub challenges: Challenges,
 }
 
 impl BlockHeaderInner {
@@ -76,6 +78,7 @@ impl BlockHeaderInner {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
+        challenges: Challenges,
     ) -> Self {
         Self {
             height,
@@ -97,6 +100,7 @@ impl BlockHeaderInner {
             gas_price,
             rent_paid,
             total_supply,
+            challenges,
         }
     }
 }
@@ -140,6 +144,7 @@ impl BlockHeader {
         gas_price: Balance,
         rent_paid: Balance,
         total_supply: Balance,
+        challenges: Challenges,
         signer: &dyn BlsSigner,
     ) -> Self {
         let inner = BlockHeaderInner::new(
@@ -162,6 +167,7 @@ impl BlockHeader {
             gas_price,
             rent_paid,
             total_supply,
+            challenges,
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: signer.sign(hash.as_ref()), hash }
@@ -198,6 +204,7 @@ impl BlockHeader {
             initial_gas_price,
             0,
             initial_total_supply,
+            vec![],
         );
         let hash = hash(&inner.try_to_vec().expect("Failed to serialize"));
         Self { inner, signature: BlsSignature::empty(), hash }
@@ -225,8 +232,6 @@ impl BlockHeader {
 pub struct Block {
     pub header: BlockHeader,
     pub chunks: Vec<ShardChunkHeader>,
-    /// List of challenges.
-    pub challenges: Challenges,
 }
 
 impl Block {
@@ -272,7 +277,6 @@ impl Block {
                 initial_total_supply,
             ),
             chunks,
-            challenges: vec![],
         }
     }
 
@@ -351,10 +355,10 @@ impl Block {
                 new_gas_price,
                 storage_rent,
                 new_total_supply,
+                challenges,
                 signer,
             ),
             chunks,
-            challenges,
         }
     }
 

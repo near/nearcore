@@ -18,6 +18,7 @@ use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
+use near_primitives::challenge::{Challenge, ChallengeBody};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -329,42 +330,6 @@ pub trait RuntimeAdapter: Send + Sync {
         }
         Ok(receipts_hashes)
     }
-
-    /// Check chunk validity.
-    fn check_chunk_validity(&self, chunk: &ShardChunk) -> Result<(), Error> {
-        // 1. Checking that chunk header is valid
-        // 1a. Checking chunk.header.hash
-        if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
-        }
-        // 1b. Checking signature
-        if !self.verify_chunk_header_signature(&chunk.header)? {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk signature".to_string()).into());
-        }
-        // 2. Checking that chunk body is valid
-        // 2a. Checking chunk hash
-        if chunk.chunk_hash != chunk.header.hash {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk hash".to_string()).into());
-        }
-        // 2b. Checking that chunk transactions are valid
-        let (tx_root, _) = merklize(&chunk.transactions);
-        if tx_root != chunk.header.inner.tx_root {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk tx_root".to_string()).into());
-        }
-        // 2c. Checking that chunk receipts are valid
-        let outgoing_receipts_hashes = self.build_receipts_hashes(&chunk.receipts)?;
-        let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
-        if receipts_root != chunk.header.inner.outgoing_receipts_root {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other("Incorrect chunk receipts root".to_string()).into());
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
@@ -463,26 +428,131 @@ pub fn validate_chunk_proofs(
 ) -> Result<bool, Error> {
     // 1. Checking chunk.header.hash
     if chunk.header.hash != ChunkHash(hash(&chunk.header.inner.try_to_vec()?)) {
+        byzantine_assert!(false);
         return Ok(false);
     }
 
     // 2. Checking that chunk body is valid
     // 2a. Checking chunk hash
     if chunk.chunk_hash != chunk.header.hash {
+        byzantine_assert!(false);
         return Ok(false);
     }
     // 2b. Checking that chunk transactions are valid
     let (tx_root, _) = merklize(&chunk.transactions);
     if tx_root != chunk.header.inner.tx_root {
+        byzantine_assert!(false);
         return Ok(false);
     }
     // 2c. Checking that chunk receipts are valid
     let outgoing_receipts_hashes = runtime_adapter.build_receipts_hashes(&chunk.receipts)?;
     let (receipts_root, _) = merklize(&outgoing_receipts_hashes);
     if receipts_root != chunk.header.inner.outgoing_receipts_root {
+        byzantine_assert!(false);
         return Ok(false);
     }
     Ok(true)
+}
+
+/// Returns Some(block hash) of invalid block if challenge is correct and None if incorrect.
+pub fn verify_challenge(
+    runtime_adapter: &RuntimeAdapter,
+    epoch_id: &EpochId,
+    challenge: &Challenge,
+) -> Result<CryptoHash, Error> {
+    // Check signature is correct on the challenge.
+    if !runtime_adapter
+        .verify_validator_signature(
+            epoch_id,
+            &challenge.account_id,
+            challenge.hash.as_ref(),
+            &challenge.signature,
+        )
+        .valid()
+    {
+        return Err(ErrorKind::InvalidChallenge.into());
+    }
+    match &challenge.body {
+        ChallengeBody::BlockDoubleSign(block_double_sign) => {
+            let left_block_header =
+                BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
+            let right_block_header =
+                BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
+            let block_producer = runtime_adapter.get_block_producer(
+                &left_block_header.inner.epoch_id,
+                left_block_header.inner.height,
+            )?;
+            if left_block_header.hash() != right_block_header.hash()
+                && left_block_header.inner.height == right_block_header.inner.height
+                && runtime_adapter
+                    .verify_validator_signature(
+                        &left_block_header.inner.epoch_id,
+                        &block_producer,
+                        left_block_header.hash().as_ref(),
+                        &left_block_header.signature,
+                    )
+                    .valid()
+                && runtime_adapter
+                    .verify_validator_signature(
+                        &right_block_header.inner.epoch_id,
+                        &block_producer,
+                        right_block_header.hash().as_ref(),
+                        &right_block_header.signature,
+                    )
+                    .valid()
+            {
+                // Deterministically return header with higher hash.
+                Ok(if left_block_header.hash() > right_block_header.hash() {
+                    left_block_header.hash()
+                } else {
+                    right_block_header.hash()
+                })
+            } else {
+                Err(ErrorKind::InvalidChallenge.into())
+            }
+        }
+        ChallengeBody::ChunkProofs(chunk_proofs) => {
+            let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
+            // TODO: this requires actually having the block parent present in the chain.
+            match runtime_adapter.verify_chunk_header_signature(&chunk_proofs.chunk.header) {
+                Ok(true) => {}
+                Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
+            };
+            if !Block::validate_chunk_header_proof(
+                &chunk_proofs.chunk.header,
+                &block_header.inner.chunk_headers_root,
+                &chunk_proofs.merkle_proof,
+            ) {
+                return Err(ErrorKind::InvalidChallenge.into());
+            }
+            match chunk_proofs
+                .chunk
+                .decode_chunk(
+                    runtime_adapter
+                        .num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
+                )
+                .map_err(|err| err.into())
+                .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
+            {
+                Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
+                Ok(false) | Err(_) => Ok(block_header.hash()),
+            }
+        }
+        ChallengeBody::ChunkState(chunk_state) => {
+            let _block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
+            // TODO: this requires actually having the block parent present in the chain.
+            match runtime_adapter.verify_chunk_header_signature(&chunk_state.chunk_header) {
+                Ok(true) => {}
+                Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
+            };
+            // Retrieve block, if it's missing return error to fetch it.
+            //                let prev_chunk_header =
+            //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
+            //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
+            // chunk_header.inner.
+            Err(ErrorKind::InvalidChallenge.into())
+        }
+    }
 }
 
 #[cfg(test)]

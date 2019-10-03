@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshSerialize;
 use chrono::prelude::{DateTime, Utc};
 use chrono::Duration;
 use log::{debug, info};
 
-use near_primitives::challenge::{Challenge, ChallengeBody, ChunkProofs};
+use near_primitives::challenge::ChunkProofs;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{merklize, verify_path};
 use near_primitives::receipt::Receipt;
@@ -22,9 +22,9 @@ use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, StateSyncInfo};
 use crate::types::{
-    validate_chunk_proofs, AcceptedBlock, Block, BlockHeader, BlockStatus, Provenance, ReceiptList,
-    ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter, ShardStateSyncResponse, Tip,
-    ValidatorSignatureVerificationResult,
+    validate_chunk_proofs, verify_challenge, AcceptedBlock, Block, BlockHeader, BlockStatus,
+    Provenance, ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
+    ShardStateSyncResponse, Tip, ValidatorSignatureVerificationResult,
 };
 
 /// Maximum number of orphans chain can store.
@@ -168,7 +168,7 @@ impl ChainGenesis {
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     store: ChainStore,
-    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     orphans: OrphanBlockPool,
     blocks_with_missing_chunks: OrphanBlockPool,
     genesis: BlockHeader,
@@ -1294,95 +1294,6 @@ impl Chain {
 
         Ok(())
     }
-
-    /// Returns Some(block hash) of invalid block if challenge is correct and None if incorrect.
-    pub fn verify_challenge(&mut self, challenge: Challenge) -> Result<CryptoHash, Error> {
-        match challenge.body {
-            ChallengeBody::BlockDoubleSign(block_double_sign) => {
-                let left_block_header =
-                    BlockHeader::try_from_slice(&block_double_sign.left_block_header)?;
-                let right_block_header =
-                    BlockHeader::try_from_slice(&block_double_sign.right_block_header)?;
-                let block_producer = self.runtime_adapter.get_block_producer(
-                    &left_block_header.inner.epoch_id,
-                    left_block_header.inner.height,
-                )?;
-                if left_block_header.hash() != right_block_header.hash()
-                    && left_block_header.inner.height == right_block_header.inner.height
-                    && self
-                        .runtime_adapter
-                        .verify_validator_signature(
-                            &left_block_header.inner.epoch_id,
-                            &block_producer,
-                            left_block_header.hash().as_ref(),
-                            &left_block_header.signature,
-                        )
-                        .valid()
-                    && self
-                        .runtime_adapter
-                        .verify_validator_signature(
-                            &right_block_header.inner.epoch_id,
-                            &block_producer,
-                            right_block_header.hash().as_ref(),
-                            &right_block_header.signature,
-                        )
-                        .valid()
-                {
-                    // Deterministically return header with higher hash.
-                    Ok(if left_block_header.hash() > right_block_header.hash() {
-                        left_block_header.hash()
-                    } else {
-                        right_block_header.hash()
-                    })
-                } else {
-                    Err(ErrorKind::InvalidChallenge.into())
-                }
-            }
-            ChallengeBody::ChunkProofs(chunk_proofs) => {
-                let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-                // TODO: this requires actually having the block parent present in the chain.
-                match self.runtime_adapter.verify_chunk_header_signature(&chunk_proofs.chunk.header)
-                {
-                    Ok(true) => {}
-                    Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
-                };
-                if !Block::validate_chunk_header_proof(
-                    &chunk_proofs.chunk.header,
-                    &block_header.inner.chunk_headers_root,
-                    &chunk_proofs.merkle_proof,
-                ) {
-                    return Err(ErrorKind::InvalidChallenge.into());
-                }
-                match chunk_proofs
-                    .chunk
-                    .decode_chunk(
-                        self.runtime_adapter
-                            .num_data_parts(&chunk_proofs.chunk.header.inner.prev_block_hash),
-                    )
-                    .map_err(|err| err.into())
-                    .and_then(|chunk| validate_chunk_proofs(&chunk, &*self.runtime_adapter))
-                {
-                    Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
-                    Ok(false) | Err(_) => Ok(block_header.hash()),
-                }
-            }
-            ChallengeBody::ChunkState(chunk_state) => {
-                let block_header = BlockHeader::try_from_slice(&chunk_state.block_header)?;
-                // TODO: this requires actually having the block parent present in the chain.
-                match self.runtime_adapter.verify_chunk_header_signature(&chunk_state.chunk_header)
-                {
-                    Ok(true) => {}
-                    Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
-                };
-                // Retrieve block, if it's missing return error to fetch it.
-                //                let prev_chunk_header =
-                //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
-                //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
-                // chunk_header.inner.
-                Err(ErrorKind::InvalidChallenge.into())
-            }
-        }
-    }
 }
 
 /// Various chain getters.
@@ -2031,6 +1942,13 @@ impl<'a> ChainUpdate<'a> {
             let weight = self.runtime_adapter.compute_block_weight(&prev_header, header)?;
             if weight != header.inner.total_weight {
                 return Err(ErrorKind::InvalidBlockWeight.into());
+            }
+        }
+
+        for challenge in header.inner.challenges.iter() {
+            match verify_challenge(&*self.runtime_adapter, &header.inner.epoch_id, challenge) {
+                Ok(hash) => self.chain_store_update.save_challenged_block(hash),
+                Err(err) => return Err(err),
             }
         }
 

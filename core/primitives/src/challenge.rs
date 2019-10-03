@@ -1,9 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use near_crypto::{BlsSignature, BlsSigner};
+
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::MerklePath;
 use crate::sharding::{EncodedShardChunk, ShardChunk, ShardChunkHeader};
-use near_crypto::{BlsSignature, BlsSigner};
+use crate::types::AccountId;
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub struct StateItem {
@@ -57,6 +59,7 @@ pub enum ChallengeBody {
 #[borsh_init(init)]
 pub struct Challenge {
     pub body: ChallengeBody,
+    pub account_id: AccountId,
     pub signature: BlsSignature,
 
     #[borsh_skip]
@@ -68,10 +71,10 @@ impl Challenge {
         self.hash = hash(&self.body.try_to_vec().expect("Failed to serialize"));
     }
 
-    pub fn produce(body: ChallengeBody, signer: &dyn BlsSigner) -> Self {
+    pub fn produce(body: ChallengeBody, account_id: AccountId, signer: &dyn BlsSigner) -> Self {
         let hash = hash(&body.try_to_vec().expect("Failed to serialize"));
         let signature = signer.sign(hash.as_ref());
-        Self { body, signature, hash }
+        Self { body, account_id, signature, hash }
     }
 }
 

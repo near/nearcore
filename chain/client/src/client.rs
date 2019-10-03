@@ -255,6 +255,9 @@ impl Client {
             None
         };
 
+        // Get all the latest challenges.
+        let challenges = self.challenges.drain(..).collect();
+
         let block = Block::produce(
             &prev_header,
             next_height,
@@ -263,7 +266,7 @@ impl Client {
             self.approvals.drain().collect(),
             self.block_economics_config.gas_price_adjustment_rate,
             inflation,
-            vec![],
+            challenges,
             &*block_producer.signer,
         );
 
@@ -424,6 +427,7 @@ impl Client {
                     near_chain::ErrorKind::InvalidChunkProofs(chunk_proofs) => {
                         self.network_adapter.send(NetworkRequests::Challenge(Challenge::produce(
                             ChallengeBody::ChunkProofs(chunk_proofs),
+                            block_producer.account_id.clone(),
                             &*block_producer.signer,
                         )));
                     }
@@ -908,8 +912,21 @@ impl Client {
         Ok(vec![])
     }
 
-    pub fn process_challenge(&mut self, challenge: Challenge) {
-        // TODO: pre-validate challenge?
-        self.challenges.push(challenge);
+    /// When accepting challenge, we verify that it's valid given signature with current validators.
+    pub fn process_challenge(&mut self, challenge: Challenge) -> Result<(), Error> {
+        let head = self.chain.head()?;
+        if self
+            .runtime_adapter
+            .verify_validator_signature(
+                &head.epoch_id,
+                &challenge.account_id,
+                challenge.hash.as_ref(),
+                &challenge.signature,
+            )
+            .valid()
+        {
+            self.challenges.push(challenge);
+        }
+        Ok(())
     }
 }

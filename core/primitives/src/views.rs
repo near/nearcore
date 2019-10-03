@@ -297,6 +297,8 @@ pub struct BlockHeaderView {
     pub rent_paid: Balance,
     #[serde(with = "u128_dec_format")]
     pub total_supply: Balance,
+    // TODO: make ChallengesView
+    // pub challenges: Challenges,
     pub signature: BlsSignature,
 }
 
@@ -360,6 +362,7 @@ impl From<BlockHeaderView> for BlockHeader {
                 gas_used: view.gas_used,
                 total_supply: view.total_supply,
                 rent_paid: view.rent_paid,
+                challenges: vec![],
             },
             signature: view.signature,
             hash: CryptoHash::default(),
