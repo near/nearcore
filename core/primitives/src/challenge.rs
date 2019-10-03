@@ -79,4 +79,12 @@ impl Challenge {
 }
 
 pub type Challenges = Vec<Challenge>;
-pub type ChallengesResult = Vec<(Challenge, bool)>;
+
+/// Result of checking challenge, contains which accounts to slash.
+/// If challenge is invalid this is sender, otherwise author of chunk (and possibly other
+pub struct ChallengeResult {
+    pub account_ids: Vec<AccountId>,
+    pub valid: bool,
+}
+
+pub type ChallengesResult = Vec<ChallengeResult>;

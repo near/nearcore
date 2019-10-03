@@ -33,7 +33,7 @@ use crate::types::{
     Weight,
 };
 use crate::{Chain, ChainGenesis, ValidTransaction};
-use near_primitives::challenge::Challenge;
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 use near_primitives::merkle::merklize;
 
@@ -450,7 +450,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
-        _challenge: &Vec<(Challenge, bool)>,
+        _challenge: &ChallengesResult,
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {

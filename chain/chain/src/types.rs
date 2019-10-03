@@ -18,7 +18,7 @@ use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
 
 use crate::byzantine_assert;
 use crate::error::{Error, ErrorKind};
-use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::challenge::{Challenge, ChallengeBody, ChallengesResult};
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub struct ReceiptResponse(pub CryptoHash, pub Vec<Receipt>);
@@ -259,7 +259,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
-        challenges: &Vec<(Challenge, bool)>,
+        challenges: &ChallengesResult,
         gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
@@ -287,7 +287,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
-        challenges: &Vec<(Challenge, bool)>,
+        challenges: &ChallengesResult,
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
@@ -457,12 +457,12 @@ pub fn validate_chunk_proofs(
     Ok(true)
 }
 
-/// Returns Some(block hash) of invalid block if challenge is correct and None if incorrect.
+/// Returns Some(block hash, vec![account_id]) of invalid block and who to slash if challenge is correct and None if incorrect.
 pub fn verify_challenge(
     runtime_adapter: &RuntimeAdapter,
     epoch_id: &EpochId,
     challenge: &Challenge,
-) -> Result<CryptoHash, Error> {
+) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     // Check signature is correct on the challenge.
     if !runtime_adapter
         .verify_validator_signature(
@@ -506,9 +506,9 @@ pub fn verify_challenge(
             {
                 // Deterministically return header with higher hash.
                 Ok(if left_block_header.hash() > right_block_header.hash() {
-                    left_block_header.hash()
+                    (left_block_header.hash(), vec![block_producer])
                 } else {
-                    right_block_header.hash()
+                    (right_block_header.hash(), vec![block_producer])
                 })
             } else {
                 Err(ErrorKind::MaliciousChallenge.into())
@@ -516,10 +516,40 @@ pub fn verify_challenge(
         }
         ChallengeBody::ChunkProofs(chunk_proofs) => {
             let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
-            // TODO: this requires actually having the block parent present in the chain.
-            match runtime_adapter.verify_chunk_header_signature(&chunk_proofs.chunk.header) {
-                Ok(true) => {}
-                Ok(false) | Err(_) => return Err(ErrorKind::InvalidChallenge.into()),
+            let block_producer = runtime_adapter
+                .get_block_producer(&block_header.inner.epoch_id, block_header.inner.height)?;
+            match runtime_adapter.verify_validator_signature(
+                &block_header.inner.epoch_id,
+                &block_producer,
+                block_header.hash().as_ref(),
+                &block_header.signature,
+            ) {
+                ValidatorSignatureVerificationResult::Valid => {}
+                ValidatorSignatureVerificationResult::Invalid => {
+                    return Err(ErrorKind::InvalidChallenge.into())
+                }
+                ValidatorSignatureVerificationResult::UnknownEpoch => {
+                    return Err(ErrorKind::EpochOutOfBounds.into())
+                }
+            }
+            let chunk_producer = runtime_adapter.get_chunk_producer(
+                &block_header.inner.epoch_id,
+                chunk_proofs.chunk.header.inner.height_created,
+                chunk_proofs.chunk.header.inner.shard_id,
+            )?;
+            match runtime_adapter.verify_validator_signature(
+                &block_header.inner.epoch_id,
+                &chunk_producer,
+                chunk_proofs.chunk.chunk_hash().as_ref(),
+                &chunk_proofs.chunk.header.signature,
+            ) {
+                ValidatorSignatureVerificationResult::Valid => {}
+                ValidatorSignatureVerificationResult::Invalid => {
+                    return Err(ErrorKind::InvalidChallenge.into())
+                }
+                ValidatorSignatureVerificationResult::UnknownEpoch => {
+                    return Err(ErrorKind::EpochOutOfBounds.into())
+                }
             };
             if !Block::validate_chunk_header_proof(
                 &chunk_proofs.chunk.header,
@@ -538,7 +568,7 @@ pub fn verify_challenge(
                 .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
             {
                 Ok(true) => Err(ErrorKind::MaliciousChallenge.into()),
-                Ok(false) | Err(_) => Ok(block_header.hash()),
+                Ok(false) | Err(_) => Ok((block_header.hash(), vec![chunk_producer])),
             }
         }
         ChallengeBody::ChunkState(chunk_state) => {
@@ -553,6 +583,7 @@ pub fn verify_challenge(
             //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
             //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
             // chunk_header.inner.
+            // TODO: TODO
             Err(ErrorKind::MaliciousChallenge.into())
         }
     }

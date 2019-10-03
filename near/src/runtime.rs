@@ -37,7 +37,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
-use near_primitives::challenge::{Challenge, Challenges};
+use near_primitives::challenge::ChallengesResult;
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -180,9 +180,10 @@ impl NightshadeRuntime {
     }
 
     /// Processes challenges and slashes either validators
-    pub fn process_challenges(&self, challenges: &Vec<(Challenge, bool)>) {
-        for (challenge, is_correct) in challenges {
-            // if challenge
+    pub fn process_challenges(&self, challenges: &ChallengesResult) {
+        // TODO: slash accounts from challenges
+        for _challenge_result in challenges {
+            // if challenge_
         }
     }
 }
@@ -527,7 +528,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
-        challenges: &Vec<(Challenge, bool)>,
+        challenges: &ChallengesResult,
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {

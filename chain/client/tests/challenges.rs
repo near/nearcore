@@ -47,7 +47,8 @@ fn test_verify_block_double_sign_challenge() {
     );
     assert_eq!(
         verify_challenge(&*env.clients[1].chain.runtime_adapter, &epoch_id, &valid_challenge)
-            .unwrap(),
+            .unwrap()
+            .0,
         if b1.hash() > b2.hash() { b1.hash() } else { b2.hash() }
     );
     let invalid_challenge = Challenge::produce(
@@ -139,7 +140,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
             &valid_challenge
         )
         .unwrap(),
-        block.hash()
+        (block.hash(), vec!["test0".to_string()])
     );
 }
 
