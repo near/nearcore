@@ -4,6 +4,10 @@ use near_primitives::views::FinalExecutionStatus;
 use std::mem::size_of;
 use testlib::node::{Node, RuntimeNode};
 
+#[cfg(test)]
+#[macro_use]
+extern crate assert_matches;
+
 const FUNCTION_CALL_GAS_AMOUNT: Gas = 1_000_000_000;
 
 fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
@@ -102,7 +106,7 @@ fn test_evil_deep_recursion() {
                 res
             );
         } else {
-            assert_eq!(res.status, FinalExecutionStatus::Failure, "{:?}", res);
+            assert_matches!(res.status, FinalExecutionStatus::Failure(_), "{:?}", res);
         }
     });
 }

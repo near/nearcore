@@ -11,6 +11,9 @@ use near_store::test_utils::create_test_store;
 use std::sync::Arc;
 use tempdir::TempDir;
 
+#[macro_use]
+extern crate assert_matches;
+
 pub mod actix_utils;
 pub mod fees_utils;
 pub mod node;

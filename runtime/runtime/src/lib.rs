@@ -44,7 +44,8 @@ use crate::config::{
 use crate::ethereum::EthashProvider;
 pub use crate::store::StateRecord;
 use near_primitives::errors::{
-    ActionError, InvalidAccessKeyError, InvalidTxError, InvalidTxErrorOrStorageError,
+    ActionError, ExecutionError, InvalidAccessKeyError, InvalidTxError,
+    InvalidTxErrorOrStorageError,
 };
 
 mod actions;
@@ -627,7 +628,7 @@ impl Runtime {
             ),
             Ok(ReturnData::Value(data)) => ExecutionStatus::SuccessValue(data),
             Ok(ReturnData::None) => ExecutionStatus::SuccessValue(vec![]),
-            Err(_) => ExecutionStatus::Failure,
+            Err(e) => ExecutionStatus::Failure(ExecutionError::Action(e)),
         };
 
         Self::print_log(&result.logs);
