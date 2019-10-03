@@ -438,9 +438,7 @@ fn test_process_invalid_tx() {
     }
     assert_eq!(
         env.clients[0].process_tx(tx),
-        NetworkClientResponses::InvalidTx(
-            "Transaction has either expired or from a different fork".to_string()
-        )
+        NetworkClientResponses::InvalidTx("Transaction has expired".to_string())
     );
     let tx2 = SignedTransaction::new(
         Signature::empty(KeyType::ED25519),
@@ -455,8 +453,6 @@ fn test_process_invalid_tx() {
     );
     assert_eq!(
         env.clients[0].process_tx(tx2),
-        NetworkClientResponses::InvalidTx(
-            "Transaction has either expired or from a different fork".to_string()
-        )
+        NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string())
     );
 }

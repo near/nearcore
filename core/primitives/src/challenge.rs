@@ -79,3 +79,4 @@ impl Challenge {
 }
 
 pub type Challenges = Vec<Challenge>;
+pub type ChallengesResult = Vec<(Challenge, bool)>;

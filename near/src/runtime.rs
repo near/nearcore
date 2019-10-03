@@ -37,6 +37,7 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
+use near_primitives::challenge::{Challenge, Challenges};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -176,6 +177,13 @@ impl NightshadeRuntime {
         state_update.commit();
 
         Ok(())
+    }
+
+    /// Processes challenges and slashes either validators
+    pub fn process_challenges(&self, challenges: &Vec<(Challenge, bool)>) {
+        for (challenge, is_correct) in challenges {
+            // if challenge
+        }
     }
 }
 
@@ -519,6 +527,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         _block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        challenges: &Vec<(Challenge, bool)>,
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error> {
@@ -549,6 +558,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 },
             )?;
         }
+
+        self.process_challenges(challenges);
 
         let apply_state = ApplyState {
             block_index,
@@ -741,7 +752,15 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
         logs: &mut Vec<String>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
-        self.trie_viewer.call_function(state_update, height, block_timestamp, contract_id, method_name, args, logs)
+        self.trie_viewer.call_function(
+            state_update,
+            height,
+            block_timestamp,
+            contract_id,
+            method_name,
+            args,
+            logs,
+        )
     }
 
     fn view_access_key(
@@ -813,6 +832,7 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
+    use near_primitives::challenge::{Challenges, ChallengesResult};
 
     fn stake(
         nonce: Nonce,
@@ -845,6 +865,7 @@ mod test {
             block_hash: &CryptoHash,
             receipts: &Vec<Receipt>,
             transactions: &Vec<SignedTransaction>,
+            challenges: &ChallengesResult,
             gas_price: Balance,
         ) -> (CryptoHash, Vec<ValidatorStake>, ReceiptResult) {
             let result = self
@@ -857,6 +878,7 @@ mod test {
                     block_hash,
                     receipts,
                     transactions,
+                    challenges,
                     gas_price,
                 )
                 .unwrap();
@@ -950,6 +972,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
+                    &vec![],
                     self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;

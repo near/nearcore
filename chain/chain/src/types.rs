@@ -259,6 +259,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        challenges: &Vec<(Challenge, bool)>,
         gas_price: Balance,
     ) -> Result<ApplyTransactionResult, Error> {
         self.apply_transactions_with_optional_storage_proof(
@@ -270,6 +271,7 @@ pub trait RuntimeAdapter: Send + Sync {
             block_hash,
             receipts,
             transactions,
+            challenges,
             gas_price,
             false,
         )
@@ -285,6 +287,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_hash: &CryptoHash,
         receipts: &Vec<Receipt>,
         transactions: &Vec<SignedTransaction>,
+        challenges: &Vec<(Challenge, bool)>,
         gas_price: Balance,
         generate_storage_proof: bool,
     ) -> Result<ApplyTransactionResult, Error>;
@@ -508,7 +511,7 @@ pub fn verify_challenge(
                     right_block_header.hash()
                 })
             } else {
-                Err(ErrorKind::InvalidChallenge.into())
+                Err(ErrorKind::MaliciousChallenge.into())
             }
         }
         ChallengeBody::ChunkProofs(chunk_proofs) => {
@@ -523,7 +526,7 @@ pub fn verify_challenge(
                 &block_header.inner.chunk_headers_root,
                 &chunk_proofs.merkle_proof,
             ) {
-                return Err(ErrorKind::InvalidChallenge.into());
+                return Err(ErrorKind::MaliciousChallenge.into());
             }
             match chunk_proofs
                 .chunk
@@ -534,7 +537,7 @@ pub fn verify_challenge(
                 .map_err(|err| err.into())
                 .and_then(|chunk| validate_chunk_proofs(&chunk, &*runtime_adapter))
             {
-                Ok(true) => Err(ErrorKind::InvalidChallenge.into()),
+                Ok(true) => Err(ErrorKind::MaliciousChallenge.into()),
                 Ok(false) | Err(_) => Ok(block_header.hash()),
             }
         }
@@ -550,7 +553,7 @@ pub fn verify_challenge(
             //                    self.store.get_block(&block_hash)?.chunks[shard_id as usize].clone();
             //                let prev_chunk = self.store.get_chunk_clone_from_header(&prev_chunk_header)?;
             // chunk_header.inner.
-            Err(ErrorKind::InvalidChallenge.into())
+            Err(ErrorKind::MaliciousChallenge.into())
         }
     }
 }

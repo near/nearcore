@@ -70,9 +70,12 @@ pub enum ErrorKind {
     /// Invalid transactions in the block.
     #[fail(display = "Invalid Transactions")]
     InvalidTransactions,
-    /// Invalid challenge.
+    /// Invalid challenge (wrong signature or format).
     #[fail(display = "Invalid Challenge")]
     InvalidChallenge,
+    /// Incorrect (malicious) challenge (slash the sender).
+    #[fail(display = "Malicious Challenge")]
+    MaliciousChallenge,
     /// Incorrect number of chunk headers
     #[fail(display = "Incorrect Number of Chunk Headers")]
     IncorrectNumberOfChunkHeaders,
@@ -173,6 +176,7 @@ impl Error {
             | ErrorKind::InvalidEpochHash
             | ErrorKind::InvalidValidatorProposals
             | ErrorKind::InvalidChallenge
+            | ErrorKind::MaliciousChallenge
             | ErrorKind::InvalidSignature => true,
         }
     }

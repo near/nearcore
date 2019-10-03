@@ -130,6 +130,12 @@ pub trait ChainStoreAccess {
     /// Returns hash of the block on the main chain for given height.
     fn get_block_hash_by_height(&mut self, height: BlockIndex) -> Result<CryptoHash, Error>;
 
+    /// Returns block header from the current chain for given height if present.
+    fn get_header_by_height(&mut self, height: BlockIndex) -> Result<&BlockHeader, Error> {
+        let hash = self.get_block_hash_by_height(height)?;
+        self.get_block_header(&hash)
+    }
+
     /// Returns resulting receipt for given block.
     fn get_outgoing_receipts(
         &mut self,
