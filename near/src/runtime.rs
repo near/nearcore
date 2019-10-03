@@ -560,7 +560,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let apply_result = self
             .runtime
             .apply(state_update, &apply_state, &receipts, &transactions)
-            .expect("Storage error. Corrupted db or invalid state");
+            .map_err(|e| match e {
+                InvalidTxErrorOrStorageError::InvalidTxError(_) => ErrorKind::InvalidTransactions,
+                InvalidTxErrorOrStorageError::StorageError(_) => {
+                    panic!("Storage error. Corrupted db or invalid state.");
+                }
+            })?;
 
         // Sort the receipts into appropriate outgoing shards.
         let mut receipt_result = HashMap::default();
@@ -809,7 +814,9 @@ mod test {
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::receipt::Receipt;
     use near_primitives::test_utils::init_test_logger;
-    use near_primitives::transaction::{Action, SignedTransaction, StakeAction};
+    use near_primitives::transaction::{
+        Action, CreateAccountAction, SignedTransaction, StakeAction,
+    };
     use near_primitives::types::{
         AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, ValidatorStake,
     };
@@ -1058,11 +1065,21 @@ mod test {
         assert_eq!(account.staked, 2 * TESTING_INIT_STAKE);
         assert_eq!(account.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE * 5);
 
+        // NOTE: The Runtime doesn't take invalid transactions anymore (e.g. one with a bad nonce),
+        // because they should be filtered before producing the chunk.
         // Send invalid transaction to see if the rollback of the state affects the validator rewards.
-        let invalid_transaction = stake(0, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
+        let invalid_transaction = SignedTransaction::from_actions(
+            1,
+            new_validator.account_id.clone(),
+            new_validator.account_id.clone(),
+            &new_signer,
+            vec![Action::CreateAccount(CreateAccountAction {})],
+            // runtime does not validate block history
+            CryptoHash::default(),
+        );
         env.step_default(vec![invalid_transaction]);
 
-        let stake_transaction = stake(1, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
+        let stake_transaction = stake(2, &new_signer, &new_validator, TESTING_INIT_STAKE * 2);
         env.step_default(vec![stake_transaction]);
 
         // Roll steps for 3 epochs to pass.

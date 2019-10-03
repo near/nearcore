@@ -67,7 +67,6 @@ fn test_keyvalue_runtime_balances() {
 }
 
 #[cfg(test)]
-#[cfg(feature = "expensive_tests")]
 mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -80,7 +79,7 @@ mod tests {
     use near_chain::test_utils::account_id_to_shard_id;
     use near_client::test_utils::setup_mock_all_validators;
     use near_client::{ClientActor, Query, ViewClientActor};
-    use near_crypto::{InMemoryBlsSigner, KeyType};
+    use near_crypto::{InMemorySigner, KeyType};
     use near_network::{
         NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
     };
@@ -102,7 +101,7 @@ mod tests {
         block_hash: CryptoHash,
     ) {
         let connectors1 = connectors.clone();
-        let signer = InMemoryBlsSigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
+        let signer = InMemorySigner::from_seed(&from.clone(), KeyType::ED25519, &from.clone());
         actix::spawn(
             connectors.write().unwrap()[connector_ordinal]
                 .0
@@ -340,6 +339,9 @@ mod tests {
     }
 
     fn test_cross_shard_tx_common(num_iters: usize, rotate_validators: bool) {
+        if !cfg!(feature = "expensive_tests") {
+            return;
+        }
         let validator_groups = 4;
         init_test_logger();
         System::run(move || {
@@ -384,7 +386,7 @@ mod tests {
                 key_pairs.clone(),
                 validator_groups,
                 true,
-                if rotate_validators { 150 } else { 50 },
+                if rotate_validators { 150 } else { 75 },
                 Arc::new(RwLock::new(move |_account_id: String, _msg: &NetworkRequests| {
                     (NetworkResponses::NoResponse, true)
                 })),
@@ -438,7 +440,7 @@ mod tests {
                 );
             }
 
-            // On X1 it takes ~1m 15s
+            // On X1 it takes ~5m 40s
             near_network::test_utils::wait_or_panic(600000);
         })
         .unwrap();

@@ -181,8 +181,8 @@ impl PartialEq for SignedTransaction {
 /// The status of execution for a transaction or a receipt.
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone)]
 pub enum ExecutionStatus {
-    /// The execution is pending.
-    Pending,
+    /// The execution is pending or unknown.
+    Unknown,
     /// The execution has failed.
     Failure,
     /// The final action succeeded and returned some value or an empty vec.
@@ -195,7 +195,7 @@ pub enum ExecutionStatus {
 impl fmt::Debug for ExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ExecutionStatus::Pending => f.write_str("Pending"),
+            ExecutionStatus::Unknown => f.write_str("Unknown"),
             ExecutionStatus::Failure => f.write_str("Failure"),
             ExecutionStatus::SuccessValue(v) => {
                 f.write_fmt(format_args!("SuccessValue({})", logging::pretty_utf8(&v)))
@@ -209,7 +209,7 @@ impl fmt::Debug for ExecutionStatus {
 
 impl Default for ExecutionStatus {
     fn default() -> Self {
-        ExecutionStatus::Pending
+        ExecutionStatus::Unknown
     }
 }
 
