@@ -41,6 +41,7 @@ impl Fee {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct RuntimeFeesConfig {
+    /// Costs for runtime externals
     pub ext_costs: ExtCostsConfig,
     /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
     /// of actions.
