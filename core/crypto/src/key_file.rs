@@ -29,7 +29,8 @@ pub struct KeyFile {
     pub account_id: String,
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
-    pub key_hash: KeyHash
+    pub key_hash: KeyHash,
+    pub ssb: SodiumoxideSecretBox,
 }
 
 impl KeyFile {
@@ -55,8 +56,10 @@ impl KeyFile {
             let encrypted_secretkey = ssb.encrypt(&secretkey_vec, &encryption_key);
             self.secret_key = secretKeyFromVec(encrypted_secretkey);
             self.key_hash = key_hash;
+            self.ssb = ssb;
         } else {
-            self.key_hash = KeyHash::default();//?
+            self.key_hash = KeyHash::default();
+            self.ssb = SodiumoxideSecretBox::default();
         }
         self.write_to_file(path);
         Ok(())
@@ -71,40 +74,42 @@ impl KeyFile {
     
     // decrypts a file and return an instance of the file
     pub fn from_encrypted_file(path: &Path, key : &Key, key_file: KeyFile) -> Self {
-        let ssb = SodiumoxideSecretBox::new();
+        let ssb = key_file.ssb;
         let decrypted_secretkey = ssb.decrypt(&secretKeyToVec(key_file.secret_key), &key);
         KeyFile {
             account_id: key_file.account_id,
             public_key: key_file.public_key,
             secret_key: secretKeyFromVec(decrypted_secretkey),
             key_hash: KeyHash::default(),
+            ssb: SodiumoxideSecretBox::default(),
         }
+    }
+
+    pub fn is_encrypted(&self) -> bool{
+        !self.key_hash.eq(&KeyHash::default())
     }
 
     // if a private key is encrypted , ask for a password in console
     // if an entered password matches a password entered in step 3, decode an encrypted password otherwise keep asking for a correct password
-    pub fn from_encrypted_file_with_password(path : &Path) -> Result<Self, std::io::Error>  {  
+    pub fn from_encrypted_file_with_password(path : &Path, input: &str) -> Result<Self, std::io::Error>  {  
+        //reading file
         let mut key_file = KeyFile::from_file(path);
         //password is encrypted proceed further, if not Ok(key_file)
-        if !key_file.key_hash.eq(&KeyHash::default()) {
+        if key_file.is_encrypted() {
         //ask for a password in console
         //infinite loop
-            loop {
-                let input = PasswordInput::enter_from_console();
-                let password_input = PasswordInput::process_input(&input)?; 
-                let password_slice = password_input.0.as_bytes();
-                // password is not empty decode a file with a passwordm if password empty do nothing
-                if !password_input.0.is_empty() { 
-                    let decryption_keyhash = KeyHash::new(password_slice);
-                    if decryption_keyhash.eq(&key_file.key_hash) { // if hashes of passwords match then decrypt Keyfile.secret_key
+            let password_input = PasswordInput::process_input(input)?; 
+            let password_slice = password_input.0.as_bytes();
+            // password is not empty decode a file with a passwordm if password empty do nothing
+            if !password_input.0.is_empty() { 
+                let decryption_keyhash = KeyHash::new(password_slice);
+                if decryption_keyhash.eq(&key_file.key_hash) { // if hashes of passwords match then decrypt Keyfile.secret_key
                         let decryption_key = SodiumoxideSecretBox::gen_key(password_slice)?;
                         let cloned_keyfile = key_file.clone();
                         key_file = KeyFile::from_encrypted_file(path, &decryption_key, cloned_keyfile);
-                        break;
                     }
                 }
             }
-        }
         Ok(key_file)
     }
 }
@@ -156,23 +161,28 @@ impl PasswordInput {
             let content_str = String::from_utf8(content.as_bytes().to_vec()).unwrap();
             return Ok(PasswordInput(content_str));
         }
-        let mut buf = [0u8; 32];
-        let content_slice = content.as_bytes();
-        buf.copy_from_slice(&content_slice[..]);
-        let buf_str = String::from_utf8(buf.to_vec()).unwrap();
+        let mut res = vec![0u8; 32];
+        res.copy_from_slice(content.as_bytes());
+        let buf_str = String::from_utf8(res).unwrap();
         Ok(PasswordInput(buf_str))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SodiumoxideSecretBox {
-    nonce: secretbox::Nonce,
+struct SodiumoxideSecretBox(secretbox::Nonce);
+
+//https://docs.rs/sodiumoxide/0.2.0/src/sodiumoxide/newtype_macros.rs.html#257-285
+//what is proper wat to implement it?
+impl Default for SodiumoxideSecretBox {
+    fn default() -> Self {
+        SodiumoxideSecretBox::new()
+    }
 }
 
 impl SodiumoxideSecretBox {
     pub fn new() -> Self {
         let nonce = secretbox::gen_nonce();
-        SodiumoxideSecretBox { nonce }
+        SodiumoxideSecretBox(nonce)
     }
 
     //need to be tested
@@ -193,11 +203,11 @@ trait Operation {
 
 impl Operation for SodiumoxideSecretBox {
     fn encrypt(&self, m: &[u8], k: &Key) -> Vec<u8> {
-        secretbox::seal(m, &self.nonce, &k)
+        secretbox::seal(m, &self.0, &k)
     }
 
     fn decrypt(&self, c: &[u8], k: &Key) -> Vec<u8>{
-        secretbox::open(c, &self.nonce, &k).unwrap()
+        secretbox::open(c, &self.0, &k).unwrap()
     }
 }
 
@@ -208,7 +218,8 @@ pub fn perform_encryption(key_file : &mut KeyFile,
     
     if home_dir.join("config.json").exists() {
         //add password corrrectness validation to from_encrypted_file_with_password
-        KeyFile::from_encrypted_file_with_password(&key_store_path)?;
+        let input = PasswordInput::enter_from_console();
+        KeyFile::from_encrypted_file_with_password(&key_store_path, &input)?;
     } else {
         key_file.write_to_encrypted_file(&key_store_path)?;
     }
@@ -220,30 +231,65 @@ pub fn perform_encryption(key_file : &mut KeyFile,
 mod tests {
     use super::*;
 
+     #[test] 
+    fn test_encryption() {
+
+        //helper
+        fn encrypt_secretkey() -> Result<(KeyFile, Path), std::io::Error> {
+            /* plan 
+              1.create keyfile file with file path with defaulkt parameters
+              2.key_file.write_to_encrypted_file(&key_store_path)?;
+              3.return result<Keyfile, Error>
+            */
+            
+        }
+
+
+        fn decrypt_secretkey(path: &Path) {
+            /*
+            plan:
+            1. KeyFile::from_encrypted_file_with_password(&key_store_path)?
+            
+
+
+
+            */
+
+        }
+
+        encrypt_secretkey();
+
+        //clone 
+        decrypt_secretkey();
+        //descrypot and compare Keyfilesecret key before encryption and after decryption
+
+    }
+
+
+
+
     #[test] 
     fn test_process() {
-        fn process_test_input(input: &str, expected_len: usize)  {
+        fn process_test_input(input: &str)  {
             assert!(PasswordInput::process_input(input).is_ok());      
             let password_input = PasswordInput::process_input(input).unwrap();
             let password_input_str = password_input.0;
             if input.is_empty() {
                 assert_eq!(&password_input_str, input);
-                assert_eq!(password_input_str.len(), expected_len);
             } else {
-                let mut buf = [0u8; 32];
-                let input_slice = input.as_bytes();
-                buf.copy_from_slice(&input_slice[..]);
-                let expected_str = String::from_utf8(buf.to_vec()).unwrap();
-                let len = password_input_str.len();
+                let mut res = vec![0u8; 32];
+                res.copy_from_slice(input.as_bytes());
+                let expected_str = String::from_utf8(res).unwrap();
                 assert_eq!(&password_input_str, &expected_str);
-                assert_eq!(len, expected_len);
             }
         }
         //testing normal input
-        process_test_input("qwerty", 32);
+        let mut input = "qwerty".to_string();
+        process_test_input(&input);
 
-         //testing empty input
-        process_test_input("", 0);
+
+        input = "".to_string();
+        process_test_input(&input);
 
         fn larger_max_length_input(len: usize){
             let zero_vec = vec![0u8; len];
@@ -254,6 +300,8 @@ mod tests {
 
         larger_max_length_input(33);
     }
+
+   
 }
 
 
