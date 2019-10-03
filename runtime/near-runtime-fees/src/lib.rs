@@ -111,6 +111,8 @@ pub struct ExtCostsConfig {
     pub random_seed: Gas,
     /// Cost of getting sha256
     pub sha256: Gas,
+    /// Cost of getting sha256
+    pub sha256_byte: Gas,
     /// Get account attached_deposit base cost
     pub attached_deposit: Gas,
     /// Get storage usage cost
@@ -234,6 +236,7 @@ impl Default for RuntimeFeesConfig {
                 used_gas: 1,
                 random_seed: 1,
                 sha256: 1,
+                sha256_byte: 1,
                 attached_deposit: 1,
                 storage_usage: 1,
                 block_index: 1,
@@ -320,6 +323,7 @@ impl RuntimeFeesConfig {
                 used_gas: 0,
                 random_seed: 0,
                 sha256: 0,
+                sha256_byte: 0,
                 attached_deposit: 0,
                 storage_usage: 0,
                 block_index: 0,

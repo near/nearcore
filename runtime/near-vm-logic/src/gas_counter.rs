@@ -121,7 +121,7 @@ mod tests {
     #[should_panic]
     fn test_prepaid_gas_min() {
         let mut counter = GasCounter::new(100, 10, false);
-        counter.deduct_gas(10, 5);
+        counter.deduct_gas(10, 5).unwrap();
     }
 
 }
