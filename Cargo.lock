@@ -1523,6 +1523,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-populate"
+version = "0.1.0"
+dependencies = [
+ "clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "near 0.4.0",
+ "near-chain 0.1.0",
+ "near-client 0.1.0",
+ "near-crypto 0.1.0",
+ "near-epoch-manager 0.0.1",
+ "near-jsonrpc 0.1.0",
+ "near-network 0.1.0",
+ "near-pool 0.1.0",
+ "near-primitives 0.1.0",
+ "near-store 0.1.0",
+ "near-telemetry 0.1.0",
+ "node-runtime 0.0.1",
+]
+
+[[package]]
 name = "getopts"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2579,6 +2598,7 @@ dependencies = [
  "ethereum-block 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-hexutil 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-rlp 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "genesis-populate 0.1.0",
  "indicatif 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kvdb 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
