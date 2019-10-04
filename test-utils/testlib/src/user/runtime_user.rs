@@ -127,12 +127,14 @@ impl RuntimeUser {
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = (*hash).into();
+        let num_outcomes = outcomes.len();
         let status = outcomes
             .iter()
             .find_map(|outcome_with_id| {
                 if outcome_with_id.id == looking_for_id {
                     match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Pending => Some(FinalExecutionStatus::Started),
+                        ExecutionStatusView::Unknown if num_outcomes == 1 => Some(FinalExecutionStatus::NotStarted),
+                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
                         ExecutionStatusView::Failure => Some(FinalExecutionStatus::Failure),
                         ExecutionStatusView::SuccessValue(v) => {
                             Some(FinalExecutionStatus::SuccessValue(v.clone()))
