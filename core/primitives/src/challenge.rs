@@ -87,4 +87,18 @@ pub struct ChallengeResult {
     pub valid: bool,
 }
 
-pub type ChallengesResult = Vec<ChallengeResult>;
+#[derive(Default)]
+pub struct ChallengesResult {
+    pub items: Vec<ChallengeResult>,
+}
+
+impl ChallengesResult {
+    pub fn new(items: Vec<ChallengeResult>) -> Self {
+        Self { items }
+    }
+
+    pub fn slashed(&self) -> Vec<AccountId> {
+        // TODO: do we need extra logic for non validators who have submitted invalid challenges?
+        self.items.iter().map(|c| c.account_ids.clone()).flatten().collect()
+    }
+}

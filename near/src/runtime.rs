@@ -180,11 +180,25 @@ impl NightshadeRuntime {
     }
 
     /// Processes challenges and slashes either validators
-    pub fn process_challenges(&self, challenges: &ChallengesResult) {
+    pub fn process_challenges(
+        &self,
+        shard_id: ShardId,
+        challenges: &ChallengesResult,
+        state_update: &mut TrieUpdate,
+    ) -> Result<(), StorageError> {
         // TODO: slash accounts from challenges
-        for _challenge_result in challenges {
-            // if challenge_
+        for challenge_result in challenges.items.iter() {
+            for account_id in challenge_result.account_ids.iter() {
+                if self.account_id_to_shard_id(&account_id) == shard_id {
+                    if let Some(mut account) = get_account(state_update, &account_id)? {
+                        account.staked = 0;
+                        set_account(state_update, &account_id, &account);
+                    }
+                }
+            }
         }
+        state_update.commit();
+        Ok(())
     }
 }
 
@@ -560,7 +574,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             )?;
         }
 
-        self.process_challenges(challenges);
+        self.process_challenges(shard_id, challenges, &mut state_update)
+            .map_err(|err| ErrorKind::Other(err.to_string()))?;
 
         let apply_state = ApplyState {
             block_index,
@@ -833,7 +848,7 @@ mod test {
     use crate::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
     use crate::runtime::POISONED_LOCK_ERR;
     use crate::{get_store_path, GenesisConfig, NightshadeRuntime};
-    use near_primitives::challenge::{Challenges, ChallengesResult};
+    use near_primitives::challenge::{ChallengeResult, ChallengesResult};
 
     fn stake(
         nonce: Nonce,
@@ -957,7 +972,12 @@ mod test {
             }
         }
 
-        pub fn step(&mut self, transactions: Vec<Vec<SignedTransaction>>, chunk_mask: Vec<bool>) {
+        pub fn step(
+            &mut self,
+            transactions: Vec<Vec<SignedTransaction>>,
+            chunk_mask: Vec<bool>,
+            challenges_result: ChallengesResult,
+        ) {
             let new_hash = hash(&vec![(self.head.height + 1) as u8]);
             let num_shards = self.runtime.num_shards();
             assert_eq!(transactions.len() as ShardId, num_shards);
@@ -973,7 +993,7 @@ mod test {
                     &new_hash,
                     self.last_receipts.get(&i).unwrap_or(&vec![]),
                     &transactions[i as usize],
-                    &vec![],
+                    &challenges_result,
                     self.runtime.genesis_config.gas_price,
                 );
                 self.state_roots[i as usize] = state_root;
@@ -991,7 +1011,7 @@ mod test {
                     new_hash,
                     self.head.height + 1,
                     all_proposals,
-                    vec![],
+                    challenges_result.slashed(),
                     chunk_mask,
                     0,
                     self.runtime.genesis_config.gas_price,
@@ -1011,7 +1031,7 @@ mod test {
 
         /// Step when there is only one shard
         pub fn step_default(&mut self, transactions: Vec<SignedTransaction>) {
-            self.step(vec![transactions], vec![true]);
+            self.step(vec![transactions], vec![true], ChallengesResult::default());
         }
 
         pub fn view_account(&self, account_id: &str) -> AccountView {
@@ -1399,6 +1419,32 @@ mod test {
         assert_eq!(account.staked, TESTING_INIT_STAKE + 2 * per_epoch_per_validator_reward);
     }
 
+    #[test]
+    fn test_challenges() {
+        let mut env = TestEnv::new(
+            "test_challenges",
+            vec![vec!["test1".to_string(), "test2".to_string()]],
+            4,
+            vec![],
+            vec![],
+        );
+        env.step(
+            vec![vec![]],
+            vec![true, true],
+            ChallengesResult::new(vec![ChallengeResult {
+                account_ids: vec!["test2".to_string()],
+                valid: true,
+            }]),
+        );
+        assert_eq!(env.view_account("test2").staked, 0);
+        assert_eq!(
+            env.runtime
+                .get_epoch_block_producers(&env.head.epoch_id, &env.head.last_block_hash)
+                .unwrap(),
+            vec![("test2".to_string(), true), ("test1".to_string(), false)]
+        );
+    }
+
     /// Test two shards: the first shard has 2 validators (test1, test4) and the second shard
     /// has 4 validators (test1, test2, test3, test4). Test that kickout and stake change
     /// work properly.
@@ -1427,9 +1473,9 @@ mod test {
         } else {
             vec![vec![], vec![staking_transaction]]
         };
-        env.step(transactions, vec![false, true]);
+        env.step(transactions, vec![false, true], ChallengesResult::default());
         for _ in 2..10 {
-            env.step(vec![vec![], vec![]], vec![true, true]);
+            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
         let account = env.view_account(&block_producers[3].account_id);
         assert_eq!(account.staked, TESTING_INIT_STAKE);
@@ -1442,7 +1488,7 @@ mod test {
         assert_eq!(account.staked, TESTING_INIT_STAKE + per_epoch_per_validator_reward - 1);
 
         for _ in 10..14 {
-            env.step(vec![vec![], vec![]], vec![true, true]);
+            env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         }
         let account = env.view_account(&block_producers[3].account_id);
         assert_eq!(account.staked, 0);
@@ -1546,8 +1592,12 @@ mod test {
             validators.iter().map(|id| InMemoryBlsSigner::from_seed(id, id).into()).collect();
         let signer = InMemorySigner::from_seed(&validators[1], KeyType::ED25519, &validators[1]);
         let staking_transaction = stake(1, &signer, &block_producers[1], 0);
-        env.step(vec![vec![staking_transaction], vec![]], vec![true, true]);
-        env.step(vec![vec![], vec![]], vec![true, true]);
+        env.step(
+            vec![vec![staking_transaction], vec![]],
+            vec![true, true],
+            ChallengesResult::default(),
+        );
+        env.step(vec![vec![], vec![]], vec![true, true], ChallengesResult::default());
         assert!(env.runtime.cares_about_shard(
             Some(&validators[0]),
             &env.head.last_block_hash,

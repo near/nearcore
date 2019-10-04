@@ -387,7 +387,7 @@ impl Chain {
                     self.transaction_validity_period,
                 );
 
-                chain_update.validate_header(header, &Provenance::SYNC)?;
+                let challenges_result = chain_update.validate_header(header, &Provenance::SYNC)?;
                 chain_update.chain_store_update.save_block_header(header.clone());
                 chain_update.commit()?;
 
@@ -397,7 +397,7 @@ impl Chain {
                     header.hash(),
                     header.inner.height,
                     header.inner.validator_proposals.clone(),
-                    vec![],
+                    challenges_result.slashed(),
                     header.inner.chunk_mask.clone(),
                     header.inner.gas_used,
                     header.inner.gas_price,
@@ -1538,7 +1538,7 @@ impl<'a> ChainUpdate<'a> {
         // let is_fork = !is_next;
 
         // Check the header is valid before we proceed with the full block.
-        self.process_header_for_block(&block.header, provenance)?;
+        let challenges_result = self.process_header_for_block(&block.header, provenance)?;
 
         if !block.check_validity() {
             byzantine_assert!(false);
@@ -1591,7 +1591,7 @@ impl<'a> ChainUpdate<'a> {
             block.hash(),
             block.header.inner.height,
             block.header.inner.validator_proposals.clone(),
-            vec![],
+            challenges_result.slashed(),
             block.header.inner.chunk_mask.clone(),
             block.header.inner.gas_used,
             block.header.inner.gas_price,
@@ -1627,11 +1627,11 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         header: &BlockHeader,
         provenance: &Provenance,
-    ) -> Result<(), Error> {
-        self.validate_header(header, provenance)?;
+    ) -> Result<ChallengesResult, Error> {
+        let challenges_result = self.validate_header(header, provenance)?;
         self.chain_store_update.save_block_header(header.clone());
         self.update_header_head_if_not_challenged(header)?;
-        Ok(())
+        Ok(challenges_result)
     }
 
     fn check_header_signature(&self, header: &BlockHeader) -> Result<(), Error> {
@@ -1654,7 +1654,7 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         header: &BlockHeader,
         provenance: &Provenance,
-    ) -> Result<(), Error> {
+    ) -> Result<ChallengesResult, Error> {
         // Refuse blocks from the too distant future.
         if header.timestamp() > Utc::now() + Duration::seconds(ACCEPTABLE_TIME_DIFFERENCE) {
             return Err(ErrorKind::InvalidBlockFutureTime(header.timestamp()).into());
@@ -1691,10 +1691,8 @@ impl<'a> ChainUpdate<'a> {
             }
         }
 
-        // Verify that challenges are non invalid in the header.
-        let _ = self.verify_header_challenges(&header)?;
-
-        Ok(())
+        // Verify that challenges are non invalid in the header and return the result.
+        self.verify_header_challenges(&header)
     }
 
     /// Returns correct / malicious challenges or Error if any challenge is invalid.
@@ -1718,7 +1716,7 @@ impl<'a> ChainUpdate<'a> {
                 Err(err) => return Err(err),
             }
         }
-        Ok(result)
+        Ok(ChallengesResult::new(result))
     }
 
     /// Update the header head if this header has most work.
