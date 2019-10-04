@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::key_file::{KeyFile, KeyHash};
+use crate::key_file::{KeyFile, KeyHash, SodiumoxideSecretBox};
 use crate::signature::{KeyType, PublicKey, SecretKey, Signature};
 
 /// Generic signer trait, that can sign with some subset of supported curves.
@@ -88,6 +88,7 @@ impl From<&InMemorySigner> for KeyFile {
             public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
             key_hash: KeyHash::default(),
+            ssb: SodiumoxideSecretBox::default(),
         }
     }
 }
@@ -99,6 +100,7 @@ impl From<Arc<InMemorySigner>> for KeyFile {
             public_key: signer.public_key.clone(),
             secret_key: signer.secret_key.clone(),
             key_hash: KeyHash::default(),
+            ssb: SodiumoxideSecretBox::default(),
         }
     }
 }

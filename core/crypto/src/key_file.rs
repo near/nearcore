@@ -45,12 +45,12 @@ impl KeyFile {
 
     //asks for a password in console and encrypt a  private key ( secret_key field from keyFile structure) with an entered password
     // if password is empty just write to the file
-    pub fn write_to_encrypted_file(&mut self, input: &str, path: &Path) -> Result<KeyFile, Error> {   
-        let password_input = PasswordInput::process_input(input)?;
+    pub fn write_to_encrypted_file(&mut self, path: &Path, input: &str) -> bool {   
+        let password_input = PasswordInput::process_input(input).unwrap();
         let password_slice = password_input.0.as_bytes();
         if !password_input.0.is_empty() {
             let secretkey_vec = secretKeyToVec(self.secret_key.clone());
-            let encryption_key = SodiumoxideSecretBox::gen_key(password_slice)?;
+            let encryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
             let key_hash = KeyHash::new(password_slice);
             let ssb = SodiumoxideSecretBox::new();
             let encrypted_secretkey = ssb.encrypt(&secretkey_vec, &encryption_key);
@@ -62,13 +62,7 @@ impl KeyFile {
             self.ssb = SodiumoxideSecretBox::default();
         }
         self.write_to_file(path);
-        Ok( KeyFile {
-            account_id: self.account_id,
-            public_key: self.public_key,
-            secret_key: self.secret_key,
-            key_hash: self.key_hash,
-            ssb: self.ssb,
-        } )
+        self.is_encrypted()
     }
 
     pub fn from_file(path: &Path) -> Self {  
@@ -97,26 +91,26 @@ impl KeyFile {
 
     // if a private key is encrypted , ask for a password in console
     // if an entered password matches a password entered in step 3, decode an encrypted password otherwise keep asking for a correct password
-    pub fn from_encrypted_file_with_password(path : &Path, input: String) -> Result<Self, std::io::Error>  {  
+    pub fn from_encrypted_file_with_password(path : &Path, input: &str) -> Self  {  
         //reading file
         let mut key_file = KeyFile::from_file(path);
         //password is encrypted proceed further, if not Ok(key_file)
         if key_file.is_encrypted() {
         //ask for a password in console
         //infinite loop
-            let password_input = PasswordInput::process_input(&input)?; 
+            let password_input = PasswordInput::process_input(input).unwrap(); 
             let password_slice = password_input.0.as_bytes();
             // password is not empty decode a file with a passwordm if password empty do nothing
             if !password_input.0.is_empty() { 
                 let decryption_keyhash = KeyHash::new(password_slice);
                 if decryption_keyhash.eq(&key_file.key_hash) { // if hashes of passwords match then decrypt Keyfile.secret_key
-                        let decryption_key = SodiumoxideSecretBox::gen_key(password_slice)?;
+                        let decryption_key = SodiumoxideSecretBox::gen_key(password_slice).unwrap();
                         let cloned_keyfile = key_file.clone();
                         key_file = KeyFile::from_encrypted_file(path, &decryption_key, cloned_keyfile);
                     }
                 }
             }
-        Ok(key_file)
+        key_file
     }
 }
 
@@ -175,10 +169,9 @@ impl PasswordInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SodiumoxideSecretBox(secretbox::Nonce);
+pub struct SodiumoxideSecretBox(secretbox::Nonce);
 
 //https://docs.rs/sodiumoxide/0.2.0/src/sodiumoxide/newtype_macros.rs.html#257-285
-//what is proper wat to implement it?
 impl Default for SodiumoxideSecretBox {
     fn default() -> Self {
         SodiumoxideSecretBox::new()
@@ -238,67 +231,36 @@ impl Operation for SodiumoxideSecretBox {
 mod tests {
     use super::*;
 
-     #[test] 
-    fn test_operation() {
-
-        fn generate_test_keyfile(key_type: KeyType)-> KeyFile {
-            let sk = match key_type {
-                KeyType::SECP256K1 => SecretKey::from_seed(KeyType::SECP256K1, "test"),
-                KeyType::ED25519 => SecretKey::from_seed(KeyType::ED25519, "test"),
+    #[test] 
+    fn test_encrypt_decrypt() {
+        //encryption
+        for key_type in vec![KeyType::ED25519, KeyType::SECP256K1] {
+            let file_name = match key_type {
+                KeyType::ED25519 => "ED25519.txt".to_string(),
+                KeyType::SECP256K1 => "SECP256K1.txt".to_string(),
             };
-            let pk = sk.public_key();
-            let test_account_id = String::from("test");
-            KeyFile {
-                account_id: test_account_id,
-                public_key: pk,
-                secret_key: sk,
+            let secret_key = SecretKey::from_seed(key_type, "test");
+            let public_key  = secret_key.public_key();
+            let account_id = String::from("test");
+            let mut key_file = KeyFile {
+                account_id: account_id,
+                public_key: public_key,
+                secret_key: secret_key.clone(),
                 key_hash: KeyHash::default(),
                 ssb: SodiumoxideSecretBox::default(),
-            }
+            };
+            let key_store_path = Path::new(&file_name);
+            let input = "qwerty".to_string();
+            //encryption
+            assert!(key_file.write_to_encrypted_file(&key_store_path, &input));
+            assert!(key_store_path.exists());
+
+            //decryption
+            let key_file = KeyFile::from_encrypted_file_with_password(&key_store_path, &input);
+            let sk = key_file.secret_key;
+            assert_eq!(secret_key, sk);
         }
-
-        //helper
-        fn encrypt_secretkey(key_type: KeyType, input: String) -> Result<bool, Error> {
-            //  1.create keyfile file with file path with defaulkt parameters
-            // 2.key_file.write_to_encrypted_file(&key_store_path)?;
-            //  3.return result<Keyfile, Error>
-    
-            let mut key_file = generate_test_keyfile(key_type);
-            let key_store_path = Path::new("file.txt");
-            let encrypted_keyfile = key_file.write_to_encrypted_file(&key_store_path, &input)?;
-            let success = encrypted_keyfile.is_encrypted();
-            Ok(success)
-        }
-
-
-        assert!( encrypt_secretkey(KeyType::ED25519, "qwerty".to_string()).unwrap() );
-        assert!( Path::new("file.txt").exists() );
-    }  
-
-     
-
-        // fn decrypt_secretkey(path: &Path) {
-        //     /*
-        //     plan:
-        //     1. KeyFile::from_encrypted_file_with_password(&key_store_path)?
-            
-
-
-
-        //     */
-
-        // }
-
-        
-
-        //clone 
-        //decrypt_secretkey();
-        //descrypot and compare Keyfilesecret key before encryption and after decryption
-
-    
-
-
-
+    }
 
     #[test] 
     fn test_process() {
@@ -329,7 +291,7 @@ mod tests {
             let err_result = PasswordInput::process_input(&s);
             assert!( err_result.is_err() );
         }
-
+         //testing erroneous input
         larger_max_length_input(33);
     }
 
