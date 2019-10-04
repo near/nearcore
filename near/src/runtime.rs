@@ -278,7 +278,6 @@ impl RuntimeAdapter for NightshadeRuntime {
             state_dump.push(STATE_DUMP_FILE);
             state_dump.exists()
         };
-        assert!(has_records || has_dump, "Found neither records in the confign nor the state dump file. Either one should be present");
         if has_dump {
             if has_records {
                 log::warn!("Found both records in genesis config and the state dump file. Will ignore the records.");
@@ -287,7 +286,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         } else if has_records {
             self.genesis_state_from_records()
         } else {
-            unreachable!()
+            panic!("Found neither records in the confign nor the state dump file. Either one should be present")
         }
     }
 
