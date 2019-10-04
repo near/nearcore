@@ -123,6 +123,8 @@ pub struct ClientConfig {
     pub state_fetch_horizon: BlockIndex,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
+    /// Time between checking to re-request chunks.
+    pub chunk_request_retry_period: Duration,
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockIndex,
     /// Accounts that this client tracks
@@ -165,6 +167,7 @@ impl ClientConfig {
             block_fetch_horizon: 50,
             state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(block_prod_time / 2),
+            chunk_request_retry_period: Duration::from_millis(100),
             block_header_fetch_horizon: 50,
             tracked_accounts: vec![],
             tracked_shards: vec![],

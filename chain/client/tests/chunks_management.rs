@@ -95,14 +95,11 @@ fn chunks_produced_and_distributed_common(validator_groups: u64) {
                                 one_part_msgs, part_request_msgs, part_msgs
                             );
 
-                            // These equalities hold because right now we redundantly request the part we already have
-                            // after receiving OnePart, and send OnePart to ourselves after producing chunk.
-                            // If the behavior is changed, the asserts will need to be adjusted accordingly.
-                            assert_eq!(
-                                one_part_msgs * (validators_per_shard - 1),
-                                part_request_msgs
+                            // Because there is no response, we are resend requests for parts multiple times.
+                            assert!(
+                                part_request_msgs >= one_part_msgs * (validators_per_shard - 1)
                             );
-                            assert_eq!(one_part_msgs * (validators_per_shard - 1), part_msgs);
+                            assert!(part_msgs >= one_part_msgs * (validators_per_shard - 1));
 
                             System::current().stop();
                         }
