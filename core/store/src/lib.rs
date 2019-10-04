@@ -153,7 +153,6 @@ impl StoreUpdate {
     }
 
     pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
-        if column == COL_STATE {}
         self.transaction.put(column, key, value)
     }
 
