@@ -294,7 +294,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 let mut parts = vec![];
                 for Range(from, to) in parts_range {
                     for part_id in from..to {
-                        if let Ok(part) = self.client.chain.get_state_part(shard_id, part_id, hash)
+                        if let Ok(part) =
+                            self.client.chain.get_state_response_part(shard_id, part_id, hash)
                         {
                             parts.push(part);
                         } else {
@@ -303,14 +304,17 @@ impl Handler<NetworkClientMessages> for ClientActor {
                     }
                 }
                 for part_id in parts_particular {
-                    if let Ok(part) = self.client.chain.get_state_part(shard_id, part_id, hash) {
+                    if let Ok(part) =
+                        self.client.chain.get_state_response_part(shard_id, part_id, hash)
+                    {
                         parts.push(part);
                     } else {
                         return NetworkClientResponses::NoResponse;
                     }
                 }
                 if need_header {
-                    if let Ok(header) = self.client.chain.get_state_header(shard_id, hash) {
+                    if let Ok(header) = self.client.chain.get_state_response_header(shard_id, hash)
+                    {
                         return NetworkClientResponses::StateResponse(StateResponseInfo {
                             shard_id,
                             hash,

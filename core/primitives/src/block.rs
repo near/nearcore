@@ -9,7 +9,9 @@ use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::merklize;
 use crate::sharding::{ChunkHashHeight, ShardChunkHeader};
-use crate::types::{Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake};
+use crate::types::{
+    Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, StateRootHash, ValidatorStake,
+};
 use crate::utils::{from_timestamp, to_timestamp};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -230,7 +232,7 @@ pub struct Block {
 impl Block {
     /// Returns genesis block for given genesis date and state root.
     pub fn genesis(
-        state_roots: Vec<MerkleHash>,
+        state_roots: Vec<StateRootHash>,
         timestamp: DateTime<Utc>,
         num_shards: ShardId,
         initial_gas_limit: Gas,
@@ -355,14 +357,14 @@ impl Block {
         }
     }
 
-    pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_state_root(chunks: &Vec<ShardChunkHeader>) -> MerkleHash {
         merklize(
-            &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<CryptoHash>>(),
+            &chunks.iter().map(|chunk| chunk.inner.prev_state_root).collect::<Vec<StateRootHash>>(),
         )
         .0
     }
 
-    pub fn compute_chunk_receipts_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_receipts_root(chunks: &Vec<ShardChunkHeader>) -> MerkleHash {
         merklize(
             &chunks
                 .iter()
@@ -372,7 +374,7 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_headers_root(chunks: &Vec<ShardChunkHeader>) -> MerkleHash {
         merklize(
             &chunks
                 .iter()
@@ -382,7 +384,7 @@ impl Block {
         .0
     }
 
-    pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> CryptoHash {
+    pub fn compute_chunk_tx_root(chunks: &Vec<ShardChunkHeader>) -> MerkleHash {
         merklize(&chunks.iter().map(|chunk| chunk.inner.tx_root).collect::<Vec<CryptoHash>>()).0
     }
 

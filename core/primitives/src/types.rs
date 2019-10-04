@@ -8,6 +8,8 @@ use crate::hash::CryptoHash;
 pub type AccountId = String;
 /// Hash used by a struct implementing the Merkle tree.
 pub type MerkleHash = CryptoHash;
+/// Hash used to store state hash.
+pub type StateRootHash = CryptoHash;
 /// Validator identifier in current group.
 pub type ValidatorId = usize;
 /// Mask which validators participated in multi sign.
@@ -72,7 +74,7 @@ impl Eq for ValidatorStake {}
 #[derive(Debug, PartialEq, BorshSerialize, BorshDeserialize, Clone, Eq)]
 pub struct ChunkExtra {
     /// Post state root after applying give chunk.
-    pub state_root: MerkleHash,
+    pub state_root: StateRootHash,
     /// Validator proposals produced by given chunk.
     pub validator_proposals: Vec<ValidatorStake>,
     /// Actually how much gas were used.
@@ -85,7 +87,7 @@ pub struct ChunkExtra {
 
 impl ChunkExtra {
     pub fn new(
-        state_root: &MerkleHash,
+        state_root: &StateRootHash,
         validator_proposals: Vec<ValidatorStake>,
         gas_used: Gas,
         gas_limit: Gas,

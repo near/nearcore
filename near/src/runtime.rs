@@ -21,7 +21,7 @@ use near_primitives::serialize::from_base64;
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRootHash, ValidatorStake,
 };
 use near_primitives::utils::{prefix_for_access_key, ACCOUNT_DATA_SEPARATOR};
 use near_primitives::views::{
@@ -184,7 +184,7 @@ impl NightshadeRuntime {
         Ok(())
     }
 
-    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<StateRootHash>) {
         let store_update = self.store.store_update();
         let mut state_file = self.home_dir.clone();
         state_file.push(STATE_DUMP_FILE);
@@ -196,12 +196,12 @@ impl NightshadeRuntime {
         let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
         let mut data = vec![];
         file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
-        let state_roots: Vec<MerkleHash> =
+        let state_roots: Vec<StateRootHash> =
             BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
         (store_update, state_roots)
     }
 
-    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<StateRootHash>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
         let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
@@ -234,7 +234,7 @@ impl NightshadeRuntime {
                     }
                 })
                 .collect::<Vec<_>>();
-            let state_update = TrieUpdate::new(self.trie.clone(), MerkleHash::default());
+            let state_update = TrieUpdate::new(self.trie.clone(), StateRootHash::default());
             let (shard_store_update, state_root) = self.runtime.apply_genesis_state(
                 state_update,
                 &validators,
@@ -272,7 +272,7 @@ pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId)
 }
 
 impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>) {
         let has_records = !self.genesis_config.records.is_empty();
         let has_dump = {
             let mut state_dump = self.home_dir.clone();
@@ -462,7 +462,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRootHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
@@ -489,7 +489,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRootHash,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
         let mut state_update = TrieUpdate::new(self.trie.clone(), state_root);
@@ -554,7 +554,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRootHash,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -636,7 +636,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -718,7 +718,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn num_state_parts(&self, _root: &MerkleHash) -> usize {
+    fn num_state_parts(&self, _state_root: &StateRootHash) -> usize {
         // TODO divide state on parts in Nightshade Runtime
         return 1;
     }
@@ -727,13 +727,13 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_id: ShardId,
         part_id: u64,
-        root: MerkleHash,
+        state_root: StateRootHash,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
         // TODO(1052): make sure state_root is present in the trie.
         // create snapshot.
         let mut result = vec![];
         let mut cursor = Cursor::new(&mut result);
-        for item in self.trie.iter(&root)? {
+        for item in self.trie.iter(&state_root)? {
             let (key, value) = item?;
             cursor.write_u32::<LittleEndian>(key.len() as u32)?;
             cursor.write_all(&key)?;
@@ -741,18 +741,18 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.write_all(value.as_ref())?;
         }
         // TODO(1048): Save on disk an snapshot, split into chunks and compressed. Send chunks instead of single blob.
-        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, root, result.len());
+        debug!(target: "runtime", "Read state part #{} for shard #{} @ {}, size = {}", part_id, shard_id, state_root, result.len());
         // TODO add proof in Nightshade Runtime
         Ok((StatePart { shard_id, part_id, data: result }, MerklePath::new()))
     }
 
     fn accept_state_part(
         &self,
-        root: MerkleHash,
+        state_root: StateRootHash,
         part: &StatePart,
         _proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, root, part.data.len());
+        debug!(target: "runtime", "Writing state part #{} for shard #{} @ {}, size = {}", part.part_id, part.shard_id, state_root, part.data.len());
         // TODO prove that the part is valid
         let mut state_update = TrieUpdate::new(self.trie.clone(), CryptoHash::default());
         let state_part_len = part.data.len();
@@ -766,7 +766,7 @@ impl RuntimeAdapter for NightshadeRuntime {
             cursor.read_exact(&mut value)?;
             state_update.set(key, DBValue::from_slice(&value));
         }
-        let (store_update, state_root) = state_update.finalize()?.into(self.trie.clone())?;
+        let (store_update, root) = state_update.finalize()?.into(self.trie.clone())?;
         if root != state_root {
             return Err("Invalid state root".into());
         }
@@ -774,7 +774,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(())
     }
 
-    fn confirm_state(&self, _root: &MerkleHash) -> Result<bool, Error> {
+    fn confirm_state(&self, _state_root: &StateRootHash) -> Result<bool, Error> {
         // TODO approve that all parts are here
         Ok(true)
     }
@@ -783,7 +783,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
     fn view_account(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         account_id: &AccountId,
     ) -> Result<Account, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
@@ -792,7 +792,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn call_function(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         height: BlockIndex,
         block_timestamp: u64,
         contract_id: &AccountId,
@@ -814,7 +814,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_access_key(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         account_id: &AccountId,
         public_key: &PublicKey,
     ) -> Result<Option<AccessKey>, Box<dyn std::error::Error>> {
@@ -824,7 +824,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_access_keys(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         account_id: &AccountId,
     ) -> Result<Vec<(PublicKey, AccessKey)>, Box<dyn std::error::Error>> {
         let state_update = TrieUpdate::new(self.trie.clone(), state_root);
@@ -846,7 +846,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
 
     fn view_state(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         account_id: &AccountId,
         prefix: &[u8],
     ) -> Result<ViewStateResult, Box<dyn std::error::Error>> {
@@ -873,7 +873,7 @@ mod test {
         Action, CreateAccountAction, SignedTransaction, StakeAction,
     };
     use near_primitives::types::{
-        AccountId, Balance, BlockIndex, EpochId, MerkleHash, Nonce, ShardId, ValidatorStake,
+        AccountId, Balance, BlockIndex, EpochId, Nonce, ShardId, StateRootHash, ValidatorStake,
     };
     use near_primitives::views::{AccountView, EpochValidatorInfo, QueryResponse};
     use near_store::create_store;
@@ -907,7 +907,7 @@ mod test {
     impl NightshadeRuntime {
         fn update(
             &self,
-            state_root: &CryptoHash,
+            state_root: &StateRootHash,
             shard_id: ShardId,
             block_index: BlockIndex,
             block_timestamp: u64,
@@ -940,7 +940,7 @@ mod test {
     struct TestEnv {
         pub runtime: NightshadeRuntime,
         pub head: Tip,
-        state_roots: Vec<MerkleHash>,
+        state_roots: Vec<StateRootHash>,
         pub last_receipts: HashMap<ShardId, Vec<Receipt>>,
     }
 

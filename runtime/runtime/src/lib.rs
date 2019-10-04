@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, Gas, MerkleHash, Nonce, ValidatorStake,
+    AccountId, Balance, BlockIndex, Gas, Nonce, StateRootHash, ValidatorStake,
 };
 use near_primitives::utils::{
     create_nonce_with_nonce, is_valid_account_id, key_for_pending_data_count,
@@ -78,7 +78,7 @@ pub struct VerificationResult {
 }
 
 pub struct ApplyResult {
-    pub root: MerkleHash,
+    pub root: StateRootHash,
     pub trie_changes: TrieChanges,
     pub validator_proposals: Vec<ValidatorStake>,
     pub new_receipts: Vec<Receipt>,
@@ -910,7 +910,7 @@ impl Runtime {
         mut state_update: TrieUpdate,
         validators: &[(AccountId, ReadablePublicKey, Balance)],
         records: &[StateRecord],
-    ) -> (StoreUpdate, MerkleHash) {
+    ) -> (StoreUpdate, StateRootHash) {
         let mut postponed_receipts: Vec<Receipt> = vec![];
         for record in records {
             match record.clone() {
@@ -1007,7 +1007,7 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::hash;
-    use near_primitives::types::MerkleHash;
+    use near_primitives::types::StateRootHash;
     use near_store::test_utils::create_trie;
     use testlib::runtime_utils::bob_account;
 
@@ -1016,7 +1016,7 @@ mod tests {
     #[test]
     fn test_get_and_set_accounts() {
         let trie = create_trie();
-        let mut state_update = TrieUpdate::new(trie, MerkleHash::default());
+        let mut state_update = TrieUpdate::new(trie, StateRootHash::default());
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();
         set_account(&mut state_update, &account_id, &test_account);
@@ -1027,7 +1027,7 @@ mod tests {
     #[test]
     fn test_get_account_from_trie() {
         let trie = create_trie();
-        let root = MerkleHash::default();
+        let root = StateRootHash::default();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         let test_account = Account::new(10, hash(&[]), 0);
         let account_id = bob_account();

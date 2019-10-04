@@ -10,6 +10,7 @@ pub use kvdb::DBValue;
 use kvdb::{DBOp, DBTransaction};
 
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::types::StateRootHash;
 
 use crate::{StorageError, Store, StoreUpdate, COL_STATE};
 
@@ -457,14 +458,14 @@ pub struct Trie {
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
 pub struct TrieChanges {
     #[allow(dead_code)]
-    old_root: CryptoHash,
-    pub new_root: CryptoHash,
+    old_root: StateRootHash,
+    pub new_root: StateRootHash,
     insertions: Vec<(CryptoHash, Vec<u8>, u32)>, // key, value, rc
     deletions: Vec<(CryptoHash, Vec<u8>, u32)>,  // key, value, rc
 }
 
 impl TrieChanges {
-    pub fn empty(old_root: CryptoHash) -> Self {
+    pub fn empty(old_root: StateRootHash) -> Self {
         TrieChanges { old_root, new_root: old_root, insertions: vec![], deletions: vec![] }
     }
     pub fn insertions_into(
@@ -513,7 +514,7 @@ impl TrieChanges {
     pub fn into(
         self,
         trie: Arc<Trie>,
-    ) -> Result<(StoreUpdate, CryptoHash), Box<dyn std::error::Error>> {
+    ) -> Result<(StoreUpdate, StateRootHash), Box<dyn std::error::Error>> {
         let mut store_update = StoreUpdate::new_with_trie(
             trie.storage
                 .as_caching_storage()
@@ -1031,7 +1032,7 @@ impl Trie {
     }
 
     fn flatten_nodes(
-        old_root: &CryptoHash,
+        old_root: &StateRootHash,
         memory: NodesStorage,
         node: StorageHandle,
     ) -> Result<TrieChanges, StorageError> {
@@ -1110,7 +1111,12 @@ impl Trie {
         }
         let (insertions, deletions) =
             Trie::convert_to_insertions_and_deletions(memory.refcount_changes);
-        Ok(TrieChanges { old_root: *old_root, new_root: last_hash, insertions, deletions })
+        Ok(TrieChanges {
+            old_root: *old_root,
+            new_root: last_hash as StateRootHash,
+            insertions,
+            deletions,
+        })
     }
 
     fn convert_to_insertions_and_deletions(
@@ -1131,12 +1137,12 @@ impl Trie {
         (insertions, deletions)
     }
 
-    pub fn update<I>(&self, root: &CryptoHash, changes: I) -> Result<TrieChanges, StorageError>
+    pub fn update<I>(&self, root: &StateRootHash, changes: I) -> Result<TrieChanges, StorageError>
     where
         I: Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
     {
         let mut memory = NodesStorage::new();
-        let mut root_node = self.move_node_to_mutable(&mut memory, root)?;
+        let mut root_node = self.move_node_to_mutable(&mut memory, root as &CryptoHash)?;
         for (key, value) in changes {
             let key = NibbleSlice::new(&key);
             match value {

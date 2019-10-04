@@ -20,7 +20,7 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, Nonce, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, Nonce, ShardId, StateRootHash, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::test_utils::create_test_store;
@@ -50,19 +50,20 @@ struct KVState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
-struct StateKey(pub u64, pub MerkleHash);
+struct StateKey(pub u64, pub StateRootHash);
 
 /// Simple key value runtime for tests.
 pub struct KeyValueRuntime {
     store: Arc<Store>,
     trie: Arc<Trie>,
-    root: MerkleHash,
+    root: StateRootHash,
     validators: Vec<Vec<ValidatorStake>>,
     validator_groups: u64,
     num_shards: ShardId,
 
     // A mapping state_root => {account id => amounts}, for transactions and receipts
-    state: RwLock<HashMap<MerkleHash, KVState>>,
+    state: RwLock<HashMap<StateRootHash, KVState>>,
+    num_state_parts: RwLock<HashMap<StateRootHash, u64>>,
     state_parts: RwLock<HashMap<CryptoHash, StatePart>>,
     state_proofs: RwLock<HashMap<CryptoHash, MerklePath>>,
 
@@ -114,19 +115,21 @@ impl KeyValueRuntime {
 
         let mut state = HashMap::new();
         state.insert(
-            MerkleHash::default(),
+            StateRootHash::default(),
             KVState {
                 amounts: initial_amounts,
                 receipt_nonces: HashSet::default(),
                 tx_nonces: HashSet::default(),
             },
         );
+        // TODO initializing for StateRootHash::default()?
+        let num_state_parts = HashMap::new();
         let state_parts = HashMap::new();
         let state_proofs = HashMap::new();
         KeyValueRuntime {
             store,
             trie,
-            root: MerkleHash::default(),
+            root: StateRootHash::default(),
             validators: validators
                 .iter()
                 .map(|account_ids| {
@@ -143,6 +146,7 @@ impl KeyValueRuntime {
             validator_groups,
             num_shards,
             state: RwLock::new(state),
+            num_state_parts: RwLock::new(num_state_parts),
             state_parts: RwLock::new(state_parts),
             state_proofs: RwLock::new(state_proofs),
             hash_to_epoch: RwLock::new(HashMap::new()),
@@ -152,7 +156,7 @@ impl KeyValueRuntime {
         }
     }
 
-    pub fn get_root(&self) -> MerkleHash {
+    pub fn get_root(&self) -> StateRootHash {
         self.root
     }
 
@@ -245,10 +249,10 @@ impl KeyValueRuntime {
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>) {
         (
             self.store.store_update(),
-            ((0..self.num_shards()).map(|_| MerkleHash::default()).collect()),
+            ((0..self.num_shards()).map(|_| StateRootHash::default()).collect()),
         )
     }
 
@@ -415,7 +419,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: u64,
         _block_timestamp: u64,
         _gas_price: u128,
-        _state_root: CryptoHash,
+        _state_root: StateRootHash,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction> {
         transactions
@@ -426,7 +430,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _gas_price: Balance,
-        _state_root: CryptoHash,
+        _state_root: StateRootHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError> {
         Ok(ValidTransaction { transaction })
@@ -451,7 +455,7 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRootHash,
         _block_index: BlockIndex,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
@@ -611,6 +615,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let (new_state_root, proofs) = merklize(&parts);
 
         self.state.write().unwrap().insert(new_state_root, state);
+        self.num_state_parts.write().unwrap().insert(new_state_root, num_state_parts as u64);
         for i in 0..num_state_parts {
             let key = hash(&StateKey(i as u64, new_state_root).try_to_vec().unwrap());
             assert!(verify_path(new_state_root, &proofs[i], &parts[i]));
@@ -635,7 +640,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         _height: BlockIndex,
         _block_timestamp: u64,
         _block_hash: &CryptoHash,
@@ -661,48 +666,48 @@ impl RuntimeAdapter for KeyValueRuntime {
         ))
     }
 
-    fn num_state_parts(&self, _root: &MerkleHash) -> usize {
-        return 7; // because we can
+    fn num_state_parts(&self, state_root: &StateRootHash) -> usize {
+        self.num_state_parts.read().unwrap().get(&state_root).unwrap().clone() as usize
     }
 
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
         part_id: u64,
-        root: MerkleHash,
+        state_root: StateRootHash,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>> {
-        if part_id as usize >= self.num_state_parts(&root) {
+        if part_id as usize >= self.num_state_parts(&state_root) {
             return Err("Invalid part_id in obtain_state_part".to_string().into());
         }
         if shard_id >= self.num_shards() {
             return Err("Invalid shard_id in obtain_state_part".to_string().into());
         }
-        let key = hash(&StateKey(part_id, root).try_to_vec().unwrap());
+        let key = hash(&StateKey(part_id, state_root).try_to_vec().unwrap());
         let part = self.state_parts.read().unwrap().get(&key).unwrap().clone();
         let proof = self.state_proofs.read().unwrap().get(&key).unwrap().clone();
-        assert!(verify_path(root, &proof, &part));
+        assert!(verify_path(state_root, &proof, &part));
         Ok((part, proof))
     }
 
     fn accept_state_part(
         &self,
-        root: MerkleHash,
+        state_root: StateRootHash,
         part: &StatePart,
         proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !verify_path(root, proof, part) {
+        if !verify_path(state_root, proof, part) {
             return Err("set_shard_state failed: invalid StatePart".into());
         }
-        let key = hash(&StateKey(part.part_id, root).try_to_vec().unwrap());
+        let key = hash(&StateKey(part.part_id, state_root).try_to_vec().unwrap());
         self.state_parts.write().unwrap().insert(key, part.clone());
         self.state_proofs.write().unwrap().insert(key, proof.to_vec());
         Ok(())
     }
 
-    fn confirm_state(&self, root: &MerkleHash) -> Result<bool, Error> {
+    fn confirm_state(&self, state_root: &StateRootHash) -> Result<bool, Error> {
         let mut data = vec![];
-        for i in 0..self.num_state_parts(&root) {
-            let key = hash(&StateKey(i as u64, *root).try_to_vec().unwrap());
+        for i in 0..self.num_state_parts(&state_root) {
+            let key = hash(&StateKey(i as u64, *state_root).try_to_vec().unwrap());
             match self.state_parts.read().unwrap().get(&key) {
                 Some(part) => {
                     data.push(part.data.clone());
@@ -716,7 +721,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         }
         let data_flatten: Vec<u8> = data.iter().flatten().cloned().collect();
         let state = KVState::try_from_slice(&data_flatten).unwrap();
-        self.state.write().unwrap().insert(*root, state);
+        self.state.write().unwrap().insert(*state_root, state);
         Ok(true)
     }
 

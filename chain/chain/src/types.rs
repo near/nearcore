@@ -11,7 +11,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{
-    AccountId, Balance, BlockIndex, EpochId, Gas, MerkleHash, ShardId, ValidatorStake,
+    AccountId, Balance, BlockIndex, EpochId, Gas, ShardId, StateRootHash, ValidatorStake,
 };
 use near_primitives::views::QueryResponse;
 use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
@@ -95,7 +95,7 @@ pub enum ValidatorSignatureVerificationResult {
 
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
-    pub new_root: MerkleHash,
+    pub new_root: StateRootHash,
     pub transaction_results: Vec<ExecutionOutcomeWithId>,
     pub receipt_result: ReceiptResult,
     pub validator_proposals: Vec<ValidatorStake>,
@@ -110,7 +110,7 @@ pub struct ApplyTransactionResult {
 pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>);
+    fn genesis_state(&self) -> (StoreUpdate, Vec<StateRootHash>);
 
     /// Verify block producer validity and return weight of given block for fork choice rule.
     fn compute_block_weight(
@@ -125,7 +125,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRootHash,
         transaction: SignedTransaction,
     ) -> Result<ValidTransaction, InvalidTxErrorOrStorageError>;
 
@@ -136,7 +136,7 @@ pub trait RuntimeAdapter: Send + Sync {
         block_index: BlockIndex,
         block_timestamp: u64,
         gas_price: Balance,
-        state_root: CryptoHash,
+        state_root: StateRootHash,
         transactions: Vec<SignedTransaction>,
     ) -> Vec<SignedTransaction>;
 
@@ -252,7 +252,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRootHash,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -278,7 +278,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions_with_optional_storage_proof(
         &self,
         shard_id: ShardId,
-        state_root: &MerkleHash,
+        state_root: &StateRootHash,
         block_index: BlockIndex,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -292,7 +292,7 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Query runtime with given `path` and `data`.
     fn query(
         &self,
-        state_root: MerkleHash,
+        state_root: StateRootHash,
         height: BlockIndex,
         block_timestamp: u64,
         block_hash: &CryptoHash,
@@ -303,14 +303,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns the number of the parts of the state.
     /// All logic about handling, managing and proving parts
     /// is responsibility of the current Runtime implementation.
-    fn num_state_parts(&self, root: &MerkleHash) -> usize;
+    fn num_state_parts(&self, state_root: &StateRootHash) -> usize;
 
     /// Get the part of the state from given state root + proof.
     fn obtain_state_part(
         &self,
         shard_id: ShardId,
         part_id: u64,
-        root: MerkleHash,
+        state_root: StateRootHash,
     ) -> Result<(StatePart, MerklePath), Box<dyn std::error::Error>>;
 
     /// Set state part that expected to be given state root with provided data.
@@ -320,14 +320,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// 3. The resulting part doesn't match the expected one.
     fn accept_state_part(
         &self,
-        root: MerkleHash,
+        state_root: StateRootHash,
         part: &StatePart,
         proof: &MerklePath,
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Should be executed after accepting all the parts.
     /// Returns `true` if state is set successfully.
-    fn confirm_state(&self, root: &MerkleHash) -> Result<bool, Error>;
+    fn confirm_state(&self, state_root: &StateRootHash) -> Result<bool, Error>;
 
     /// Build receipts hashes.
     fn build_receipts_hashes(&self, receipts: &Vec<Receipt>) -> Result<Vec<CryptoHash>, Error> {
@@ -473,7 +473,7 @@ mod tests {
     fn test_block_produce() {
         let num_shards = 32;
         let genesis = Block::genesis(
-            vec![MerkleHash::default()],
+            vec![StateRootHash::default()],
             Utc::now(),
             num_shards,
             1_000_000,

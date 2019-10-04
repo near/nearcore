@@ -4,7 +4,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
-use near_primitives::types::{Balance, MerkleHash};
+use near_primitives::types::{Balance, StateRootHash};
 use near_primitives::views::AccountView;
 use near_store::test_utils::create_trie;
 use near_store::{Trie, TrieUpdate};
@@ -30,7 +30,7 @@ pub struct StandaloneRuntime {
     pub runtime: Runtime,
     pub trie: Arc<Trie>,
     pub signer: InMemorySigner,
-    pub root: MerkleHash,
+    pub root: StateRootHash,
 }
 
 impl StandaloneRuntime {
@@ -46,7 +46,7 @@ impl StandaloneRuntime {
         let runtime_config = RuntimeConfig::default();
 
         let runtime = Runtime::new(runtime_config, ethash_provider);
-        let trie_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
+        let trie_update = TrieUpdate::new(trie.clone(), StateRootHash::default());
 
         let (store_update, root) = runtime.apply_genesis_state(trie_update, &[], state_records);
         store_update.commit().unwrap();

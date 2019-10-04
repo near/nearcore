@@ -14,7 +14,9 @@ use near_primitives::sharding::{
     ChunkHash, ChunkHashHeight, ReceiptProof, ShardChunk, ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::{check_tx_history, ExecutionOutcome};
-use near_primitives::types::{AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId};
+use near_primitives::types::{
+    AccountId, Balance, BlockIndex, ChunkExtra, Gas, ShardId, StateRootHash,
+};
 use near_store::{Store, COL_CHUNKS};
 
 use crate::byzantine_assert;
@@ -803,7 +805,7 @@ impl Chain {
         self.store.get_outgoing_receipts_for_shard(prev_block_hash, shard_id, last_height_included)
     }
 
-    pub fn get_state_header(
+    pub fn get_state_response_header(
         &mut self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -917,7 +919,7 @@ impl Chain {
         })
     }
 
-    pub fn get_state_part(
+    pub fn get_state_response_part(
         &mut self,
         shard_id: ShardId,
         part_id: u64,
@@ -927,14 +929,14 @@ impl Chain {
         let sync_block_header = sync_block.header.clone();
         if shard_id as usize >= sync_block.chunks.len() {
             return Err(ErrorKind::Other(
-                "get_state_part_for_shard fail: shard_id out of bounds".into(),
+                "get_state_response_part fail: shard_id out of bounds".into(),
             )
             .into());
         }
         let sync_prev_block = self.get_block(&sync_block_header.inner.prev_hash)?;
         if shard_id as usize >= sync_prev_block.chunks.len() {
             return Err(ErrorKind::Other(
-                "get_state_part_for_shard fail: shard_id out of bounds".into(),
+                "get_state_response_part fail: shard_id out of bounds".into(),
             )
             .into());
         }
@@ -944,7 +946,7 @@ impl Chain {
             >= self.runtime_adapter.num_state_parts(&chunk_header.inner.prev_state_root)
         {
             return Err(ErrorKind::Other(
-                "get_state_part_for_shard fail: part_id out of bound".to_string(),
+                "get_state_response_part fail: part_id out of bound".to_string(),
             )
             .into());
         }
@@ -958,7 +960,7 @@ impl Chain {
 
     pub fn set_state_parts(
         &mut self,
-        root: CryptoHash,
+        root: StateRootHash,
         shard_state_parts: Vec<ShardStateSyncResponsePart>,
     ) -> Result<(), Error> {
         for part in shard_state_parts {
