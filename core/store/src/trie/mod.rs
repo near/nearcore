@@ -1138,6 +1138,7 @@ impl Trie {
         let mut memory = NodesStorage::new();
         let mut root_node = self.move_node_to_mutable(&mut memory, root)?;
         for (key, value) in changes {
+            let tmp = key[0];
             let key = NibbleSlice::new(&key);
             match value {
                 Some(arr) => {

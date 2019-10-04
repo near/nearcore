@@ -139,20 +139,24 @@ pub struct StoreUpdate {
     transaction: DBTransaction,
     /// Optionally has reference to the trie to clear cache on the commit.
     trie: Option<Arc<Trie>>,
+    pub total_bytes_set: usize,
 }
 
 impl StoreUpdate {
     pub fn new(storage: Arc<dyn KeyValueDB>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: None }
+        StoreUpdate { storage, transaction, trie: None, total_bytes_set: 0 }
     }
 
     pub fn new_with_trie(storage: Arc<dyn KeyValueDB>, trie: Arc<Trie>) -> Self {
         let transaction = storage.transaction();
-        StoreUpdate { storage, transaction, trie: Some(trie) }
+        StoreUpdate { storage, transaction, trie: Some(trie), total_bytes_set: 0 }
     }
 
     pub fn set(&mut self, column: Option<u32>, key: &[u8], value: &[u8]) {
+        if column == COL_STATE {
+            self.total_bytes_set += key.len() + value.len();
+        }
         self.transaction.put(column, key, value)
     }
 

@@ -33,6 +33,9 @@ fn main() {
             )
             .to_vec(),
         )
+        .print_progress()
         .build()
+        .unwrap()
+        .dump_state()
         .unwrap();
 }

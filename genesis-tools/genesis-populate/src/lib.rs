@@ -1,5 +1,8 @@
 //! Tools for creating a genesis block.
 
+use borsh::BorshSerialize;
+use byteorder::{LittleEndian, WriteBytesExt};
+use indicatif::{ProgressBar, ProgressStyle};
 use near::{get_store_path, GenesisConfig, NightshadeRuntime};
 use near_chain::{Block, ChainStore, RuntimeAdapter, Tip};
 use near_crypto::{InMemorySigner, KeyType};
@@ -10,20 +13,27 @@ use near_primitives::serialize::to_base64;
 use near_primitives::types::{AccountId, Balance, ChunkExtra, MerkleHash, ShardId};
 use near_primitives::views::AccountView;
 use near_store::{
-    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate,
+    create_store, get_account, set_access_key, set_account, set_code, Store, TrieUpdate, COL_STATE,
 };
 use node_runtime::StateRecord;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tempdir::TempDir;
 
 fn get_account_id(account_index: u64) -> String {
-    format!("near_{}", account_index)
+    format!("near_{}_{}", account_index, account_index)
 }
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub struct GenesisBuilder {
+    home_dir: PathBuf,
+    // We hold this temporary directory to avoid deletion through deallocation.
+    #[allow(dead_code)]
+    tmpdir: TempDir,
     config: GenesisConfig,
     store: Arc<Store>,
     runtime: NightshadeRuntime,
@@ -36,6 +46,9 @@ pub struct GenesisBuilder {
     additional_accounts_code: Option<Vec<u8>>,
     additional_accounts_code_base64: Option<String>,
     additional_accounts_code_hash: CryptoHash,
+
+    print_progress: bool,
+    total_bytes_set: usize,
 }
 
 impl GenesisBuilder {
@@ -44,8 +57,9 @@ impl GenesisBuilder {
         config: GenesisConfig,
         store: Arc<Store>,
     ) -> Self {
+        let tmpdir = TempDir::new("storage").unwrap();
         let runtime = NightshadeRuntime::new(
-            home_dir,
+            tmpdir.path(),
             store.clone(),
             config.clone(),
             // Since we are not using runtime as an actor
@@ -54,6 +68,8 @@ impl GenesisBuilder {
             vec![],
         );
         Self {
+            home_dir: home_dir.to_path_buf(),
+            tmpdir,
             config,
             store,
             runtime,
@@ -64,7 +80,14 @@ impl GenesisBuilder {
             additional_accounts_code: None,
             additional_accounts_code_base64: None,
             additional_accounts_code_hash: CryptoHash::default(),
+            print_progress: false,
+            total_bytes_set: 0,
         }
+    }
+
+    pub fn print_progress(mut self) -> Self {
+        self.print_progress = true;
+        self
     }
 
     pub fn from_config(home_dir: &Path, config: GenesisConfig) -> Self {
@@ -99,16 +122,39 @@ impl GenesisBuilder {
         self.unflushed_records =
             self.roots.keys().cloned().map(|shard_idx| (shard_idx, vec![])).collect();
 
+        let total_accounts_num = self.additional_accounts_num * self.runtime.num_shards();
+        let bar = ProgressBar::new(total_accounts_num as _);
+        bar.set_style(ProgressStyle::default_bar().template(
+            "[elapsed {elapsed_precise} remaining {eta_precise}] Writing into storage {bar} {pos:>7}/{len:7}",
+        ));
         // Add records in chunks of 3000 per shard for memory efficiency reasons.
-        for i in 0..self.additional_accounts_num * self.runtime.num_shards() {
+        for i in 0..total_accounts_num {
             let account_id = get_account_id(i);
             self.add_additional_account(account_id)?;
+            bar.inc(1);
         }
 
         for shard_id in 0..self.runtime.num_shards() {
             self.flush_shard_records(shard_id)?;
         }
+        bar.finish();
+        println!("TOTAL_BYTES: {}", self.total_bytes_set);
         self.write_genesis_block()?;
+        Ok(self)
+    }
+
+    pub fn dump_state(self) -> Result<Self> {
+        let mut dump_path = self.home_dir.clone();
+        dump_path.push("state_dump");
+        self.store.save_to_file(COL_STATE, dump_path.as_path())?;
+        {
+            let mut roots_files = self.home_dir.clone();
+            roots_files.push("genesis_roots");
+            let mut file = File::create(roots_files)?;
+            let roots: Vec<_> = self.roots.values().cloned().collect();
+            let data = roots.try_to_vec()?;
+            file.write_all(&data)?;
+        }
         Ok(self)
     }
 
@@ -129,6 +175,7 @@ impl GenesisBuilder {
         }
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update.finalize()?.into(trie)?;
+        self.total_bytes_set += store_update.total_bytes_set;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
@@ -216,6 +263,7 @@ impl GenesisBuilder {
         if let (Some(wasm_binary), Some(wasm_binary_base64)) =
             (self.additional_accounts_code.as_ref(), self.additional_accounts_code_base64.as_ref())
         {
+            let tmp = wasm_binary.len();
             let code = ContractCode::new(wasm_binary.to_vec());
             set_code(&mut state_update, &account_id, &code);
             let contract_record = StateRecord::Contract {
@@ -233,7 +281,6 @@ impl GenesisBuilder {
         self.state_updates.insert(shard_id, state_update);
 
         if needs_flush {
-            println!("Flushed {} records into shard {}", num_records_to_flush, shard_id);
             self.flush_shard_records(shard_id)?;
         }
         Ok(())
