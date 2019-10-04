@@ -65,12 +65,6 @@ impl TrieUpdate {
     }
 
     pub fn commit(&mut self) {
-        let total_commit: usize = self
-            .prospective
-            .iter()
-            .map(|(k, v)| k.len() + v.as_ref().map(|x| x.len()).unwrap_or_default())
-            .sum();
-        println!("TOTAL COMMIT {}", total_commit);
         if self.committed.is_empty() {
             std::mem::swap(&mut self.prospective, &mut self.committed);
         } else {

@@ -48,7 +48,6 @@ pub struct GenesisBuilder {
     additional_accounts_code_hash: CryptoHash,
 
     print_progress: bool,
-    total_bytes_set: usize,
 }
 
 impl GenesisBuilder {
@@ -81,7 +80,6 @@ impl GenesisBuilder {
             additional_accounts_code_base64: None,
             additional_accounts_code_hash: CryptoHash::default(),
             print_progress: false,
-            total_bytes_set: 0,
         }
     }
 
@@ -138,7 +136,6 @@ impl GenesisBuilder {
             self.flush_shard_records(shard_id)?;
         }
         bar.finish();
-        println!("TOTAL_BYTES: {}", self.total_bytes_set);
         self.write_genesis_block()?;
         Ok(self)
     }
@@ -175,7 +172,6 @@ impl GenesisBuilder {
         }
         let trie = state_update.trie.clone();
         let (store_update, root) = state_update.finalize()?.into(trie)?;
-        self.total_bytes_set += store_update.total_bytes_set;
         store_update.commit()?;
 
         self.roots.insert(shard_idx, root.clone());
