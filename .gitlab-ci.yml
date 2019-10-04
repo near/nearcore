@@ -104,6 +104,5 @@ test_nearlib:
    script:
    - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
-
    after_script:
    - *cleanup_obsolete_cache

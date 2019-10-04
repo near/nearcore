@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use borsh::BorshDeserialize;
@@ -28,7 +28,7 @@ use near_primitives::views::{
 };
 use near_store::{
     get_access_key_raw, get_account, set_account, StorageError, Store, StoreUpdate, Trie,
-    TrieUpdate, WrappedTrieChanges,
+    TrieUpdate, WrappedTrieChanges, COL_STATE,
 };
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::ethereum::EthashProvider;
@@ -38,18 +38,22 @@ use node_runtime::{ApplyState, Runtime, StateRecord, ETHASH_CACHE_PATH};
 use crate::config::GenesisConfig;
 use crate::shard_tracker::{account_id_to_shard_id, ShardTracker};
 use near_primitives::errors::InvalidTxErrorOrStorageError;
+use std::fs::File;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+const STATE_DUMP_FILE: &str = "state_dump";
+const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
 /// Defines Nightshade state transition, validator rotation and block weight for fork choice rule.
 /// TODO: this possibly should be merged with the runtime cargo or at least reconciled on the interfaces.
 pub struct NightshadeRuntime {
     genesis_config: GenesisConfig,
+    home_dir: PathBuf,
 
     store: Arc<Store>,
     pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
-    runtime: Runtime,
+    pub runtime: Runtime,
     epoch_manager: Arc<RwLock<EpochManager>>,
     shard_tracker: ShardTracker,
 }
@@ -115,6 +119,7 @@ impl NightshadeRuntime {
         );
         NightshadeRuntime {
             genesis_config,
+            home_dir: home_dir.to_path_buf(),
             store,
             trie,
             runtime,
@@ -177,34 +182,25 @@ impl NightshadeRuntime {
 
         Ok(())
     }
-}
 
-pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId) -> ShardId {
-    match &state_record {
-        StateRecord::Account { account_id, .. }
-        | StateRecord::AccessKey { account_id, .. }
-        | StateRecord::Contract { account_id, .. }
-        | StateRecord::ReceivedData { account_id, .. } => {
-            account_id_to_shard_id(account_id, num_shards)
-        }
-        StateRecord::Data { key, .. } => {
-            let key = from_base64(key).unwrap();
-            let separator = (1..key.len())
-                .find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0])
-                .expect("Invalid data record");
-            account_id_to_shard_id(
-                &String::from_utf8(key[1..separator].to_vec()).expect("Must be account id"),
-                num_shards,
-            )
-        }
-        StateRecord::PostponedReceipt(receipt) => {
-            account_id_to_shard_id(&receipt.receiver_id, num_shards)
-        }
+    fn genesis_state_from_dump(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+        let store_update = self.store.store_update();
+        let mut state_file = self.home_dir.clone();
+        state_file.push(STATE_DUMP_FILE);
+        self.store
+            .load_from_file(COL_STATE, state_file.as_path())
+            .expect("Failed to read state dump");
+        let mut roots_files = self.home_dir.clone();
+        roots_files.push(GENESIS_ROOTS_FILE);
+        let mut file = File::open(roots_files).expect("Failed to open genesis roots file.");
+        let mut data = vec![];
+        file.read_to_end(&mut data).expect("Failed to read genesis roots file.");
+        let state_roots: Vec<MerkleHash> =
+            BorshDeserialize::try_from_slice(&data).expect("Failed to deserialize genesis roots");
+        (store_update, state_roots)
     }
-}
 
-impl RuntimeAdapter for NightshadeRuntime {
-    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+    fn genesis_state_from_records(&self) -> (StoreUpdate, Vec<MerkleHash>) {
         let mut store_update = self.store.store_update();
         let mut state_roots = vec![];
         let num_shards = self.genesis_config.block_producers_per_shard.len() as ShardId;
@@ -247,6 +243,51 @@ impl RuntimeAdapter for NightshadeRuntime {
             state_roots.push(state_root);
         }
         (store_update, state_roots)
+    }
+}
+
+pub fn state_record_to_shard_id(state_record: &StateRecord, num_shards: ShardId) -> ShardId {
+    match &state_record {
+        StateRecord::Account { account_id, .. }
+        | StateRecord::AccessKey { account_id, .. }
+        | StateRecord::Contract { account_id, .. }
+        | StateRecord::ReceivedData { account_id, .. } => {
+            account_id_to_shard_id(account_id, num_shards)
+        }
+        StateRecord::Data { key, .. } => {
+            let key = from_base64(key).unwrap();
+            let separator = (1..key.len())
+                .find(|&x| key[x] == ACCOUNT_DATA_SEPARATOR[0])
+                .expect("Invalid data record");
+            account_id_to_shard_id(
+                &String::from_utf8(key[1..separator].to_vec()).expect("Must be account id"),
+                num_shards,
+            )
+        }
+        StateRecord::PostponedReceipt(receipt) => {
+            account_id_to_shard_id(&receipt.receiver_id, num_shards)
+        }
+    }
+}
+
+impl RuntimeAdapter for NightshadeRuntime {
+    fn genesis_state(&self) -> (StoreUpdate, Vec<MerkleHash>) {
+        let has_records = !self.genesis_config.records.is_empty();
+        let has_dump = {
+            let mut state_dump = self.home_dir.clone();
+            state_dump.push(STATE_DUMP_FILE);
+            state_dump.exists()
+        };
+        if has_dump {
+            if has_records {
+                log::warn!("Found both records in genesis config and the state dump file. Will ignore the records.");
+            }
+            self.genesis_state_from_dump()
+        } else if has_records {
+            self.genesis_state_from_records()
+        } else {
+            panic!("Found neither records in the confign nor the state dump file. Either one should be present")
+        }
     }
 
     fn compute_block_weight(
