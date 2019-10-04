@@ -105,14 +105,16 @@ release_build:
 #    - *code_coverage
 #
 test_nearlib:
-   stage: libs
+   stage: rust 
    tags:
    - gcloud
    before_script:
    - *setup_rust
    - *setup_cache
-   dependencies:
-   - release_build
+   # Install latest Node
+   - npx n latest
    script:
+   - export PATH=$HOME/n/bin:$PATH
    - ./scripts/test_nearlib.sh
-
+   after_script:
+   - *cleanup_obsolete_cache

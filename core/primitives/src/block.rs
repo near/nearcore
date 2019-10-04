@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::prelude::{DateTime, Utc};
+use chrono::{DateTime, Utc};
 
 use near_crypto::{BlsPublicKey, BlsSignature, BlsSigner, EmptyBlsSigner};
 
@@ -66,8 +66,8 @@ impl BlockHeaderInner {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        timestamp: u64,
         chunks_included: u64,
-        time: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sigs: BlsSignature,
         total_weight: Weight,
@@ -88,8 +88,8 @@ impl BlockHeaderInner {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            timestamp,
             chunks_included,
-            timestamp: to_timestamp(time),
             approval_mask,
             approval_sigs,
             total_weight,
@@ -131,8 +131,8 @@ impl BlockHeader {
         chunk_receipts_root: MerkleHash,
         chunk_headers_root: MerkleHash,
         chunk_tx_root: MerkleHash,
+        timestamp: u64,
         chunks_included: u64,
-        timestamp: DateTime<Utc>,
         approval_mask: Vec<bool>,
         approval_sig: BlsSignature,
         total_weight: Weight,
@@ -155,8 +155,8 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
-            chunks_included,
             timestamp,
+            chunks_included,
             approval_mask,
             approval_sig,
             total_weight,
@@ -192,8 +192,8 @@ impl BlockHeader {
             chunk_receipts_root,
             chunk_headers_root,
             chunk_tx_root,
+            to_timestamp(timestamp),
             chunks_included,
-            timestamp,
             vec![],
             BlsSignature::empty(),
             0.into(),
@@ -333,6 +333,8 @@ impl Block {
         let num_approvals: u128 =
             approval_mask.iter().map(|x| if *x { 1u128 } else { 0u128 }).sum();
         let total_weight = prev.inner.total_weight.next(num_approvals);
+        let now = to_timestamp(Utc::now());
+        let time = if now <= prev.inner.timestamp { prev.inner.timestamp + 1 } else { now };
         Block {
             header: BlockHeader::new(
                 height,
@@ -341,8 +343,8 @@ impl Block {
                 Block::compute_chunk_receipts_root(&chunks),
                 Block::compute_chunk_headers_root(&chunks).0,
                 Block::compute_chunk_tx_root(&chunks),
+                time,
                 Block::compute_chunks_included(&chunks, height),
-                Utc::now(),
                 approval_mask,
                 approval_sig,
                 total_weight,

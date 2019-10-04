@@ -4,25 +4,27 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::System;
+use borsh::BorshSerialize;
 use futures::{future, Future};
 
-use near_chain::{Block, BlockApproval, ChainGenesis};
+use near_chain::{Block, BlockApproval, BlockHeader, ChainGenesis, Provenance};
 use near_chunks::{ChunkStatus, ShardsManager};
 use near_client::test_utils::{setup_mock, TestEnv};
 use near_client::GetBlock;
-use near_crypto::{InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
+use near_crypto::{BlsSigner, InMemoryBlsSigner, InMemorySigner, KeyType, Signature, Signer};
 use near_network::test_utils::wait_or_panic;
-use near_network::types::{FullPeerInfo, NetworkInfo, PeerChainInfo};
+use near_network::types::{NetworkInfo, PeerChainInfo};
 use near_network::{
-    NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses, PeerInfo,
+    FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkRequests, NetworkResponses,
+    PeerInfo,
 };
-use near_primitives::block::BlockHeader;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::sharding::EncodedShardChunk;
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::transaction::{SignedTransaction, Transaction};
 use near_primitives::types::{EpochId, MerkleHash};
+use near_primitives::utils::to_timestamp;
 
 /// Runs block producing client and stops after network mock received two blocks.
 #[test]
@@ -262,17 +264,14 @@ fn invalid_blocks() {
             "other",
             false,
             Box::new(move |msg, _ctx, _client_actor| {
-                match msg {
-                    NetworkRequests::BlockHeaderAnnounce { header, approval } => {
-                        assert_eq!(header.inner.height, 1);
-                        assert_eq!(
-                            header.inner.prev_state_root,
-                            merklize(&vec![MerkleHash::default()]).0
-                        );
-                        assert_eq!(*approval, None);
-                        System::current().stop();
-                    }
-                    _ => {}
+                if let NetworkRequests::BlockHeaderAnnounce { header, approval } = msg {
+                    assert_eq!(header.inner.height, 1);
+                    assert_eq!(
+                        header.inner.prev_state_root,
+                        merklize(&vec![MerkleHash::default()]).0
+                    );
+                    assert_eq!(*approval, None);
+                    System::current().stop();
                 };
                 NetworkResponses::NoResponse
             }),
@@ -455,4 +454,22 @@ fn test_process_invalid_tx() {
         env.clients[0].process_tx(tx2),
         NetworkClientResponses::InvalidTx("Transaction is from a different fork".to_string())
     );
+}
+
+/// If someone produce a block with Utc::now() + 1 min, we should produce a block with valid timestamp
+#[test]
+fn test_time_attack() {
+    init_test_logger();
+    let mut env = TestEnv::new(ChainGenesis::test(), 1, 1);
+    let signer = InMemoryBlsSigner::from_seed("test0", "test0");
+    let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
+    let mut b1 = Block::empty_with_height(genesis, 1, &signer);
+    b1.header.inner.timestamp = to_timestamp(b1.header.timestamp() + chrono::Duration::seconds(60));
+    let hash = hash(&b1.header.inner.try_to_vec().expect("Failed to serialize"));
+    b1.header.hash = hash;
+    b1.header.signature = signer.sign(hash.as_ref());
+    env.clients[0].process_block(b1, Provenance::NONE);
+
+    let b2 = env.clients[0].produce_block(2, Duration::from_secs(1)).unwrap().unwrap();
+    assert!(env.clients[0].process_block(b2, Provenance::PRODUCED).1.is_ok());
 }
