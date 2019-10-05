@@ -29,6 +29,7 @@ members = [
     "test-utils/loadtester",
     "test-utils/state-viewer",
     "near/",
+    "genesis-tools/genesis-populate",
 ]
 
 [dev-dependencies]
