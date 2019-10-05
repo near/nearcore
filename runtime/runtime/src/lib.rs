@@ -992,7 +992,7 @@ impl Runtime {
             let mut account: Account = get_account(&state_update, account_id)
                 .expect("Genesis storage error")
                 .expect("account must exist");
-            account.staked = *amount;
+            account.locked = *amount;
             set_account(&mut state_update, account_id, &account);
         }
         let trie = state_update.trie.clone();

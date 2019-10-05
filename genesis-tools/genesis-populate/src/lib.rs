@@ -236,7 +236,8 @@ impl GenesisBuilder {
         let signer = InMemorySigner::from_seed(&account_id, KeyType::ED25519, &account_id);
         let account = AccountView {
             amount: TESTING_INIT_BALANCE,
-            staked: TESTING_INIT_STAKE,
+            locked: TESTING_INIT_STAKE,
+            desired_stake: TESTING_INIT_STAKE,
             code_hash: self.additional_accounts_code_hash.clone().into(),
             storage_usage: 0,
             storage_paid_at: 0,

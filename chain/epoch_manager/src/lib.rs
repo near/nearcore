@@ -487,7 +487,10 @@ impl EpochManager {
     pub fn compute_stake_return_info(
         &mut self,
         last_block_hash: &CryptoHash,
-    ) -> Result<(HashMap<AccountId, Balance>, HashMap<AccountId, Balance>), EpochError> {
+    ) -> Result<
+        (HashMap<AccountId, Balance>, HashMap<AccountId, Balance>, HashSet<AccountId>),
+        EpochError,
+    > {
         let next_next_epoch_id = EpochId(*last_block_hash);
         let validator_reward = self.get_epoch_info(&next_next_epoch_id)?.validator_reward.clone();
 
@@ -502,6 +505,18 @@ impl EpochManager {
         let prev_prev_stake_change = self.get_epoch_info(&epoch_id)?.stake_change.clone();
         let prev_stake_change = self.get_epoch_info(&next_epoch_id)?.stake_change.clone();
         let stake_change = &self.get_epoch_info(&next_next_epoch_id)?.stake_change;
+        let kickout: HashSet<_> = stake_change
+            .iter()
+            .filter_map(
+                |(account_id, stake)| {
+                    if *stake == 0 {
+                        Some(account_id.clone())
+                    } else {
+                        None
+                    }
+                },
+            )
+            .collect();
         debug!(target: "epoch_manager",
             "prev_prev_stake_change: {:?}, prev_stake_change: {:?}, stake_change: {:?}",
             prev_prev_stake_change, prev_stake_change, stake_change
@@ -522,7 +537,7 @@ impl EpochManager {
             stake_info.insert(account_id.to_string(), max_of_stakes);
         }
         debug!(target: "epoch_manager", "stake_info: {:?}, validator_reward: {:?}", stake_info, validator_reward);
-        Ok((stake_info, validator_reward))
+        Ok((stake_info, validator_reward, kickout))
     }
 
     /// Get validators for current epoch and next epoch.
