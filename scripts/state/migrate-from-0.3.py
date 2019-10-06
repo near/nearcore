@@ -11,6 +11,7 @@ filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../near
 q = json.loads(open(filename).read())
 new_records = []
 
+# TODO: uncomment when we migrate from 0.3 to 0.4
 #q['records'] = q['records'][0]
 
 for value in q['records']:

@@ -168,7 +168,7 @@ impl NightshadeRuntime {
                     );
                     assert!(
                         account.locked >= account.desired_stake,
-                        "FATAL: staking invariant does not hold. Account locked {} is less desired stake {}",
+                        "FATAL: staking invariant does not hold. Account locked {} is less than desired stake {}",
                         account.locked,
                         account.desired_stake
                     );
