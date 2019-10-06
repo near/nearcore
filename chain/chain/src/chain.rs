@@ -1625,7 +1625,7 @@ impl<'a> ChainUpdate<'a> {
 
                     let any_transaction_is_invalid = chunk.transactions.iter().any(|t| {
                         !self.chain_store_update.get_chain_store().check_blocks_on_same_chain(
-                            &prev_block.header,
+                            &block.header,
                             &t.transaction.block_hash,
                             self.transaction_validity_period,
                         )
