@@ -71,6 +71,39 @@ impl HeaderList {
     pub fn len(&self) -> usize {
         self.queue.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn contains(&self, hash: &CryptoHash) -> bool {
+        self.headers.contains_key(hash)
+    }
+
+    /// Update the cache. `hash` must exists in the current cache. Remove everything before `hash`
+    /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
+    /// from higher height to lower height.
+    fn update(&mut self, hash: &CryptoHash, new_list: Vec<BlockHeader>) {
+        assert!(self.headers.contains_key(hash));
+        loop {
+            let front = if let Some(elem) = self.queue.front() {
+                elem.clone()
+            } else {
+                break;
+            };
+            if &front == hash {
+                break;
+            } else {
+                self.queue.pop_front();
+                self.headers.remove(&front);
+            }
+        }
+        for header in new_list.into_iter().rev() {
+            let block_hash = header.hash;
+            self.queue.push_front(block_hash);
+            self.headers.insert(block_hash, header);
+        }
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -261,52 +294,42 @@ impl ChainStore {
         base_block_hash: &CryptoHash,
         max_difference_in_height: u64,
     ) -> bool {
-        let cur_block_header = cur_header.clone();
-        let mut found_base_block_hash = false;
-        for _ in 0..max_difference_in_height {
-            let front = if let Some(elem) = self.header_history.queue.front() {
-                elem.clone()
-            } else {
-                break;
-            };
-            if front == cur_block_header.hash {
-                found_base_block_hash = true;
-                break;
-            } else {
-                self.header_history.queue.pop_front();
-                self.header_history.headers.remove(&front);
+        // first step: update cache head
+        let mut cur_block_hash = cur_header.inner.prev_hash;
+
+        if self.header_history.contains(&cur_header.hash) {
+            self.header_history.update(&cur_header.hash, vec![]);
+        } else {
+            let mut header_list = vec![cur_header.clone()];
+            while !self.header_history.is_empty() {
+                let cur_block_header = if let Ok(header) = self.get_block_header(&cur_block_hash) {
+                    header.clone()
+                } else {
+                    return false;
+                };
+                if self.header_history.contains(&cur_block_header.hash) {
+                    self.header_history.update(&cur_block_header.hash, header_list);
+                    break;
+                }
+                cur_block_hash = cur_block_header.inner.prev_hash;
+                header_list.push(cur_block_header);
             }
         }
-        if found_base_block_hash && self.header_history.headers.contains_key(base_block_hash) {
-            return true;
-        }
-        if !found_base_block_hash {
-            self.header_history.headers.insert(cur_block_header.hash, cur_block_header.clone());
-            self.header_history.queue.push_front(cur_block_header.hash);
-            if &cur_block_header.hash == base_block_hash {
+
+        // second step: check if `base_block_hash` exists
+        let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
+        for _ in 0..num_to_fetch {
+            if self.header_history.contains(base_block_hash) {
                 return true;
             }
-        }
-        let cur_len = self.header_history.len();
-        if max_difference_in_height <= cur_len as u64 {
-            return false;
-        }
-        let num_headers_to_fetch = max_difference_in_height - cur_len as u64;
-        // queue cannot be empty at this point
-        let back = self.header_history.queue.back().unwrap();
-        let mut cur_fetch_header = self.header_history.headers.get(back).unwrap().clone();
-        for _ in 0..num_headers_to_fetch {
-            let header = if let Ok(h) = self.get_block_header(&cur_fetch_header.inner.prev_hash) {
-                h.clone()
+            let cur_block_header = if let Ok(header) = self.get_block_header(&cur_block_hash) {
+                header.clone()
             } else {
                 return false;
             };
-            let is_base_hash = &header.hash == base_block_hash;
-            self.header_history.headers.insert(header.hash, header.clone());
-            if is_base_hash {
-                return true;
-            }
-            cur_fetch_header = header;
+            cur_block_hash = cur_block_header.inner.prev_hash;
+            self.header_history.queue.push_back(cur_block_header.hash);
+            self.header_history.headers.insert(cur_block_header.hash, cur_block_header);
         }
         false
     }
