@@ -250,10 +250,6 @@ impl EpochManager {
             total_gas_used,
             total_storage_rent,
         } = self.collect_blocks_info(&block_info.epoch_id, last_block_hash)?;
-        println!(
-            "validator kickout {:?}, validator online ratio {:?}",
-            validator_kickout, validator_online_ratio
-        );
         let next_epoch_id = self.get_next_epoch_id(last_block_hash)?;
         let next_epoch_info = self.get_epoch_info(&next_epoch_id)?.clone();
         let (validator_reward, inflation) = self.reward_calculator.calculate_reward(

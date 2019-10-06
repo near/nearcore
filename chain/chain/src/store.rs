@@ -80,6 +80,11 @@ impl HeaderList {
         self.headers.contains_key(hash)
     }
 
+    pub fn push_back(&mut self, block_header: BlockHeader) {
+        self.queue.push_back(block_header.hash);
+        self.headers.insert(block_header.hash, block_header);
+    }
+
     /// Update the cache. `hash` must exists in the current cache. Remove everything before `hash`
     /// and replace them with `new_list`. `new_list` must contain contiguous block headers, ordered
     /// from higher height to lower height.
@@ -295,6 +300,9 @@ impl ChainStore {
         max_difference_in_height: u64,
     ) -> bool {
         // first step: update cache head
+        if self.header_history.is_empty() {
+            self.header_history.push_back(cur_header.clone());
+        }
         let mut cur_block_hash = cur_header.inner.prev_hash;
 
         if self.header_history.contains(&cur_header.hash) {
