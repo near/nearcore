@@ -317,11 +317,11 @@ impl ChainStore {
         }
 
         // second step: check if `base_block_hash` exists
+        if self.header_history.contains(base_block_hash) {
+            return true;
+        }
         let num_to_fetch = max_difference_in_height - self.header_history.len() as u64;
         for _ in 0..num_to_fetch {
-            if self.header_history.contains(base_block_hash) {
-                return true;
-            }
             let cur_block_header = if let Ok(header) = self.get_block_header(&cur_block_hash) {
                 header.clone()
             } else {
@@ -330,6 +330,9 @@ impl ChainStore {
             cur_block_hash = cur_block_header.inner.prev_hash;
             self.header_history.queue.push_back(cur_block_header.hash);
             self.header_history.headers.insert(cur_block_header.hash, cur_block_header);
+            if &cur_block_hash == base_block_hash {
+                return true;
+            }
         }
         false
     }
