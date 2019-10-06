@@ -85,7 +85,9 @@ pub struct AccountView {
     #[serde(with = "u128_dec_format")]
     pub amount: Balance,
     #[serde(with = "u128_dec_format")]
-    pub staked: Balance,
+    pub locked: Balance,
+    #[serde(with = "u128_dec_format")]
+    pub desired_stake: Balance,
     pub code_hash: CryptoHashView,
     pub storage_usage: StorageUsage,
     pub storage_paid_at: BlockIndex,
@@ -95,7 +97,8 @@ impl From<Account> for AccountView {
     fn from(account: Account) -> Self {
         AccountView {
             amount: account.amount,
-            staked: account.staked,
+            locked: account.locked,
+            desired_stake: account.desired_stake,
             code_hash: account.code_hash.into(),
             storage_usage: account.storage_usage,
             storage_paid_at: account.storage_paid_at,
@@ -107,7 +110,8 @@ impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         Self {
             amount: view.amount,
-            staked: view.staked,
+            locked: view.locked,
+            desired_stake: view.desired_stake,
             code_hash: view.code_hash.into(),
             storage_usage: view.storage_usage,
             storage_paid_at: view.storage_paid_at,
