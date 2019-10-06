@@ -225,6 +225,7 @@ impl ShardsManager {
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
     ) -> Result<(), Error> {
+        debug!(target: "chunks", "Request chunk one part {} {} {:?}", height, shard_id, chunk_hash);
         let tracking_shards = self.get_tracking_shards(&parent_hash);
         let epoch_id = self.runtime_adapter.get_epoch_id_from_prev_block(&parent_hash)?;
         let mut requested_one_part = false;
@@ -278,6 +279,7 @@ impl ShardsManager {
         shard_id: ShardId,
         chunk_hash: &ChunkHash,
     ) -> Result<(), Error> {
+        debug!(target: "chunks", "Request chunk parts {} {} {:?}", height, shard_id, chunk_hash);
         let encoded_chunk = self
             .encoded_chunks
             .get(chunk_hash)

@@ -26,6 +26,7 @@ use near_telemetry::TelemetryActor;
 
 use crate::{BlockProducer, Client, ClientActor, ClientConfig, ViewClientActor};
 use near_network::routing::EdgeInfo;
+use rand::{thread_rng, Rng};
 
 pub type NetworkMock = Mocker<PeerManagerActor>;
 
@@ -146,6 +147,10 @@ pub fn setup_mock_with_validity_period(
     (client_addr, view_client_addr.clone().read().unwrap().clone().unwrap())
 }
 
+fn sample_binary(n: u64, k: u64) -> bool {
+    thread_rng().gen_range(0, k) <= n
+}
+
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock_all_validators(
     validators: Vec<Vec<&'static str>>,
@@ -153,6 +158,7 @@ pub fn setup_mock_all_validators(
     validator_groups: u64,
     skip_sync_wait: bool,
     block_prod_time: u64,
+    drop_chunks: bool,
     network_mock: Arc<RwLock<dyn FnMut(String, &NetworkRequests) -> (NetworkResponses, bool)>>,
 ) -> (Block, Vec<(Addr<ClientActor>, Addr<ViewClientActor>)>) {
     let validators_clone = validators.clone();
@@ -250,12 +256,14 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkPartRequest { account_id, part_request } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkPartRequest(
-                                            part_request.clone(),
-                                            my_key_pair.id.clone(),
-                                        ),
-                                    );
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::ChunkPartRequest(
+                                                part_request.clone(),
+                                                my_key_pair.id.clone(),
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -265,43 +273,51 @@ pub fn setup_mock_all_validators(
                         } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == their_account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkOnePartRequest(
-                                            one_part_request.clone(),
-                                            my_key_pair.id.clone(),
-                                        ),
-                                    );
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::ChunkOnePartRequest(
+                                                one_part_request.clone(),
+                                                my_key_pair.id.clone(),
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         }
                         NetworkRequests::ChunkOnePartMessage { account_id, header_and_part } => {
                             for (i, name) in validators_clone2.iter().flatten().enumerate() {
                                 if name == account_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkOnePart(
-                                            header_and_part.clone(),
-                                        ),
-                                    );
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::ChunkOnePart(
+                                                header_and_part.clone(),
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         }
                         NetworkRequests::ChunkOnePartResponse { peer_id, header_and_part } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 if peer_info.id == *peer_id {
-                                    connectors1.write().unwrap()[i].0.do_send(
-                                        NetworkClientMessages::ChunkOnePart(
-                                            header_and_part.clone(),
-                                        ),
-                                    );
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::ChunkOnePart(
+                                                header_and_part.clone(),
+                                            ),
+                                        );
+                                    }
                                 }
                             }
                         }
                         NetworkRequests::ChunkPart { peer_id, part } => {
                             for (i, peer_info) in key_pairs.iter().enumerate() {
                                 if peer_info.id == *peer_id {
-                                    connectors1.write().unwrap()[i]
-                                        .0
-                                        .do_send(NetworkClientMessages::ChunkPart(part.clone()));
+                                    if !drop_chunks || !sample_binary(1, 10) {
+                                        connectors1.write().unwrap()[i].0.do_send(
+                                            NetworkClientMessages::ChunkPart(part.clone()),
+                                        );
+                                    }
                                 }
                             }
                         }
